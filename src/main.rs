@@ -5,6 +5,7 @@ use ruff_db::parsed::parsed_module;
 use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::Stmt;
 use ruff_python_ast::name::Name;
+use ruff_python_formatter::{PyFormatOptions, format_module_source};
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, run_shell};
 use rustpython::vm::Settings;
 use std::collections::HashSet;
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use ty_module_resolver::{ModuleName, resolve_module};
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
+use walkdir::WalkDir;
 
 mod checker;
 mod lints;
@@ -27,8 +29,10 @@ enum CheckError {
     AnnotationErrors(ProjectDatabase, Vec<Diagnostic>),
     /// Type checking errors found
     TypeErrors(ProjectDatabase, Vec<Diagnostic>),
-    /// Failed to read the script file
-    ScriptRead(std::io::Error),
+    /// Failed to read a file
+    FileRead(std::io::Error),
+    /// Failed to write a file
+    FileWrite(std::io::Error),
     /// Script execution failed
     ScriptExecution,
 }
@@ -53,6 +57,11 @@ enum Commands {
         /// Python script to run
         file: PathBuf,
     },
+    /// Format Python files
+    Format {
+        /// Files or directories to format (directories are searched recursively)
+        paths: Vec<PathBuf>,
+    },
     /// Run doctests from the specified Python files
     Check {
         /// Python files to run doctests from
@@ -67,8 +76,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let result = match cli.command.unwrap_or(Commands::Repl { file: None }) {
-        Commands::Run { file } => run_checked(&file),
         Commands::Repl { file } => start_repl(file.as_deref()),
+        Commands::Run { file } => run_checked(&file),
+        Commands::Format { paths } => run_format(&paths),
         Commands::Check { files, verbose } => run_check(&files, verbose),
     };
 
@@ -93,8 +103,11 @@ fn display_error(error: CheckError) {
         CheckError::TypeErrors(db, diagnostics) => {
             display_diagnostics(&db, &diagnostics, "diagnostic");
         }
-        CheckError::ScriptRead(e) => {
-            eprintln!("spython: cannot read script: {e}");
+        CheckError::FileRead(e) => {
+            eprintln!("spython: cannot read file: {e}");
+        }
+        CheckError::FileWrite(e) => {
+            eprintln!("spython: cannot write file: {e}");
         }
         CheckError::ScriptExecution => {
             // Error already displayed by RustPython
@@ -122,7 +135,7 @@ fn start_repl(file: Option<&Path>) -> Result<(), CheckError> {
 
     let preload: Option<(String, String, String)> = file
         .map(|path| -> Result<_, CheckError> {
-            let source = std::fs::read_to_string(path).map_err(CheckError::ScriptRead)?;
+            let source = std::fs::read_to_string(path).map_err(CheckError::FileRead)?;
             let file_str = path.to_string_lossy().into_owned();
             let parent_dir = path
                 .parent()
@@ -206,7 +219,7 @@ fn type_check_file(file: &Path) -> Result<(), CheckError> {
 fn run_checked(file: &Path) -> Result<(), CheckError> {
     type_check_file(file)?;
 
-    let source = std::fs::read_to_string(file).map_err(CheckError::ScriptRead)?;
+    let source = std::fs::read_to_string(file).map_err(CheckError::FileRead)?;
     let file_str = file.to_string_lossy().into_owned();
     let parent_dir = file
         .parent()
@@ -226,6 +239,32 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
     } else {
         Err(CheckError::ScriptExecution)
     }
+}
+
+/// Format Python files in the given paths, recursing into directories.
+fn run_format(paths: &[PathBuf]) -> Result<(), CheckError> {
+    for path in paths {
+        for entry in WalkDir::new(path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "py"))
+        {
+            let file_path = entry.path();
+            let source = std::fs::read_to_string(file_path).map_err(CheckError::FileRead)?;
+            let options = PyFormatOptions::default();
+            let formatted = match format_module_source(&source, options) {
+                Ok(printed) => printed.into_code(),
+                Err(e) => {
+                    eprintln!("spython: cannot format '{}': {e}", file_path.display());
+                    continue;
+                }
+            };
+            if formatted != source {
+                std::fs::write(file_path, formatted).map_err(CheckError::FileWrite)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Run doctests for the given files, ignoring paths that are not files.
