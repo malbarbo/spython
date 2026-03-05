@@ -26,6 +26,7 @@ fn run_spython(path: &Path) -> (String, String) {
     let filename = path.file_name().expect("path has filename");
     let output = Command::new(cargo::cargo_bin!("spython"))
         .current_dir(dir)
+        .arg("run")
         .arg(filename)
         .output()
         .expect("failed to run spython");
@@ -110,7 +111,7 @@ fn check_verbose() {
 #[test]
 fn missing_file() {
     let output = Command::new(cargo::cargo_bin!("spython"))
-        .arg("nonexistent.py")
+        .args(["run", "nonexistent.py"])
         .output()
         .expect("failed to run spython");
     assert!(!output.status.success());
