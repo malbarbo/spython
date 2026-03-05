@@ -37,14 +37,22 @@ enum CheckError {
 #[derive(Parser)]
 #[clap(name = "spython", version)]
 struct Cli {
-    /// Python script to run (or REPL if omitted)
-    file: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
 #[derive(clap::Subcommand)]
 enum Commands {
+    /// Start an interactive Python REPL (default)
+    Repl {
+        /// Optional Python file to execute before the REPL starts
+        file: Option<PathBuf>,
+    },
+    /// Run a Python script
+    Run {
+        /// Python script to run
+        file: PathBuf,
+    },
     /// Run doctests from the specified Python files
     Check {
         /// Python files to run doctests from
@@ -58,12 +66,10 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let result = match cli.command {
-        Some(Commands::Check { files, verbose }) => run_check(&files, verbose),
-        None => match cli.file {
-            Some(ref path) => run_checked(path),
-            None => start_repl(),
-        },
+    let result = match cli.command.unwrap_or(Commands::Repl { file: None }) {
+        Commands::Run { file } => run_checked(&file),
+        Commands::Repl { file } => start_repl(file.as_deref()),
+        Commands::Check { files, verbose } => run_check(&files, verbose),
     };
 
     match result {
@@ -105,13 +111,37 @@ fn new_interpreter() -> rustpython::vm::Interpreter {
         .interpreter()
 }
 
-/// Start a Python REPL without type checking.
-fn start_repl() -> Result<(), CheckError> {
+/// Start an interactive Python REPL.
+///
+/// If `file` is given, it is type-checked and executed first so its
+/// definitions are available in the REPL (like `python -i file.py`).
+fn start_repl(file: Option<&Path>) -> Result<(), CheckError> {
+    if let Some(path) = file {
+        type_check_file(path)?;
+    }
+
+    let preload: Option<(String, String, String)> = file
+        .map(|path| -> Result<_, CheckError> {
+            let source = std::fs::read_to_string(path).map_err(CheckError::ScriptRead)?;
+            let file_str = path.to_string_lossy().into_owned();
+            let parent_dir = path
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or(".")
+                .to_owned();
+            Ok((source, file_str, parent_dir))
+        })
+        .transpose()?;
+
     let interp = new_interpreter();
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
         vm.sys_module.set_attr("ps1", vm.ctx.new_str("> "), vm)?;
         vm.sys_module.set_attr("ps2", vm.ctx.new_str("  "), vm)?;
+        if let Some((source, file_str, parent_dir)) = &preload {
+            vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
+            vm.run_string(scope.clone(), source, file_str.clone()).map(drop)?;
+        }
         run_shell(vm, scope)
     });
     if code == 0 {
@@ -121,16 +151,9 @@ fn start_repl() -> Result<(), CheckError> {
     }
 }
 
-/// Run a Python script with type checking enabled.
-///
-/// This function:
-/// 1. Builds a ty database rooted at the current directory
-/// 2. Uses ty's module resolver to collect the transitive import closure
-/// 3. Runs annotation checker first
-/// 4. If annotations are OK, runs ty's type checker
-/// 5. If no errors are found, executes the script with RustPython
-fn run_checked(file: &Path) -> Result<(), CheckError> {
-    // Validate the script path before building the database.
+/// Type-check a Python file: validates the path, builds the ty database,
+/// runs the annotation checker, then runs ty's type checker.
+fn type_check_file(file: &Path) -> Result<(), CheckError> {
     let abs_file = std::fs::canonicalize(file).map_err(|e| {
         CheckError::FileResolution(format!(
             "cannot resolve '{}' to an absolute path: {e}",
@@ -144,7 +167,6 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
         )));
     }
 
-    // ── Build the database and set included paths ──────────────────────
     let cwd = std::env::current_dir().map_err(|e| CheckError::DatabaseBuild(e.to_string()))?;
     let mut db = build_db(&cwd)?;
 
@@ -157,7 +179,6 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
     let main_file = system_path_to_file(&db, &abs_sys)
         .map_err(|e| CheckError::FileResolution(e.to_string()))?;
 
-    // Collect all transitively imported first-party files using ty's resolver.
     let mut local_files: HashSet<File> = HashSet::new();
     local_files.insert(main_file);
     collect_local_imports(&db, main_file, &mut local_files);
@@ -168,21 +189,24 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
         .collect();
     db.project().set_included_paths(&mut db, sys_files);
 
-    // ── Check annotations first (spython's custom lints) ───────────────
     let annotation_diagnostics = annotation_check(&db);
     if !annotation_diagnostics.is_empty() {
         return Err(CheckError::AnnotationErrors(db, annotation_diagnostics));
     }
 
-    // ── Type check using ty (only if annotations are complete) ─────────
     let type_diagnostics = db.check();
     if !type_diagnostics.is_empty() {
         return Err(CheckError::TypeErrors(db, type_diagnostics));
     }
 
-    // ── Run the script ─────────────────────────────────────────────────
-    let source = std::fs::read_to_string(file).map_err(CheckError::ScriptRead)?;
+    Ok(())
+}
 
+/// Run a Python script with type checking enabled.
+fn run_checked(file: &Path) -> Result<(), CheckError> {
+    type_check_file(file)?;
+
+    let source = std::fs::read_to_string(file).map_err(CheckError::ScriptRead)?;
     let file_str = file.to_string_lossy().into_owned();
     let parent_dir = file
         .parent()
@@ -193,7 +217,6 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
     let interp = new_interpreter();
     let code = interp.run(move |vm| {
         let scope = vm.new_scope_with_main()?;
-        // Make imports relative to the script's directory work.
         vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
         vm.run_string(scope, &source, file_str).map(drop)
     });
@@ -213,6 +236,10 @@ fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), CheckError> {
 
     if valid_files.is_empty() {
         return Ok(());
+    }
+
+    for file in &valid_files {
+        type_check_file(file)?;
     }
 
     let py_verbose = if verbose { "True" } else { "False" };
