@@ -1,0 +1,32 @@
+[package]
+name = "spython"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.60", features = ["derive"] }
+rustpython = { path = "crates/RustPython" }
+ty_project = { path = "crates/ruff/crates/ty_project" }
+ty_python_semantic = { path = "crates/ruff/crates/ty_python_semantic" }
+ty_module_resolver = { path = "crates/ruff/crates/ty_module_resolver" }
+ruff_db = { path = "crates/ruff/crates/ruff_db", features = ["os"] }
+ruff_python_parser = { path = "crates/ruff/crates/ruff_python_parser" }
+ruff_python_ast = { path = "crates/ruff/crates/ruff_python_ast" }
+ruff_text_size = { path = "crates/ruff/crates/ruff_text_size" }
+ruff_macros = { path = "crates/ruff/crates/ruff_macros" }
+
+[dev-dependencies]
+assert_cmd = "2.0.16"
+insta = { version = "1.41.1", features = ["glob"] }
+
+[profile.release]
+opt-level = 2
+lto = true
+codegen-units = 1
+
+[profile.release-small]
+inherits = "release"
+opt-level = 's'
+lto = true
+codegen-units = 1
+panic = "abort"
