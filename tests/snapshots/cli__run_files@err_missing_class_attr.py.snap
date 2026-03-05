@@ -1,0 +1,28 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_missing_class_attr.py
+---
+STDOUT
+STDERR
+error[missing-attribute-annotation]: Class attribute `x` is missing a type annotation
+ --> err_missing_class_attr.py:2:5
+  |
+1 | class Point:
+2 |     x = 0
+  |     ^
+3 |     y = 0
+  |
+info: rule `missing-attribute-annotation` is enabled by default
+
+error[missing-attribute-annotation]: Class attribute `y` is missing a type annotation
+ --> err_missing_class_attr.py:3:5
+  |
+1 | class Point:
+2 |     x = 0
+3 |     y = 0
+  |     ^
+  |
+info: rule `missing-attribute-annotation` is enabled by default
+
+Found 2 annotation errors

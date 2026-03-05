@@ -1,0 +1,18 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_type.py
+---
+STDOUT
+STDERR
+error[invalid-return-type]: Return type does not match returned value
+ --> err_type.py:1:28
+  |
+1 | def add(x: int, y: int) -> int:
+  |                            --- Expected `int` because of return type
+2 |     return "not an int"
+  |            ^^^^^^^^^^^^ expected `int`, found `Literal["not an int"]`
+  |
+info: rule `invalid-return-type` is enabled by default
+
+Found 1 diagnostic

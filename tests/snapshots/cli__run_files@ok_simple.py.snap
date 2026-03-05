@@ -1,0 +1,8 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/ok_simple.py
+---
+STDOUT
+3
+STDERR

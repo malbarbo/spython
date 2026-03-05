@@ -1,0 +1,17 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_missing_args_annotation.py
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `*args` is missing a type annotation
+ --> err_missing_args_annotation.py:1:7
+  |
+1 | def f(*args) -> None:
+  |       ^^^^^
+2 |     print(args)
+  |
+info: rule `missing-parameter-annotation` is enabled by default
+
+Found 1 annotation error

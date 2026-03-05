@@ -1,0 +1,17 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_missing_param_annotation.py
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
+ --> err_missing_param_annotation.py:1:9
+  |
+1 | def add(x, y: int) -> int:
+  |         ^
+2 |     return x + y
+  |
+info: rule `missing-parameter-annotation` is enabled by default
+
+Found 1 annotation error

@@ -1,0 +1,89 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_multiple_annotations.py
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
+ --> err_multiple_annotations.py:4:9
+  |
+4 | def add(x, y):  # Missing parameter and return annotations
+  |         ^
+5 |     return x + y
+  |
+info: rule `missing-parameter-annotation` is enabled by default
+
+error[missing-parameter-annotation]: Parameter `y` is missing a type annotation
+ --> err_multiple_annotations.py:4:12
+  |
+4 | def add(x, y):  # Missing parameter and return annotations
+  |            ^
+5 |     return x + y
+  |
+info: rule `missing-parameter-annotation` is enabled by default
+
+error[missing-return-annotation]: Function `add` is missing a return type annotation
+ --> err_multiple_annotations.py:4:5
+  |
+4 | def add(x, y):  # Missing parameter and return annotations
+  |     ^^^
+5 |     return x + y
+  |
+info: rule `missing-return-annotation` is enabled by default
+
+error[missing-return-annotation]: Function `greet` is missing a return type annotation
+ --> err_multiple_annotations.py:8:5
+  |
+8 | def greet(name: str):  # Missing return annotation
+  |     ^^^^^
+9 |     print(f"Hello, {name}!")
+  |
+info: rule `missing-return-annotation` is enabled by default
+
+error[missing-attribute-annotation]: Class attribute `x` is missing a type annotation
+  --> err_multiple_annotations.py:13:5
+   |
+12 | class Point:
+13 |     x = 0  # Missing annotation
+   |     ^
+14 |     y = 0  # Missing annotation
+   |
+info: rule `missing-attribute-annotation` is enabled by default
+
+error[missing-attribute-annotation]: Class attribute `y` is missing a type annotation
+  --> err_multiple_annotations.py:14:5
+   |
+12 | class Point:
+13 |     x = 0  # Missing annotation
+14 |     y = 0  # Missing annotation
+   |     ^
+15 |
+16 |     def __init__(self, x: int, y: int):  # Missing return annotation
+   |
+info: rule `missing-attribute-annotation` is enabled by default
+
+error[missing-return-annotation]: Function `__init__` is missing a return type annotation
+  --> err_multiple_annotations.py:16:9
+   |
+14 |     y = 0  # Missing annotation
+15 |
+16 |     def __init__(self, x: int, y: int):  # Missing return annotation
+   |         ^^^^^^^^
+17 |         self.x = x
+18 |         self.y = y
+   |
+info: rule `missing-return-annotation` is enabled by default
+
+error[missing-return-annotation]: Function `distance` is missing a return type annotation
+  --> err_multiple_annotations.py:20:9
+   |
+18 |         self.y = y
+19 |
+20 |     def distance(self):  # Missing self is OK, but missing return annotation
+   |         ^^^^^^^^
+21 |         return (self.x**2 + self.y**2) ** 0.5
+   |
+info: rule `missing-return-annotation` is enabled by default
+
+Found 8 annotation errors

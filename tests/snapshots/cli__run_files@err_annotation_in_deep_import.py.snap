@@ -1,0 +1,38 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_annotation_in_deep_import.py
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
+  --> test_package/subpackage/nested/deep_module.py:21:25
+   |
+21 | def missing_annotations(x, y):
+   |                         ^
+22 |     """This function has missing parameter and return annotations."""
+23 |     return x + y
+   |
+info: rule `missing-parameter-annotation` is enabled by default
+
+error[missing-parameter-annotation]: Parameter `y` is missing a type annotation
+  --> test_package/subpackage/nested/deep_module.py:21:28
+   |
+21 | def missing_annotations(x, y):
+   |                            ^
+22 |     """This function has missing parameter and return annotations."""
+23 |     return x + y
+   |
+info: rule `missing-parameter-annotation` is enabled by default
+
+error[missing-return-annotation]: Function `missing_annotations` is missing a return type annotation
+  --> test_package/subpackage/nested/deep_module.py:21:5
+   |
+21 | def missing_annotations(x, y):
+   |     ^^^^^^^^^^^^^^^^^^^
+22 |     """This function has missing parameter and return annotations."""
+23 |     return x + y
+   |
+info: rule `missing-return-annotation` is enabled by default
+
+Found 3 annotation errors

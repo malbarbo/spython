@@ -1,0 +1,17 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_missing_return_annotation.py
+---
+STDOUT
+STDERR
+error[missing-return-annotation]: Function `greet` is missing a return type annotation
+ --> err_missing_return_annotation.py:1:5
+  |
+1 | def greet(name: str):
+  |     ^^^^^
+2 |     print("Hello, " + name + "!")
+  |
+info: rule `missing-return-annotation` is enabled by default
+
+Found 1 annotation error

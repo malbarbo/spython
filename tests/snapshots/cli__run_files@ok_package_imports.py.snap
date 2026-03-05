@@ -1,0 +1,11 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/ok_package_imports.py
+---
+STDOUT
+Sum of [1, 2, 3, 4, 5] = 15
+Uppercase: ['HELLO', 'WORLD']
+Hello from package
+use_helper(5) = 20
+STDERR

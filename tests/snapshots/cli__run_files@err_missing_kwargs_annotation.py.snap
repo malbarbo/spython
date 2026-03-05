@@ -1,0 +1,17 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+input_file: tests/inputs/err_missing_kwargs_annotation.py
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `**kwargs` is missing a type annotation
+ --> err_missing_kwargs_annotation.py:1:7
+  |
+1 | def f(**kwargs) -> None:
+  |       ^^^^^^^^
+2 |     print(kwargs)
+  |
+info: rule `missing-parameter-annotation` is enabled by default
+
+Found 1 annotation error
