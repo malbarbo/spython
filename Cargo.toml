@@ -14,6 +14,8 @@ ruff_python_parser = { path = "crates/ruff/crates/ruff_python_parser" }
 ruff_python_ast = { path = "crates/ruff/crates/ruff_python_ast" }
 ruff_text_size = { path = "crates/ruff/crates/ruff_text_size" }
 ruff_macros = { path = "crates/ruff/crates/ruff_macros" }
+ruff_python_formatter = { path = "crates/ruff/crates/ruff_python_formatter" }
+walkdir = "2"
 
 [dev-dependencies]
 assert_cmd = "2.0.16"
