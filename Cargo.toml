@@ -17,7 +17,7 @@ ruff_macros = { path = "crates/ruff/crates/ruff_macros" }
 
 [dev-dependencies]
 assert_cmd = "2.0.16"
-insta = { version = "1.41.1", features = ["glob"] }
+insta = { version = "1.41.1", features = ["glob", "filters"] }
 
 [profile.release]
 opt-level = 2

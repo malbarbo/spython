@@ -1,0 +1,23 @@
+---
+source: tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+Trying:
+    add(1, 2)
+Expecting:
+    3
+ok
+Trying:
+    add(-1, 1)
+Expecting:
+    0
+ok
+1 item had no tests:
+    __doctest__
+1 item passed all tests:
+   2 tests in __doctest__.add
+2 tests in 2 items.
+2 passed.
+Test passed.
+STDERR

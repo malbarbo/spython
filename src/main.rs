@@ -39,20 +39,39 @@ enum CheckError {
 struct Cli {
     /// Python script to run (or REPL if omitted)
     file: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Run doctests from the specified Python files
+    Check {
+        /// Python files to run doctests from
+        files: Vec<PathBuf>,
+        /// Show all test attempts, not just failures
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match cli.file {
-        Some(ref path) => match run_checked(path) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                display_error(e);
-                ExitCode::FAILURE
-            }
+    let result = match cli.command {
+        Some(Commands::Check { files, verbose }) => run_check(&files, verbose),
+        None => match cli.file {
+            Some(ref path) => run_checked(path),
+            None => start_repl(),
         },
-        None => start_repl(),
+    };
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            display_error(e);
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -87,7 +106,7 @@ fn new_interpreter() -> rustpython::vm::Interpreter {
 }
 
 /// Start a Python REPL without type checking.
-fn start_repl() -> ExitCode {
+fn start_repl() -> Result<(), CheckError> {
     let interp = new_interpreter();
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
@@ -96,9 +115,9 @@ fn start_repl() -> ExitCode {
         run_shell(vm, scope)
     });
     if code == 0 {
-        ExitCode::SUCCESS
+        Ok(())
     } else {
-        ExitCode::FAILURE
+        Err(CheckError::ScriptExecution)
     }
 }
 
@@ -177,6 +196,52 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
         // Make imports relative to the script's directory work.
         vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
         vm.run_string(scope, &source, file_str).map(drop)
+    });
+
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(CheckError::ScriptExecution)
+    }
+}
+
+/// Run doctests for the given files, ignoring paths that are not files.
+fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), CheckError> {
+    // Use original paths (not canonicalized) so output stays relative when
+    // the caller passes relative paths, making test snapshots portable.
+    let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
+
+    if valid_files.is_empty() {
+        return Ok(());
+    }
+
+    let py_verbose = if verbose { "True" } else { "False" };
+    // Build a Python script that imports each file as a module and runs
+    // doctest.testmod on it (same as `python -m doctest file.py`).
+    let mut script = format!(
+        "import doctest, sys, importlib.util\n\
+         def _run(path):\n\
+         \x20   spec = importlib.util.spec_from_file_location('__doctest__', path)\n\
+         \x20   mod = importlib.util.module_from_spec(spec)\n\
+         \x20   spec.loader.exec_module(mod)\n\
+         \x20   return doctest.testmod(mod, verbose={py_verbose}).failed\n\
+         total = 0\n",
+    );
+    let print_names = valid_files.len() > 1;
+    for file in &valid_files {
+        let path = file.to_string_lossy();
+        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+        if print_names {
+            script.push_str(&format!("print(\"{escaped}\")\n"));
+        }
+        script.push_str(&format!("total += _run(\"{escaped}\")\n"));
+    }
+    script.push_str("sys.exit(total)\n");
+
+    let interp = new_interpreter();
+    let code = interp.run(|vm| {
+        let scope = vm.new_scope_with_main()?;
+        vm.run_string(scope, &script, "<check>".to_owned()).map(drop)
     });
 
     if code == 0 {
