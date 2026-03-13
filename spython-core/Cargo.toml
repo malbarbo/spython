@@ -1,0 +1,16 @@
+[package]
+name = "spython-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rustpython = { path = "../crates/RustPython" }
+ty_project = { path = "../crates/ruff/crates/ty_project" }
+ty_python_semantic = { path = "../crates/ruff/crates/ty_python_semantic" }
+ty_module_resolver = { path = "../crates/ruff/crates/ty_module_resolver" }
+ruff_db = { path = "../crates/ruff/crates/ruff_db" }
+ruff_python_parser = { path = "../crates/ruff/crates/ruff_python_parser" }
+ruff_python_ast = { path = "../crates/ruff/crates/ruff_python_ast" }
+ruff_text_size = { path = "../crates/ruff/crates/ruff_text_size" }
+ruff_macros = { path = "../crates/ruff/crates/ruff_macros" }
+ruff_python_formatter = { path = "../crates/ruff/crates/ruff_python_formatter" }

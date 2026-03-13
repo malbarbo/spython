@@ -1,9 +1,14 @@
+[workspace]
+members = ["spython-core", "wasm"]
+exclude = ["crates"]
+
 [package]
 name = "spython"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+spython-core = { path = "spython-core" }
 clap = { version = "4.5.60", features = ["derive"] }
 rustpython = { path = "crates/RustPython" }
 ty_project = { path = "crates/ruff/crates/ty_project" }

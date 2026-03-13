@@ -1,0 +1,11 @@
+[package]
+name = "spython-wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "spython"
+crate-type = ["cdylib"]
+
+[dependencies]
+spython-core = { path = "../spython-core" }
