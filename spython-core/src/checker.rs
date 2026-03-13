@@ -98,33 +98,33 @@ fn check_function(
     }
 
     // Check *args parameter
-    if let Some(vararg) = &params.vararg {
-        if vararg.annotation.is_none() {
-            diagnostics.push(make_lint_diagnostic(
-                &MISSING_PARAMETER_ANNOTATION,
-                file,
-                vararg.range(),
-                format!(
-                    "Parameter `*{}` is missing a type annotation",
-                    vararg.name.as_str()
-                ),
-            ));
-        }
+    if let Some(vararg) = &params.vararg
+        && vararg.annotation.is_none()
+    {
+        diagnostics.push(make_lint_diagnostic(
+            &MISSING_PARAMETER_ANNOTATION,
+            file,
+            vararg.range(),
+            format!(
+                "Parameter `*{}` is missing a type annotation",
+                vararg.name.as_str()
+            ),
+        ));
     }
 
     // Check **kwargs parameter
-    if let Some(kwarg) = &params.kwarg {
-        if kwarg.annotation.is_none() {
-            diagnostics.push(make_lint_diagnostic(
-                &MISSING_PARAMETER_ANNOTATION,
-                file,
-                kwarg.range(),
-                format!(
-                    "Parameter `**{}` is missing a type annotation",
-                    kwarg.name.as_str()
-                ),
-            ));
-        }
+    if let Some(kwarg) = &params.kwarg
+        && kwarg.annotation.is_none()
+    {
+        diagnostics.push(make_lint_diagnostic(
+            &MISSING_PARAMETER_ANNOTATION,
+            file,
+            kwarg.range(),
+            format!(
+                "Parameter `**{}` is missing a type annotation",
+                kwarg.name.as_str()
+            ),
+        ));
     }
 
     // Check return type annotation

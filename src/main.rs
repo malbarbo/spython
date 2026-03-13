@@ -1,23 +1,19 @@
 use clap::Parser;
-use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics};
-use ruff_db::files::{File, system_path_to_file};
-use ruff_db::parsed::parsed_module;
+use ruff_db::diagnostic::Diagnostic;
+use ruff_db::files::system_path_to_file;
 use ruff_db::system::{OsSystem, SystemPathBuf};
-use ruff_python_ast::Stmt;
 use ruff_python_ast::name::Name;
-use ruff_python_formatter::{PyFormatOptions, format_module_source};
-use rustpython::vm::Settings;
-use rustpython::{InterpreterBuilder, InterpreterBuilderExt, run_shell};
+use rustpython::run_shell;
+use spython_core::{
+    annotation_check, collect_import_files, execute_source, format_source, new_interpreter,
+    print_type_errors,
+};
 use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use ty_module_resolver::{ModuleName, resolve_module};
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
 use walkdir::WalkDir;
-
-mod checker;
-mod lints;
 
 /// Errors that can occur during file checking and execution.
 enum Error {
@@ -32,7 +28,7 @@ enum Error {
     /// Script execution failed
     ScriptExecution,
     /// Type checking errors found
-    TypeChecking(ProjectDatabase, Vec<Diagnostic>),
+    TypeChecking(Box<ProjectDatabase>, Vec<Diagnostic>),
 }
 
 /// spython: A student version of Python
@@ -105,18 +101,9 @@ fn display_error(error: Error) {
             // Error already displayed by RustPython
         }
         Error::TypeChecking(db, diagnostics) => {
-            display_diagnostics(&db, &diagnostics);
+            print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
         }
     }
-}
-
-fn new_interpreter() -> rustpython::vm::Interpreter {
-    let mut settings = Settings::default();
-    settings.write_bytecode = false;
-    InterpreterBuilder::new()
-        .settings(settings)
-        .init_stdlib()
-        .interpreter()
 }
 
 /// Start an interactive Python REPL.
@@ -198,7 +185,7 @@ fn type_check_file(file: &Path) -> Result<(), Error> {
     let mut diagnostics = annotation_check(&db);
     diagnostics.extend(db.check());
     if !diagnostics.is_empty() {
-        return Err(Error::TypeChecking(db, diagnostics));
+        return Err(Error::TypeChecking(Box::new(db), diagnostics));
     }
 
     Ok(())
@@ -216,14 +203,7 @@ fn run_checked(file: &Path) -> Result<(), Error> {
         .unwrap_or(".")
         .to_owned();
 
-    let interp = new_interpreter();
-    let code = interp.run(move |vm| {
-        let scope = vm.new_scope_with_main()?;
-        vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
-        vm.run_string(scope, &source, file_str).map(drop)
-    });
-
-    if code == 0 {
+    if execute_source(&source, &file_str, &parent_dir) {
         Ok(())
     } else {
         Err(Error::ScriptExecution)
@@ -240,9 +220,8 @@ fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
         {
             let file_path = entry.path();
             let source = std::fs::read_to_string(file_path).map_err(Error::FileRead)?;
-            let options = PyFormatOptions::default();
-            let formatted = match format_module_source(&source, options) {
-                Ok(formatted) => formatted.into_code(),
+            let formatted = match format_source(&source) {
+                Ok(formatted) => formatted,
                 Err(e) => {
                     eprintln!("spython: cannot format '{}': {e}", file_path.display());
                     continue;
@@ -293,66 +272,10 @@ fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), Error> {
     }
     script.push_str("sys.exit(total)\n");
 
-    let interp = new_interpreter();
-    let code = interp.run(|vm| {
-        let scope = vm.new_scope_with_main()?;
-        vm.run_string(scope, &script, "<check>".to_owned())
-            .map(drop)
-    });
-
-    if code == 0 {
+    if execute_source(&script, "<check>", ".") {
         Ok(())
     } else {
         Err(Error::ScriptExecution)
-    }
-}
-
-/// Recursively collect first-party files transitively imported by `file`.
-///
-/// Uses ty's module resolver so relative imports, packages, and dotted names
-/// are all handled correctly.
-fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet<File>) {
-    let parsed = parsed_module(db, file);
-    let module = parsed.load(db);
-
-    for stmt in module.suite() {
-        match stmt {
-            Stmt::Import(import) => {
-                for alias in &import.names {
-                    if let Some(name) = ModuleName::new(alias.name.id.as_str()) {
-                        visit_module(db, file, &name, seen);
-                    }
-                }
-            }
-            Stmt::ImportFrom(import_from) => {
-                let module_str = import_from.module.as_deref();
-                if let Ok(name) =
-                    ModuleName::from_identifier_parts(db, file, module_str, import_from.level)
-                {
-                    visit_module(db, file, &name, seen);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-/// Resolve `name` relative to `importing_file` and, if it is a first-party
-/// module not yet seen, add it to `seen` and recurse into its imports.
-fn visit_module(
-    db: &ProjectDatabase,
-    importing_file: File,
-    name: &ModuleName,
-    seen: &mut HashSet<File>,
-) {
-    if let Some(module) = resolve_module(db, importing_file, name) {
-        if module.search_path(db).is_some_and(|sp| sp.is_first_party()) {
-            if let Some(mod_file) = module.file(db) {
-                if seen.insert(mod_file) {
-                    collect_import_files(db, mod_file, seen);
-                }
-            }
-        }
     }
 }
 
@@ -366,32 +289,4 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
     let metadata = ProjectMetadata::new(Name::new("spython"), cwd_sys);
 
     ProjectDatabase::new(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
-}
-
-/// Run spython's annotation checker on all files in the database.
-///
-/// Returns a vector of diagnostics for any missing annotations found.
-fn annotation_check(db: &ProjectDatabase) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    // Get files from the database's project
-    for file in &db.project().files(db) {
-        let file_diagnostics = checker::check_file_annotations(db, file);
-        diagnostics.extend(file_diagnostics);
-    }
-
-    diagnostics
-}
-
-/// Display diagnostics to the user.
-///
-/// Shows formatted diagnostics with source code snippets and a summary count.
-fn display_diagnostics(db: &ProjectDatabase, diagnostics: &[Diagnostic]) {
-    let use_color = std::io::stderr().is_terminal();
-    let config = DisplayDiagnosticConfig::new("spython").color(use_color);
-    eprint!("{}", DisplayDiagnostics::new(db, &config, diagnostics));
-
-    let n = diagnostics.len();
-    let plural_suffix = if n == 1 { "" } else { "s" };
-    eprintln!("Found {n} error{plural_suffix}.");
 }

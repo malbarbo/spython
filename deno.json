@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "lib": ["dom", "dom.iterable", "deno.ns"],
+        "strict": true
+    },
+    "fmt": {
+        "indentWidth": 4,
+        "exclude": [
+            "web/spython.html",
+            ".github/",
+            ".claude/",
+            "crates/",
+            "dist/"
+        ]
+    }
+}
