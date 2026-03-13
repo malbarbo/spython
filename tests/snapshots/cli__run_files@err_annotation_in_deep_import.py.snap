@@ -35,4 +35,4 @@ error[missing-return-annotation]: Function `missing_annotations` is missing a re
    |
 info: rule `missing-return-annotation` is enabled by default
 
-Found 3 annotation errors
+Found 3 errors.

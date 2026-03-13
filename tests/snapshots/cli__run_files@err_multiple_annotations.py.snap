@@ -86,4 +86,4 @@ error[missing-return-annotation]: Function `distance` is missing a return type a
    |
 info: rule `missing-return-annotation` is enabled by default
 
-Found 8 annotation errors
+Found 8 errors.
