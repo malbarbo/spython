@@ -14,4 +14,4 @@ error[missing-return-annotation]: Function `greet` is missing a return type anno
   |
 info: rule `missing-return-annotation` is enabled by default
 
-Found 1 annotation error
+Found 1 error.

@@ -14,4 +14,4 @@ error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
   |
 info: rule `missing-parameter-annotation` is enabled by default
 
-Found 1 annotation error
+Found 1 error.

@@ -6,8 +6,8 @@ use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::Stmt;
 use ruff_python_ast::name::Name;
 use ruff_python_formatter::{PyFormatOptions, format_module_source};
-use rustpython::{InterpreterBuilder, InterpreterBuilderExt, run_shell};
 use rustpython::vm::Settings;
+use rustpython::{InterpreterBuilder, InterpreterBuilderExt, run_shell};
 use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -20,33 +20,31 @@ mod checker;
 mod lints;
 
 /// Errors that can occur during file checking and execution.
-enum CheckError {
+enum Error {
     /// Failed to resolve file paths
     FileResolution(String),
     /// Failed to build the ty database
     DatabaseBuild(String),
-    /// Annotation errors found
-    AnnotationErrors(ProjectDatabase, Vec<Diagnostic>),
-    /// Type checking errors found
-    TypeErrors(ProjectDatabase, Vec<Diagnostic>),
     /// Failed to read a file
     FileRead(std::io::Error),
     /// Failed to write a file
     FileWrite(std::io::Error),
     /// Script execution failed
     ScriptExecution,
+    /// Type checking errors found
+    TypeChecking(ProjectDatabase, Vec<Diagnostic>),
 }
 
-/// spython: A Python interpreter with integrated type checking for students
+/// spython: A student version of Python
 #[derive(Parser)]
 #[clap(name = "spython", version)]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Option<Command>,
 }
 
 #[derive(clap::Subcommand)]
-enum Commands {
+enum Command {
     /// Start an interactive Python REPL (default)
     Repl {
         /// Optional Python file to execute before the REPL starts
@@ -57,11 +55,6 @@ enum Commands {
         /// Python script to run
         file: PathBuf,
     },
-    /// Format Python files
-    Format {
-        /// Files or directories to format (directories are searched recursively)
-        paths: Vec<PathBuf>,
-    },
     /// Run doctests from the specified Python files
     Check {
         /// Python files to run doctests from
@@ -70,16 +63,21 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+    /// Format Python files
+    Format {
+        /// Files or directories to format (directories are searched recursively)
+        paths: Vec<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let result = match cli.command.unwrap_or(Commands::Repl { file: None }) {
-        Commands::Repl { file } => start_repl(file.as_deref()),
-        Commands::Run { file } => run_checked(&file),
-        Commands::Format { paths } => run_format(&paths),
-        Commands::Check { files, verbose } => run_check(&files, verbose),
+    let result = match cli.command.unwrap_or(Command::Repl { file: None }) {
+        Command::Repl { file } => start_repl(file.as_deref()),
+        Command::Run { file } => run_checked(&file),
+        Command::Format { paths } => run_format(&paths),
+        Command::Check { files, verbose } => run_check(&files, verbose),
     };
 
     match result {
@@ -92,25 +90,22 @@ fn main() -> ExitCode {
 }
 
 /// Display an error to the user.
-fn display_error(error: CheckError) {
+fn display_error(error: Error) {
     match error {
-        CheckError::FileResolution(msg) | CheckError::DatabaseBuild(msg) => {
+        Error::FileResolution(msg) | Error::DatabaseBuild(msg) => {
             eprintln!("spython: {msg}");
         }
-        CheckError::AnnotationErrors(db, diagnostics) => {
-            display_diagnostics(&db, &diagnostics, "annotation error");
-        }
-        CheckError::TypeErrors(db, diagnostics) => {
-            display_diagnostics(&db, &diagnostics, "diagnostic");
-        }
-        CheckError::FileRead(e) => {
+        Error::FileRead(e) => {
             eprintln!("spython: cannot read file: {e}");
         }
-        CheckError::FileWrite(e) => {
+        Error::FileWrite(e) => {
             eprintln!("spython: cannot write file: {e}");
         }
-        CheckError::ScriptExecution => {
+        Error::ScriptExecution => {
             // Error already displayed by RustPython
+        }
+        Error::TypeChecking(db, diagnostics) => {
+            display_diagnostics(&db, &diagnostics);
         }
     }
 }
@@ -128,14 +123,14 @@ fn new_interpreter() -> rustpython::vm::Interpreter {
 ///
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
-fn start_repl(file: Option<&Path>) -> Result<(), CheckError> {
+fn start_repl(file: Option<&Path>) -> Result<(), Error> {
     if let Some(path) = file {
         type_check_file(path)?;
     }
 
     let preload: Option<(String, String, String)> = file
-        .map(|path| -> Result<_, CheckError> {
-            let source = std::fs::read_to_string(path).map_err(CheckError::FileRead)?;
+        .map(|path| -> Result<_, Error> {
+            let source = std::fs::read_to_string(path).map_err(Error::FileRead)?;
             let file_str = path.to_string_lossy().into_owned();
             let parent_dir = path
                 .parent()
@@ -153,73 +148,67 @@ fn start_repl(file: Option<&Path>) -> Result<(), CheckError> {
         vm.sys_module.set_attr("ps2", vm.ctx.new_str("  "), vm)?;
         if let Some((source, file_str, parent_dir)) = &preload {
             vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
-            vm.run_string(scope.clone(), source, file_str.clone()).map(drop)?;
+            vm.run_string(scope.clone(), source, file_str.clone())
+                .map(drop)?;
         }
         run_shell(vm, scope)
     });
     if code == 0 {
         Ok(())
     } else {
-        Err(CheckError::ScriptExecution)
+        Err(Error::ScriptExecution)
     }
 }
 
 /// Type-check a Python file: validates the path, builds the ty database,
 /// runs the annotation checker, then runs ty's type checker.
-fn type_check_file(file: &Path) -> Result<(), CheckError> {
+fn type_check_file(file: &Path) -> Result<(), Error> {
     let abs_file = std::fs::canonicalize(file).map_err(|e| {
-        CheckError::FileResolution(format!(
+        Error::FileResolution(format!(
             "cannot resolve '{}' to an absolute path: {e}",
             file.display()
         ))
     })?;
     if !abs_file.is_file() {
-        return Err(CheckError::FileResolution(format!(
+        return Err(Error::FileResolution(format!(
             "'{}' is not a file",
             file.display()
         )));
     }
 
-    let cwd = std::env::current_dir().map_err(|e| CheckError::DatabaseBuild(e.to_string()))?;
+    let cwd = std::env::current_dir().map_err(|e| Error::DatabaseBuild(e.to_string()))?;
     let mut db = build_db(&cwd)?;
 
     let abs_sys = SystemPathBuf::from_path_buf(abs_file).map_err(|p| {
-        CheckError::FileResolution(format!(
-            "'{}' contains non-Unicode characters",
-            p.display()
-        ))
+        Error::FileResolution(format!("'{}' contains non-Unicode characters", p.display()))
     })?;
-    let main_file = system_path_to_file(&db, &abs_sys)
-        .map_err(|e| CheckError::FileResolution(e.to_string()))?;
+    let main_file =
+        system_path_to_file(&db, &abs_sys).map_err(|e| Error::FileResolution(e.to_string()))?;
 
-    let mut local_files: HashSet<File> = HashSet::new();
-    local_files.insert(main_file);
-    collect_local_imports(&db, main_file, &mut local_files);
+    let mut files = HashSet::new();
+    files.insert(main_file);
+    collect_import_files(&db, main_file, &mut files);
 
-    let sys_files: Vec<SystemPathBuf> = local_files
+    let sys_files: Vec<SystemPathBuf> = files
         .iter()
         .filter_map(|f| f.path(&db).as_system_path().map(|p| p.to_path_buf()))
         .collect();
     db.project().set_included_paths(&mut db, sys_files);
 
-    let annotation_diagnostics = annotation_check(&db);
-    if !annotation_diagnostics.is_empty() {
-        return Err(CheckError::AnnotationErrors(db, annotation_diagnostics));
-    }
-
-    let type_diagnostics = db.check();
-    if !type_diagnostics.is_empty() {
-        return Err(CheckError::TypeErrors(db, type_diagnostics));
+    let mut diagnostics = annotation_check(&db);
+    diagnostics.extend(db.check());
+    if !diagnostics.is_empty() {
+        return Err(Error::TypeChecking(db, diagnostics));
     }
 
     Ok(())
 }
 
 /// Run a Python script with type checking enabled.
-fn run_checked(file: &Path) -> Result<(), CheckError> {
+fn run_checked(file: &Path) -> Result<(), Error> {
     type_check_file(file)?;
 
-    let source = std::fs::read_to_string(file).map_err(CheckError::FileRead)?;
+    let source = std::fs::read_to_string(file).map_err(Error::FileRead)?;
     let file_str = file.to_string_lossy().into_owned();
     let parent_dir = file
         .parent()
@@ -237,12 +226,12 @@ fn run_checked(file: &Path) -> Result<(), CheckError> {
     if code == 0 {
         Ok(())
     } else {
-        Err(CheckError::ScriptExecution)
+        Err(Error::ScriptExecution)
     }
 }
 
 /// Format Python files in the given paths, recursing into directories.
-fn run_format(paths: &[PathBuf]) -> Result<(), CheckError> {
+fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
     for path in paths {
         for entry in WalkDir::new(path)
             .into_iter()
@@ -250,17 +239,17 @@ fn run_format(paths: &[PathBuf]) -> Result<(), CheckError> {
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "py"))
         {
             let file_path = entry.path();
-            let source = std::fs::read_to_string(file_path).map_err(CheckError::FileRead)?;
+            let source = std::fs::read_to_string(file_path).map_err(Error::FileRead)?;
             let options = PyFormatOptions::default();
             let formatted = match format_module_source(&source, options) {
-                Ok(printed) => printed.into_code(),
+                Ok(formatted) => formatted.into_code(),
                 Err(e) => {
                     eprintln!("spython: cannot format '{}': {e}", file_path.display());
                     continue;
                 }
             };
             if formatted != source {
-                std::fs::write(file_path, formatted).map_err(CheckError::FileWrite)?;
+                std::fs::write(file_path, formatted).map_err(Error::FileWrite)?;
             }
         }
     }
@@ -268,7 +257,7 @@ fn run_format(paths: &[PathBuf]) -> Result<(), CheckError> {
 }
 
 /// Run doctests for the given files, ignoring paths that are not files.
-fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), CheckError> {
+fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), Error> {
     // Use original paths (not canonicalized) so output stays relative when
     // the caller passes relative paths, making test snapshots portable.
     let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
@@ -307,13 +296,14 @@ fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), CheckError> {
     let interp = new_interpreter();
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
-        vm.run_string(scope, &script, "<check>".to_owned()).map(drop)
+        vm.run_string(scope, &script, "<check>".to_owned())
+            .map(drop)
     });
 
     if code == 0 {
         Ok(())
     } else {
-        Err(CheckError::ScriptExecution)
+        Err(Error::ScriptExecution)
     }
 }
 
@@ -321,7 +311,7 @@ fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), CheckError> {
 ///
 /// Uses ty's module resolver so relative imports, packages, and dotted names
 /// are all handled correctly.
-fn collect_local_imports(db: &ProjectDatabase, file: File, seen: &mut HashSet<File>) {
+fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet<File>) {
     let parsed = parsed_module(db, file);
     let module = parsed.load(db);
 
@@ -359,7 +349,7 @@ fn visit_module(
         if module.search_path(db).is_some_and(|sp| sp.is_first_party()) {
             if let Some(mod_file) = module.file(db) {
                 if seen.insert(mod_file) {
-                    collect_local_imports(db, mod_file, seen);
+                    collect_import_files(db, mod_file, seen);
                 }
             }
         }
@@ -367,15 +357,15 @@ fn visit_module(
 }
 
 /// Build a ty ProjectDatabase for the given file.
-fn build_db(cwd: &Path) -> Result<ProjectDatabase, CheckError> {
+fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
     let cwd_sys = SystemPathBuf::from_path_buf(cwd.to_path_buf()).map_err(|_| {
-        CheckError::DatabaseBuild("current directory contains non-Unicode characters".to_string())
+        Error::DatabaseBuild("current directory contains non-Unicode characters".to_string())
     })?;
 
     let system = OsSystem::new(&cwd_sys);
     let metadata = ProjectMetadata::new(Name::new("spython"), cwd_sys);
 
-    ProjectDatabase::new(metadata, system).map_err(|e| CheckError::DatabaseBuild(e.to_string()))
+    ProjectDatabase::new(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
 }
 
 /// Run spython's annotation checker on all files in the database.
@@ -396,13 +386,12 @@ fn annotation_check(db: &ProjectDatabase) -> Vec<Diagnostic> {
 /// Display diagnostics to the user.
 ///
 /// Shows formatted diagnostics with source code snippets and a summary count.
-/// The `diagnostic_type` parameter should be singular (e.g., "error", "diagnostic").
-fn display_diagnostics(db: &ProjectDatabase, diagnostics: &[Diagnostic], diagnostic_type: &str) {
+fn display_diagnostics(db: &ProjectDatabase, diagnostics: &[Diagnostic]) {
     let use_color = std::io::stderr().is_terminal();
     let config = DisplayDiagnosticConfig::new("spython").color(use_color);
     eprint!("{}", DisplayDiagnostics::new(db, &config, diagnostics));
 
     let n = diagnostics.len();
     let plural_suffix = if n == 1 { "" } else { "s" };
-    eprintln!("Found {n} {diagnostic_type}{plural_suffix}");
+    eprintln!("Found {n} error{plural_suffix}.");
 }

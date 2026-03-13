@@ -25,4 +25,4 @@ error[missing-attribute-annotation]: Class attribute `y` is missing a type annot
   |
 info: rule `missing-attribute-annotation` is enabled by default
 
-Found 2 annotation errors
+Found 2 errors.

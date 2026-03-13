@@ -15,4 +15,4 @@ error[invalid-return-type]: Return type does not match returned value
   |
 info: rule `invalid-return-type` is enabled by default
 
-Found 1 diagnostic
+Found 1 error.
