@@ -21,7 +21,7 @@ serve: $(DIST_FILES)
 # WASM binary
 
 $(DIST_DIR)/spython.wasm: $(WASM_BIN) | $(DIST_DIR)
-	cp $< $@
+	wasm-strip $< -o $@
 
 $(DIST_DIR)/server.py: $(WEB_DIR)/server.py | $(DIST_DIR)
 	cp $< $@

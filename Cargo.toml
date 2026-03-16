@@ -30,6 +30,7 @@ insta = { version = "1.41.1", features = ["glob", "filters"] }
 opt-level = 2
 lto = true
 codegen-units = 1
+strip = true
 
 [profile.release-small]
 inherits = "release"

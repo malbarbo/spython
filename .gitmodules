@@ -1,0 +1,7 @@
+[submodule "crates/RustPython"]
+	path = crates/RustPython
+	url = git@github.com:malbarbo/RustPython.git
+	branch = spython
+[submodule "crates/ruff"]
+	path = crates/ruff
+	url = https://github.com/astral-sh/ruff.git

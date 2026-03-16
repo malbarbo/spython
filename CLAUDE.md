@@ -9,6 +9,16 @@ code in this repository.
 students. It enforces complete type annotations before running code — useful for
 teaching typed Python.
 
+## Setup
+
+```bash
+# Clone with submodules (crates/RustPython and crates/ruff)
+git clone --recurse-submodules <repo-url>
+
+# Or, if already cloned:
+git submodule update --init --recursive
+```
+
 ## Build & Run
 
 ```bash
