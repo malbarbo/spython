@@ -63,11 +63,6 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn repl_stop() {
-    // TODO: signal the interpreter to stop via the env::check_interrupt import
-}
-
 // --- Formatting ---
 
 #[unsafe(no_mangle)]

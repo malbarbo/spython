@@ -173,15 +173,29 @@ impl Drop for ReplState {
 /// are available to subsequent `repl_run` calls. Type errors are printed to
 /// stderr and execution continues (the REPL is still created).
 pub fn repl_new(source: &str) -> Box<ReplState> {
-    let interp = new_interpreter();
+    let mut settings = vm::Settings::default();
+    settings.write_bytecode = false;
+    let interp = InterpreterBuilder::new()
+        .settings(settings)
+        .init_stdlib()
+        .interpreter();
     let scope = interp.enter(|vm| {
         let scope = vm
             .new_scope_with_main()
             .expect("creating the main scope should not fail");
-        if !source.trim().is_empty()
-            && let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned())
-        {
-            vm.print_exception(exc);
+        if !source.trim().is_empty() {
+            if let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned()) {
+                vm.print_exception(exc);
+            } else {
+                // Run doctests.  The stdlib `doctest` module can't be used on
+                // WASM because its import chain needs `_io.FileIO`, so we use
+                // a minimal runner that only depends on `sys`.
+                let doctest_code = include_str!("doctest_runner.py");
+                if let Err(exc) = vm.run_string(scope.clone(), doctest_code, "<doctest>".to_owned())
+                {
+                    vm.print_exception(exc);
+                }
+            }
         }
         scope
     });
