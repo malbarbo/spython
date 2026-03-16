@@ -9,7 +9,6 @@ interface WasmExports {
     repl_new(ptr: number, len: number): number;
     repl_run(repl: number, ptr: number, len: number): boolean;
     repl_destroy(repl: number): void;
-    repl_stop(): void;
     string_allocate(size: number): number;
     string_deallocate(ptr: number): void;
     format(ptr: number, len: number): number;
@@ -42,10 +41,6 @@ class ReplSession {
         } finally {
             this.exports.string_deallocate(ptr);
         }
-    }
-
-    stop(): void {
-        this.exports.repl_stop();
     }
 
     destroy(): void {
@@ -141,9 +136,6 @@ class Worker {
                 break;
             case "load":
                 this.initRepl(data.data);
-                break;
-            case "stop":
-                this.session?.stop();
                 break;
             default:
                 console.log(`${event}`);
