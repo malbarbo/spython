@@ -187,10 +187,12 @@ pub fn repl_new(source: &str) -> Box<ReplState> {
             if let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned()) {
                 vm.print_exception(exc);
             } else {
-                // Run doctests.  The stdlib `doctest` module can't be used on
-                // WASM because its import chain needs `_io.FileIO`, so we use
-                // a minimal runner that only depends on `sys`.
-                let doctest_code = include_str!("doctest_runner.py");
+                // Run doctests using the custom runner (avoids stdlib doctest
+                // which needs _io.FileIO, unavailable on WASM).
+                let doctest_code = concat!(
+                    include_str!("doctest_runner.py"),
+                    "\nimport __main__; run_doctests(__main__); del __main__\n"
+                );
                 if let Err(exc) = vm.run_string(scope.clone(), doctest_code, "<doctest>".to_owned())
                 {
                     vm.print_exception(exc);

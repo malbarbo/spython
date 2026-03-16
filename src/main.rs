@@ -250,15 +250,18 @@ fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), Error> {
     }
 
     let py_verbose = if verbose { "True" } else { "False" };
-    // Build a Python script that imports each file as a module and runs
-    // doctest.testmod on it (same as `python -m doctest file.py`).
+    // Build a Python script that loads each file as a module and runs the
+    // custom doctest runner on it (avoids the stdlib doctest module which
+    // requires _io.FileIO, unavailable on WASM).
+    let doctest_runner = include_str!("../spython-core/src/doctest_runner.py");
     let mut script = format!(
-        "import doctest, sys, importlib.util\n\
+        "{doctest_runner}\n\
+         import importlib.util, sys\n\
          def _run(path):\n\
          \x20   spec = importlib.util.spec_from_file_location('__doctest__', path)\n\
          \x20   mod = importlib.util.module_from_spec(spec)\n\
          \x20   spec.loader.exec_module(mod)\n\
-         \x20   return doctest.testmod(mod, verbose={py_verbose}).failed\n\
+         \x20   return run_doctests(mod, verbose={py_verbose})\n\
          total = 0\n",
     );
     let print_names = valid_files.len() > 1;

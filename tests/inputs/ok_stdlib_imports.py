@@ -1,9 +1,7 @@
 # Test file with various import styles
 
-import json as j
 import os
 import sys
-from pathlib import Path
 from typing import Dict, List
 
 

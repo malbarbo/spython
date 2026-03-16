@@ -22,6 +22,7 @@ serve: $(DIST_FILES)
 
 $(DIST_DIR)/spython.wasm: $(WASM_BIN) | $(DIST_DIR)
 	wasm-strip $< -o $@
+	wasm-opt -Oz --enable-bulk-memory --enable-mutable-globals --enable-sign-ext --enable-nontrapping-float-to-int $@ -o $@
 
 $(DIST_DIR)/server.py: $(WEB_DIR)/server.py | $(DIST_DIR)
 	cp $< $@
