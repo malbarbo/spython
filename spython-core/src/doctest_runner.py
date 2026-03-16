@@ -1,7 +1,12 @@
-"""Minimal doctest runner that avoids the stdlib `doctest` module.
+"""Minimal doctest runner that avoids the stdlib ``doctest`` module.
 
-The stdlib module requires `inspect` → `dis` → `io` → `_io.FileIO`,
-which is not available in the RustPython WASM build.
+The stdlib module requires ``inspect`` -> ``dis`` -> ``io`` -> ``_io.FileIO``,
+which is not available in the RustPython WASM build.  This runner only depends
+on ``sys`` and builtins so it works on every target.
+
+The public entry point is ``run_doctests(module)`` which returns the number of
+failed examples.  When this file is executed as a script (via ``include_str!``
+in ``repl_new``), it tests ``__main__`` automatically.
 """
 
 import sys as _sys
@@ -51,13 +56,12 @@ def _extract_examples(doc):
             i += 1
 
 
-def _run_doctests():
-    import __main__
-
+def run_doctests(module, verbose=False):
+    """Run doctests found in *module* and return the number of failures."""
     _failed = 0
     _total = 0
-    for _name in sorted(dir(__main__)):
-        _obj = getattr(__main__, _name)
+    for _name in sorted(dir(module)):
+        _obj = getattr(module, _name)
         if not callable(_obj):
             continue
         _doc = getattr(_obj, "__doc__", None)
@@ -69,12 +73,12 @@ def _run_doctests():
             _sys.stdout = _buf = _Capture()
             try:
                 _code = compile(_src, "<doctest>", "eval")
-                _result = eval(_code, vars(__main__))
+                _result = eval(_code, vars(module))
                 if _result is not None:
                     print(repr(_result))
             except SyntaxError:
                 _code = compile(_src, "<doctest>", "exec")
-                exec(_code, vars(__main__))
+                exec(_code, vars(module))
             except BaseException as _e:
                 print(type(_e).__name__ + ": " + str(_e))
             finally:
@@ -90,6 +94,10 @@ def _run_doctests():
                     "Got:\n"
                     "    " + _got.replace("\n", "\n    ") + "\n"
                 )
+            elif verbose:
+                _sys.stderr.write(
+                    "ok: " + _src.split("\n")[0] + "\n"
+                )
     if _failed:
         _sys.stderr.write(
             "***Test Failed*** "
@@ -98,7 +106,6 @@ def _run_doctests():
             + str(_total)
             + " example(s).\n"
         )
+    return _failed
 
 
-_run_doctests()
-del _run_doctests, _extract_examples, _Capture, _sys

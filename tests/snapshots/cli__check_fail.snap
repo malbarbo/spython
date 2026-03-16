@@ -1,18 +1,14 @@
 ---
 source: tests/cli.rs
+assertion_line: 73
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
-**********************************************************************
-File "fail.py", line 3, in __doctest__.add
+STDERR
 Failed example:
     add(1, 2)
 Expected:
     99
 Got:
     3
-**********************************************************************
-1 item had failures:
-   1 of   1 in __doctest__.add
-***Test Failed*** 1 failure.
-STDERR
+***Test Failed*** 1 of 1 example(s).
