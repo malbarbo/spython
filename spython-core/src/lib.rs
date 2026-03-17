@@ -15,6 +15,7 @@ use ty_project::{Db, ProjectMetadata};
 
 pub mod checker;
 pub mod lints;
+pub mod wasm_ffi;
 
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
@@ -39,7 +40,10 @@ pub fn new_interpreter() -> vm::Interpreter {
 ///
 /// Used by the WASM shim. The source is written to an in-memory filesystem
 /// under the path `/user.py`, then annotation-checked and ty-checked.
-pub fn type_check_source(source: &str, level: Level) -> Result<(), Box<TypeErrors>> {
+pub fn type_check_source(
+    source: &str,
+    level: Level,
+) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
     let system = InMemorySystem::new(cwd.clone());
     system
@@ -57,12 +61,21 @@ pub fn type_check_source(source: &str, level: Level) -> Result<(), Box<TypeError
     db.project().set_included_paths(&mut db, vec![file_path]);
 
     let mut diagnostics = annotation_check(&db, level);
-    diagnostics.extend(db.check());
+    // Filter out unresolved-import errors for the spython library module,
+    // which is frozen into the binary and not visible to ty's resolver.
+    diagnostics.extend(db.check().into_iter().filter(|d| {
+        !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
+    }));
 
-    if diagnostics.is_empty() {
-        Ok(())
-    } else {
+    let has_errors = diagnostics
+        .iter()
+        .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error);
+    if has_errors {
         Err(Box::new(TypeErrors { db, diagnostics }))
+    } else if !diagnostics.is_empty() {
+        Ok(Some(Box::new(TypeErrors { db, diagnostics })))
+    } else {
+        Ok(None)
     }
 }
 
@@ -72,7 +85,14 @@ pub use checker::Level;
 pub fn annotation_check(db: &ProjectDatabase, level: Level) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in &db.project().files(db) {
-        diagnostics.extend(checker::check_file_annotations(db, file, level));
+        // Skip library code (Lib/spython/) — only check student files.
+        let dominated_by_spython = file
+            .path(db)
+            .as_system_path()
+            .is_some_and(|p| p.as_str().contains("/Lib/spython/"));
+        if !dominated_by_spython {
+            diagnostics.extend(checker::check_file_annotations(db, file, level));
+        }
     }
     diagnostics
 }
@@ -86,6 +106,10 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
         match stmt {
             Stmt::Import(import) => {
                 for alias in &import.names {
+                    // Skip library modules (spython) — not student code.
+                    if alias.name.id.starts_with("spython") {
+                        continue;
+                    }
                     if let Some(name) = ModuleName::new(alias.name.id.as_str()) {
                         visit_module(db, file, &name, seen);
                     }
@@ -93,6 +117,10 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
             }
             Stmt::ImportFrom(import_from) => {
                 let module_str = import_from.module.as_deref();
+                // Skip library modules (spython) — not student code.
+                if module_str.is_some_and(|m| m.starts_with("spython")) {
+                    continue;
+                }
                 if let Ok(name) =
                     ModuleName::from_identifier_parts(db, file, module_str, import_from.level)
                 {
@@ -135,6 +163,7 @@ pub fn execute_source(source: &str, filename: &str, parent_dir: &str) -> bool {
     let parent_dir = parent_dir.to_owned();
     let code = interp.run(move |vm| {
         let scope = vm.new_scope_with_main()?;
+        register_ffi_module(vm);
         vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
         vm.run_string(scope, &source, filename).map(drop)
     });
@@ -144,11 +173,19 @@ pub fn execute_source(source: &str, filename: &str, parent_dir: &str) -> bool {
 /// Print type errors to stderr. Pass `use_color = true` in WASM (ansi.ts renders
 /// the ANSI codes), or `stderr().is_terminal()` from the CLI binary.
 pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_color: bool) {
+    use ruff_db::diagnostic::Severity;
+    use std::fmt::Write;
     let config = DisplayDiagnosticConfig::new("spython").color(use_color);
-    eprint!("{}", DisplayDiagnostics::new(db, &config, diagnostics));
-    let n = diagnostics.len();
-    let s = if n == 1 { "" } else { "s" };
-    eprintln!("Found {n} error{s}.");
+    let n = diagnostics
+        .iter()
+        .filter(|d| d.severity() == Severity::Error)
+        .count();
+    let mut buf = format!("{}", DisplayDiagnostics::new(db, &config, diagnostics));
+    if n > 0 {
+        let s = if n == 1 { "" } else { "s" };
+        let _ = writeln!(buf, "Found {n} error{s}.");
+    }
+    eprint!("{buf}");
 }
 
 // --- REPL state ---
@@ -185,6 +222,14 @@ pub fn repl_new(source: &str) -> Box<ReplState> {
         let scope = vm
             .new_scope_with_main()
             .expect("creating the main scope should not fail");
+        register_ffi_module(vm);
+        if let Err(exc) = vm.run_string(
+            scope.clone(),
+            "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
+            "<init>".to_owned(),
+        ) {
+            vm.print_exception(exc);
+        }
         if !source.trim().is_empty() {
             if let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned()) {
                 vm.print_exception(exc);
@@ -207,6 +252,52 @@ pub fn repl_new(source: &str) -> Box<ReplState> {
         scope: Some(scope),
         interp,
     })
+}
+
+/// Register the `_spython_ffi` module with native `show_svg` and `get_key_event` functions.
+fn register_ffi_module(vm: &vm::VirtualMachine) {
+    use rustpython::vm::PyObjectRef;
+
+    let show_svg_fn = vm.new_function(
+        "show_svg",
+        |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
+            wasm_ffi::show_svg(&svg);
+            Ok(vm.ctx.none())
+        },
+    );
+
+    let get_key_event_fn =
+        vm.new_function("get_key_event", |vm: &vm::VirtualMachine| -> PyObjectRef {
+            match wasm_ffi::poll_key_event() {
+                None => vm.ctx.none(),
+                Some((event_type, key, mods)) => {
+                    let elements = vec![
+                        vm.ctx.new_int(event_type).into(),
+                        vm.ctx.new_str(key).into(),
+                        vm.ctx.new_bool(mods[0]).into(), // alt
+                        vm.ctx.new_bool(mods[1]).into(), // ctrl
+                        vm.ctx.new_bool(mods[2]).into(), // shift
+                        vm.ctx.new_bool(mods[3]).into(), // meta
+                        vm.ctx.new_bool(mods[4]).into(), // repeat
+                    ];
+                    vm.ctx.new_tuple(elements).into()
+                }
+            }
+        });
+
+    let dict = vm.ctx.new_dict();
+    dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
+    dict.set_item("get_key_event", get_key_event_fn.into(), vm)
+        .unwrap();
+    let module = vm.new_module("_spython_ffi", dict, None);
+
+    let sys_modules = vm
+        .sys_module
+        .get_attr("modules", vm)
+        .expect("sys.modules should exist");
+    sys_modules
+        .set_item("_spython_ffi", module.into(), vm)
+        .expect("should be able to add to sys.modules");
 }
 
 /// Execute one REPL expression/statement in the session's scope.
