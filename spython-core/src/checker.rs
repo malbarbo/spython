@@ -27,7 +27,7 @@ pub enum Level {
     /// Adds: Enum, @dataclass, match.
     Types = 2,
     /// Adds: list literals, for, while, augmented assignment.
-    Arrays = 3,
+    Repetition = 3,
     /// Adds: full classes with methods, dict/set literals, comprehensions, lambda.
     Classes = 4,
     /// Unrestricted Python (only annotations still required).
@@ -40,7 +40,7 @@ impl Level {
             0 => Some(Level::Functions),
             1 => Some(Level::Selection),
             2 => Some(Level::Types),
-            3 => Some(Level::Arrays),
+            3 => Some(Level::Repetition),
             4 => Some(Level::Classes),
             5 => Some(Level::Full),
             _ => None,
@@ -145,7 +145,7 @@ fn check_stmt(
                     for_stmt.range(),
                     "`async for` is not allowed".to_string(),
                 ));
-            } else if level < Level::Arrays {
+            } else if level < Level::Repetition {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_LOOP,
                     file,
@@ -158,7 +158,7 @@ fn check_stmt(
             check_stmts(&for_stmt.orelse, file, diagnostics, in_class, level);
         }
         Stmt::While(while_stmt) => {
-            if level < Level::Arrays {
+            if level < Level::Repetition {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_LOOP,
                     file,
@@ -246,7 +246,7 @@ fn check_stmt(
             ));
         }
         Stmt::AugAssign(aug) => {
-            if level < Level::Arrays {
+            if level < Level::Repetition {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_AUG_ASSIGN,
                     file,
@@ -304,7 +304,7 @@ fn check_stmt(
 fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level: Level) {
     match expr {
         // Collection literals
-        Expr::List(list) if level < Level::Arrays => {
+        Expr::List(list) if level < Level::Repetition => {
             diagnostics.push(make_lint_diagnostic(
                 &FORBIDDEN_COLLECTION_LITERAL,
                 file,
@@ -312,7 +312,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 "List literal is not allowed at this level".to_string(),
             ));
         }
-        Expr::Tuple(tuple) if level < Level::Arrays => {
+        Expr::Tuple(tuple) if level < Level::Repetition => {
             diagnostics.push(make_lint_diagnostic(
                 &FORBIDDEN_COLLECTION_LITERAL,
                 file,

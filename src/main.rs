@@ -50,7 +50,7 @@ enum Command {
     Run {
         /// Python script to run
         file: PathBuf,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=arrays, 4=classes, 5=full
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=repetition, 4=classes, 5=full
         #[arg(short, long, default_value = "0")]
         level: u8,
     },
@@ -61,7 +61,7 @@ enum Command {
         /// Show all test attempts, not just failures
         #[arg(short, long)]
         verbose: bool,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=arrays, 4=classes, 5=full
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=repetition, 4=classes, 5=full
         #[arg(long, default_value = "0")]
         level: u8,
     },
