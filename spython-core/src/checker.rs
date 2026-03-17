@@ -117,7 +117,16 @@ fn check_stmt(
                         }
                     }
                 }
-                check_class_body(cls, file, diagnostics);
+                // Skip annotation check for Enum subclasses — Enum members
+                // don't need (and shouldn't have) type annotations.
+                let is_enum = cls.arguments.as_ref().is_some_and(|args| {
+                    args.args
+                        .iter()
+                        .any(|arg| matches!(arg, Expr::Name(name) if name.id == "Enum"))
+                });
+                if !is_enum {
+                    check_class_body(cls, file, diagnostics);
+                }
             }
             check_stmts(&cls.body, file, diagnostics, true, level);
             // Check decorator expressions
