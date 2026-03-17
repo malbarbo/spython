@@ -6,7 +6,7 @@ import { makeWasi } from "./wasi.ts";
 
 interface WasmExports {
     memory: WebAssembly.Memory;
-    repl_new(ptr: number, len: number): number;
+    repl_new(ptr: number, len: number, level: number): number;
     repl_run(repl: number, ptr: number, len: number): boolean;
     repl_destroy(repl: number): void;
     string_allocate(size: number): number;
@@ -26,10 +26,10 @@ class ReplSession {
     private readonly exports: WasmExports;
     private readonly ptr: number;
 
-    constructor(exports: WasmExports, input: string) {
+    constructor(exports: WasmExports, input: string, level: number) {
         this.exports = exports;
         const [ptr, len] = encodeString(exports, input);
-        this.ptr = exports.repl_new(ptr, len);
+        this.ptr = exports.repl_new(ptr, len, level);
         exports.string_deallocate(ptr);
     }
 
@@ -51,6 +51,7 @@ class ReplSession {
 // --- Worker ---
 
 class Worker {
+    private level = 4;
     private wasmModule!: WebAssembly.Module;
     private exports!: WasmExports;
     private session: ReplSession | null = null;
@@ -122,6 +123,7 @@ class Worker {
         });
         this.exports = instance.exports as unknown as WasmExports;
         self.onmessage = (e) => this.processMsg(e);
+        this.level = 4;
         this.initRepl("");
     }
 
@@ -135,6 +137,7 @@ class Worker {
                 this.formatRepl(data.data);
                 break;
             case "load":
+                this.level = data.level ?? 4;
                 this.initRepl(data.data);
                 break;
             default:
@@ -144,7 +147,7 @@ class Worker {
 
     initRepl(input: string): void {
         this.session?.destroy();
-        this.session = new ReplSession(this.exports, input);
+        this.session = new ReplSession(this.exports, input, this.level);
         this.channel.ready();
     }
 

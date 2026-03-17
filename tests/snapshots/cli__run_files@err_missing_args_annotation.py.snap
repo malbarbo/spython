@@ -1,5 +1,6 @@
 ---
 source: tests/cli.rs
+assertion_line: 45
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 input_file: tests/inputs/err_missing_args_annotation.py
 ---
@@ -12,6 +13,5 @@ error[missing-parameter-annotation]: Parameter `*args` is missing a type annotat
   |       ^^^^^
 2 |     print(args)
   |
-info: rule `missing-parameter-annotation` is enabled by default
 
 Found 1 error.

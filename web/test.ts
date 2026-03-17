@@ -122,7 +122,7 @@ Deno.test("passing doctests succeed silently", async () => {
                 readyCount++;
                 if (readyCount === 1) {
                     channel.setBuffer(data.buffer);
-                    channel.load(code);
+                    channel.load(code, 4);
                 } else {
                     assertEquals(stdout, "");
                     assertEquals(stderr, "");
@@ -160,7 +160,7 @@ Deno.test("failing doctests are reported on stderr", async () => {
                 readyCount++;
                 if (readyCount === 1) {
                     channel.setBuffer(data.buffer);
-                    channel.load(code);
+                    channel.load(code, 4);
                 } else {
                     assertMatch(stderr, /Failed example:/);
                     assertMatch(stderr, /Expected:\n\s+99/);
@@ -192,7 +192,7 @@ Deno.test("type error output contains ansi codes", async () => {
                 readyCount++;
                 if (readyCount === 1) {
                     channel.setBuffer(data.buffer);
-                    channel.load(code);
+                    channel.load(code, 4);
                 } else {
                     assertMatch(stderr, /\x1b\[/); // contains ANSI codes
                     assertMatch(stderr, /missing-parameter-annotation/);

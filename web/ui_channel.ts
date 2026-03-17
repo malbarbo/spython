@@ -28,7 +28,7 @@ export interface KeyEvent {
 }
 
 export type UIMessage =
-    | { cmd: "load"; data: string }
+    | { cmd: "load"; data: string; level: number }
     | { cmd: "run"; data: string }
     | { cmd: "format"; data: string };
 
@@ -55,8 +55,8 @@ export class UIChannel {
         this.buffer = new Int32Array(buf);
     }
 
-    load(data: string): void {
-        this.worker.postMessage({ cmd: "load", data });
+    load(data: string, level: number): void {
+        this.worker.postMessage({ cmd: "load", data, level });
     }
     run(data: string): void {
         this.worker.postMessage({ cmd: "run", data });

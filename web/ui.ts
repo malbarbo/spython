@@ -22,6 +22,7 @@ type AppState =
     | {
         kind: "ready";
         running: boolean;
+        level: number;
         layout: "horizontal" | "vertical";
         view: "split" | "editor" | "repl";
         splitSize: number;
@@ -47,6 +48,7 @@ class App {
     private readonly replPanel: HTMLElement;
     private readonly helpOverlay: HTMLElement;
     private readonly help: HTMLElement;
+    private readonly levelSelect: HTMLSelectElement;
     private readonly layoutHorizontal: HTMLButtonElement;
     private readonly layoutVertical: HTMLButtonElement;
 
@@ -75,6 +77,9 @@ class App {
         this.replPanel = document.getElementById("repl-panel")!;
         this.helpOverlay = document.getElementById("help-overlay")!;
         this.help = document.getElementById("help")!;
+        this.levelSelect = document.getElementById(
+            "level-select",
+        )! as HTMLSelectElement;
         this.layoutHorizontal = document.getElementById(
             "layout-horizontal",
         )! as HTMLButtonElement;
@@ -111,6 +116,11 @@ class App {
             "click",
             () => this.setLayout("vertical"),
         );
+        this.levelSelect.addEventListener("change", () => {
+            if (this.state.kind === "ready") {
+                this.state.level = parseInt(this.levelSelect.value);
+            }
+        });
         this.replPanel.addEventListener("click", () => this.onReplPanelClick());
         this.resizeHandle.addEventListener(
             "mousedown",
@@ -145,6 +155,7 @@ class App {
                     : {
                         kind: "ready",
                         running: false,
+                        level: 1,
                         layout: "horizontal",
                         view: "split",
                         splitSize: 50,
@@ -210,8 +221,11 @@ class App {
 
         this.runButton.disabled = s.kind !== "ready" || s.running;
         this.stopButton.disabled = s.kind !== "ready" || !s.running;
+        this.levelSelect.disabled = s.kind !== "ready" || s.running;
 
         if (s.kind !== "ready") return;
+
+        this.levelSelect.value = String(s.level);
 
         this.main.style.flexDirection = s.layout === "horizontal"
             ? "row"
@@ -257,7 +271,7 @@ class App {
         if (this.state.kind !== "ready") return;
         this.state.running = true;
         this.render();
-        this.channel.load(this.flask.getCode());
+        this.channel.load(this.flask.getCode(), this.state.level);
     }
 
     private postRun(code: string): void {

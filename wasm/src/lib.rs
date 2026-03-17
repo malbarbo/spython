@@ -37,10 +37,11 @@ fn new_string(ptr: *mut u8, len: usize) -> String {
 // --- REPL ---
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_new(str: *mut u8, len: usize) -> *mut ReplState {
+pub unsafe extern "C" fn repl_new(str: *mut u8, len: usize, level: u8) -> *mut ReplState {
     let source = new_string(str, len);
+    let level = spython_core::Level::from_u8(level).unwrap_or(spython_core::Level::Functions);
     if !source.trim().is_empty() {
-        if let Err(te) = type_check_source(&source) {
+        if let Err(te) = type_check_source(&source, level) {
             print_type_errors(&te.db, &te.diagnostics, true);
         }
     }
