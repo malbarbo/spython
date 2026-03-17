@@ -88,7 +88,7 @@ class App {
         )! as HTMLButtonElement;
 
         this.flask = new CodeFlask(this.editorPanel, {
-            language: "js",
+            language: "python",
             lineNumbers: true,
         });
         this.flask.updateCode(
@@ -426,7 +426,6 @@ class App {
         prompt.className = "repl-prompt";
         prompt.textContent = ">";
 
-        // TODO: add syntax highlight
         const input = (this.replInput = document.createElement("div"));
         input.className = "repl-input";
         input.contentEditable = "true";
