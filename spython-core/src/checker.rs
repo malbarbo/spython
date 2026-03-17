@@ -13,15 +13,17 @@ use ty_project::Db;
 use crate::lints::{
     FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD, FORBIDDEN_COLLECTION_LITERAL,
     FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP,
-    FORBIDDEN_MATCH, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
-    MISSING_RETURN_ANNOTATION,
+    FORBIDDEN_MATCH, FORBIDDEN_SELECTION, MISSING_ATTRIBUTE_ANNOTATION,
+    MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION,
 };
 
 /// Teaching level that controls which Python constructs are allowed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
-    /// Functions, if/else, scalars (int, float, str, bool), string indexing.
-    Functions = 1,
+    /// def, return, scalars (int, float, str, bool), string indexing.
+    Functions = 0,
+    /// Adds: if/elif/else.
+    Selection = 1,
     /// Adds: Enum, @dataclass, match.
     Types = 2,
     /// Adds: list literals, for, while, augmented assignment.
@@ -35,7 +37,8 @@ pub enum Level {
 impl Level {
     pub fn from_u8(n: u8) -> Option<Level> {
         match n {
-            1 => Some(Level::Functions),
+            0 => Some(Level::Functions),
+            1 => Some(Level::Selection),
             2 => Some(Level::Types),
             3 => Some(Level::Arrays),
             4 => Some(Level::Classes),
@@ -168,6 +171,14 @@ fn check_stmt(
             check_stmts(&while_stmt.orelse, file, diagnostics, in_class, level);
         }
         Stmt::If(if_stmt) => {
+            if level < Level::Selection {
+                diagnostics.push(make_lint_diagnostic(
+                    &FORBIDDEN_SELECTION,
+                    file,
+                    if_stmt.range(),
+                    "`if` is not allowed at this level".to_string(),
+                ));
+            }
             check_expr(&if_stmt.test, file, diagnostics, level);
             check_stmts(&if_stmt.body, file, diagnostics, in_class, level);
             for clause in &if_stmt.elif_else_clauses {

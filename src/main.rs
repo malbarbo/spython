@@ -50,8 +50,8 @@ enum Command {
     Run {
         /// Python script to run
         file: PathBuf,
-        /// Teaching level (1-5): 1=functions, 2=types, 3=arrays, 4=classes, 5=full
-        #[arg(short, long, default_value = "1")]
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=arrays, 4=classes, 5=full
+        #[arg(short, long, default_value = "0")]
         level: u8,
     },
     /// Run doctests from the specified Python files
@@ -61,8 +61,8 @@ enum Command {
         /// Show all test attempts, not just failures
         #[arg(short, long)]
         verbose: bool,
-        /// Teaching level (1-5): 1=functions, 2=types, 3=arrays, 4=classes, 5=full
-        #[arg(long, default_value = "1")]
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=arrays, 4=classes, 5=full
+        #[arg(long, default_value = "0")]
         level: u8,
     },
     /// Format Python files
@@ -80,7 +80,7 @@ fn main() -> ExitCode {
         Command::Run { file, level } => match Level::from_u8(level) {
             Some(l) => run_checked(&file, l),
             None => {
-                eprintln!("Invalid level {level}: must be 1-5");
+                eprintln!("Invalid level {level}: must be 0-5");
                 return ExitCode::FAILURE;
             }
         },
@@ -92,7 +92,7 @@ fn main() -> ExitCode {
         } => match Level::from_u8(level) {
             Some(l) => run_check(&files, verbose, l),
             None => {
-                eprintln!("Invalid level {level}: must be 1-5");
+                eprintln!("Invalid level {level}: must be 0-5");
                 return ExitCode::FAILURE;
             }
         },

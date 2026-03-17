@@ -142,6 +142,35 @@ fn run_level(level: u8, code: &str) -> (String, String, bool) {
 }
 
 #[test]
+fn level0_allows_functions() {
+    let (out, _, success) = run_level(
+        0,
+        indoc! {"
+        def double(x: int) -> int:
+            return x * 2
+        print(double(5))
+    "},
+    );
+    assert!(success);
+    assert_eq!(out, "10\n");
+}
+
+#[test]
+fn level0_forbids_if() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            if x > 0:
+                return x
+            return 0
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("forbidden-selection"));
+}
+
+#[test]
 fn level1_allows_if_and_functions() {
     let (out, _, success) = run_level(
         1,
