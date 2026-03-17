@@ -95,17 +95,19 @@ def run_doctests(module, verbose=False):
                     "    " + _got.replace("\n", "\n    ") + "\n"
                 )
             elif verbose:
-                _sys.stderr.write(
-                    "ok: " + _src.split("\n")[0] + "\n"
-                )
+                _sys.stderr.write("ok: " + _src.split("\n")[0] + "\n")
     if _failed:
+        _s = "s" if _total > 1 else ""
         _sys.stderr.write(
-            "***Test Failed*** "
+            "Test Failed "
             + str(_failed)
             + " of "
             + str(_total)
-            + " example(s).\n"
+            + " example"
+            + _s
+            + ".\n"
         )
+    elif _total > 0:
+        _s = "s" if _total > 1 else ""
+        _sys.stderr.write(str(_total) + " example" + _s + " passed.\n")
     return _failed
-
-
