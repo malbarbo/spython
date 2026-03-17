@@ -97,13 +97,14 @@ expressions, emitting diagnostics for forbidden constructs.
 
 | Level | Name      | Adds                                                              |
 | ----- | --------- | ----------------------------------------------------------------- |
-| 1     | Functions | `def`, `if`/`elif`/`else`, `return`, scalars, string `[]`         |
+| 0     | Functions | `def`, `return`, scalars, string `[]`                             |
+| 1     | Selection | `if`/`elif`/`else`                                                |
 | 2     | Types     | `class` (Enum / `@dataclass`), `match`                            |
 | 3     | Arrays    | `list` literals, `for`, `while`, `+=`                             |
 | 4     | Classes   | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
 | 5     | Full      | unrestricted (only annotations still required)                    |
 
-Default is level 1 (most restricted). Usage:
+Default is level 0 (most restricted). Usage:
 
 ```bash
 spython run --level 2 file.py

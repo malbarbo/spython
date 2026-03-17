@@ -157,7 +157,7 @@ class App {
                     : {
                         kind: "ready",
                         running: false,
-                        level: 1,
+                        level: 0,
                         layout: "horizontal",
                         view: "split",
                         splitSize: 50,

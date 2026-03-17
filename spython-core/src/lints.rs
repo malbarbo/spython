@@ -92,6 +92,15 @@ declare_lint! {
 // --- Construct restriction lints ---
 
 declare_lint! {
+    /// Forbids `if`/`elif`/`else` before level 1 (Selection).
+    pub(crate) static FORBIDDEN_SELECTION = {
+        summary: "`if` not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
     /// Forbids `for` and `while` loops before level 3.
     pub(crate) static FORBIDDEN_LOOP = {
         summary: "loop not allowed at this level",
