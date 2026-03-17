@@ -95,14 +95,14 @@ The `--level` flag (CLI) or dropdown (web) controls which Python constructs are
 allowed. The checker (`spython-core/src/checker.rs`) walks statements and
 expressions, emitting diagnostics for forbidden constructs.
 
-| Level | Name      | Adds                                                              |
-| ----- | --------- | ----------------------------------------------------------------- |
-| 0     | Functions | `def`, `return`, scalars, string `[]`                             |
-| 1     | Selection | `if`/`elif`/`else`                                                |
-| 2     | Types     | `class` (Enum / `@dataclass`), `match`                            |
-| 3     | Arrays    | `list` literals, `for`, `while`, `+=`                             |
-| 4     | Classes   | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
-| 5     | Full      | unrestricted (only annotations still required)                    |
+| Level | Name       | Adds                                                              |
+| ----- | ---------- | ----------------------------------------------------------------- |
+| 0     | Functions  | `def`, `return`, scalars, string `[]`                             |
+| 1     | Selection  | `if`/`elif`/`else`                                                |
+| 2     | Types      | `class` (Enum / `@dataclass`), `match`                            |
+| 3     | Repetition | `list` literals, `for`, `while`, `+=`                             |
+| 4     | Classes    | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
+| 5     | Full       | unrestricted (only annotations still required)                    |
 
 Default is level 0 (most restricted). Usage:
 
