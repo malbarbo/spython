@@ -24,6 +24,7 @@ walkdir = "2"
 
 [dev-dependencies]
 assert_cmd = "2.0.16"
+indoc = "2"
 insta = { version = "1.41.1", features = ["glob", "filters"] }
 
 [profile.release]

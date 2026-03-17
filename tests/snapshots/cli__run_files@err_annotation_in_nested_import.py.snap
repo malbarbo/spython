@@ -1,5 +1,6 @@
 ---
 source: tests/cli.rs
+assertion_line: 45
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 input_file: tests/inputs/err_annotation_in_nested_import.py
 ---
@@ -13,7 +14,6 @@ error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
 22 |     """This function has missing parameter and return annotations."""
 23 |     return x + y
    |
-info: rule `missing-parameter-annotation` is enabled by default
 
 error[missing-parameter-annotation]: Parameter `y` is missing a type annotation
   --> test_package/subpackage/nested/deep_module.py:21:28
@@ -23,7 +23,6 @@ error[missing-parameter-annotation]: Parameter `y` is missing a type annotation
 22 |     """This function has missing parameter and return annotations."""
 23 |     return x + y
    |
-info: rule `missing-parameter-annotation` is enabled by default
 
 error[missing-return-annotation]: Function `missing_annotations` is missing a return type annotation
   --> test_package/subpackage/nested/deep_module.py:21:5
@@ -33,6 +32,5 @@ error[missing-return-annotation]: Function `missing_annotations` is missing a re
 22 |     """This function has missing parameter and return annotations."""
 23 |     return x + y
    |
-info: rule `missing-return-annotation` is enabled by default
 
 Found 3 errors.

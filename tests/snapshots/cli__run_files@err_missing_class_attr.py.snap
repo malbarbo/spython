@@ -1,5 +1,6 @@
 ---
 source: tests/cli.rs
+assertion_line: 45
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 input_file: tests/inputs/err_missing_class_attr.py
 ---
@@ -13,7 +14,6 @@ error[missing-attribute-annotation]: Class attribute `x` is missing a type annot
   |     ^
 3 |     y = 0
   |
-info: rule `missing-attribute-annotation` is enabled by default
 
 error[missing-attribute-annotation]: Class attribute `y` is missing a type annotation
  --> err_missing_class_attr.py:3:5
@@ -23,6 +23,5 @@ error[missing-attribute-annotation]: Class attribute `y` is missing a type annot
 3 |     y = 0
   |     ^
   |
-info: rule `missing-attribute-annotation` is enabled by default
 
 Found 2 errors.

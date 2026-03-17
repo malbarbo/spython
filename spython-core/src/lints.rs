@@ -1,8 +1,7 @@
 //! Custom lint rules for spython.
 //!
-//! This module defines additional lint rules that are specific to spython's educational
-//! focus on requiring type annotations. These lints are registered with ty's lint system
-//! and run automatically during type checking.
+//! This module defines lint rules specific to spython's educational focus:
+//! annotation requirements and construct restriction levels.
 
 use ty_python_semantic::declare_lint;
 use ty_python_semantic::lint::{Level, LintStatus};
@@ -85,6 +84,90 @@ declare_lint! {
     /// ```
     pub(crate) static MISSING_ATTRIBUTE_ANNOTATION = {
         summary: "missing type annotation for a class-body variable assignment",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+// --- Construct restriction lints ---
+
+declare_lint! {
+    /// Forbids `for` and `while` loops before level 3.
+    pub(crate) static FORBIDDEN_LOOP = {
+        summary: "loop not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids list/tuple/dict/set literals before the appropriate level.
+    pub(crate) static FORBIDDEN_COLLECTION_LITERAL = {
+        summary: "collection literal not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids `class` definitions before level 2.
+    pub(crate) static FORBIDDEN_CLASS = {
+        summary: "`class` not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids methods inside classes before level 4.
+    pub(crate) static FORBIDDEN_CLASS_METHOD = {
+        summary: "method in class not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids list/set/dict comprehensions and generator expressions before level 4.
+    pub(crate) static FORBIDDEN_COMPREHENSION = {
+        summary: "comprehension not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids `lambda` expressions before level 4.
+    pub(crate) static FORBIDDEN_LAMBDA = {
+        summary: "`lambda` not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids augmented assignment (`+=`, `-=`, etc.) before level 3.
+    pub(crate) static FORBIDDEN_AUG_ASSIGN = {
+        summary: "augmented assignment not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids constructs like `global`, `nonlocal`, `with`, `try`, `async`,
+    /// `yield`, `del` at all teaching levels.
+    pub(crate) static FORBIDDEN_CONSTRUCT = {
+        summary: "construct not allowed",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// Forbids `match` statements before level 2.
+    pub(crate) static FORBIDDEN_MATCH = {
+        summary: "`match` not allowed at this level",
         status: LintStatus::preview("0.0.0"),
         default_level: Level::Error,
     }

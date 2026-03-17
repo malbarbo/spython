@@ -39,7 +39,7 @@ pub fn new_interpreter() -> vm::Interpreter {
 ///
 /// Used by the WASM shim. The source is written to an in-memory filesystem
 /// under the path `/user.py`, then annotation-checked and ty-checked.
-pub fn type_check_source(source: &str) -> Result<(), Box<TypeErrors>> {
+pub fn type_check_source(source: &str, level: Level) -> Result<(), Box<TypeErrors>> {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
     let system = InMemorySystem::new(cwd.clone());
     system
@@ -56,7 +56,7 @@ pub fn type_check_source(source: &str) -> Result<(), Box<TypeErrors>> {
 
     db.project().set_included_paths(&mut db, vec![file_path]);
 
-    let mut diagnostics = annotation_check(&db);
+    let mut diagnostics = annotation_check(&db, level);
     diagnostics.extend(db.check());
 
     if diagnostics.is_empty() {
@@ -67,10 +67,12 @@ pub fn type_check_source(source: &str) -> Result<(), Box<TypeErrors>> {
 }
 
 /// Run the annotation checker on all files registered in `db`.
-pub fn annotation_check(db: &ProjectDatabase) -> Vec<Diagnostic> {
+pub use checker::Level;
+
+pub fn annotation_check(db: &ProjectDatabase, level: Level) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in &db.project().files(db) {
-        diagnostics.extend(checker::check_file_annotations(db, file));
+        diagnostics.extend(checker::check_file_annotations(db, file, level));
     }
     diagnostics
 }

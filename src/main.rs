@@ -5,7 +5,7 @@ use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::name::Name;
 use rustpython::run_shell;
 use spython_core::{
-    annotation_check, collect_import_files, execute_source, format_source, new_interpreter,
+    Level, annotation_check, collect_import_files, execute_source, format_source, new_interpreter,
     print_type_errors,
 };
 use std::collections::HashSet;
@@ -50,6 +50,9 @@ enum Command {
     Run {
         /// Python script to run
         file: PathBuf,
+        /// Teaching level (1-5): 1=functions, 2=types, 3=arrays, 4=classes, 5=full
+        #[arg(short, long, default_value = "1")]
+        level: u8,
     },
     /// Run doctests from the specified Python files
     Check {
@@ -58,6 +61,9 @@ enum Command {
         /// Show all test attempts, not just failures
         #[arg(short, long)]
         verbose: bool,
+        /// Teaching level (1-5): 1=functions, 2=types, 3=arrays, 4=classes, 5=full
+        #[arg(long, default_value = "1")]
+        level: u8,
     },
     /// Format Python files
     Format {
@@ -71,9 +77,25 @@ fn main() -> ExitCode {
 
     let result = match cli.command.unwrap_or(Command::Repl { file: None }) {
         Command::Repl { file } => start_repl(file.as_deref()),
-        Command::Run { file } => run_checked(&file),
+        Command::Run { file, level } => match Level::from_u8(level) {
+            Some(l) => run_checked(&file, l),
+            None => {
+                eprintln!("Invalid level {level}: must be 1-5");
+                return ExitCode::FAILURE;
+            }
+        },
         Command::Format { paths } => run_format(&paths),
-        Command::Check { files, verbose } => run_check(&files, verbose),
+        Command::Check {
+            files,
+            verbose,
+            level,
+        } => match Level::from_u8(level) {
+            Some(l) => run_check(&files, verbose, l),
+            None => {
+                eprintln!("Invalid level {level}: must be 1-5");
+                return ExitCode::FAILURE;
+            }
+        },
     };
 
     match result {
@@ -112,7 +134,7 @@ fn display_error(error: Error) {
 /// definitions are available in the REPL (like `python -i file.py`).
 fn start_repl(file: Option<&Path>) -> Result<(), Error> {
     if let Some(path) = file {
-        type_check_file(path)?;
+        type_check_file(path, Level::Classes)?;
     }
 
     let preload: Option<(String, String, String)> = file
@@ -149,7 +171,7 @@ fn start_repl(file: Option<&Path>) -> Result<(), Error> {
 
 /// Type-check a Python file: validates the path, builds the ty database,
 /// runs the annotation checker, then runs ty's type checker.
-fn type_check_file(file: &Path) -> Result<(), Error> {
+fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
     let abs_file = std::fs::canonicalize(file).map_err(|e| {
         Error::FileResolution(format!(
             "cannot resolve '{}' to an absolute path: {e}",
@@ -182,7 +204,7 @@ fn type_check_file(file: &Path) -> Result<(), Error> {
         .collect();
     db.project().set_included_paths(&mut db, sys_files);
 
-    let mut diagnostics = annotation_check(&db);
+    let mut diagnostics = annotation_check(&db, level);
     diagnostics.extend(db.check());
     if !diagnostics.is_empty() {
         return Err(Error::TypeChecking(Box::new(db), diagnostics));
@@ -192,8 +214,8 @@ fn type_check_file(file: &Path) -> Result<(), Error> {
 }
 
 /// Run a Python script with type checking enabled.
-fn run_checked(file: &Path) -> Result<(), Error> {
-    type_check_file(file)?;
+fn run_checked(file: &Path, level: Level) -> Result<(), Error> {
+    type_check_file(file, level)?;
 
     let source = std::fs::read_to_string(file).map_err(Error::FileRead)?;
     let file_str = file.to_string_lossy().into_owned();
@@ -236,7 +258,7 @@ fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
 }
 
 /// Run doctests for the given files, ignoring paths that are not files.
-fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), Error> {
+fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
     // Use original paths (not canonicalized) so output stays relative when
     // the caller passes relative paths, making test snapshots portable.
     let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
@@ -246,7 +268,7 @@ fn run_check(files: &[PathBuf], verbose: bool) -> Result<(), Error> {
     }
 
     for file in &valid_files {
-        type_check_file(file)?;
+        type_check_file(file, level)?;
     }
 
     let py_verbose = if verbose { "True" } else { "False" };
