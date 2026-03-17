@@ -116,11 +116,13 @@ class App {
             "click",
             () => this.setLayout("vertical"),
         );
-        this.levelSelect.addEventListener("change", () => {
+        const updateLevel = () => {
             if (this.state.kind === "ready") {
                 this.state.level = parseInt(this.levelSelect.value);
             }
-        });
+        };
+        this.levelSelect.addEventListener("change", updateLevel);
+        this.levelSelect.addEventListener("input", updateLevel);
         this.replPanel.addEventListener("click", () => this.onReplPanelClick());
         this.resizeHandle.addEventListener(
             "mousedown",
@@ -269,6 +271,7 @@ class App {
 
     private postLoad(): void {
         if (this.state.kind !== "ready") return;
+        this.state.level = parseInt(this.levelSelect.value);
         this.state.running = true;
         this.render();
         this.channel.load(this.flask.getCode(), this.state.level);
@@ -410,7 +413,7 @@ class App {
     }
 
     private stopResize(): void {
-        if (this.state.kind !== "ready") return;
+        if (this.state.kind !== "ready" || !this.state.resizing) return;
         this.state.resizing = false;
         this.render();
     }

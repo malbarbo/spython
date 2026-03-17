@@ -82,6 +82,9 @@ export class WorkerChannel {
     formatted(data: string): void {
         workerPost({ cmd: "formatted", data });
     }
+    svg(data: string): void {
+        workerPost({ cmd: "svg", data });
+    }
 }
 
 function workerPost(msg: WorkerMessage): void {

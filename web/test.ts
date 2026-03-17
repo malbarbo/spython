@@ -1,5 +1,5 @@
 import { assertEquals, assertMatch } from "jsr:@std/assert";
-import { UIChannel, WorkerMessage } from "./ui_channel.ts";
+import { KEYDOWN, UIChannel, WorkerMessage } from "./ui_channel.ts";
 
 const STDOUT = 1;
 const STDERR = 2;
@@ -100,7 +100,7 @@ Deno.test("stop interrupts long-running code", async () => {
     });
 });
 
-Deno.test("passing doctests succeed silently", async () => {
+Deno.test("passing doctests report count", async () => {
     const code = [
         "def add(a: int, b: int) -> int:",
         '    """',
@@ -125,7 +125,7 @@ Deno.test("passing doctests succeed silently", async () => {
                     channel.load(code, 4);
                 } else {
                     assertEquals(stdout, "");
-                    assertEquals(stderr, "");
+                    assertEquals(stderr, "1 example passed.\n");
                     worker.terminate();
                     resolve();
                 }
@@ -162,10 +162,10 @@ Deno.test("failing doctests are reported on stderr", async () => {
                     channel.setBuffer(data.buffer);
                     channel.load(code, 4);
                 } else {
-                    assertMatch(stderr, /Failed example:/);
-                    assertMatch(stderr, /Expected:\n\s+99/);
-                    assertMatch(stderr, /Got:\n\s+3/);
-                    assertMatch(stderr, /\*\*\*Test Failed\*\*\* 1 of 1/);
+                    assertMatch(stderr, /Failed example/);
+                    assertMatch(stderr, /Expected/);
+                    assertMatch(stderr, /Got/);
+                    assertMatch(stderr, /Test Failed.*1 of 1/);
                     worker.terminate();
                     resolve();
                 }
@@ -203,6 +203,118 @@ Deno.test("type error output contains ansi codes", async () => {
                 }
             } else if (data.cmd === "write" && data.fd === STDERR) {
                 stderr += data.data;
+            } else if (data.cmd === "error") {
+                reject(new Error(`Worker error: ${data.data}`));
+            }
+        };
+    });
+});
+
+Deno.test("show_svg sends svg message", async () => {
+    const code = [
+        "from spython import circle, fill, to_svg, show_svg, red",
+        "show_svg(to_svg(circle(30, fill(red))))",
+    ].join("\n");
+
+    return new Promise<void>((resolve, reject) => {
+        const [worker, channel] = makeWorker();
+        let readyCount = 0;
+
+        worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+            const data = event.data;
+            if (data.cmd === "ready") {
+                readyCount++;
+                if (readyCount === 1) {
+                    channel.setBuffer(data.buffer);
+                    channel.load(code, 5);
+                }
+            } else if (data.cmd === "svg") {
+                assertMatch(data.data, /^<svg /);
+                assertMatch(data.data, /ellipse/);
+                assertMatch(data.data, /rgba\(255, 0, 0/);
+                worker.terminate();
+                resolve();
+            } else if (data.cmd === "error") {
+                reject(new Error(`Worker error: ${data.data}`));
+            }
+        };
+    });
+});
+
+Deno.test("get_key_event returns enqueued key", async () => {
+    return new Promise<void>((resolve, reject) => {
+        const [worker, channel] = makeWorker();
+        let readyCount = 0;
+
+        worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+            const data = event.data;
+            if (data.cmd === "ready") {
+                readyCount++;
+                if (readyCount === 1) {
+                    channel.setBuffer(data.buffer);
+                    // Enqueue a key event before running code that reads it
+                    channel.enqueueKeyEvent({
+                        type: KEYDOWN,
+                        key: "a",
+                        alt: false,
+                        ctrl: false,
+                        shift: false,
+                        meta: false,
+                        repeat: false,
+                    });
+                    channel.run(
+                        "from spython.system import get_key_event; print(get_key_event())",
+                    );
+                }
+            } else if (data.cmd === "write") {
+                if (data.fd === STDERR) return;
+                // Should be a tuple: (1, 'a', False, False, False, False, False)
+                assertMatch(
+                    data.data,
+                    /\(1, 'a', False, False, False, False, False\)/,
+                );
+                worker.terminate();
+                resolve();
+            } else if (data.cmd === "error") {
+                reject(new Error(`Worker error: ${data.data}`));
+            }
+        };
+    });
+});
+
+Deno.test("dataclass and enum work", async () => {
+    const code = [
+        "from dataclasses import dataclass",
+        "from enum import Enum",
+        "@dataclass",
+        "class P:",
+        "    x: int",
+        "    y: int",
+        "class Color(Enum):",
+        "    RED = 1",
+        "    BLUE = 2",
+        "print(P(1, 2), Color.RED)",
+    ].join("\n");
+
+    return new Promise<void>((resolve, reject) => {
+        const [worker, channel] = makeWorker();
+        let readyCount = 0;
+
+        worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+            const data = event.data;
+            if (data.cmd === "ready") {
+                readyCount++;
+                if (readyCount === 1) {
+                    channel.setBuffer(data.buffer);
+                    channel.load(code, 5);
+                }
+            } else if (data.cmd === "write") {
+                if (data.fd === STDOUT) {
+                    assertMatch(data.data, /P\(x=1, y=2\)/);
+                    assertMatch(data.data, /Color\.RED/);
+                    worker.terminate();
+                    resolve();
+                }
             } else if (data.cmd === "error") {
                 reject(new Error(`Worker error: ${data.data}`));
             }

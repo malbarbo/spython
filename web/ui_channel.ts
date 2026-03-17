@@ -37,7 +37,8 @@ export type WorkerMessage =
     | { cmd: "error"; data: string }
     | { cmd: "progress"; data: number }
     | { cmd: "write"; fd: number; data: string }
-    | { cmd: "formatted"; data: string };
+    | { cmd: "formatted"; data: string }
+    | { cmd: "svg"; data: string };
 
 interface Postable {
     postMessage(msg: UIMessage): void;

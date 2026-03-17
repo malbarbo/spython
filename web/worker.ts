@@ -114,10 +114,13 @@ class Worker {
                 getBuffer: () => this.getBuffer(),
                 checkInterrupt: () => this.channel.checkInterrupt(),
                 sleep: (ms) => this.channel.sleep(ms),
+                svg: (data) => this.channel.svg(data),
+                dequeueKeyEvent: () => this.channel.dequeueKeyEvent(),
             }),
             wasi_snapshot_preview1: makeWasi({
                 getBuffer: () => this.getBuffer(),
                 write: (fd, text) => this.channel.write(fd, text),
+                svg: (data) => this.channel.svg(data),
                 env: ["RUST_BACKTRACE=1"],
             }),
         });
@@ -179,7 +182,8 @@ class Worker {
             this.channel.formatted(readCstr(this.exports, r));
             this.exports.cstr_deallocate(r);
         } else {
-            this.channel.ready();
+            // Format failed (e.g. syntax error) — send original code unchanged
+            this.channel.formatted(input);
         }
     }
 }

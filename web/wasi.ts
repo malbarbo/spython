@@ -3,6 +3,7 @@
 
 const STDOUT = 1;
 const STDERR = 2;
+const SVG_FD = 3;
 
 const WASI_ESUCCESS = 0;
 const WASI_EINVAL = 28;
@@ -12,6 +13,7 @@ const WASI_EBADF = 8;
 export interface WasiOptions {
     getBuffer(): ArrayBuffer;
     write(fd: number, text: string): void;
+    svg(data: string): void;
     args?: string[];
     env?: string[];
 }
@@ -114,7 +116,7 @@ export function makeWasi(options: WasiOptions) {
             iovsLen: number,
             nwrittenPtr: number,
         ): number => {
-            if (fd !== STDOUT && fd !== STDERR) {
+            if (fd !== STDOUT && fd !== STDERR && fd !== SVG_FD) {
                 console.error("fd_write: unsupported file descriptor:", fd);
                 return WASI_EBADF;
             }
@@ -126,7 +128,12 @@ export function makeWasi(options: WasiOptions) {
                     const bufPtr = dataView.getInt32(iovPtr, true);
                     const bufLen = dataView.getInt32(iovPtr + 4, true);
                     const chunk = new Uint8Array(buf(), bufPtr, bufLen);
-                    options.write(fd, decoder.decode(chunk));
+                    const text = decoder.decode(chunk);
+                    if (fd === SVG_FD) {
+                        options.svg(text);
+                    } else {
+                        options.write(fd, text);
+                    }
                     totalBytesWritten += bufLen;
                 }
                 dataView.setInt32(nwrittenPtr, totalBytesWritten, true);
@@ -140,7 +147,7 @@ export function makeWasi(options: WasiOptions) {
         fd_read: (): number => 0,
         fd_close: (): number => 0,
         fd_fdstat_get: (fd: number, statPtr: number): number => {
-            if (fd === STDOUT || fd === STDERR) {
+            if (fd === STDOUT || fd === STDERR || fd === SVG_FD) {
                 // Zero the entire fdstat struct (24 bytes) then set fs_filetype.
                 // isatty() checks fs_filetype == 2 AND (fs_rights_base[0] & 0x24) == 0,
                 // so uninitialized stack memory in fs_rights_base would make it return false.
