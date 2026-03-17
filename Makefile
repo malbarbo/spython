@@ -69,6 +69,8 @@ check:
 	cargo clippy -- -D warnings
 	cargo fmt -- --check
 	deno fmt --check
+	ruff check .
+	ruff format --check .
 
 # Utility
 

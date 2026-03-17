@@ -1,0 +1,5 @@
+extend-exclude = ["crates", "target", ".cargo", "dist"]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/inputs/**" = ["F401"]

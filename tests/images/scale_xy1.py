@@ -1,0 +1,7 @@
+from spython import beside, blue, ellipse, fill, scale_xy, to_svg
+
+print(
+    to_svg(
+        beside(scale_xy(ellipse(20, 30, fill(blue)), 3, 2), ellipse(60, 60, fill(blue)))
+    )
+)

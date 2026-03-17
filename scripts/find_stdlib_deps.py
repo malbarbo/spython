@@ -101,6 +101,9 @@ def _collect_imports(node, imports, package=None):
     elif isinstance(node, ast.Try):
         for child in node.body:
             _collect_imports(child, imports, package)
+        for handler in node.handlers:
+            for child in handler.body:
+                _collect_imports(child, imports, package)
     elif isinstance(node, ast.ClassDef):
         for child in node.body:
             _collect_imports(child, imports, package)
@@ -181,17 +184,17 @@ def main():
     # The encodings package loads codecs dynamically by name at runtime.
     # Always include the essential ones needed by the VM init.
     if "encodings" in all_deps:
-        all_deps.update([
-            "encodings.aliases",
-            "encodings.ascii",
-            "encodings.latin_1",
-            "encodings.utf_8",
-        ])
+        all_deps.update(
+            [
+                "encodings.aliases",
+                "encodings.ascii",
+                "encodings.latin_1",
+                "encodings.utf_8",
+            ]
+        )
 
     # Keep only modules that resolve to actual files in lib_dir
-    resolved = sorted(
-        m for m in all_deps if resolve_module(m, lib_dir)[0] is not None
-    )
+    resolved = sorted(m for m in all_deps if resolve_module(m, lib_dir)[0] is not None)
 
     for m in resolved:
         print(m)
@@ -206,7 +209,7 @@ def main():
             total_bytes += os.path.getsize(path)
     print(
         f"\n# {len(resolved)} modules, {len(files_seen)} files, "
-        f"{total_bytes:,} bytes ({total_bytes/1024:.0f} KB)",
+        f"{total_bytes:,} bytes ({total_bytes / 1024:.0f} KB)",
         file=sys.stderr,
     )
 

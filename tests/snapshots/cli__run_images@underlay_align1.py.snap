@@ -1,0 +1,7 @@
+---
+source: tests/cli.rs
+assertion_line: 53
+expression: "format!(\"{out}\")"
+input_file: tests/images/underlay_align1.py
+---
+
