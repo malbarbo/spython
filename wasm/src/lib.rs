@@ -40,12 +40,21 @@ fn new_string(ptr: *mut u8, len: usize) -> String {
 pub unsafe extern "C" fn repl_new(str: *mut u8, len: usize, level: u8) -> *mut ReplState {
     let source = new_string(str, len);
     let level = spython_core::Level::from_u8(level).unwrap_or(spython_core::Level::Functions);
+    let mut has_errors = false;
     if !source.trim().is_empty() {
-        if let Err(te) = type_check_source(&source, level) {
-            print_type_errors(&te.db, &te.diagnostics, true);
+        match type_check_source(&source, level) {
+            Err(te) => {
+                print_type_errors(&te.db, &te.diagnostics, true);
+                has_errors = true;
+            }
+            Ok(Some(te)) => {
+                print_type_errors(&te.db, &te.diagnostics, true);
+            }
+            Ok(None) => {}
         }
     }
-    Box::leak(spython_core::repl_new(&source))
+    let run_source = if has_errors { "" } else { &source };
+    Box::leak(spython_core::repl_new(run_source))
 }
 
 #[unsafe(no_mangle)]
