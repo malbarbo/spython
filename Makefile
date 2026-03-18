@@ -2,12 +2,11 @@ WASM_TARGET = wasm32-wasip1
 WASM_BIN    = target/$(WASM_TARGET)/release/spython.wasm
 WEB_DIR     = web
 DIST_DIR    = dist
+BUILD_DIR   = build
 
 DIST_FILES = \
-	$(DIST_DIR)/spython.wasm \
+	$(DIST_DIR)/engine.wasm \
 	$(DIST_DIR)/index.html \
-	$(DIST_DIR)/spython.js \
-	$(DIST_DIR)/worker.js \
 	$(DIST_DIR)/server.py
 
 .PHONY: all serve test test-web test-rs check clean
@@ -20,7 +19,7 @@ serve: $(DIST_FILES)
 
 # WASM binary
 
-$(DIST_DIR)/spython.wasm: $(WASM_BIN) | $(DIST_DIR)
+$(DIST_DIR)/engine.wasm: $(WASM_BIN) | $(DIST_DIR)
 	wasm-strip $< -o $@
 	wasm-opt -Oz --enable-bulk-memory --enable-mutable-globals --enable-sign-ext --enable-nontrapping-float-to-int $@ -o $@
 
@@ -35,21 +34,24 @@ RUST_SRCS = Cargo.toml \
 $(WASM_BIN): $(RUST_SRCS)
 	cargo build -p spython-wasm --target $(WASM_TARGET) --release
 
-# TypeScript compilation
+# TypeScript bundles (intermediate, used by inline.ts)
 
-$(DIST_DIR)/worker.js: $(WEB_DIR)/worker.ts $(WEB_DIR)/worker_channel.ts $(WEB_DIR)/ui_channel.ts $(WEB_DIR)/env.ts $(WEB_DIR)/wasi.ts | $(DIST_DIR)
+$(BUILD_DIR)/worker.js: $(WEB_DIR)/worker.ts $(WEB_DIR)/worker_channel.ts $(WEB_DIR)/ui_channel.ts $(WEB_DIR)/env.ts $(WEB_DIR)/wasi.ts | $(BUILD_DIR)
 	deno bundle $(WEB_DIR)/worker.ts -o $@
 
-$(DIST_DIR)/spython.js: $(WEB_DIR)/ui.ts $(WEB_DIR)/ui_channel.ts $(WEB_DIR)/ansi.ts | $(DIST_DIR)
+$(BUILD_DIR)/ui.js: $(WEB_DIR)/ui.ts $(WEB_DIR)/ui_channel.ts $(WEB_DIR)/ansi.ts | $(BUILD_DIR)
 	deno bundle $(WEB_DIR)/ui.ts -o $@
 
-# Static web files
+$(BUILD_DIR)/codeflask.min.js: | $(BUILD_DIR)
+	curl -sL https://unpkg.com/codeflask/build/codeflask.min.js -o $@
 
-$(DIST_DIR)/index.html: $(WEB_DIR)/spython.html | $(DIST_DIR)
-	cp $< $@
+$(BUILD_DIR)/prism-python.min.js: | $(BUILD_DIR)
+	curl -sL https://unpkg.com/prismjs/components/prism-python.min.js -o $@
 
-$(DIST_DIR)/test.js: $(WEB_DIR)/test.ts $(WEB_DIR)/ui_channel.ts | $(DIST_DIR)
-	deno bundle $(WEB_DIR)/test.ts -o $@
+# Inline everything into a single index.html
+
+$(DIST_DIR)/index.html: $(WEB_DIR)/spython.html $(BUILD_DIR)/ui.js $(BUILD_DIR)/worker.js $(BUILD_DIR)/codeflask.min.js $(BUILD_DIR)/prism-python.min.js $(WEB_DIR)/inline.ts | $(DIST_DIR)
+	deno run --allow-read --allow-write $(WEB_DIR)/inline.ts
 
 # Tests
 
@@ -58,7 +60,10 @@ test: test-rs test-web
 test-rs:
 	cargo test
 
-test-web: $(DIST_DIR)/spython.wasm $(DIST_DIR)/worker.js
+$(BUILD_DIR)/engine.wasm: $(DIST_DIR)/engine.wasm | $(BUILD_DIR)
+	ln -sf ../$(DIST_DIR)/engine.wasm $@
+
+test-web: $(DIST_DIR)/engine.wasm $(BUILD_DIR)/worker.js $(BUILD_DIR)/engine.wasm
 	deno test $(WEB_DIR)/channel_test.ts
 	deno test $(WEB_DIR)/wasi_test.ts
 	deno test $(WEB_DIR)/ansi_test.ts
@@ -78,5 +83,8 @@ check:
 $(DIST_DIR):
 	mkdir -p $@
 
+$(BUILD_DIR):
+	mkdir -p $@
+
 clean:
-	rm -rf $(DIST_DIR)
+	rm -rf $(DIST_DIR) $(BUILD_DIR)

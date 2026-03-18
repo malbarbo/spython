@@ -61,8 +61,7 @@ class Worker {
     }
 
     private async loadWasm(): Promise<void> {
-        const wasmUrl = new URL(import.meta.url).searchParams.get("wasm") ??
-            "spython.wasm";
+        const wasmUrl = "engine.wasm";
         try {
             const response = await fetch(wasmUrl);
             if (!response.ok) {

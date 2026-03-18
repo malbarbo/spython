@@ -10,6 +10,7 @@
             ".github/",
             ".claude/",
             "crates/",
+            "build/",
             "dist/"
         ]
     }

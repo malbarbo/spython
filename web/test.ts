@@ -2,11 +2,9 @@ import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { KEYDOWN, UIChannel, WorkerMessage } from "./ui_channel.ts";
 import { STDERR, STDOUT } from "./wasi.ts";
 
-const DIST = new URL("../dist/", import.meta.url).href;
-
 function makeWorker(): [Worker, UIChannel] {
     const worker = new Worker(
-        `${DIST}worker.js?wasm=spython.wasm`,
+        new URL("../build/worker.js", import.meta.url).href,
         { type: "module" },
     );
     return [worker, new UIChannel(worker)];
