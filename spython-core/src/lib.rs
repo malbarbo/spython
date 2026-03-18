@@ -218,6 +218,7 @@ pub fn repl_new(source: &str) -> Box<ReplState> {
             .new_scope_with_main()
             .expect("creating the main scope should not fail");
         register_ffi_module(vm);
+        #[cfg(target_arch = "wasm32")]
         if let Err(exc) = vm.run_string(
             scope.clone(),
             "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
@@ -280,9 +281,31 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
             }
         });
 
+    let text_width_fn = vm.new_function(
+        "text_width",
+        |text: String, font: String, size: f64, vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx
+                .new_float(wasm_ffi::measure_text_width(&text, &font, size))
+                .into()
+        },
+    );
+
+    let text_height_fn = vm.new_function(
+        "text_height",
+        |text: String, font: String, size: f64, vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx
+                .new_float(wasm_ffi::measure_text_height(&text, &font, size))
+                .into()
+        },
+    );
+
     let dict = vm.ctx.new_dict();
     dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
     dict.set_item("get_key_event", get_key_event_fn.into(), vm)
+        .unwrap();
+    dict.set_item("text_width", text_width_fn.into(), vm)
+        .unwrap();
+    dict.set_item("text_height", text_height_fn.into(), vm)
         .unwrap();
     let module = vm.new_module("_spython_ffi", dict, None);
 

@@ -8,6 +8,20 @@
 unsafe extern "C" {
     fn draw_svg(ptr: *const u8, len: usize);
     fn get_key_event(key_ptr: *mut u8, key_len: usize, mods_ptr: *mut u8) -> i32;
+    fn text_width(
+        text: *const u8,
+        text_len: usize,
+        font: *const u8,
+        font_len: usize,
+        size: f64,
+    ) -> f64;
+    fn text_height(
+        text: *const u8,
+        text_len: usize,
+        font: *const u8,
+        font_len: usize,
+        size: f64,
+    ) -> f64;
 }
 
 /// Show an SVG image. On WASM, calls the env import; on native, prints to stdout.
@@ -19,6 +33,32 @@ pub fn show_svg(svg: &str) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         println!("{svg}");
+    }
+}
+
+/// Measure text width. On WASM, uses OffscreenCanvas; on native, uses 0.6 ratio.
+pub fn measure_text_width(text: &str, font: &str, size: f64) -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        unsafe { text_width(text.as_ptr(), text.len(), font.as_ptr(), font.len(), size) }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = font;
+        text.len() as f64 * size * 0.6
+    }
+}
+
+/// Measure text height. On WASM, uses OffscreenCanvas; on native, uses font size.
+pub fn measure_text_height(text: &str, font: &str, size: f64) -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        unsafe { text_height(text.as_ptr(), text.len(), font.as_ptr(), font.len(), size) }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (text, font);
+        size
     }
 }
 
