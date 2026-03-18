@@ -88,10 +88,11 @@ export class WorkerChannel {
         }
     }
 
-    ready(): void {
+    ready(hadErrors = false): void {
         workerPost({
             cmd: "ready",
             buffer: this.buffer.buffer as SharedArrayBuffer,
+            hadErrors,
         });
     }
     error(data: string): void {

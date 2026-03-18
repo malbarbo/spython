@@ -23,6 +23,7 @@ declare class CodeFlask {
         },
     );
     updateCode(code: string): void;
+    onUpdate(callback: (code: string) => void): void;
     getCode(): string;
 }
 
@@ -38,6 +39,7 @@ type AppState =
         splitSize: number;
         helpVisible: boolean;
         resizing: boolean;
+        dirty: boolean;
         history: string[];
         historyIndex: number;
     };
@@ -46,6 +48,7 @@ class App {
     private state: AppState = { kind: "loading", progress: 0 };
     private runAfterFormat = false;
     private replInput: HTMLDivElement | null = null;
+    private replPrompt: HTMLDivElement | null = null;
     private lastSvg: HTMLDivElement | null = null;
     private lastActive: HTMLElement | null = null;
 
@@ -115,6 +118,15 @@ class App {
             document.getElementById("default-code")?.textContent ?? "",
         );
         this.setupEditorAutoIndent();
+        this.flask.onUpdate(() => {
+            if (
+                this.state.kind === "ready" && !this.state.running &&
+                !this.state.dirty
+            ) {
+                this.state.dirty = true;
+                this.render();
+            }
+        });
 
         const worker = new Worker("worker.js", { type: "module" });
         worker.onmessage = (e: MessageEvent<WorkerMessage>) =>
@@ -238,7 +250,11 @@ class App {
             case "ready": {
                 const prev = this.state;
                 this.state = prev.kind === "ready"
-                    ? { ...prev, running: false }
+                    ? {
+                        ...prev,
+                        running: false,
+                        dirty: data.hadErrors ? prev.dirty : false,
+                    }
                     : {
                         kind: "ready",
                         running: false,
@@ -250,6 +266,7 @@ class App {
                         splitSize: 50,
                         helpVisible: false,
                         resizing: false,
+                        dirty: true,
                         history: [],
                         historyIndex: -1,
                     };
@@ -320,6 +337,10 @@ class App {
         if (s.kind !== "ready") return;
 
         this.levelSelect.value = String(s.level);
+
+        if (this.replPrompt) {
+            this.replPrompt.textContent = s.dirty ? "\u25CF >" : ">";
+        }
 
         this.main.style.flexDirection = s.layout === "horizontal"
             ? "row"
@@ -537,9 +558,10 @@ class App {
         const inputContainer = document.createElement("div");
         inputContainer.className = "repl-input-container";
 
-        const prompt = document.createElement("div");
+        const dirty = this.state.kind === "ready" && this.state.dirty;
+        const prompt = (this.replPrompt = document.createElement("div"));
         prompt.className = "repl-prompt";
-        prompt.textContent = ">";
+        prompt.textContent = dirty ? "\u25CF >" : ">";
 
         const wrapper = document.createElement("div");
         wrapper.className = "repl-input-wrapper";

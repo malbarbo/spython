@@ -53,8 +53,11 @@ pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut R
             Ok(None) => {}
         }
     }
-    let run_source = if has_errors { "" } else { &source };
-    Box::leak(spython_core::repl_new(run_source))
+    if has_errors {
+        std::ptr::null_mut()
+    } else {
+        Box::leak(spython_core::repl_new(&source))
+    }
 }
 
 #[unsafe(no_mangle)]

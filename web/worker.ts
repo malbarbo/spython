@@ -20,12 +20,23 @@ interface WasmExports {
 class ReplSession {
     private readonly exports: WasmExports;
     private readonly ptr: number;
+    readonly hadErrors: boolean;
 
     constructor(exports: WasmExports, input: string, level: number) {
         this.exports = exports;
         const [ptr, len] = encodeString(exports, input);
-        this.ptr = exports.repl_new(ptr, len, level);
+        let replPtr = exports.repl_new(ptr, len, level);
         exports.string_deallocate(ptr);
+        if (replPtr === 0) {
+            // Type check failed — create empty REPL
+            this.hadErrors = true;
+            const [emptyPtr, emptyLen] = encodeString(exports, "");
+            replPtr = exports.repl_new(emptyPtr, emptyLen, level);
+            exports.string_deallocate(emptyPtr);
+        } else {
+            this.hadErrors = false;
+        }
+        this.ptr = replPtr;
     }
 
     // Returns true if the user called exit() / quit().
@@ -146,7 +157,7 @@ class Worker {
     private initRepl(input: string): void {
         this.session?.destroy();
         this.session = new ReplSession(this.exports, input, this.level);
-        this.channel.ready();
+        this.channel.ready(this.session.hadErrors);
     }
 
     private async runRepl(input: string): Promise<void> {
