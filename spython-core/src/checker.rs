@@ -34,6 +34,20 @@ pub enum Level {
     Full = 5,
 }
 
+impl std::fmt::Display for Level {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (n, name) = match self {
+            Level::Functions => (0, "Functions"),
+            Level::Selection => (1, "Selection"),
+            Level::Types => (2, "Types"),
+            Level::Repetition => (3, "Repetition"),
+            Level::Classes => (4, "Classes"),
+            Level::Full => (5, "Full"),
+        };
+        write!(f, "{n} ({name})")
+    }
+}
+
 impl Level {
     pub fn from_u8(n: u8) -> Option<Level> {
         match n {
@@ -88,7 +102,7 @@ fn check_stmt(
                     &FORBIDDEN_CONSTRUCT,
                     file,
                     func.range(),
-                    "`async def` is not allowed".to_string(),
+                    forbidden_msg("`async def`", level, Level::Full),
                 ));
             }
             check_function(func, file, diagnostics, in_class);
@@ -101,7 +115,7 @@ fn check_stmt(
                     &FORBIDDEN_CLASS,
                     file,
                     cls.name.range(),
-                    "`class` is not allowed at this level".to_string(),
+                    forbidden_msg("`class`", level, Level::Types),
                 ));
             } else {
                 // Check for methods (FunctionDef inside class) before level 4
@@ -112,7 +126,7 @@ fn check_stmt(
                                 &FORBIDDEN_CLASS_METHOD,
                                 file,
                                 func.name.range(),
-                                "Methods in classes are not allowed at this level".to_string(),
+                                forbidden_msg("Methods in classes", level, Level::Classes),
                             ));
                         }
                     }
@@ -139,14 +153,14 @@ fn check_stmt(
                     &FORBIDDEN_CONSTRUCT,
                     file,
                     for_stmt.range(),
-                    "`async for` is not allowed".to_string(),
+                    forbidden_msg("`async for`", level, Level::Full),
                 ));
             } else if level < Level::Repetition {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_LOOP,
                     file,
                     for_stmt.range(),
-                    "`for` loop is not allowed at this level".to_string(),
+                    forbidden_msg("`for` loop", level, Level::Repetition),
                 ));
             }
             check_expr(&for_stmt.iter, file, diagnostics, level);
@@ -159,7 +173,7 @@ fn check_stmt(
                     &FORBIDDEN_LOOP,
                     file,
                     while_stmt.range(),
-                    "`while` loop is not allowed at this level".to_string(),
+                    forbidden_msg("`while` loop", level, Level::Repetition),
                 ));
             }
             check_expr(&while_stmt.test, file, diagnostics, level);
@@ -172,7 +186,7 @@ fn check_stmt(
                     &FORBIDDEN_SELECTION,
                     file,
                     if_stmt.range(),
-                    "`if` is not allowed at this level".to_string(),
+                    forbidden_msg("`if`", level, Level::Selection),
                 ));
             }
             check_expr(&if_stmt.test, file, diagnostics, level);
@@ -190,7 +204,7 @@ fn check_stmt(
                     &FORBIDDEN_MATCH,
                     file,
                     match_stmt.range(),
-                    "`match` is not allowed at this level".to_string(),
+                    forbidden_msg("`match`", level, Level::Types),
                 ));
             }
             check_expr(&match_stmt.subject, file, diagnostics, level);
@@ -206,7 +220,7 @@ fn check_stmt(
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 with_stmt.range(),
-                "`with` is not allowed".to_string(),
+                forbidden_msg("`with`", level, Level::Full),
             ));
         }
         Stmt::Try(try_stmt) if level < Level::Full => {
@@ -214,7 +228,7 @@ fn check_stmt(
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 try_stmt.range(),
-                "`try` is not allowed".to_string(),
+                forbidden_msg("`try`", level, Level::Full),
             ));
         }
         Stmt::Global(global_stmt) if level < Level::Full => {
@@ -222,7 +236,7 @@ fn check_stmt(
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 global_stmt.range(),
-                "`global` is not allowed".to_string(),
+                forbidden_msg("`global`", level, Level::Full),
             ));
         }
         Stmt::Nonlocal(nonlocal_stmt) if level < Level::Full => {
@@ -230,7 +244,7 @@ fn check_stmt(
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 nonlocal_stmt.range(),
-                "`nonlocal` is not allowed".to_string(),
+                forbidden_msg("`nonlocal`", level, Level::Full),
             ));
         }
         Stmt::Delete(del_stmt) if level < Level::Full => {
@@ -238,7 +252,7 @@ fn check_stmt(
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 del_stmt.range(),
-                "`del` is not allowed".to_string(),
+                forbidden_msg("`del`", level, Level::Full),
             ));
         }
         Stmt::AugAssign(aug) => {
@@ -247,7 +261,7 @@ fn check_stmt(
                     &FORBIDDEN_AUG_ASSIGN,
                     file,
                     aug.range(),
-                    "Augmented assignment is not allowed at this level".to_string(),
+                    forbidden_msg("Augmented assignment", level, Level::Repetition),
                 ));
             }
             check_expr(&aug.value, file, diagnostics, level);
@@ -305,7 +319,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COLLECTION_LITERAL,
                 file,
                 list.range(),
-                "List literal is not allowed at this level".to_string(),
+                forbidden_msg("List literal", level, Level::Repetition),
             ));
         }
         Expr::Tuple(tuple) if level < Level::Repetition => {
@@ -313,7 +327,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COLLECTION_LITERAL,
                 file,
                 tuple.range(),
-                "Tuple literal is not allowed at this level".to_string(),
+                forbidden_msg("Tuple literal", level, Level::Repetition),
             ));
         }
         Expr::Dict(dict) if level < Level::Classes => {
@@ -321,7 +335,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COLLECTION_LITERAL,
                 file,
                 dict.range(),
-                "Dict literal is not allowed at this level".to_string(),
+                forbidden_msg("Dict literal", level, Level::Classes),
             ));
         }
         Expr::Set(set) if level < Level::Classes => {
@@ -329,7 +343,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COLLECTION_LITERAL,
                 file,
                 set.range(),
-                "Set literal is not allowed at this level".to_string(),
+                forbidden_msg("Set literal", level, Level::Classes),
             ));
         }
 
@@ -339,7 +353,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COMPREHENSION,
                 file,
                 comp.range(),
-                "List comprehension is not allowed at this level".to_string(),
+                forbidden_msg("List comprehension", level, Level::Classes),
             ));
         }
         Expr::SetComp(comp) if level < Level::Classes => {
@@ -347,7 +361,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COMPREHENSION,
                 file,
                 comp.range(),
-                "Set comprehension is not allowed at this level".to_string(),
+                forbidden_msg("Set comprehension", level, Level::Classes),
             ));
         }
         Expr::DictComp(comp) if level < Level::Classes => {
@@ -355,7 +369,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COMPREHENSION,
                 file,
                 comp.range(),
-                "Dict comprehension is not allowed at this level".to_string(),
+                forbidden_msg("Dict comprehension", level, Level::Classes),
             ));
         }
         Expr::Generator(generator) if level < Level::Classes => {
@@ -363,7 +377,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_COMPREHENSION,
                 file,
                 generator.range(),
-                "Generator expression is not allowed at this level".to_string(),
+                forbidden_msg("Generator expression", level, Level::Classes),
             ));
         }
 
@@ -373,7 +387,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_LAMBDA,
                 file,
                 lambda.range(),
-                "`lambda` is not allowed at this level".to_string(),
+                forbidden_msg("`lambda`", level, Level::Classes),
             ));
         }
 
@@ -383,7 +397,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 y.range(),
-                "`yield` is not allowed".to_string(),
+                forbidden_msg("`yield`", level, Level::Full),
             ));
         }
         Expr::YieldFrom(y) if level < Level::Full => {
@@ -391,7 +405,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 y.range(),
-                "`yield from` is not allowed".to_string(),
+                forbidden_msg("`yield from`", level, Level::Full),
             ));
         }
         Expr::Await(a) if level < Level::Full => {
@@ -399,7 +413,7 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
                 &FORBIDDEN_CONSTRUCT,
                 file,
                 a.range(),
-                "`await` is not allowed".to_string(),
+                forbidden_msg("`await`", level, Level::Full),
             ));
         }
 
@@ -606,6 +620,11 @@ fn check_class_body(class_def: &StmtClassDef, file: File, diagnostics: &mut Vec<
             }
         }
     }
+}
+
+/// Format a "not allowed" message with current and required levels.
+fn forbidden_msg(construct: &str, level: Level, min_level: Level) -> String {
+    format!("{construct} is not allowed at level {level}, requires level {min_level}")
 }
 
 /// Create a lint diagnostic that matches ty's format.
