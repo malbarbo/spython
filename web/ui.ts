@@ -1,4 +1,9 @@
 import { ansiToHtml } from "./ansi.ts";
+
+declare const Prism: {
+    highlight(code: string, grammar: unknown, language: string): string;
+    languages: Record<string, unknown>;
+};
 import {
     KEYDOWN,
     KEYPRESS,
@@ -387,7 +392,11 @@ class App {
     private focusRepl(): void {
         const s = this.state;
         if (s.kind !== "ready") return;
-        if (s.view !== "editor" && this.replInput) this.replInput.focus();
+        if (s.view !== "editor" && this.replInput) {
+            const ta = this.replInput.querySelector("textarea");
+            if (ta) ta.focus();
+            else this.replInput.focus();
+        }
     }
 
     private showHelp(): void {
@@ -517,6 +526,13 @@ class App {
         this.render();
     }
 
+    private highlightPython(code: string): string {
+        if (Prism.languages.python) {
+            return Prism.highlight(code, Prism.languages.python, "python");
+        }
+        return code;
+    }
+
     private addInputLine(): void {
         const inputContainer = document.createElement("div");
         inputContainer.className = "repl-input-container";
@@ -525,67 +541,78 @@ class App {
         prompt.className = "repl-prompt";
         prompt.textContent = ">";
 
-        const input = (this.replInput = document.createElement("div"));
-        input.className = "repl-input";
-        input.contentEditable = "true";
-        input.spellcheck = false;
+        const wrapper = document.createElement("div");
+        wrapper.className = "repl-input-wrapper";
 
+        const highlight = document.createElement("pre");
+        highlight.className = "repl-input-highlight";
+
+        const textarea = document.createElement("textarea");
+        textarea.className = "repl-input-edit";
+        textarea.rows = 1;
+        textarea.spellcheck = false;
+
+        wrapper.appendChild(highlight);
+        wrapper.appendChild(textarea);
         inputContainer.appendChild(prompt);
-        inputContainer.appendChild(input);
+        inputContainer.appendChild(wrapper);
         this.replPanel.appendChild(inputContainer);
 
-        input.focus();
+        // Store textarea reference for focusRepl()
+        this.replInput = wrapper as unknown as HTMLDivElement;
 
-        input.addEventListener("paste", (event: ClipboardEvent) => {
-            event.preventDefault();
-            const selection = window.getSelection();
-            if (!selection?.rangeCount) return;
-            const text = event.clipboardData?.getData("text/plain") ?? "";
-            const range = selection.getRangeAt(0);
-            range.deleteContents();
-            range.insertNode(document.createTextNode(text));
-            selection.collapseToEnd();
-        });
+        textarea.focus();
+
+        const syncHighlight = () => {
+            highlight.innerHTML = this.highlightPython(textarea.value) ||
+                "\n";
+            // Auto-resize textarea to match content
+            textarea.style.height = "auto";
+            textarea.style.height = textarea.scrollHeight + "px";
+        };
+        syncHighlight();
+
+        textarea.addEventListener("input", syncHighlight);
 
         let savedInput = "";
 
-        input.addEventListener("keydown", (e: KeyboardEvent) => {
+        textarea.addEventListener("keydown", (e: KeyboardEvent) => {
             if (this.state.kind !== "ready") return;
             const s = this.state;
 
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                const text = input.cloneNode(true) as HTMLElement;
-                text.querySelectorAll("br").forEach((br) =>
-                    br.replaceWith("\n")
-                );
-                const code = text.textContent?.trim() ?? "";
+                const code = textarea.value.trim();
                 if (code) {
                     s.history.push(code);
                     s.historyIndex = -1;
-                    input.contentEditable = "false";
+                    textarea.disabled = true;
+                    textarea.style.display = "none";
+                    highlight.innerHTML = this.highlightPython(code);
                     this.postRun(code);
                 }
             } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 if (s.history.length === 0) return;
                 if (s.historyIndex === -1) {
-                    savedInput = input.textContent ?? "";
+                    savedInput = textarea.value;
                     s.historyIndex = s.history.length - 1;
                 } else if (s.historyIndex > 0) {
                     s.historyIndex--;
                 }
-                input.textContent = s.history[s.historyIndex];
+                textarea.value = s.history[s.historyIndex];
+                syncHighlight();
             } else if (e.key === "ArrowDown") {
                 e.preventDefault();
                 if (s.historyIndex === -1) return;
                 if (s.historyIndex < s.history.length - 1) {
                     s.historyIndex++;
-                    input.textContent = s.history[s.historyIndex];
+                    textarea.value = s.history[s.historyIndex];
                 } else {
                     s.historyIndex = -1;
-                    input.textContent = savedInput;
+                    textarea.value = savedInput;
                 }
+                syncHighlight();
             }
         });
     }
