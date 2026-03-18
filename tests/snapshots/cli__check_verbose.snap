@@ -1,10 +1,11 @@
 ---
 source: tests/cli.rs
-assertion_line: 118
+assertion_line: 121
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
 STDERR
 ok: add(1, 2)
 ok: add(-1, 1)
-2 examples passed.
+Running tests...
+2 tests, 2 successes, 0 failures and 0 errors.

@@ -1,6 +1,6 @@
 ---
 source: tests/cli.rs
-assertion_line: 83
+assertion_line: 86
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
@@ -11,4 +11,5 @@ Expected:
     99
 Got:
     3
-Test Failed 1 of 1 example.
+Running tests...
+1 test, 0 successes, 1 failure and 0 errors.

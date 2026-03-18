@@ -70,7 +70,10 @@ fn check_ok() {
     let (out, err, success) = run_check(&["ok.py"], &[]);
     assert!(success);
     assert_eq!(out, "");
-    assert_eq!(err, "2 examples passed.\n");
+    assert_eq!(
+        err,
+        "Running tests...\n2 tests, 2 successes, 0 failures and 0 errors.\n"
+    );
 }
 
 #[test]

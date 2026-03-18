@@ -1,17 +1,19 @@
 ---
 source: tests/cli.rs
-assertion_line: 110
+assertion_line: 113
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
 ok.py
 fail.py
 STDERR
-2 examples passed.
+Running tests...
+2 tests, 2 successes, 0 failures and 0 errors.
 Failed example:
     add(1, 2)
 Expected:
     99
 Got:
     3
-Test Failed 1 of 1 example.
+Running tests...
+1 test, 0 successes, 1 failure and 0 errors.

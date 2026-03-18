@@ -56,9 +56,16 @@ def _extract_examples(doc):
             i += 1
 
 
+def _plural(n, word):
+    if n == 1:
+        return "1 " + word
+    return str(n) + " " + word + ("es" if word == "success" else "s")
+
+
 def run_doctests(module, verbose=False):
     """Run doctests found in *module* and return the number of failures."""
     _failed = 0
+    _errors = 0
     _total = 0
     for _name in sorted(dir(module)):
         _obj = getattr(module, _name)
@@ -71,43 +78,57 @@ def run_doctests(module, verbose=False):
             _total += 1
             _old_stdout = _sys.stdout
             _sys.stdout = _buf = _Capture()
+            _had_error = False
             try:
                 _code = compile(_src, "<doctest>", "eval")
                 _result = eval(_code, vars(module))
                 if _result is not None:
                     print(repr(_result))
             except SyntaxError:
-                _code = compile(_src, "<doctest>", "exec")
-                exec(_code, vars(module))
+                try:
+                    _code = compile(_src, "<doctest>", "exec")
+                    exec(_code, vars(module))
+                except BaseException as _e:
+                    _had_error = True
+                    print(type(_e).__name__ + ": " + str(_e))
             except BaseException as _e:
+                _had_error = True
                 print(type(_e).__name__ + ": " + str(_e))
             finally:
                 _sys.stdout = _old_stdout
             _got = _buf.getvalue().rstrip("\n")
             if _got != _expected:
-                _failed += 1
-                _sys.stderr.write(
-                    "Failed example:\n"
-                    "    " + _src.replace("\n", "\n    ") + "\n"
-                    "Expected:\n"
-                    "    " + _expected.replace("\n", "\n    ") + "\n"
-                    "Got:\n"
-                    "    " + _got.replace("\n", "\n    ") + "\n"
-                )
+                if _had_error:
+                    _errors += 1
+                    _sys.stderr.write(
+                        "Error in example:\n"
+                        "    " + _src.replace("\n", "\n    ") + "\n"
+                        "Got:\n"
+                        "    " + _got.replace("\n", "\n    ") + "\n"
+                    )
+                else:
+                    _failed += 1
+                    _sys.stderr.write(
+                        "Failed example:\n"
+                        "    " + _src.replace("\n", "\n    ") + "\n"
+                        "Expected:\n"
+                        "    " + _expected.replace("\n", "\n    ") + "\n"
+                        "Got:\n"
+                        "    " + _got.replace("\n", "\n    ") + "\n"
+                    )
             elif verbose:
                 _sys.stderr.write("ok: " + _src.split("\n")[0] + "\n")
-    if _failed:
-        _s = "s" if _total > 1 else ""
+    if _total > 0:
+        _successes = _total - _failed - _errors
         _sys.stderr.write(
-            "Test Failed "
-            + str(_failed)
-            + " of "
-            + str(_total)
-            + " example"
-            + _s
+            "Running tests...\n"
+            + _plural(_total, "test")
+            + ", "
+            + _plural(_successes, "success")
+            + ", "
+            + _plural(_failed, "failure")
+            + " and "
+            + _plural(_errors, "error")
             + ".\n"
         )
-    elif _total > 0:
-        _s = "s" if _total > 1 else ""
-        _sys.stderr.write(str(_total) + " example" + _s + " passed.\n")
-    return _failed
+    return _failed + _errors
