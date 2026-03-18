@@ -68,12 +68,15 @@ class App {
     private readonly layoutHorizontal: HTMLButtonElement;
     private readonly layoutVertical: HTMLButtonElement;
 
+    private readonly fileInput: HTMLInputElement;
     private readonly shortcuts = new Map<string, () => void>([
         ["ctrl+?", () => this.showHelp()],
         ["ctrl+j", () => this.focusEditor()],
         ["ctrl+k", () => this.focusRepl()],
         ["ctrl+r", () => this.formatThenRun()],
         ["ctrl+f", () => this.format()],
+        ["ctrl+s", () => this.saveFile()],
+        ["ctrl+o", () => this.loadFile()],
         ["ctrl+d", () => this.toggleEditor()],
         ["ctrl+i", () => this.toggleRepl()],
         ["ctrl+l", () => this.toggleLayout()],
@@ -99,6 +102,12 @@ class App {
         this.themeToggle = document.getElementById(
             "theme-toggle",
         )! as HTMLButtonElement;
+        this.fileInput = document.createElement("input");
+        this.fileInput.type = "file";
+        this.fileInput.accept = ".py,.txt";
+        this.fileInput.style.display = "none";
+        document.body.appendChild(this.fileInput);
+        this.fileInput.addEventListener("change", () => this.onFileSelected());
         const savedTheme = localStorage.getItem("spython-theme") ?? "light";
         document.documentElement.setAttribute("data-theme", savedTheme);
         this.layoutHorizontal = document.getElementById(
@@ -219,6 +228,10 @@ class App {
         };
         this.levelSelect.addEventListener("change", updateLevel);
         this.levelSelect.addEventListener("input", updateLevel);
+        document.getElementById("open-button")!
+            .addEventListener("click", () => this.loadFile());
+        document.getElementById("save-button")!
+            .addEventListener("click", () => this.saveFile());
         this.themeToggle.addEventListener("click", () => this.toggleTheme());
         this.replPanel.addEventListener("click", () => this.onReplPanelClick());
         this.resizeHandle.addEventListener(
@@ -473,6 +486,58 @@ class App {
 
     private format(): void {
         this.channel.format(this.flask.getCode());
+    }
+
+    private async saveFile(): Promise<void> {
+        const code = this.flask.getCode();
+        const blob = new Blob([code], { type: "text/x-python" });
+        // deno-lint-ignore no-explicit-any
+        if (typeof (globalThis as any).showSaveFilePicker === "function") {
+            try {
+                // deno-lint-ignore no-explicit-any
+                const handle = await (globalThis as any).showSaveFilePicker({
+                    suggestedName: "code.py",
+                    types: [{
+                        description: "Python files",
+                        accept: { "text/x-python": [".py"] },
+                    }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                return;
+            } catch {
+                // User cancelled or API failed — fall through
+            }
+        }
+        // Fallback for browsers without File System Access API
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "code.py";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    private loadFile(): void {
+        this.fileInput.click();
+    }
+
+    private onFileSelected(): void {
+        const file = this.fileInput.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === "string") {
+                this.flask.updateCode(reader.result);
+                if (this.state.kind === "ready") {
+                    this.state.dirty = true;
+                    this.render();
+                }
+            }
+        };
+        reader.readAsText(file);
+        this.fileInput.value = "";
     }
 
     private toggleEditor(): void {

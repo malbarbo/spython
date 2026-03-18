@@ -141,6 +141,8 @@
             font-family: "Fira Sans", "Roboto";
         }
 
+        #open-button,
+        #save-button,
         #layout-horizontal,
         #layout-vertical,
         #theme-toggle {
@@ -158,10 +160,14 @@
             opacity: 1.0;
         }
 
+        #open-button,
+        #save-button,
         #theme-toggle {
             opacity: 0.7;
         }
 
+        #open-button:hover,
+        #save-button:hover,
         #theme-toggle:hover {
             opacity: 1.0;
         }
@@ -386,6 +392,8 @@
         <h1>Help</h1>
         <p><kbd>Ctrl</kbd> + <kbd>r</kbd>: Run the definitions</p>
         <p><kbd>Ctrl</kbd> + <kbd>f</kbd>: Format the code</p>
+        <p><kbd>Ctrl</kbd> + <kbd>s</kbd>: Save file</p>
+        <p><kbd>Ctrl</kbd> + <kbd>o</kbd>: Open file</p>
         <br>
         <p><kbd>Ctrl</kbd> + <kbd>j</kbd>: Focuses the definition panel if it is visible</p>
         <p><kbd>Ctrl</kbd> + <kbd>k</kbd>: Focuses the iteration panel if it is visible</p>
@@ -400,6 +408,18 @@
 
     <div id="top">
         <div id="info">Help (ctrl-?)</div>
+        <button id="open-button" title="Open file (Ctrl+O)">
+            <svg width="6mm" height="6mm" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 4h5l2 2h7v10H3z" fill="none" stroke="var(--icon)" stroke-width="1.5" stroke-linejoin="round" />
+            </svg>
+        </button>
+        <button id="save-button" title="Save file (Ctrl+S)">
+            <svg width="6mm" height="6mm" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                <path d="M4 3h10l3 3v11H4z" fill="none" stroke="var(--icon)" stroke-width="1.5" stroke-linejoin="round" />
+                <rect x="7" y="3" width="5" height="5" fill="none" stroke="var(--icon)" stroke-width="1" />
+                <rect x="6" y="12" width="8" height="5" fill="none" stroke="var(--icon)" stroke-width="1" />
+            </svg>
+        </button>
         <select id="level-select" title="Teaching level">
             <option value="0">0 - Functions</option>
             <option value="1">1 - Selection</option>
