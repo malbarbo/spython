@@ -1,8 +1,6 @@
 import { assertEquals, assertMatch } from "jsr:@std/assert";
 import { KEYDOWN, UIChannel, WorkerMessage } from "./ui_channel.ts";
-
-const STDOUT = 1;
-const STDERR = 2;
+import { STDERR, STDOUT } from "./wasi.ts";
 
 function makeWorker(): [Worker, UIChannel] {
     const worker = new Worker(

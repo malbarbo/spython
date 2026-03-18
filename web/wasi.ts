@@ -1,8 +1,8 @@
 // WASI preview1 polyfill.
 // Provides the wasi_snapshot_preview1 import namespace for WASM modules.
 
-const STDOUT = 1;
-const STDERR = 2;
+export const STDOUT = 1;
+export const STDERR = 2;
 const SVG_FD = 3;
 
 const WASI_ESUCCESS = 0;
@@ -202,10 +202,7 @@ export function makeWasi(options: WasiOptions) {
         },
         random_get: (ptr: number, len: number): number => {
             try {
-                const buffer = new Uint8Array(buf(), ptr, len);
-                for (let i = 0; i < buffer.length; i++) {
-                    buffer[i] = Math.floor(Math.random() * 256);
-                }
+                crypto.getRandomValues(new Uint8Array(buf(), ptr, len));
                 return WASI_ESUCCESS;
             } catch {
                 console.error("random_get failed");
@@ -220,13 +217,8 @@ export function makeWasi(options: WasiOptions) {
         path_filestat_get: (): number => WASI_ENOSYS,
         path_readlink: (): number => WASI_ENOSYS,
         fd_filestat_get: (): number => WASI_ENOSYS,
-        fd_prestat_get: (): number => {
-            return WASI_EBADF;
-        },
-        fd_prestat_dir_name: (): number => {
-            console.error("fd_prestat_dir_name");
-            return WASI_ENOSYS;
-        },
+        fd_prestat_get: (): number => WASI_EBADF,
+        fd_prestat_dir_name: (): number => WASI_ENOSYS,
         fd_fdstat_set_flags: (): number => WASI_ENOSYS,
         fd_filestat_set_size: (): number => WASI_ENOSYS,
         fd_filestat_set_times: (): number => WASI_ENOSYS,

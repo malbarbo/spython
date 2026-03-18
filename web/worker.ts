@@ -1,6 +1,6 @@
 import { WorkerChannel } from "./worker_channel.ts";
 import { makeEnv } from "./env.ts";
-import { makeWasi } from "./wasi.ts";
+import { makeWasi, STDERR, STDOUT } from "./wasi.ts";
 
 // --- Types ---
 
@@ -14,11 +14,6 @@ interface WasmExports {
     format(ptr: number, len: number): number;
     cstr_deallocate(ptr: number): void;
 }
-
-// --- Constants ---
-
-const STDOUT = 1;
-const STDERR = 2;
 
 // --- Repl session ---
 
@@ -130,7 +125,7 @@ class Worker {
         this.initRepl("");
     }
 
-    processMsg(event: MessageEvent): void {
+    private processMsg(event: MessageEvent): void {
         const data = event.data;
         switch (data.cmd) {
             case "run":
@@ -144,17 +139,17 @@ class Worker {
                 this.initRepl(data.data);
                 break;
             default:
-                console.log(`${event}`);
+                console.warn(`Unknown message: ${event}`);
         }
     }
 
-    initRepl(input: string): void {
+    private initRepl(input: string): void {
         this.session?.destroy();
         this.session = new ReplSession(this.exports, input, this.level);
         this.channel.ready();
     }
 
-    async runRepl(input: string): Promise<void> {
+    private async runRepl(input: string): Promise<void> {
         try {
             if (this.session!.run(input)) {
                 // exit() / quit()
@@ -164,7 +159,7 @@ class Worker {
                 this.channel.ready();
             }
         } catch (err) {
-            console.log(err);
+            console.error(err);
             this.channel.write(
                 STDERR,
                 "Execution error (probably a stackoverflow). Reloading the repl.",
@@ -174,7 +169,7 @@ class Worker {
         }
     }
 
-    formatRepl(input: string): void {
+    private formatRepl(input: string): void {
         const [ptr, len] = encodeString(this.exports, input);
         const r = this.exports.format(ptr, len);
         this.exports.string_deallocate(ptr);
@@ -190,8 +185,11 @@ class Worker {
 
 // --- Memory helpers ---
 
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
 function encodeString(exports: WasmExports, str: string): [number, number] {
-    const encoded = new TextEncoder().encode(str);
+    const encoded = encoder.encode(str);
     const ptr = exports.string_allocate(encoded.length);
     new Uint8Array(exports.memory.buffer, ptr, encoded.length).set(encoded);
     return [ptr, encoded.length];
@@ -201,7 +199,7 @@ function readCstr(exports: WasmExports, ptr: number): string {
     const buffer = new Uint8Array(exports.memory.buffer);
     let end = ptr;
     while (buffer[end] !== 0) end++;
-    return new TextDecoder().decode(buffer.slice(ptr, end));
+    return decoder.decode(buffer.slice(ptr, end));
 }
 
 // --- Init ---

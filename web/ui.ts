@@ -253,9 +253,13 @@ class App {
         this.helpOverlay.style.display = s.helpVisible ? "block" : "none";
         this.help.style.display = s.helpVisible ? "block" : "none";
 
-        document.body.style.cursor = s.resizing
-            ? s.layout === "horizontal" ? "col-resize" : "row-resize"
-            : "";
+        if (s.resizing) {
+            document.body.style.cursor = s.layout === "horizontal"
+                ? "col-resize"
+                : "row-resize";
+        } else {
+            document.body.style.cursor = "";
+        }
 
         if (s.layout === "horizontal") {
             this.editorPanel.style.height = "100%";
