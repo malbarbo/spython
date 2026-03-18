@@ -49,6 +49,7 @@ class App {
     private readonly helpOverlay: HTMLElement;
     private readonly help: HTMLElement;
     private readonly levelSelect: HTMLSelectElement;
+    private readonly themeToggle: HTMLButtonElement;
     private readonly layoutHorizontal: HTMLButtonElement;
     private readonly layoutVertical: HTMLButtonElement;
 
@@ -80,6 +81,11 @@ class App {
         this.levelSelect = document.getElementById(
             "level-select",
         )! as HTMLSelectElement;
+        this.themeToggle = document.getElementById(
+            "theme-toggle",
+        )! as HTMLButtonElement;
+        const savedTheme = localStorage.getItem("spython-theme") ?? "light";
+        document.documentElement.setAttribute("data-theme", savedTheme);
         this.layoutHorizontal = document.getElementById(
             "layout-horizontal",
         )! as HTMLButtonElement;
@@ -123,6 +129,7 @@ class App {
         };
         this.levelSelect.addEventListener("change", updateLevel);
         this.levelSelect.addEventListener("input", updateLevel);
+        this.themeToggle.addEventListener("click", () => this.toggleTheme());
         this.replPanel.addEventListener("click", () => this.onReplPanelClick());
         this.resizeHandle.addEventListener(
             "mousedown",
@@ -158,7 +165,9 @@ class App {
                         kind: "ready",
                         running: false,
                         level: 0,
-                        layout: "horizontal",
+                        layout: window.innerWidth >= window.innerHeight
+                            ? "horizontal"
+                            : "vertical",
                         view: "split",
                         splitSize: 50,
                         helpVisible: false,
@@ -315,6 +324,14 @@ class App {
         }
     }
 
+    private toggleTheme(): void {
+        const current = document.documentElement.getAttribute("data-theme") ??
+            "light";
+        const next = current === "light" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", next);
+        localStorage.setItem("spython-theme", next);
+    }
+
     private hideHelp(): void {
         if (this.state.kind !== "ready") return;
         this.state.helpVisible = false;
@@ -393,7 +410,7 @@ class App {
         let clientX: number;
         let clientY: number;
 
-        if (e instanceof TouchEvent) {
+        if (typeof TouchEvent !== "undefined" && e instanceof TouchEvent) {
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
         } else {

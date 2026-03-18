@@ -3,6 +3,8 @@
 
 import { type KeyEvent } from "./ui_channel.ts";
 
+const IS_DENO = "Deno" in globalThis;
+
 export interface EnvOptions {
     getBuffer(): ArrayBuffer;
     checkInterrupt(): boolean;
@@ -40,6 +42,50 @@ export function makeEnv(options: EnvOptions) {
             mem[modsPtr + 3] = event.meta ? 1 : 0;
             mem[modsPtr + 4] = event.repeat ? 1 : 0;
             return event.type; // KEYPRESS=0, KEYDOWN=1, KEYUP=2
+        },
+        text_height: (
+            text: number,
+            textLen: number,
+            font: number,
+            fontLen: number,
+            size: number,
+        ): number => {
+            if (IS_DENO) return fontLen;
+            const b = buf();
+            const jtext = new TextDecoder().decode(
+                b.slice(text, text + textLen),
+            );
+            const jfont = new TextDecoder().decode(
+                b.slice(font, font + fontLen),
+            );
+            // deno-lint-ignore no-undef
+            const offscreen = new OffscreenCanvas(1, 1);
+            const ctx = offscreen.getContext("2d")!;
+            ctx.font = `${size}px ${jfont}`;
+            const metrics = ctx.measureText(jtext);
+            return metrics.fontBoundingBoxAscent +
+                metrics.fontBoundingBoxDescent;
+        },
+        text_width: (
+            text: number,
+            textLen: number,
+            font: number,
+            fontLen: number,
+            size: number,
+        ): number => {
+            if (IS_DENO) return 0.6 * fontLen * textLen;
+            const b = buf();
+            const jtext = new TextDecoder().decode(
+                b.slice(text, text + textLen),
+            );
+            const jfont = new TextDecoder().decode(
+                b.slice(font, font + fontLen),
+            );
+            // deno-lint-ignore no-undef
+            const offscreen = new OffscreenCanvas(1, 1);
+            const ctx = offscreen.getContext("2d")!;
+            ctx.font = `${size}px ${jfont}`;
+            return ctx.measureText(jtext).width;
         },
     };
 }
