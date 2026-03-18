@@ -280,11 +280,12 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     let doctest_runner = include_str!("../spython-core/src/doctest_runner.py");
     let mut script = format!(
         "{doctest_runner}\n\
-         import importlib.util, sys\n\
+         import types, sys\n\
          def _run(path):\n\
-         \x20   spec = importlib.util.spec_from_file_location('__doctest__', path)\n\
-         \x20   mod = importlib.util.module_from_spec(spec)\n\
-         \x20   spec.loader.exec_module(mod)\n\
+         \x20   mod = types.ModuleType('__doctest__')\n\
+         \x20   mod.__file__ = path\n\
+         \x20   with open(path) as f:\n\
+         \x20       exec(compile(f.read(), path, 'exec'), vars(mod))\n\
          \x20   return run_doctests(mod, verbose={py_verbose})\n\
          total = 0\n",
     );

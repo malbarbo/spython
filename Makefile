@@ -78,6 +78,14 @@ check:
 	ruff check .
 	ruff format --check .
 
+# Freeze allowlist
+
+FREEZE_ALLOWLIST = crates/RustPython/Lib/freeze_allowlist.txt
+FREEZE_SEEDS = ast dataclasses enum encodings typing spython
+
+freeze-allowlist:
+	python3 scripts/find_stdlib_deps.py crates/RustPython/Lib $(FREEZE_SEEDS) > $(FREEZE_ALLOWLIST)
+
 # Utility
 
 $(DIST_DIR):
