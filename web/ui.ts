@@ -10,7 +10,12 @@ import {
 declare class CodeFlask {
     constructor(
         el: HTMLElement,
-        options: { language: string; lineNumbers: boolean },
+        options: {
+            language: string;
+            lineNumbers: boolean;
+            tabSize?: number;
+            handleNewLineIndentation?: boolean;
+        },
     );
     updateCode(code: string): void;
     getCode(): string;
@@ -96,10 +101,13 @@ class App {
         this.flask = new CodeFlask(this.editorPanel, {
             language: "python",
             lineNumbers: true,
+            tabSize: 4,
+            handleNewLineIndentation: false,
         });
         this.flask.updateCode(
             document.getElementById("default-code")?.textContent ?? "",
         );
+        this.setupEditorAutoIndent();
 
         const worker = new Worker("worker.js", { type: "module" });
         worker.onmessage = (e: MessageEvent<WorkerMessage>) =>
@@ -109,6 +117,69 @@ class App {
 
         this.setupListeners();
         this.render();
+    }
+
+    private setupEditorAutoIndent(): void {
+        const textarea = this.editorPanel.querySelector<HTMLTextAreaElement>(
+            "textarea.codeflask__textarea",
+        );
+        if (!textarea) return;
+
+        const TAB = 4;
+        const INDENT = " ".repeat(TAB);
+        const DEDENT_KEYWORDS = /^\s*(return|pass|break|continue)\b/;
+
+        const updateCode = (newCode: string, newPos: number) => {
+            this.flask.updateCode(newCode);
+            requestAnimationFrame(() => {
+                textarea.selectionStart = newPos;
+                textarea.selectionEnd = newPos;
+            });
+        };
+
+        textarea.addEventListener("keydown", (e: KeyboardEvent) => {
+            const code = textarea.value;
+            const pos = textarea.selectionStart;
+            const before = code.slice(0, pos);
+            const lineStart = before.lastIndexOf("\n") + 1;
+            const line = before.slice(lineStart);
+
+            if (e.key === "Enter") {
+                const match = line.match(/^(\s*)/);
+                const currentIndent = match ? match[1] : "";
+
+                let newIndent = currentIndent;
+                if (line.trimEnd().endsWith(":")) {
+                    newIndent = currentIndent + INDENT;
+                } else if (DEDENT_KEYWORDS.test(line)) {
+                    if (currentIndent.length >= INDENT.length) {
+                        newIndent = currentIndent.slice(INDENT.length);
+                    }
+                }
+
+                e.preventDefault();
+                const insertion = "\n" + newIndent;
+                updateCode(
+                    before + insertion + code.slice(pos),
+                    pos + insertion.length,
+                );
+            } else if (e.key === "Backspace") {
+                // If only spaces before cursor on this line, snap to previous indent level
+                if (
+                    textarea.selectionStart === textarea.selectionEnd &&
+                    line.length > 0 &&
+                    line.trim() === ""
+                ) {
+                    const spaces = line.length;
+                    const remove = spaces % TAB === 0 ? TAB : spaces % TAB;
+                    e.preventDefault();
+                    updateCode(
+                        code.slice(0, pos - remove) + code.slice(pos),
+                        pos - remove,
+                    );
+                }
+            }
+        });
     }
 
     private setupListeners(): void {
