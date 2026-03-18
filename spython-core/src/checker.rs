@@ -123,9 +123,11 @@ fn check_stmt(
                 // Skip annotation check for Enum subclasses — Enum members
                 // don't need (and shouldn't have) type annotations.
                 let is_enum = cls.arguments.as_ref().is_some_and(|args| {
-                    args.args
-                        .iter()
-                        .any(|arg| matches!(arg, Expr::Name(name) if name.id == "Enum"))
+                    args.args.iter().any(|arg| {
+                        matches!(arg, Expr::Name(name)
+                            if matches!(name.id.as_str(),
+                                "Enum" | "IntEnum" | "StrEnum" | "Flag" | "IntFlag"))
+                    })
                 });
                 if !is_enum {
                     check_class_body(cls, file, diagnostics);
