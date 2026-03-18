@@ -266,6 +266,9 @@ class App {
             case "svg":
                 this.addSvg(data.data);
                 break;
+            case "input":
+                this.addInputPrompt();
+                break;
         }
     }
 
@@ -552,6 +555,36 @@ class App {
                     input.contentEditable = "false";
                     this.postRun(code);
                 }
+            }
+        });
+    }
+
+    private addInputPrompt(): void {
+        const input = document.createElement("span");
+        input.className = "repl-input";
+        input.style.color = "var(--prompt)";
+        input.contentEditable = "true";
+        input.spellcheck = false;
+
+        // Append to the last output line if it exists (e.g., input("Name: "))
+        const lastChild = this.replPanel.lastElementChild;
+        if (lastChild && lastChild.classList.contains("repl-line")) {
+            lastChild.appendChild(input);
+        } else {
+            const container = document.createElement("div");
+            container.className = "repl-input-container";
+            container.appendChild(input);
+            this.replPanel.appendChild(container);
+        }
+        input.focus();
+        this.replPanel.scrollTop = this.replPanel.scrollHeight;
+
+        input.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                const text = input.textContent ?? "";
+                input.contentEditable = "false";
+                this.channel.submitInput(text);
             }
         });
     }

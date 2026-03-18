@@ -115,6 +115,7 @@ class Worker {
                 getBuffer: () => this.getBuffer(),
                 write: (fd, text) => this.channel.write(fd, text),
                 svg: (data) => this.channel.svg(data),
+                readStdin: () => this.channel.waitForInput(),
                 env: ["RUST_BACKTRACE=1"],
             }),
         });

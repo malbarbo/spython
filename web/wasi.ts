@@ -1,6 +1,7 @@
 // WASI preview1 polyfill.
 // Provides the wasi_snapshot_preview1 import namespace for WASM modules.
 
+const STDIN = 0;
 export const STDOUT = 1;
 export const STDERR = 2;
 const SVG_FD = 3;
@@ -14,6 +15,7 @@ export interface WasiOptions {
     getBuffer(): ArrayBuffer;
     write(fd: number, text: string): void;
     svg(data: string): void;
+    readStdin(): string;
     args?: string[];
     env?: string[];
 }
@@ -141,10 +143,45 @@ export function makeWasi(options: WasiOptions) {
             }
         },
         fd_seek: (): number => 0,
-        fd_read: (): number => 0,
+        fd_read: (
+            fd: number,
+            iovsPtr: number,
+            iovsLen: number,
+            nreadPtr: number,
+        ): number => {
+            if (fd !== STDIN) return WASI_EBADF;
+            try {
+                const input = encoder.encode(options.readStdin());
+                const dataView = new DataView(buf());
+                let totalRead = 0;
+                let inputOffset = 0;
+                for (
+                    let i = 0;
+                    i < iovsLen && inputOffset < input.length;
+                    i++
+                ) {
+                    const iovPtr = iovsPtr + i * 8;
+                    const bufPtr = dataView.getInt32(iovPtr, true);
+                    const bufLen = dataView.getInt32(iovPtr + 4, true);
+                    const chunk = input.subarray(
+                        inputOffset,
+                        inputOffset + bufLen,
+                    );
+                    new Uint8Array(buf(), bufPtr, chunk.length).set(chunk);
+                    totalRead += chunk.length;
+                    inputOffset += chunk.length;
+                }
+                dataView.setInt32(nreadPtr, totalRead, true);
+                return WASI_ESUCCESS;
+            } catch {
+                return WASI_ENOSYS;
+            }
+        },
         fd_close: (): number => 0,
         fd_fdstat_get: (fd: number, statPtr: number): number => {
-            if (fd === STDOUT || fd === STDERR || fd === SVG_FD) {
+            if (
+                fd === STDIN || fd === STDOUT || fd === STDERR || fd === SVG_FD
+            ) {
                 // Zero the entire fdstat struct (24 bytes) then set fs_filetype.
                 // isatty() checks fs_filetype == 2 AND (fs_rights_base[0] & 0x24) == 0,
                 // so uninitialized stack memory in fs_rights_base would make it return false.

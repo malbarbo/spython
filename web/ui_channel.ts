@@ -4,6 +4,10 @@
 //   2: KEY_EVENTS_LOCK_INDEX - spinlock for key event queue (0 = unlocked, 1 = locked)
 //   3: NUM_KEY_EVENTS_INDEX  - number of events queued
 //   4+: event slots (EVENT_SIZE int32s each)
+//   After key events:
+//     INPUT_READY_INDEX      - 0 = waiting, 1 = data ready
+//     INPUT_LEN_INDEX        - byte length of input string
+//     INPUT_DATA_INDEX+      - input bytes (up to INPUT_MAX_BYTES)
 
 export const STOP_INDEX = 0;
 export const SLEEP_INDEX = 1;
@@ -12,6 +16,12 @@ export const NUM_KEY_EVENTS_INDEX = 3;
 export const HEADER_SIZE = 4;
 export const EVENT_KEY_LEN = 12;
 export const EVENT_SIZE = 1 + EVENT_KEY_LEN + 5;
+
+export const KEY_EVENT_CAPACITY = 10;
+export const INPUT_READY_INDEX = HEADER_SIZE + EVENT_SIZE * KEY_EVENT_CAPACITY;
+export const INPUT_LEN_INDEX = INPUT_READY_INDEX + 1;
+export const INPUT_DATA_INDEX = INPUT_READY_INDEX + 2;
+export const INPUT_MAX_BYTES = 4096;
 
 export const KEYPRESS = 0;
 export const KEYDOWN = 1;
@@ -38,7 +48,8 @@ export type WorkerMessage =
     | { cmd: "progress"; data: number }
     | { cmd: "write"; fd: number; data: string }
     | { cmd: "formatted"; data: string }
-    | { cmd: "svg"; data: string };
+    | { cmd: "svg"; data: string }
+    | { cmd: "input" };
 
 interface Postable {
     postMessage(msg: UIMessage): void;
@@ -66,13 +77,30 @@ export class UIChannel {
         this.worker.postMessage({ cmd: "format", data });
     }
 
-    // stop() writes directly to the shared buffer instead of using postMessage,
-    // because the worker blocks on Atomics.wait() during sleep and cannot process
+    // stop(), submitInput() write directly to the shared buffer instead of using
+    // postMessage, because the worker blocks on Atomics.wait() and cannot process
     // messages while waiting. The atomic store wakes it immediately via notify.
     stop(): void {
         const buf = this.buffer!;
         Atomics.store(buf, STOP_INDEX, 1);
         Atomics.notify(buf, SLEEP_INDEX, 1);
+        Atomics.notify(buf, INPUT_READY_INDEX, 1);
+    }
+
+    submitInput(text: string): void {
+        const buf = this.buffer!;
+        const bytes = new TextEncoder().encode(text + "\n");
+        const len = Math.min(bytes.length, INPUT_MAX_BYTES);
+        // Write bytes into the int32 slots (pack 4 bytes per int32)
+        const byteView = new Uint8Array(
+            buf.buffer,
+            INPUT_DATA_INDEX * 4,
+            INPUT_MAX_BYTES,
+        );
+        byteView.set(bytes.subarray(0, len));
+        Atomics.store(buf, INPUT_LEN_INDEX, len);
+        Atomics.store(buf, INPUT_READY_INDEX, 1);
+        Atomics.notify(buf, INPUT_READY_INDEX, 1);
     }
 
     enqueueKeyEvent(event: KeyEvent): boolean {
@@ -80,9 +108,7 @@ export class UIChannel {
         lock(buf);
         try {
             const count = buf[NUM_KEY_EVENTS_INDEX];
-            const capacity = Math.floor(
-                (buf.length - HEADER_SIZE) / EVENT_SIZE,
-            );
+            const capacity = KEY_EVENT_CAPACITY;
             if (count >= capacity) {
                 return false;
             }

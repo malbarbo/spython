@@ -6,6 +6,9 @@ function makeBuffer(): ArrayBuffer {
 }
 
 function noop() {}
+function noopStr(): string {
+    return "";
+}
 
 Deno.test("environ_sizes_get counts UTF-8 bytes", () => {
     const buffer = makeBuffer();
@@ -14,6 +17,7 @@ Deno.test("environ_sizes_get counts UTF-8 bytes", () => {
         getBuffer: () => buffer,
         write: noop,
         svg: noop,
+        readStdin: noopStr,
         env: ["LANG=café"],
     });
     const countPtr = 0;
@@ -31,6 +35,7 @@ Deno.test("environ_get writes valid UTF-8", () => {
         getBuffer: () => buffer,
         write: noop,
         svg: noop,
+        readStdin: noopStr,
         env: ["K=café"],
     });
     // environ_get(environPtr, environBufPtr)
@@ -53,6 +58,7 @@ Deno.test("args_sizes_get counts UTF-8 bytes", () => {
         getBuffer: () => buffer,
         write: noop,
         svg: noop,
+        readStdin: noopStr,
         args: ["héllo"],
     });
     const countPtr = 0;

@@ -2,6 +2,11 @@ import {
     EVENT_KEY_LEN,
     EVENT_SIZE,
     HEADER_SIZE,
+    INPUT_DATA_INDEX,
+    INPUT_LEN_INDEX,
+    INPUT_MAX_BYTES,
+    INPUT_READY_INDEX,
+    KEY_EVENT_CAPACITY,
     type KeyEvent,
     lock,
     NUM_KEY_EVENTS_INDEX,
@@ -15,9 +20,13 @@ import {
 export class WorkerChannel {
     private buffer: Int32Array;
 
-    constructor(capacity: number = 10) {
-        const byteLength = (HEADER_SIZE + EVENT_SIZE * capacity) * 4;
-        this.buffer = new Int32Array(new SharedArrayBuffer(byteLength));
+    constructor() {
+        // Buffer: header + key events + input area (INPUT_READY, INPUT_LEN, INPUT_DATA)
+        const int32Count = INPUT_DATA_INDEX +
+            Math.ceil(INPUT_MAX_BYTES / 4);
+        this.buffer = new Int32Array(
+            new SharedArrayBuffer(int32Count * 4),
+        );
     }
 
     getBuffer(): SharedArrayBuffer {
@@ -30,6 +39,21 @@ export class WorkerChannel {
 
     sleep(ms: bigint): void {
         Atomics.wait(this.buffer, SLEEP_INDEX, 0, Number(ms));
+    }
+
+    waitForInput(): string {
+        workerPost({ cmd: "input" });
+        Atomics.wait(this.buffer, INPUT_READY_INDEX, 0);
+        const len = this.buffer[INPUT_LEN_INDEX];
+        const byteView = new Uint8Array(
+            this.buffer.buffer,
+            INPUT_DATA_INDEX * 4,
+            len,
+        );
+        const text = new TextDecoder().decode(byteView.slice(0, len));
+        Atomics.store(this.buffer, INPUT_READY_INDEX, 0);
+        Atomics.store(this.buffer, INPUT_LEN_INDEX, 0);
+        return text;
     }
 
     dequeueKeyEvent(): KeyEvent | null {

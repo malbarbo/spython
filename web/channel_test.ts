@@ -8,8 +8,8 @@ import {
 } from "./ui_channel.ts";
 import { WorkerChannel } from "./worker_channel.ts";
 
-function makeChannels(capacity = 4): [UIChannel, WorkerChannel] {
-    const worker = new WorkerChannel(capacity);
+function makeChannels(): [UIChannel, WorkerChannel] {
+    const worker = new WorkerChannel();
     const ui = new UIChannel({ postMessage() {} });
     ui.setBuffer(worker.getBuffer());
     return [ui, worker];
@@ -68,15 +68,17 @@ Deno.test("modifier flags are preserved", () => {
 });
 
 Deno.test("enqueue returns false when buffer is full", () => {
-    const [ui] = makeChannels(2);
+    const [ui] = makeChannels();
     const e = event();
-    assertEquals(ui.enqueueKeyEvent(e), true);
-    assertEquals(ui.enqueueKeyEvent(e), true);
+    // Fill all 10 slots
+    for (let i = 0; i < 10; i++) {
+        assertEquals(ui.enqueueKeyEvent(e), true);
+    }
     assertEquals(ui.enqueueKeyEvent(e), false);
 });
 
 Deno.test("buffer can be reused after dequeue", () => {
-    const [ui, worker] = makeChannels(1);
+    const [ui, worker] = makeChannels();
     const e = event({ key: "z" });
     ui.enqueueKeyEvent(e);
     worker.dequeueKeyEvent();
