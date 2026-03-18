@@ -123,7 +123,10 @@ Deno.test("passing doctests report count", async () => {
                     channel.load(code, 4);
                 } else {
                     assertEquals(stdout, "");
-                    assertEquals(stderr, "1 example passed.\n");
+                    assertEquals(
+                        stderr,
+                        "Running tests...\n1 test, 1 success, 0 failures and 0 errors.\n",
+                    );
                     worker.terminate();
                     resolve();
                 }
@@ -163,7 +166,7 @@ Deno.test("failing doctests are reported on stderr", async () => {
                     assertMatch(stderr, /Failed example/);
                     assertMatch(stderr, /Expected/);
                     assertMatch(stderr, /Got/);
-                    assertMatch(stderr, /Test Failed.*1 of 1/);
+                    assertMatch(stderr, /1 test, 0 successes, 1 failure/);
                     worker.terminate();
                     resolve();
                 }
