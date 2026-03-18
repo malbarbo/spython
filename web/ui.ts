@@ -33,6 +33,8 @@ type AppState =
         splitSize: number;
         helpVisible: boolean;
         resizing: boolean;
+        history: string[];
+        historyIndex: number;
     };
 
 class App {
@@ -243,6 +245,8 @@ class App {
                         splitSize: 50,
                         helpVisible: false,
                         resizing: false,
+                        history: [],
+                        historyIndex: -1,
                     };
                 this.render();
                 this.lastSvg = null;
@@ -543,7 +547,12 @@ class App {
             selection.collapseToEnd();
         });
 
+        let savedInput = "";
+
         input.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (this.state.kind !== "ready") return;
+            const s = this.state;
+
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 const text = input.cloneNode(true) as HTMLElement;
@@ -552,8 +561,30 @@ class App {
                 );
                 const code = text.textContent?.trim() ?? "";
                 if (code) {
+                    s.history.push(code);
+                    s.historyIndex = -1;
                     input.contentEditable = "false";
                     this.postRun(code);
+                }
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                if (s.history.length === 0) return;
+                if (s.historyIndex === -1) {
+                    savedInput = input.textContent ?? "";
+                    s.historyIndex = s.history.length - 1;
+                } else if (s.historyIndex > 0) {
+                    s.historyIndex--;
+                }
+                input.textContent = s.history[s.historyIndex];
+            } else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                if (s.historyIndex === -1) return;
+                if (s.historyIndex < s.history.length - 1) {
+                    s.historyIndex++;
+                    input.textContent = s.history[s.historyIndex];
+                } else {
+                    s.historyIndex = -1;
+                    input.textContent = savedInput;
                 }
             }
         });
