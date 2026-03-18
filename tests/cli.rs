@@ -458,7 +458,7 @@ fn level5_allows_with() {
 
 #[test]
 fn level5_allows_intenum_without_annotations() {
-    let (_, err, success) = run_level(
+    let (_, _err, success) = run_level(
         5,
         indoc! {"
         from enum import IntEnum
@@ -472,7 +472,7 @@ fn level5_allows_intenum_without_annotations() {
 
 #[test]
 fn level5_allows_strenum_without_annotations() {
-    let (_, err, success) = run_level(
+    let (_, _err, success) = run_level(
         5,
         indoc! {"
         from enum import StrEnum

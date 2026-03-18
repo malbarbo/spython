@@ -37,8 +37,8 @@ fn new_string(ptr: *mut u8, len: usize) -> String {
 // --- REPL ---
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_new(str: *mut u8, len: usize, level: u8) -> *mut ReplState {
-    let source = new_string(str, len);
+pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut ReplState {
+    let source = new_string(ptr, len);
     let level = spython_core::Level::from_u8(level).unwrap_or(spython_core::Level::Functions);
     let mut has_errors = false;
     if !source.trim().is_empty() {
@@ -58,10 +58,10 @@ pub unsafe extern "C" fn repl_new(str: *mut u8, len: usize, level: u8) -> *mut R
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_run(repl: *mut ReplState, str: *mut u8, len: usize) -> bool {
+pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize) -> bool {
     assert!(!repl.is_null());
     let state = unsafe { &mut *repl };
-    let code = new_string(str, len);
+    let code = new_string(ptr, len);
     spython_core::repl_run(state, &code)
 }
 
@@ -76,8 +76,8 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
 // --- Formatting ---
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn format(str: *mut u8, len: usize) -> *mut std::ffi::c_char {
-    let source = new_string(str, len);
+pub unsafe extern "C" fn format(ptr: *mut u8, len: usize) -> *mut std::ffi::c_char {
+    let source = new_string(ptr, len);
     match format_source(&source) {
         Ok(formatted) => match std::ffi::CString::new(formatted) {
             Ok(cstr) => cstr.into_raw(),

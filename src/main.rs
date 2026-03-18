@@ -72,29 +72,31 @@ enum Command {
     },
 }
 
+fn parse_level(level: u8) -> Option<Level> {
+    let result = Level::from_u8(level);
+    if result.is_none() {
+        eprintln!("Invalid level {level}: must be 0-5");
+    }
+    result
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let result = match cli.command.unwrap_or(Command::Repl { file: None }) {
         Command::Repl { file } => start_repl(file.as_deref()),
-        Command::Run { file, level } => match Level::from_u8(level) {
+        Command::Run { file, level } => match parse_level(level) {
             Some(l) => run_checked(&file, l),
-            None => {
-                eprintln!("Invalid level {level}: must be 0-5");
-                return ExitCode::FAILURE;
-            }
+            None => return ExitCode::FAILURE,
         },
         Command::Format { paths } => run_format(&paths),
         Command::Check {
             files,
             verbose,
             level,
-        } => match Level::from_u8(level) {
+        } => match parse_level(level) {
             Some(l) => run_check(&files, verbose, l),
-            None => {
-                eprintln!("Invalid level {level}: must be 0-5");
-                return ExitCode::FAILURE;
-            }
+            None => return ExitCode::FAILURE,
         },
     };
 
