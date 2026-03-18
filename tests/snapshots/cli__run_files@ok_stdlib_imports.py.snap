@@ -1,8 +1,12 @@
 ---
 source: tests/cli.rs
+assertion_line: 45
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 input_file: tests/inputs/ok_stdlib_imports.py
 ---
 STDOUT
-Testing imports
 STDERR
+Traceback (most recent call last):
+  File "ok_stdlib_imports.py", line 3, in <module>
+    import os
+ModuleNotFoundError: No module named 'os'
