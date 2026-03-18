@@ -58,11 +58,11 @@ test: test-rs test-web
 test-rs:
 	cargo test
 
-test-web: $(DIST_DIR)/spython.wasm $(DIST_DIR)/worker.js $(DIST_DIR)/test.js
-	deno test --allow-read $(WEB_DIR)/channel_test.ts
+test-web: $(DIST_DIR)/spython.wasm $(DIST_DIR)/worker.js
+	deno test $(WEB_DIR)/channel_test.ts
 	deno test $(WEB_DIR)/wasi_test.ts
 	deno test $(WEB_DIR)/ansi_test.ts
-	deno test --allow-read $(DIST_DIR)/test.js
+	deno test --no-check --allow-read $(WEB_DIR)/test.ts
 
 # Check
 
