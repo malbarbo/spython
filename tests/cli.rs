@@ -457,6 +457,34 @@ fn level5_allows_with() {
 }
 
 #[test]
+fn level5_allows_intenum_without_annotations() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        from enum import IntEnum
+        class Color(IntEnum):
+            RED = 1
+            BLUE = 2
+    "},
+    );
+    assert!(success);
+}
+
+#[test]
+fn level5_allows_strenum_without_annotations() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        from enum import StrEnum
+        class Dir(StrEnum):
+            UP = 'up'
+            DOWN = 'down'
+    "},
+    );
+    assert!(success);
+}
+
+#[test]
 fn missing_file() {
     let output = Command::new(cargo::cargo_bin!("spython"))
         .args(["run", "nonexistent.py"])
