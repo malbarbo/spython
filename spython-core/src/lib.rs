@@ -86,11 +86,11 @@ pub fn annotation_check(db: &ProjectDatabase, level: Level) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in &db.project().files(db) {
         // Skip library code (Lib/spython/) — only check student files.
-        let dominated_by_spython = file
+        let is_spython_library = file
             .path(db)
             .as_system_path()
             .is_some_and(|p| p.as_str().contains("/Lib/spython/"));
-        if !dominated_by_spython {
+        if !is_spython_library {
             diagnostics.extend(checker::check_file_annotations(db, file, level));
         }
     }
@@ -212,12 +212,7 @@ impl Drop for ReplState {
 /// are available to subsequent `repl_run` calls. Type errors are printed to
 /// stderr and execution continues (the REPL is still created).
 pub fn repl_new(source: &str) -> Box<ReplState> {
-    let mut settings = vm::Settings::default();
-    settings.write_bytecode = false;
-    let interp = InterpreterBuilder::new()
-        .settings(settings)
-        .init_stdlib()
-        .interpreter();
+    let interp = new_interpreter();
     let scope = interp.enter(|vm| {
         let scope = vm
             .new_scope_with_main()

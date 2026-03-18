@@ -6,7 +6,7 @@
 use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span};
 use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
-use ruff_python_ast::{Expr, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef};
+use ruff_python_ast::{Expr, Parameter, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef};
 use ruff_text_size::Ranged;
 use ty_project::Db;
 
@@ -93,10 +93,7 @@ fn check_stmt(
             }
             check_function(func, file, diagnostics, in_class);
             check_stmts(&func.body, file, diagnostics, false, level);
-            // Check decorator expressions
-            for decorator in &func.decorator_list {
-                check_expr(&decorator.expression, file, diagnostics, level);
-            }
+            check_decorators(&func.decorator_list, file, diagnostics, level);
         }
         Stmt::ClassDef(cls) => {
             if level < Level::Types {
@@ -134,10 +131,7 @@ fn check_stmt(
                 }
             }
             check_stmts(&cls.body, file, diagnostics, true, level);
-            // Check decorator expressions
-            for decorator in &cls.decorator_list {
-                check_expr(&decorator.expression, file, diagnostics, level);
-            }
+            check_decorators(&cls.decorator_list, file, diagnostics, level);
         }
         Stmt::For(for_stmt) => {
             if for_stmt.is_async && level < Level::Full {
@@ -518,6 +512,36 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
     }
 }
 
+fn check_decorators(
+    decorator_list: &[ruff_python_ast::Decorator],
+    file: File,
+    diagnostics: &mut Vec<Diagnostic>,
+    level: Level,
+) {
+    for decorator in decorator_list {
+        check_expr(&decorator.expression, file, diagnostics, level);
+    }
+}
+
+fn check_param_annotation(
+    param: &Parameter,
+    prefix: &str,
+    file: File,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if param.annotation.is_none() {
+        diagnostics.push(make_lint_diagnostic(
+            &MISSING_PARAMETER_ANNOTATION,
+            file,
+            param.range(),
+            format!(
+                "Parameter `{prefix}{}` is missing a type annotation",
+                param.name.as_str()
+            ),
+        ));
+    }
+}
+
 /// Check a function definition for missing parameter and return annotations.
 fn check_function(
     func: &StmtFunctionDef,
@@ -530,72 +554,26 @@ fn check_function(
     // Skip the first positional parameter in a method (the implicit receiver: self/cls)
     let mut skip_first = in_class;
 
-    // Check positional-only and regular positional parameters
     for pwd in params.posonlyargs.iter().chain(params.args.iter()) {
         if skip_first {
             skip_first = false;
             continue;
         }
-
-        if pwd.parameter.annotation.is_none() {
-            diagnostics.push(make_lint_diagnostic(
-                &MISSING_PARAMETER_ANNOTATION,
-                file,
-                pwd.parameter.range(),
-                format!(
-                    "Parameter `{}` is missing a type annotation",
-                    pwd.parameter.name.as_str()
-                ),
-            ));
-        }
+        check_param_annotation(&pwd.parameter, "", file, diagnostics);
     }
 
-    // Check keyword-only parameters
     for pwd in &params.kwonlyargs {
-        if pwd.parameter.annotation.is_none() {
-            diagnostics.push(make_lint_diagnostic(
-                &MISSING_PARAMETER_ANNOTATION,
-                file,
-                pwd.parameter.range(),
-                format!(
-                    "Parameter `{}` is missing a type annotation",
-                    pwd.parameter.name.as_str()
-                ),
-            ));
-        }
+        check_param_annotation(&pwd.parameter, "", file, diagnostics);
     }
 
-    // Check *args parameter
-    if let Some(vararg) = &params.vararg
-        && vararg.annotation.is_none()
-    {
-        diagnostics.push(make_lint_diagnostic(
-            &MISSING_PARAMETER_ANNOTATION,
-            file,
-            vararg.range(),
-            format!(
-                "Parameter `*{}` is missing a type annotation",
-                vararg.name.as_str()
-            ),
-        ));
+    if let Some(vararg) = &params.vararg {
+        check_param_annotation(vararg, "*", file, diagnostics);
     }
 
-    // Check **kwargs parameter
-    if let Some(kwarg) = &params.kwarg
-        && kwarg.annotation.is_none()
-    {
-        diagnostics.push(make_lint_diagnostic(
-            &MISSING_PARAMETER_ANNOTATION,
-            file,
-            kwarg.range(),
-            format!(
-                "Parameter `**{}` is missing a type annotation",
-                kwarg.name.as_str()
-            ),
-        ));
+    if let Some(kwarg) = &params.kwarg {
+        check_param_annotation(kwarg, "**", file, diagnostics);
     }
 
-    // Check return type annotation
     if func.returns.is_none() {
         diagnostics.push(make_lint_diagnostic(
             &MISSING_RETURN_ANNOTATION,
