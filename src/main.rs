@@ -1,4 +1,5 @@
 use clap::Parser;
+use clap::builder::styling;
 use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::{OsSystem, SystemPathBuf};
@@ -31,9 +32,23 @@ enum Error {
     TypeChecking(Box<ProjectDatabase>, Vec<Diagnostic>),
 }
 
-/// spython: A student version of Python
+const LONG_VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (using rustpython 0.4.0 and ruff 0.15.4)"
+);
+
+/// A student version of Python
 #[derive(Parser)]
-#[clap(name = "spython", version)]
+#[command(
+    name = "spython",
+    version,
+    long_version = LONG_VERSION,
+    about,
+    styles = clap::builder::Styles::styled()
+        .header(styling::AnsiColor::Yellow.on_default())
+        .usage(styling::AnsiColor::Yellow.on_default())
+        .literal(styling::AnsiColor::Green.on_default())
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
