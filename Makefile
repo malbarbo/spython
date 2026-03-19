@@ -32,6 +32,7 @@ RUST_SRCS = Cargo.toml \
 	$(wildcard wasm/src/*.rs)
 
 $(WASM_BIN): $(RUST_SRCS)
+	TYPESHED_ALLOWLIST=$(CURDIR)/typeshed_allowlist.txt \
 	cargo build -p spython-wasm --target $(WASM_TARGET) --release
 
 # TypeScript bundles (intermediate, used by inline.ts)

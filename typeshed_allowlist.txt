@@ -1,0 +1,29 @@
+# Typeshed stubs needed by spython's type checker.
+# Only these stubs are included in the WASM binary.
+__future__
+_ast
+_collections_abc
+_decimal
+_operator
+_sitebuiltins
+_typeshed
+abc
+annotationlib
+builtins
+collections
+collections.abc
+contextlib
+copy
+dataclasses
+enum
+functools
+io
+math
+os
+os.path
+re
+sys
+types
+typing
+typing_extensions
+warnings
