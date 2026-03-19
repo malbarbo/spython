@@ -27,6 +27,9 @@ assert_cmd = "2.0.16"
 indoc = "2"
 insta = { version = "1.41.1", features = ["glob", "filters"] }
 
+[patch.crates-io]
+rustyline = { git = "https://github.com/malbarbo/rustyline.git" }
+
 [profile.release]
 opt-level = 2
 lto = true
