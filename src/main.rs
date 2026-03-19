@@ -170,8 +170,8 @@ fn start_repl(file: Option<&Path>) -> Result<(), Error> {
     let interp = new_interpreter();
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
-        vm.sys_module.set_attr("ps1", vm.ctx.new_str("> "), vm)?;
-        vm.sys_module.set_attr("ps2", vm.ctx.new_str("  "), vm)?;
+        vm.sys_module.set_attr("ps1", vm.ctx.new_str(">>> "), vm)?;
+        vm.sys_module.set_attr("ps2", vm.ctx.new_str("... "), vm)?;
         if let Some((source, file_str, parent_dir)) = &preload {
             vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
             vm.run_string(scope.clone(), source, file_str.clone())
