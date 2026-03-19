@@ -25,7 +25,7 @@ pub enum Level {
     /// Adds: if/elif/else.
     Selection = 1,
     /// Adds: Enum, @dataclass, match.
-    Types = 2,
+    UserTypes = 2,
     /// Adds: list literals, for, while, augmented assignment.
     Repetition = 3,
     /// Adds: full classes with methods, dict/set literals, comprehensions, lambda.
@@ -39,7 +39,7 @@ impl std::fmt::Display for Level {
         let (n, name) = match self {
             Level::Functions => (0, "Functions"),
             Level::Selection => (1, "Selection"),
-            Level::Types => (2, "Types"),
+            Level::UserTypes => (2, "User types"),
             Level::Repetition => (3, "Repetition"),
             Level::Classes => (4, "Classes"),
             Level::Full => (5, "Full"),
@@ -53,7 +53,7 @@ impl Level {
         match n {
             0 => Some(Level::Functions),
             1 => Some(Level::Selection),
-            2 => Some(Level::Types),
+            2 => Some(Level::UserTypes),
             3 => Some(Level::Repetition),
             4 => Some(Level::Classes),
             5 => Some(Level::Full),
@@ -110,12 +110,12 @@ fn check_stmt(
             check_decorators(&func.decorator_list, file, diagnostics, level);
         }
         Stmt::ClassDef(cls) => {
-            if level < Level::Types {
+            if level < Level::UserTypes {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_CLASS,
                     file,
                     cls.name.range(),
-                    forbidden_msg("`class`", level, Level::Types),
+                    forbidden_msg("`class`", level, Level::UserTypes),
                 ));
             } else {
                 // Check for methods (FunctionDef inside class) before level 4
@@ -199,12 +199,12 @@ fn check_stmt(
             }
         }
         Stmt::Match(match_stmt) => {
-            if level < Level::Types {
+            if level < Level::UserTypes {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_MATCH,
                     file,
                     match_stmt.range(),
-                    forbidden_msg("`match`", level, Level::Types),
+                    forbidden_msg("`match`", level, Level::UserTypes),
                 ));
             }
             check_expr(&match_stmt.subject, file, diagnostics, level);
