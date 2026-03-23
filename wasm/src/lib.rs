@@ -61,7 +61,7 @@ pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut R
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize) -> bool {
+pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize) -> u32 {
     assert!(!repl.is_null());
     let state = unsafe { &mut *repl };
     let code = new_string(ptr, len);

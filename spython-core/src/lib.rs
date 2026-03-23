@@ -322,7 +322,12 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
 ///
 /// Returns `true` if the user called `exit()` / `quit()` (SystemExit raised),
 /// meaning the caller should restart or close the session.
-pub fn repl_run(state: &mut ReplState, code: &str) -> bool {
+/// Return values from repl_run.
+pub const REPL_OK: u32 = 0;
+pub const REPL_ERROR: u32 = 1;
+pub const REPL_QUIT: u32 = 2;
+
+pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
     let scope = state.scope.as_ref().unwrap().clone();
     let code = code.to_owned();
     state.interp.enter(move |vm| {
@@ -331,13 +336,13 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> bool {
             .map_err(|err| vm.new_syntax_error(&err, Some(&code)))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
         {
-            Ok(_) => false,
+            Ok(_) => REPL_OK,
             Err(exc) => {
                 if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                    true
+                    REPL_QUIT
                 } else {
                     vm.print_exception(exc);
-                    false
+                    REPL_ERROR
                 }
             }
         }
