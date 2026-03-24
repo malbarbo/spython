@@ -76,6 +76,21 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
     }
 }
 
+// --- Version ---
+
+#[unsafe(no_mangle)]
+pub extern "C" fn version() -> *mut std::ffi::c_char {
+    let v = concat!(
+        "spython ",
+        env!("CARGO_PKG_VERSION"),
+        " (using rustpython 0.4.0 and ty (ruff 0.15.4))"
+    );
+    match std::ffi::CString::new(v) {
+        Ok(cstr) => cstr.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 // --- Formatting ---
 
 #[unsafe(no_mangle)]

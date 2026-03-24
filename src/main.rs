@@ -34,7 +34,7 @@ enum Error {
 
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
-    " (using rustpython 0.4.0 and ruff 0.15.4)"
+    " (using rustpython 0.4.0 and ty (ruff 0.15.4))"
 );
 
 /// A student version of Python
