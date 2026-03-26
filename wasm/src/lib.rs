@@ -76,6 +76,41 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
     }
 }
 
+// --- Completion ---
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn repl_complete(
+    repl: *mut ReplState,
+    text_ptr: *mut u8,
+    text_len: usize,
+    cursor_pos: usize,
+) -> *mut std::ffi::c_char {
+    assert!(!repl.is_null());
+    let state = unsafe { &*repl };
+    let text = new_string(text_ptr, text_len);
+
+    let result =
+        state.with_vm(|vm, globals| engine::completion::tab_action(vm, globals, &text, cursor_pos));
+
+    let output = match result {
+        engine::completion::TabAction::Indent(spaces) => format!("i {spaces}"),
+        engine::completion::TabAction::Complete(startpos, candidates) => {
+            let mut s = format!("c {startpos}");
+            for c in &candidates {
+                s.push(' ');
+                s.push_str(c);
+            }
+            s
+        }
+        engine::completion::TabAction::Nothing => return std::ptr::null_mut(),
+    };
+
+    match std::ffi::CString::new(output) {
+        Ok(cstr) => cstr.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 // --- Version ---
 
 #[unsafe(no_mangle)]

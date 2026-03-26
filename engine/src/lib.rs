@@ -1,3 +1,5 @@
+pub mod completion;
+
 use std::collections::HashSet;
 
 use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics};
@@ -196,6 +198,17 @@ pub struct ReplState {
     // and the scope must be freed while the VM is still alive.
     scope: Option<vm::scope::Scope>,
     interp: vm::Interpreter,
+}
+
+impl ReplState {
+    /// Run a closure with access to the VM and the session's globals.
+    pub fn with_vm<R>(
+        &self,
+        f: impl FnOnce(&vm::VirtualMachine, &vm::builtins::PyDictRef) -> R,
+    ) -> R {
+        let globals = &self.scope.as_ref().expect("scope is live").globals;
+        self.interp.enter(|vm| f(vm, globals))
+    }
 }
 
 impl Drop for ReplState {

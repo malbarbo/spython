@@ -54,6 +54,20 @@ The CLI crate cannot be compiled for WASM. To build the WASM binary:
 cargo build -p wasm --target wasm32-wasip1 --release
 ```
 
+### WASM Exports
+
+The `wasm` crate exposes a C FFI for the web REPL. Key exports:
+
+- `repl_new(source, len, level)` → `*mut ReplState`
+- `repl_run(repl, code, len)` → `u32` (OK/ERROR/QUIT)
+- `repl_complete(repl, text, len, cursor_pos)` → `*mut c_char` or null
+- `repl_destroy(repl)`
+- `format(source, len)` → `*mut c_char`
+- `version()` → `*mut c_char`
+
+`repl_complete` returns a space-separated string: `"c <startpos> <candidates...>"`
+for completions, `"i <spaces>"` for indentation, or null for no action.
+
 ### Developing the Forks
 
 Local clones for development:
@@ -117,7 +131,9 @@ Current fork customizations (ruff, 1 commit on `spython-0.1`):
 
 - `cli/main.rs` — CLI, pipeline orchestration, import resolution
 - `cli/repl.rs` — Interactive REPL with syntax highlighting, auto-indent,
-  tab completion, and multi-line editing (uses rustyline directly)
+  and multi-line editing (uses rustyline). Delegates completion to `engine`.
+- `engine/src/completion.rs` — Tab completion logic shared by CLI and WASM:
+  identifier/attribute/keyword completion and indent-vs-complete decision.
 - `engine/src/checker.rs` — AST walker: annotation checks + construct
   restrictions
 - `engine/src/lints.rs` — Lint rule declarations using `declare_lint!`
