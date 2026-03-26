@@ -579,13 +579,14 @@ fn repl_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), PyBa
 }
 
 pub fn run_repl(vm: &VirtualMachine, scope: Scope, level: Level) -> PyResult<()> {
-    let repl_history_path = match dirs::config_dir() {
+    let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
             path.push("spython");
-            path.push("repl_history.txt");
+            let _ = std::fs::create_dir_all(&path);
+            path.push("history");
             path
         }
-        None => ".repl_history.txt".into(),
+        None => ".spython_history".into(),
     };
 
     {
