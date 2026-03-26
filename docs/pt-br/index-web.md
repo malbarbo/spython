@@ -1,0 +1,1 @@
+Spython é uma versão do [Python](https://www.python.org/) voltada para o ensino de programação. Ele exige anotações de tipo completas e restringe as construções disponíveis de acordo com o nível de ensino.
