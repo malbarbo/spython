@@ -1,5 +1,6 @@
 [workspace]
-members = ["engine", "cli", "wasm"]
+members = ["engine", "cli"]
+exclude = ["wasm"]
 resolver = "3"
 
 [patch.crates-io]

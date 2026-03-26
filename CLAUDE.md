@@ -48,7 +48,9 @@ Manual testing is also done with `.py` files in the repo root (e.g. `a.py`,
 
 ### WASM Build
 
-The CLI crate cannot be compiled for WASM. To build the WASM binary:
+The `wasm` crate is excluded from the default workspace. It is NOT compiled
+by `cargo build`, `cargo test`, or `cargo clippy` (only `engine` and `cli`
+are). To build the WASM binary:
 
 ```bash
 cargo build -p wasm --target wasm32-wasip1 --release
@@ -198,3 +200,10 @@ Annotation lint rules in `engine/src/lints.rs` are checked at all levels:
 - Every function parameter (except `self`/`cls`) must have a type annotation
 - Every function/method must have a return type annotation
 - Every class-body variable assignment must have a type annotation
+
+## Image Library
+
+The image/style/color library was removed from the RustPython fork. A copy
+is saved in `spython-lib/` (not committed) for future integration. If you
+want to work on images, ask the user first — do not start without explicit
+confirmation.
