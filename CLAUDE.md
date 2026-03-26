@@ -56,9 +56,10 @@ cargo build -p wasm --target wasm32-wasip1 --release
 
 ### WASM Exports
 
-The `wasm` crate exposes a C FFI for the web REPL. Key exports:
+The `wasm` crate implements the slangs engine WASM protocol
+(see `ENGINE.md` in the slangs repo). Key exports:
 
-- `repl_new(source, len, level)` → `*mut ReplState`
+- `repl_new(code, len, config, config_len)` → `*mut ReplState`
 - `repl_run(repl, code, len)` → `u32` (OK/ERROR/QUIT)
 - `repl_complete(repl, text, len, cursor_pos)` → `*mut c_char` or null
 - `repl_destroy(repl)`
@@ -67,6 +68,10 @@ The `wasm` crate exposes a C FFI for the web REPL. Key exports:
 
 `repl_complete` returns a space-separated string: `"c <startpos> <candidates...>"`
 for completions, `"i <spaces>"` for indentation, or null for no action.
+
+`repl_new` config is a space-separated `key=value` string (compatible with the
+slangs engine protocol). Currently supported: `level=<0-5>`. Unknown keys are
+ignored.
 
 ### Developing the Forks
 

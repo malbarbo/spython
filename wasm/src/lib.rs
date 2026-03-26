@@ -34,12 +34,34 @@ fn new_string(ptr: *mut u8, len: usize) -> String {
     String::from_utf8_lossy(slice).into_owned()
 }
 
+// --- Config parsing ---
+
+/// Parse `level=<n>` from a space-separated `key=value` config string.
+/// Defaults to level 0. Unknown keys are ignored.
+fn parse_config_level(config: &str) -> engine::Level {
+    for entry in config.split_whitespace() {
+        if let Some(value) = entry.strip_prefix("level=")
+            && let Ok(n) = value.parse::<u8>()
+            && let Some(level) = engine::Level::from_u8(n)
+        {
+            return level;
+        }
+    }
+    engine::Level::Functions
+}
+
 // --- REPL ---
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut ReplState {
-    let source = new_string(ptr, len);
-    let level = engine::Level::from_u8(level).unwrap_or(engine::Level::Functions);
+pub unsafe extern "C" fn repl_new(
+    code_ptr: *mut u8,
+    code_len: usize,
+    config_ptr: *mut u8,
+    config_len: usize,
+) -> *mut ReplState {
+    let source = new_string(code_ptr, code_len);
+    let config = new_string(config_ptr, config_len);
+    let level = parse_config_level(&config);
     let mut has_errors = false;
     if !source.trim().is_empty() {
         match type_check_source(&source, level) {
