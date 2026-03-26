@@ -500,8 +500,8 @@ fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
         .expect("failed to run spython repl");
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     // Strip the welcome banner (two lines: "Welcome to..." and "Type ctrl-d...")
-    let stdout = match stdout.find("Type ctrl-d to exit.\n") {
-        Some(pos) => stdout[pos + "Type ctrl-d to exit.\n".len()..].to_owned(),
+    let stdout = match stdout.find("Type :quit or ctrl-d to exit.\n") {
+        Some(pos) => stdout[pos + "Type :quit or ctrl-d to exit.\n".len()..].to_owned(),
         None => stdout,
     };
     (

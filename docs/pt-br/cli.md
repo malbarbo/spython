@@ -165,6 +165,33 @@ spython repl --level 5 dobro.py
 O arquivo é verificado (tipos e doctests) antes de ser carregado.
 
 
+## Comandos do REPL
+
+`:quit` — Sai do REPL (ou `Ctrl+d`).
+
+`:type` — Mostra o tipo estático de uma expressão sem avaliá-la:
+
+```
+>>> :type 1 + 2
+int
+>>> :type [1, 2, 3]
+list[int]
+>>> :type "hello"
+str
+```
+
+`:level` — Mostra ou altera o nível de ensino:
+
+```
+>>> :level
+level 0
+>>> :level 3
+level 3
+```
+
+Se o código já digitado não for compatível com o novo nível, a mudança é rejeitada.
+
+
 # Testes (doctests)
 
 Para executar os doctests de um arquivo:

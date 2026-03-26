@@ -19,6 +19,9 @@ pub mod checker;
 pub mod lints;
 pub mod wasm_ffi;
 
+use ruff_python_ast::ExprRef;
+use ty_python_semantic::{HasType, SemanticModel};
+
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
 
@@ -236,6 +239,69 @@ pub fn type_check_repl_input(
     );
 
     false
+}
+
+/// Infer the static type of a Python expression in the REPL context.
+///
+/// Builds a source with `accumulated + "\n" + expr`, type-checks it, and
+/// returns the display string of the inferred type for the expression.
+pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
+    // Wrap the expression as the last statement so we can find it in the AST.
+    let source = if accumulated.is_empty() {
+        expr.to_owned()
+    } else {
+        format!("{}\n{}", accumulated.trim_end_matches('\n'), expr)
+    };
+
+    let cwd = SystemPathBuf::from(PROJECT_ROOT);
+    let system = InMemorySystem::new(cwd.clone());
+    system
+        .write_file(SystemPath::new(USER_FILE), &source)
+        .ok()?;
+
+    let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let db = ProjectDatabase::new(metadata, system).ok()?;
+
+    let file_path = SystemPathBuf::from(USER_FILE);
+    let file = system_path_to_file(&db, &file_path).ok()?;
+
+    // Parse and find the last expression statement.
+    let parsed = parsed_module(&db, file);
+    let module = parsed.load(&db);
+    let stmts = module.suite();
+    let last_stmt = stmts.last()?;
+
+    // The last statement should be an expression statement.
+    let expr_node = match last_stmt {
+        Stmt::Expr(expr_stmt) => &*expr_stmt.value,
+        _ => return None,
+    };
+
+    let model = SemanticModel::new(&db, file);
+    let ty = ExprRef::from(expr_node).inferred_type(&model)?;
+    let type_str = ty.display(&db).to_string();
+    Some(simplify_type_display(&type_str))
+}
+
+/// Simplify ty's type display for student-friendly output.
+///
+/// Converts `Literal[10]` → `int`, `Literal["hello"]` → `str`, etc.
+fn simplify_type_display(s: &str) -> String {
+    if let Some(inner) = s.strip_prefix("Literal[").and_then(|s| s.strip_suffix(']')) {
+        // Determine the base type from the literal value.
+        if inner == "True" || inner == "False" {
+            return "bool".to_owned();
+        }
+        if inner.starts_with('"') || inner.starts_with('\'') {
+            return "str".to_owned();
+        }
+        if inner.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
+            return "int".to_owned();
+        }
+        // Unknown literal — return as-is.
+        return s.to_owned();
+    }
+    s.to_owned()
 }
 
 /// Print diagnostics with line numbers adjusted for REPL context.

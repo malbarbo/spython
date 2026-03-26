@@ -165,6 +165,33 @@ spython repl --level 5 double.py
 The file is checked (types and doctests) before being loaded.
 
 
+## REPL commands
+
+`:quit` — Exits the REPL (or `Ctrl+d`).
+
+`:type` — Shows the static type of an expression without evaluating it:
+
+```
+>>> :type 1 + 2
+int
+>>> :type [1, 2, 3]
+list[int]
+>>> :type "hello"
+str
+```
+
+`:level` — Shows or changes the teaching level:
+
+```
+>>> :level
+level 0
+>>> :level 3
+level 3
+```
+
+If the code already entered is not compatible with the new level, the change is rejected.
+
+
 # Tests (doctests)
 
 To run the doctests of a file:

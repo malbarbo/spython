@@ -271,6 +271,24 @@ fn highlight_python(line: &str) -> String {
     let mut out = String::with_capacity(len + 64);
     let mut i = 0;
 
+    // REPL commands: color the command keyword, highlight the argument normally.
+    let trimmed = line.trim();
+    for cmd in &[":quit", ":level", ":type"] {
+        if trimmed == *cmd || trimmed.starts_with(&format!("{cmd} ")) {
+            let cmd_start = line.find(cmd).unwrap();
+            out.push_str(&line[..cmd_start]);
+            out.push_str(COLOR_KEYWORD);
+            out.push_str(cmd);
+            out.push_str(RESET);
+            let rest = &line[cmd_start + cmd.len()..];
+            if !rest.is_empty() {
+                // Highlight the argument as Python code.
+                out.push_str(&highlight_python(rest));
+            }
+            return out;
+        }
+    }
+
     while i < len {
         match b[i] {
             b'#' => {
@@ -578,7 +596,7 @@ fn repl_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), PyBa
     }
 }
 
-pub fn run_repl(vm: &VirtualMachine, scope: Scope, level: Level) -> PyResult<()> {
+pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult<()> {
     let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
             path.push("spython");
@@ -622,6 +640,56 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, level: Level) -> PyResult<()>
             match repl.readline(&prompt) {
                 Ok(line) => {
                     let _ = repl.add_history_entry(line.trim_end());
+                    let trimmed = line.trim();
+
+                    // REPL commands.
+                    if trimmed == ":quit" {
+                        break;
+                    }
+                    if trimmed == ":level" {
+                        println!("level {}", level as u8);
+                        continue;
+                    }
+                    if let Some(n) = trimmed.strip_prefix(":level ") {
+                        match n.trim().parse::<u8>().ok().and_then(Level::from_u8) {
+                            Some(new_level) => {
+                                // Re-check accumulated source at the new level.
+                                if !accumulated_source.is_empty()
+                                    && !engine::type_check_repl_input(
+                                        "",
+                                        &accumulated_source,
+                                        new_level,
+                                        std::io::IsTerminal::is_terminal(&std::io::stderr()),
+                                    )
+                                {
+                                    eprintln!(
+                                        "Cannot change to level {}: \
+                                         accumulated source has errors at that level.",
+                                        new_level as u8
+                                    );
+                                } else {
+                                    level = new_level;
+                                    println!("level {}", level as u8);
+                                }
+                            }
+                            None => {
+                                eprintln!("Invalid level: must be 0-5");
+                            }
+                        }
+                        continue;
+                    }
+                    if trimmed == ":type" {
+                        eprintln!("Usage: :type <expression>");
+                        continue;
+                    }
+                    if let Some(expr) = trimmed.strip_prefix(":type ") {
+                        match engine::infer_expression_type(&accumulated_source, expr) {
+                            Some(ty) => println!("{ty}"),
+                            None => eprintln!("Could not infer type"),
+                        }
+                        continue;
+                    }
+
                     let source = format!("{line}\n");
 
                     // Type-check with accumulated context.
