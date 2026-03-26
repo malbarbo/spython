@@ -149,7 +149,15 @@ impl<'vm> ReplHelper<'vm> {
         };
 
         let (word_start, iter1, iter2) = if let Some((last, parents)) = rest.split_last() {
-            let mut current = self.globals.get_item_opt(first.as_str(), self.vm).ok()??;
+            let mut current = self
+                .globals
+                .get_item_opt(first.as_str(), self.vm)
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    let attr = self.vm.ctx.new_str(first.as_str());
+                    self.vm.builtins.get_attr(&attr, self.vm).ok()
+                })?;
 
             for attr in parents {
                 let attr = self.vm.ctx.new_str(attr.as_str());
@@ -171,19 +179,19 @@ impl<'vm> ReplHelper<'vm> {
     }
 
     fn complete_opt(&self, line: &str) -> Option<(usize, Vec<String>)> {
-        let (startpos, words) = split_idents_on_dot(line)?;
+        let (startpos, words) = if line.is_empty() {
+            (0, vec![String::new()])
+        } else {
+            split_idents_on_dot(line)?
+        };
 
         let (word_start, iter) = self.get_available_completions(&words)?;
 
-        let all_completions = iter
-            .filter(|res| {
-                res.as_ref()
-                    .ok()
-                    .is_none_or(|s| s.as_bytes().starts_with(word_start.as_bytes()))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?;
-        let mut completions = if word_start.starts_with('_') {
+        let all_completions: Vec<_> = iter
+            .filter_map(|res| res.ok())
+            .filter(|s| s.as_bytes().starts_with(word_start.as_bytes()))
+            .collect();
+        let completions = if word_start.starts_with('_') {
             all_completions
         } else {
             let no_underscore = all_completions
@@ -199,15 +207,23 @@ impl<'vm> ReplHelper<'vm> {
             }
         };
 
-        completions.sort_by(|a, b| a.as_wtf8().cmp(b.as_wtf8()));
+        let mut result: Vec<String> = completions
+            .into_iter()
+            .map(|s| s.expect_str().to_owned())
+            .collect();
 
-        Some((
-            startpos,
-            completions
-                .into_iter()
-                .map(|s| s.expect_str().to_owned())
-                .collect(),
-        ))
+        // Add keyword completions for top-level (no dot).
+        if words.len() == 1 {
+            for kw in PYTHON_KEYWORDS {
+                if kw.starts_with(word_start) && !result.contains(&kw.to_string()) {
+                    result.push(kw.to_string());
+                }
+            }
+        }
+
+        result.sort();
+
+        Some((startpos, result))
     }
 }
 
@@ -261,9 +277,46 @@ impl Completer for ReplHelper<'_> {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
-        Ok(self
-            .complete_opt(&line[0..pos])
-            .unwrap_or_else(|| (pos, vec!["    ".to_owned()])))
+        let before = &line[..pos];
+        let current_line_start = before.rfind('\n').map_or(0, |i| i + 1);
+        let current_line = &before[current_line_start..];
+
+        // If current line is empty or whitespace-only, decide: indent or complete.
+        if current_line.bytes().all(|b| b == b' ') {
+            let current_indent = current_line.len();
+            let expected = expected_indent(&before[..current_line_start]);
+            if current_indent < expected {
+                // Under-indented → insert spaces to reach expected level.
+                let spaces = " ".repeat(expected - current_indent);
+                return Ok((pos, vec![spaces]));
+            }
+            // At or above expected indent → show all completions.
+            return Ok(self
+                .complete_opt("")
+                .map(|(_, candidates)| (pos, candidates))
+                .unwrap_or_else(|| (pos, vec![])));
+        }
+
+        Ok(self.complete_opt(before).unwrap_or_else(|| (pos, vec![])))
+    }
+}
+
+/// Compute the expected indentation level based on previous lines.
+/// If the previous line ends with ':', expects indent + 4.
+/// Otherwise, expects the same indent as the previous line.
+/// Returns 0 if there are no previous lines (top-level).
+fn expected_indent(lines_before: &str) -> usize {
+    let prev_line = lines_before.lines().rev().find(|l| !l.trim().is_empty());
+    match prev_line {
+        None => 0,
+        Some(line) => {
+            let indent = line.len() - line.trim_start().len();
+            if line.trim_end().ends_with(':') {
+                indent + 4
+            } else {
+                indent
+            }
+        }
     }
 }
 
@@ -587,47 +640,15 @@ fn is_string_prefix(word: &str) -> bool {
     )
 }
 
+const PYTHON_KEYWORDS: &[&str] = &[
+    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "case", "class",
+    "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if",
+    "import", "in", "is", "lambda", "match", "nonlocal", "not", "or", "pass", "raise", "return",
+    "try", "while", "with", "yield",
+];
+
 fn is_python_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "False"
-            | "None"
-            | "True"
-            | "and"
-            | "as"
-            | "assert"
-            | "async"
-            | "await"
-            | "break"
-            | "class"
-            | "continue"
-            | "def"
-            | "del"
-            | "elif"
-            | "else"
-            | "except"
-            | "finally"
-            | "for"
-            | "from"
-            | "global"
-            | "if"
-            | "import"
-            | "in"
-            | "is"
-            | "lambda"
-            | "nonlocal"
-            | "not"
-            | "or"
-            | "pass"
-            | "raise"
-            | "return"
-            | "try"
-            | "while"
-            | "with"
-            | "yield"
-            | "match"
-            | "case"
-    )
+    PYTHON_KEYWORDS.contains(&word)
 }
 
 fn is_python_builtin(word: &str) -> bool {
@@ -787,4 +808,161 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let _ = repl.save_history(&repl_history_path);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustyline::completion::Completer;
+
+    fn with_helper(f: impl FnOnce(&ReplHelper<'_>)) {
+        let interp = engine::new_interpreter();
+        interp.enter(|vm| {
+            let scope = vm.new_scope_with_main().unwrap();
+            let helper = ReplHelper::new(vm, scope.globals.clone());
+            f(&helper);
+        });
+    }
+
+    fn ctx() -> Context<'static> {
+        // Leak to get 'static lifetime for tests.
+        let history = Box::leak(Box::new(rustyline::history::DefaultHistory::new()));
+        Context::new(history)
+    }
+
+    #[test]
+    fn complete_builtin_name() {
+        with_helper(|h| {
+            let (start, candidates) = h.complete("pri", 3, &ctx()).unwrap();
+            assert_eq!(start, 0);
+            assert!(
+                candidates.contains(&"print".to_owned()),
+                "expected 'print' in {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_keyword() {
+        with_helper(|h| {
+            let (start, candidates) = h.complete("de", 2, &ctx()).unwrap();
+            assert_eq!(start, 0);
+            assert!(
+                candidates.contains(&"def".to_owned()),
+                "expected 'def' in {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_keyword_for() {
+        with_helper(|h| {
+            let (start, candidates) = h.complete("fo", 2, &ctx()).unwrap();
+            assert_eq!(start, 0);
+            assert!(
+                candidates.contains(&"for".to_owned()),
+                "expected 'for' in {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_builtin_attribute() {
+        with_helper(|h| {
+            let (start, candidates) = h.complete("str.up", 6, &ctx()).unwrap();
+            assert_eq!(start, 4);
+            assert!(
+                candidates.contains(&"upper".to_owned()),
+                "expected 'upper' in {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_empty_line_shows_globals_and_builtins() {
+        with_helper(|h| {
+            let (start, candidates) = h.complete("", 0, &ctx()).unwrap();
+            assert_eq!(start, 0);
+            assert!(
+                candidates.contains(&"print".to_owned()),
+                "expected 'print' in {candidates:?}"
+            );
+            assert!(
+                candidates.contains(&"int".to_owned()),
+                "expected 'int' in {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_multiline_under_indented_indents() {
+        with_helper(|h| {
+            // After ':', current indent 0, expected 4 → indent
+            let ctx = &ctx();
+            let (start, candidates) = h.complete("def f():\n", 9, ctx).unwrap();
+            assert_eq!(start, 9);
+            assert_eq!(candidates, vec!["    "]);
+        });
+    }
+
+    #[test]
+    fn complete_multiline_partially_indented_indents() {
+        with_helper(|h| {
+            // After ':', current indent 2, expected 4 → indent 2 more
+            let ctx = &ctx();
+            let (start, candidates) = h.complete("def f():\n  ", 11, ctx).unwrap();
+            assert_eq!(start, 11);
+            assert_eq!(candidates, vec!["  "]);
+        });
+    }
+
+    #[test]
+    fn complete_multiline_correctly_indented_completes() {
+        with_helper(|h| {
+            // After ':', current indent 4, expected 4 → complete
+            let ctx = &ctx();
+            let (_, candidates) = h.complete("def f():\n    ", 13, ctx).unwrap();
+            assert!(
+                candidates.contains(&"print".to_owned()),
+                "expected completions, got {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_multiline_continuation_under_indented_indents() {
+        with_helper(|h| {
+            // Continuation: previous line at indent 4, current at 0 → indent
+            let ctx = &ctx();
+            let (start, candidates) = h.complete("def f():\n    x = 1\n", 19, ctx).unwrap();
+            assert_eq!(start, 19);
+            assert_eq!(candidates, vec!["    "]);
+        });
+    }
+
+    #[test]
+    fn complete_multiline_continuation_correctly_indented_completes() {
+        with_helper(|h| {
+            // Continuation: previous line at indent 4, current at 4 → complete
+            let ctx = &ctx();
+            let (_, candidates) = h.complete("def f():\n    x = 1\n    ", 23, ctx).unwrap();
+            assert!(
+                candidates.contains(&"print".to_owned()),
+                "expected completions, got {candidates:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn complete_single_line_whitespace_completes() {
+        with_helper(|h| {
+            // Single line with spaces → complete (no block context)
+            let ctx = &ctx();
+            let (_, candidates) = h.complete("    ", 4, ctx).unwrap();
+            assert!(
+                candidates.contains(&"print".to_owned()),
+                "expected completions, got {candidates:?}"
+            );
+        });
+    }
 }
