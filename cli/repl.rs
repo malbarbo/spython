@@ -214,7 +214,11 @@ impl<'vm> ReplHelper<'vm> {
 
         // Add keyword completions for top-level (no dot).
         if words.len() == 1 {
-            for kw in PYTHON_KEYWORDS {
+            for kw in PYTHON_KEYWORDS
+                .iter()
+                .chain(PYTHON_BOOLEANS.iter())
+                .chain(PYTHON_CONSTANTS.iter())
+            {
                 if kw.starts_with(word_start) && !result.contains(&kw.to_string()) {
                     result.push(kw.to_string());
                 }
@@ -428,13 +432,16 @@ fn is_incomplete_error(err: &rustpython_compiler::CompileError) -> bool {
 
 // ── Syntax highlighting ─────────────────────────────────────────────
 
+// Colors from the Zed One Dark theme.
 const RESET: &str = "\x1b[0m";
-const COLOR_COMMENT: &str = "\x1b[90m";
-const COLOR_STRING: &str = "\x1b[32m";
-const COLOR_NUMBER: &str = "\x1b[33m";
-const COLOR_KEYWORD: &str = "\x1b[35m";
-const COLOR_BUILTIN: &str = "\x1b[36m";
-const COLOR_DECORATOR: &str = "\x1b[34m";
+const COLOR_COMMENT: &str = "\x1b[38;2;93;99;111m"; // #5d636f
+const COLOR_STRING: &str = "\x1b[38;2;161;193;129m"; // #a1c181
+const COLOR_NUMBER: &str = "\x1b[38;2;191;149;106m"; // #bf956a
+const COLOR_KEYWORD: &str = "\x1b[38;2;180;119;207m"; // #b477cf
+const COLOR_BUILTIN: &str = "\x1b[38;2;115;173;233m"; // #73ade9
+const COLOR_BOOLEAN: &str = "\x1b[38;2;191;149;106m"; // #bf956a (same as number)
+const COLOR_CONSTANT: &str = "\x1b[38;2;223;193;132m"; // #dfc184
+const COLOR_DECORATOR: &str = "\x1b[38;2;116;174;232m"; // #74ade8
 
 fn highlight_python(line: &str) -> String {
     let b = line.as_bytes();
@@ -483,6 +490,14 @@ fn highlight_python(line: &str) -> String {
                     out.push_str(&line[start..str_end]);
                     out.push_str(RESET);
                     i = str_end;
+                } else if is_python_boolean(word) {
+                    out.push_str(COLOR_BOOLEAN);
+                    out.push_str(word);
+                    out.push_str(RESET);
+                } else if is_python_constant(word) {
+                    out.push_str(COLOR_CONSTANT);
+                    out.push_str(word);
+                    out.push_str(RESET);
                 } else if is_python_keyword(word) {
                     out.push_str(COLOR_KEYWORD);
                     out.push_str(word);
@@ -640,12 +655,23 @@ fn is_string_prefix(word: &str) -> bool {
     )
 }
 
+const PYTHON_BOOLEANS: &[&str] = &["False", "True"];
+const PYTHON_CONSTANTS: &[&str] = &["None"];
+
 const PYTHON_KEYWORDS: &[&str] = &[
-    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "case", "class",
-    "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if",
-    "import", "in", "is", "lambda", "match", "nonlocal", "not", "or", "pass", "raise", "return",
-    "try", "while", "with", "yield",
+    "and", "as", "assert", "async", "await", "break", "case", "class", "continue", "def", "del",
+    "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is",
+    "lambda", "match", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while",
+    "with", "yield",
 ];
+
+fn is_python_boolean(word: &str) -> bool {
+    PYTHON_BOOLEANS.contains(&word)
+}
+
+fn is_python_constant(word: &str) -> bool {
+    PYTHON_CONSTANTS.contains(&word)
+}
 
 fn is_python_keyword(word: &str) -> bool {
     PYTHON_KEYWORDS.contains(&word)
