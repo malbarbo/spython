@@ -1,3 +1,4 @@
+use engine::Level;
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,
@@ -13,15 +14,6 @@ use rustyline::{
     hint::Hinter,
     validate::{ValidationContext, ValidationResult, Validator},
 };
-
-// ── Execution ─────────────────────────────────────────────────
-
-fn repl_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), PyBaseExceptionRef> {
-    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
-        Ok(code) => vm.run_code_obj(code, scope).map(|_| ()),
-        Err(err) => Err(vm.new_syntax_error(&err, Some(source))),
-    }
-}
 
 // ── Prompt ───────────────────────────────────────────────────────────
 
@@ -579,20 +571,14 @@ fn is_python_builtin(word: &str) -> bool {
 
 // ── REPL entry point ────────────────────────────────────────────────
 
-pub fn run_repl(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    let mut repl = Editor::with_config(
-        Config::builder()
-            .completion_type(CompletionType::List)
-            .tab_stop(4)
-            .bracketed_paste(false)
-            .build(),
-    )
-    .expect("failed to initialize line editor");
+fn repl_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), PyBaseExceptionRef> {
+    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
+        Ok(code) => vm.run_code_obj(code, scope).map(|_| ()),
+        Err(err) => Err(vm.new_syntax_error(&err, Some(source))),
+    }
+}
 
-    repl.set_helper(Some(ReplHelper::new(vm, scope.globals.clone())));
-
-    repl.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
-
+pub fn run_repl(vm: &VirtualMachine, scope: Scope, level: Level) -> PyResult<()> {
     let repl_history_path = match dirs::config_dir() {
         Some(mut path) => {
             path.push("spython");
@@ -602,56 +588,85 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         None => ".repl_history.txt".into(),
     };
 
-    let _ = repl.load_history(&repl_history_path);
+    {
+        let mut repl = Editor::with_config(
+            Config::builder()
+                .completion_type(CompletionType::List)
+                .tab_stop(4)
+                .bracketed_paste(false)
+                .build(),
+        )
+        .expect("failed to initialize line editor");
 
-    let ps1 = vm
-        .sys_module
-        .get_attr("ps1", vm)
-        .and_then(|p| p.str(vm))
-        .map(|s| s.expect_str().to_owned())
-        .unwrap_or_default();
-    let ps2 = vm
-        .sys_module
-        .get_attr("ps2", vm)
-        .and_then(|p| p.str(vm))
-        .map(|s| s.expect_str().to_owned())
-        .unwrap_or_default();
-    let prompt = ReplPrompt { ps1, ps2 };
+        repl.set_helper(Some(ReplHelper::new(vm, scope.globals.clone())));
+        repl.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
+        let _ = repl.load_history(&repl_history_path);
 
-    loop {
-        let result = match repl.readline(&prompt) {
-            Ok(line) => {
-                let _ = repl.add_history_entry(line.trim_end());
+        let ps1 = vm
+            .sys_module
+            .get_attr("ps1", vm)
+            .and_then(|p| p.str(vm))
+            .map(|s| s.expect_str().to_owned())
+            .unwrap_or_default();
+        let ps2 = vm
+            .sys_module
+            .get_attr("ps2", vm)
+            .and_then(|p| p.str(vm))
+            .map(|s| s.expect_str().to_owned())
+            .unwrap_or_default();
+        let prompt = ReplPrompt { ps1, ps2 };
+        let mut accumulated_source = String::new();
 
-                let source = format!("{line}\n");
-                match repl_exec(vm, &source, scope.clone()) {
-                    Ok(()) => Ok(()),
-                    Err(err) => Err(err),
+        loop {
+            match repl.readline(&prompt) {
+                Ok(line) => {
+                    let _ = repl.add_history_entry(line.trim_end());
+                    let source = format!("{line}\n");
+
+                    // Type-check with accumulated context.
+                    let use_color = std::io::IsTerminal::is_terminal(&std::io::stderr());
+                    if !engine::type_check_repl_input(
+                        &accumulated_source,
+                        &source,
+                        level,
+                        use_color,
+                    ) {
+                        continue;
+                    }
+
+                    // Execute.
+                    match repl_exec(vm, &source, scope.clone()) {
+                        Ok(_) => {
+                            if !accumulated_source.is_empty() {
+                                accumulated_source.push('\n');
+                            }
+                            accumulated_source.push_str(&source);
+                        }
+                        Err(exc) => {
+                            if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                                let _ = repl.save_history(&repl_history_path);
+                                return Err(exc);
+                            }
+                            vm.print_exception(exc);
+                        }
+                    }
+                }
+                Err(rustyline::error::ReadlineError::Interrupted) => {
+                    let exc =
+                        vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned());
+                    vm.print_exception(exc);
+                }
+                Err(rustyline::error::ReadlineError::Eof) => {
+                    break;
+                }
+                Err(err) => {
+                    eprintln!("Readline error: {err:?}");
+                    break;
                 }
             }
-            Err(rustyline::error::ReadlineError::Interrupted) => {
-                let keyboard_interrupt =
-                    vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned());
-                Err(keyboard_interrupt)
-            }
-            Err(rustyline::error::ReadlineError::Eof) => {
-                break;
-            }
-            Err(err) => {
-                eprintln!("Readline error: {err:?}");
-                break;
-            }
-        };
-
-        if let Err(exc) = result {
-            if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                let _ = repl.save_history(&repl_history_path);
-                return Err(exc);
-            }
-            vm.print_exception(exc);
         }
+        let _ = repl.save_history(&repl_history_path);
     }
-    let _ = repl.save_history(&repl_history_path);
 
     Ok(())
 }

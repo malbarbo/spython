@@ -56,7 +56,7 @@ pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut R
     if has_errors {
         std::ptr::null_mut()
     } else {
-        Box::leak(engine::repl_new(&source))
+        Box::leak(engine::repl_new(&source, level))
     }
 }
 

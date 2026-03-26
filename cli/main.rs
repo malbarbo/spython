@@ -64,6 +64,9 @@ enum Command {
     Repl {
         /// Optional Python file to execute before the REPL starts
         file: Option<PathBuf>,
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=repetition, 4=classes, 5=full
+        #[arg(short, long, default_value = "0")]
+        level: u8,
     },
     /// Run a Python script
     Run {
@@ -102,8 +105,14 @@ fn parse_level(level: u8) -> Option<Level> {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let result = match cli.command.unwrap_or(Command::Repl { file: None }) {
-        Command::Repl { file } => start_repl(file.as_deref()),
+    let result = match cli.command.unwrap_or(Command::Repl {
+        file: None,
+        level: 0,
+    }) {
+        Command::Repl { file, level } => match parse_level(level) {
+            Some(l) => start_repl(file.as_deref(), l),
+            None => return ExitCode::FAILURE,
+        },
         Command::Run { file, level } => match parse_level(level) {
             Some(l) => run_checked(&file, l),
             None => return ExitCode::FAILURE,
@@ -153,12 +162,12 @@ fn display_error(error: Error) {
 ///
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
-fn start_repl(file: Option<&Path>) -> Result<(), Error> {
+fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
     if let Some(path) = file {
-        type_check_file(path, Level::Classes)?;
+        type_check_file(path, level)?;
     }
 
-    let preload: Option<(String, String, String)> = file
+    let preload = file
         .map(|path| -> Result<_, Error> {
             let source = std::fs::read_to_string(path).map_err(Error::FileRead)?;
             let file_str = path.to_string_lossy().into_owned();
@@ -182,7 +191,7 @@ fn start_repl(file: Option<&Path>) -> Result<(), Error> {
             vm.run_string(scope.clone(), source, file_str.clone())
                 .map(drop)?;
         }
-        repl::run_repl(vm, scope)
+        repl::run_repl(vm, scope, level)
     });
     if code == 0 {
         Ok(())
@@ -281,8 +290,6 @@ fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
 
 /// Run doctests for the given files, ignoring paths that are not files.
 fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
-    // Use original paths (not canonicalized) so output stays relative when
-    // the caller passes relative paths, making test snapshots portable.
     let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
 
     if valid_files.is_empty() {
@@ -294,9 +301,6 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     }
 
     let py_verbose = if verbose { "True" } else { "False" };
-    // Build a Python script that loads each file as a module and runs the
-    // custom doctest runner on it (avoids the stdlib doctest module which
-    // requires _io.FileIO, unavailable on WASM).
     let doctest_runner = include_str!("../engine/src/doctest_runner.py");
     let mut script = format!(
         "{doctest_runner}\n\

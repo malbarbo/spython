@@ -482,8 +482,12 @@ fn level5_allows_strenum_without_annotations() {
 // --- REPL tests ---
 
 fn run_repl(input: &str) -> (String, String, bool) {
+    run_repl_level(input, 0)
+}
+
+fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
     let output = Command::new(cargo::cargo_bin!("spython"))
-        .arg("repl")
+        .args(["repl", "--level", &level.to_string()])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -523,7 +527,7 @@ fn repl_print() {
 
 #[test]
 fn repl_multiline_function() {
-    let (out, _, success) = run_repl("def f(x):\n    return x * 2\n\nf(3)\n");
+    let (out, _, success) = run_repl("def f(x: int) -> int:\n    return x * 2\n\nf(3)\n");
     assert!(success);
     assert_eq!(out, "6\n");
 }
@@ -531,15 +535,21 @@ fn repl_multiline_function() {
 #[test]
 fn repl_syntax_error() {
     let (_, err, success) = run_repl("def\n");
-    assert!(success); // REPL doesn't exit on syntax errors
-    assert!(err.contains("SyntaxError"));
+    assert!(success); // REPL doesn't exit on errors
+    assert!(
+        err.contains("invalid-syntax"),
+        "expected invalid-syntax in stderr: {err}"
+    );
 }
 
 #[test]
 fn repl_name_error() {
     let (_, err, success) = run_repl("undefined_var\n");
     assert!(success);
-    assert!(err.contains("NameError"));
+    assert!(
+        err.contains("unresolved-reference"),
+        "expected unresolved-reference in stderr: {err}"
+    );
 }
 
 #[test]
@@ -547,6 +557,43 @@ fn repl_multiple_statements() {
     let (out, _, success) = run_repl("x = 10\nx * 3\n");
     assert!(success);
     assert_eq!(out, "30\n");
+}
+
+// --- REPL type checking tests ---
+
+#[test]
+fn repl_missing_annotation_is_error() {
+    let (_, err, success) = run_repl("def f(x): return x\n");
+    assert!(success); // REPL doesn't exit on errors
+    assert!(
+        err.contains("missing-param-annotation") || err.contains("missing-return-annotation"),
+        "expected annotation error in stderr: {err}"
+    );
+}
+
+#[test]
+fn repl_annotated_function_ok() {
+    let (out, err, success) = run_repl("def f(x: int) -> int:\n    return x * 2\n\nf(3)\n");
+    assert!(success);
+    assert!(!err.contains("missing"), "unexpected error: {err}");
+    assert_eq!(out, "6\n");
+}
+
+#[test]
+fn repl_level0_forbids_if() {
+    let (_, err, success) = run_repl_level("if True:\n    pass\n\n", 0);
+    assert!(success);
+    assert!(
+        err.contains("forbidden-selection"),
+        "expected forbidden-selection in stderr: {err}"
+    );
+}
+
+#[test]
+fn repl_level1_allows_if() {
+    let (out, _, success) = run_repl_level("if True:\n    print('ok')\n\n", 1);
+    assert!(success);
+    assert_eq!(out, "ok\n");
 }
 
 // --- Other tests ---

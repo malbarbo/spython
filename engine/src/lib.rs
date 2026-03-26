@@ -190,6 +190,139 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
     eprint!("{buf}");
 }
 
+/// Type-check a REPL input in the context of previously accumulated source.
+///
+/// Checks `accumulated + "\n" + new_input` for cross-reference correctness.
+/// If errors are found, prints them with line numbers adjusted to be relative
+/// to `new_input` (not the accumulated history).
+///
+/// Returns `true` if the input passed type checking, `false` if errors were found.
+pub fn type_check_repl_input(
+    accumulated: &str,
+    new_input: &str,
+    level: Level,
+    use_color: bool,
+) -> bool {
+    let accumulated = accumulated.trim_end_matches('\n');
+    let new_input = new_input.trim_end_matches('\n');
+    let combined = if accumulated.is_empty() {
+        new_input.to_owned()
+    } else {
+        format!("{accumulated}\n{new_input}")
+    };
+
+    let te = match type_check_source(&combined, level) {
+        Ok(None) => return true,
+        Ok(Some(_)) => return true, // warnings don't block execution
+        Err(te) => te,
+    };
+
+    // Calculate the line offset: number of lines in accumulated source.
+    let line_offset = if accumulated.is_empty() {
+        0
+    } else {
+        accumulated.lines().count()
+    };
+
+    // Format errors with adjusted line numbers.
+    let new_input_lines: Vec<&str> = new_input.lines().collect();
+    print_repl_diagnostics(
+        &te.diagnostics,
+        &te.db,
+        &combined,
+        line_offset,
+        &new_input_lines,
+        use_color,
+    );
+
+    false
+}
+
+/// Print diagnostics with line numbers adjusted for REPL context.
+fn print_repl_diagnostics(
+    diagnostics: &[Diagnostic],
+    _db: &ProjectDatabase,
+    combined_source: &str,
+    line_offset: usize,
+    new_input_lines: &[&str],
+    use_color: bool,
+) {
+    use ruff_db::diagnostic::Severity;
+    let mut error_count = 0;
+
+    for diag in diagnostics {
+        if diag.severity() == Severity::Error {
+            error_count += 1;
+        }
+
+        // Get the line number from the primary span's byte offset into combined source.
+        let (line, col, span_len) = if let Some(span) = diag.primary_span_ref() {
+            if let Some(range) = span.range() {
+                let offset = usize::from(range.start()).min(combined_source.len());
+                let line = combined_source[..offset].matches('\n').count();
+                let line_start = combined_source[..offset].rfind('\n').map_or(0, |i| i + 1);
+                let col = offset - line_start;
+                let len = usize::from(range.end()) - usize::from(range.start());
+                (line, col, len)
+            } else {
+                (0, 0, 1)
+            }
+        } else {
+            (0, 0, 1)
+        };
+
+        // Adjust line number relative to new input.
+        let adjusted_line = line.saturating_sub(line_offset);
+        let display_line = adjusted_line + 1; // 1-indexed
+
+        let severity = match diag.severity() {
+            Severity::Error => {
+                if use_color {
+                    "\x1b[1;91merror"
+                } else {
+                    "error"
+                }
+            }
+            _ => {
+                if use_color {
+                    "\x1b[1;93mwarning"
+                } else {
+                    "warning"
+                }
+            }
+        };
+
+        let id = diag.id();
+        let msg = diag.primary_message();
+        let reset = if use_color { "\x1b[0m" } else { "" };
+        let bold = if use_color { "\x1b[1m" } else { "" };
+
+        eprintln!("{severity}[{id}]{reset}: {bold}{msg}{reset}");
+        eprintln!(" --> user.py:{display_line}:{}", col + 1);
+
+        // Show the source line if available.
+        if adjusted_line < new_input_lines.len() {
+            let src_line = new_input_lines[adjusted_line];
+            eprintln!("  |");
+            eprintln!("{display_line} | {src_line}");
+            let padding = " ".repeat(col);
+            let underline_len = span_len.max(1).min(src_line.len().saturating_sub(col));
+            let underline = "^".repeat(underline_len);
+            if use_color {
+                eprintln!("  | {padding}\x1b[1;91m{underline}\x1b[0m");
+            } else {
+                eprintln!("  | {padding}{underline}");
+            }
+            eprintln!("  |");
+        }
+    }
+
+    if error_count > 0 {
+        let s = if error_count == 1 { "" } else { "s" };
+        eprintln!("Found {error_count} error{s}.");
+    }
+}
+
 // --- REPL state ---
 
 /// Persistent Python interpreter state for the web REPL.
@@ -198,6 +331,10 @@ pub struct ReplState {
     // and the scope must be freed while the VM is still alive.
     scope: Option<vm::scope::Scope>,
     interp: vm::Interpreter,
+    /// Accumulated source of all successfully type-checked and executed inputs.
+    accumulated_source: String,
+    /// Teaching level for annotation/construct checking.
+    level: Level,
 }
 
 impl ReplState {
@@ -208,6 +345,34 @@ impl ReplState {
     ) -> R {
         let globals = &self.scope.as_ref().expect("scope is live").globals;
         self.interp.enter(|vm| f(vm, globals))
+    }
+
+    /// The accumulated source of all successfully type-checked and executed inputs.
+    pub fn accumulated_source(&self) -> &str {
+        &self.accumulated_source
+    }
+
+    /// The teaching level.
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
+    /// Append successfully executed source to the accumulator.
+    pub fn append_source(&mut self, source: &str) {
+        if !self.accumulated_source.is_empty() {
+            self.accumulated_source.push('\n');
+        }
+        self.accumulated_source.push_str(source);
+    }
+
+    /// Run the REPL loop inside the VM context.
+    ///
+    /// The closure receives the VM and the scope. This is needed by the CLI
+    /// REPL to create the rustyline `Editor` with a `ReplHelper` that borrows
+    /// the VM.
+    pub fn enter<R>(&self, f: impl FnOnce(&vm::VirtualMachine, vm::scope::Scope) -> R) -> R {
+        let scope = self.scope.as_ref().expect("scope is live").clone();
+        self.interp.enter(|vm| f(vm, scope))
     }
 }
 
@@ -224,7 +389,7 @@ impl Drop for ReplState {
 /// If `source` is non-empty it is executed into the scope so its definitions
 /// are available to subsequent `repl_run` calls. Type errors are printed to
 /// stderr and execution continues (the REPL is still created).
-pub fn repl_new(source: &str) -> Box<ReplState> {
+pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
     let interp = new_interpreter();
     let scope = interp.enter(|vm| {
         let scope = vm
@@ -257,9 +422,16 @@ pub fn repl_new(source: &str) -> Box<ReplState> {
         }
         scope
     });
+    let accumulated_source = if source.trim().is_empty() {
+        String::new()
+    } else {
+        source.to_owned()
+    };
     Box::new(ReplState {
         scope: Some(scope),
         interp,
+        accumulated_source,
+        level,
     })
 }
 
@@ -341,9 +513,15 @@ pub const REPL_ERROR: u32 = 1;
 pub const REPL_QUIT: u32 = 2;
 
 pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
+    // Type-check with accumulated context; errors use new input line numbers.
+    if !type_check_repl_input(&state.accumulated_source, code, state.level, true) {
+        return REPL_ERROR;
+    }
+
+    // Type check passed — execute.
     let scope = state.scope.as_ref().unwrap().clone();
     let code = code.to_owned();
-    state.interp.enter(move |vm| {
+    let result = state.interp.enter(|vm| {
         match vm
             .compile(&code, vm::compiler::Mode::Single, "<stdin>".to_owned())
             .map_err(|err| vm.new_syntax_error(&err, Some(&code)))
@@ -359,5 +537,15 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
                 }
             }
         }
-    })
+    });
+
+    // Only add to accumulated source if execution succeeded.
+    if result == REPL_OK {
+        if !state.accumulated_source.is_empty() {
+            state.accumulated_source.push('\n');
+        }
+        state.accumulated_source.push_str(&code);
+    }
+
+    result
 }
