@@ -9,7 +9,7 @@ use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::name::Name;
 mod repl;
 
-use spython_core::{
+use engine::{
     Level, annotation_check, collect_import_files, execute_source, format_source, new_interpreter,
     print_type_errors,
 };
@@ -297,7 +297,7 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     // Build a Python script that loads each file as a module and runs the
     // custom doctest runner on it (avoids the stdlib doctest module which
     // requires _io.FileIO, unavailable on WASM).
-    let doctest_runner = include_str!("../spython-core/src/doctest_runner.py");
+    let doctest_runner = include_str!("../engine/src/doctest_runner.py");
     let mut script = format!(
         "{doctest_runner}\n\
          import types, sys\n\

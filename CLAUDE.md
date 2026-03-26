@@ -28,29 +28,58 @@ cargo build
 cargo build --release
 
 # Run a Python script (with type checking)
-cargo run -- run file.py
+cargo run -p cli -- run file.py
 
 # Start REPL (no type checking)
-cargo run
+cargo run -p cli
 ```
 
 **After every modification**, run these commands and fix any failures before
 considering the task done:
 
 ```bash
-cargo clippy            # lint checks
-cargo fmt -- --check    # formatting check
-cargo test              # all tests
+cargo clippy --workspace    # lint checks
+cargo fmt -- --check        # formatting check
+cargo test --workspace      # all tests
 ```
 
 Manual testing is also done with `.py` files in the repo root (e.g. `a.py`,
 `simple.py`, `x.py`, etc.).
 
+### WASM Build
+
+The CLI crate cannot be compiled for WASM. To build the WASM binary:
+
+```bash
+cargo build -p wasm --target wasm32-wasip1 --release
+```
+
+### Developing the Forks
+
+Local clones for development:
+
+- RustPython: `~/projetos/RustPython` (branch `spython-0.1`)
+- ruff: `~/projetos/ruff` (branch `spython-0.1`)
+
+After pushing changes to a fork, run `cargo update -p <crate>` in this repo
+to pick up the new commit.
+
+### Troubleshooting
+
+If the REPL fails with `ImportError: No such frozen object named
+_frozen_importlib`, the frozen stdlib cache is stale. Fix with:
+
+```bash
+cargo clean -p rustpython-pylib
+```
+
 ## Architecture
 
-The project is a Rust binary (`src/`) with one local crate:
+The workspace has three crates:
 
-- `spython-core` — shared library used by both the CLI and the WASM build
+- `engine` — shared library used by both the CLI and the WASM build
+- `cli` — CLI binary (produces the `spython` executable)
+- `wasm` — WASM shim (thin FFI layer over `engine`)
 
 External dependencies (via git):
 
@@ -59,8 +88,8 @@ External dependencies (via git):
   the `ruff_python_*` AST/parser crates
 
 **Fork policy**: Minimize changes to the RustPython and ruff forks. Prefer
-hooking into their public APIs from `spython-core` or `src/`. Changes to forks
-are harder to track and complicate upstream updates.
+hooking into their public APIs from `engine` or `cli`. Changes to forks are
+harder to track and complicate upstream updates.
 
 Current fork customizations (RustPython, 3 commits on `spython-0.1`):
 
@@ -74,25 +103,25 @@ Current fork customizations (ruff, 1 commit on `spython-0.1`):
 
 1. Support `TYPESHED_ALLOWLIST` env var to trim typeshed stubs in zip
 
-**Execution pipeline** (see `src/main.rs:run_checked`; level defaults to 0):
+**Execution pipeline** (see `cli/main.rs:run_checked`; level defaults to 0):
 
 1. Resolve the given `.py` file to an absolute path and collect all transitively
    imported local Python files (`collect_import_files`).
 2. Build a `ty` `ProjectDatabase` from those files (`build_db`).
-3. Run spython's custom checker (`spython-core/src/checker.rs`) — checks
+3. Run spython's custom checker (`engine/src/checker.rs`) — checks
    annotations and forbidden constructs based on the teaching level.
 4. If the checker passes, run ty's type checker (`db.check()`).
 5. If type checking passes, execute the script with RustPython.
 
 **Source files:**
 
-- `src/main.rs` — CLI, pipeline orchestration, import resolution
-- `src/repl.rs` — Interactive REPL with syntax highlighting, auto-indent,
+- `cli/main.rs` — CLI, pipeline orchestration, import resolution
+- `cli/repl.rs` — Interactive REPL with syntax highlighting, auto-indent,
   tab completion, and multi-line editing (uses rustyline directly)
-- `spython-core/src/checker.rs` — AST walker: annotation checks + construct
+- `engine/src/checker.rs` — AST walker: annotation checks + construct
   restrictions
-- `spython-core/src/lints.rs` — Lint rule declarations using `declare_lint!`
-- `spython-core/src/doctest_runner.py` — Minimal doctest runner (avoids stdlib
+- `engine/src/lints.rs` — Lint rule declarations using `declare_lint!`
+- `engine/src/doctest_runner.py` — Minimal doctest runner (avoids stdlib
   `doctest` which needs `_io.FileIO`, unavailable on WASM)
 - `scripts/find_stdlib_deps.py` — Traces transitive stdlib imports at file
   level (useful for verifying freeze seeds)
@@ -118,7 +147,7 @@ Current seeds: `dataclasses,encodings,enum,typing`
 ## Teaching Levels
 
 The `--level` flag controls which Python constructs are allowed. The checker
-(`spython-core/src/checker.rs`) walks statements and expressions, emitting
+(`engine/src/checker.rs`) walks statements and expressions, emitting
 diagnostics for forbidden constructs.
 
 | Level | Name       | Adds                                                              |
@@ -137,13 +166,13 @@ spython run --level 2 file.py
 spython check --level 3 file.py
 ```
 
-The `Level` enum lives in `spython-core/src/checker.rs` and is re-exported from
-`spython-core/src/lib.rs`. The WASM `repl_new` export accepts a `level: u8`
+The `Level` enum lives in `engine/src/checker.rs` and is re-exported from
+`engine/src/lib.rs`. The WASM `repl_new` export accepts a `level: u8`
 parameter.
 
 ## Annotation Rules
 
-Annotation lint rules in `spython-core/src/lints.rs` are checked at all levels:
+Annotation lint rules in `engine/src/lints.rs` are checked at all levels:
 
 - Every function parameter (except `self`/`cls`) must have a type annotation
 - Every function/method must have a return type annotation

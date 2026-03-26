@@ -530,6 +530,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "clap",
+ "dirs-next",
+ "engine",
+ "indoc",
+ "insta",
+ "ruff_db",
+ "ruff_macros",
+ "ruff_python_ast",
+ "ruff_python_formatter",
+ "ruff_python_parser",
+ "ruff_text_size",
+ "rustpython-compiler",
+ "rustpython-vm",
+ "rustyline",
+ "ty_module_resolver",
+ "ty_project",
+ "ty_python_semantic",
+ "walkdir",
+]
+
+[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -987,6 +1012,22 @@ name = "endian-type"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "869b0adbda23651a9c5c0c3d270aac9fcb52e8622a8f2b17e57802d7791962f2"
+
+[[package]]
+name = "engine"
+version = "0.1.0"
+dependencies = [
+ "ruff_db",
+ "ruff_macros",
+ "ruff_python_ast",
+ "ruff_python_formatter",
+ "ruff_python_parser",
+ "ruff_text_size",
+ "rustpython",
+ "ty_module_resolver",
+ "ty_project",
+ "ty_python_semantic",
+]
 
 [[package]]
 name = "env_filter"
@@ -3845,54 +3886,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spython"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "clap",
- "dirs-next",
- "indoc",
- "insta",
- "ruff_db",
- "ruff_macros",
- "ruff_python_ast",
- "ruff_python_formatter",
- "ruff_python_parser",
- "ruff_text_size",
- "rustpython-compiler",
- "rustpython-vm",
- "rustyline",
- "spython-core",
- "ty_module_resolver",
- "ty_project",
- "ty_python_semantic",
- "walkdir",
-]
-
-[[package]]
-name = "spython-core"
-version = "0.1.0"
-dependencies = [
- "ruff_db",
- "ruff_macros",
- "ruff_python_ast",
- "ruff_python_formatter",
- "ruff_python_parser",
- "ruff_text_size",
- "rustpython",
- "ty_module_resolver",
- "ty_project",
- "ty_python_semantic",
-]
-
-[[package]]
-name = "spython-wasm"
-version = "0.1.0"
-dependencies = [
- "spython-core",
-]
-
-[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4772,6 +4765,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5428f8bf88ea5ddc08faddef2ac4a67e390b88186c703ce6dbd955e1c145aca5"
 dependencies = [
  "wit-bindgen",
+]
+
+[[package]]
+name = "wasm"
+version = "0.1.0"
+dependencies = [
+ "engine",
 ]
 
 [[package]]

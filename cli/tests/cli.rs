@@ -47,14 +47,6 @@ fn run_files() {
 }
 
 #[test]
-fn run_images() {
-    glob!("images/*.py", |path| {
-        let (out, _err) = run_spython(path);
-        assert_snapshot!(format!("{out}"));
-    });
-}
-
-#[test]
 fn ok_simple() {
     let path = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),

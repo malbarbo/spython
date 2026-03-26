@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-use spython_core::{ReplState, format_source, print_type_errors, type_check_source};
+use engine::{ReplState, format_source, print_type_errors, type_check_source};
 
 // --- Memory helpers ---
 
@@ -39,7 +39,7 @@ fn new_string(ptr: *mut u8, len: usize) -> String {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut ReplState {
     let source = new_string(ptr, len);
-    let level = spython_core::Level::from_u8(level).unwrap_or(spython_core::Level::Functions);
+    let level = engine::Level::from_u8(level).unwrap_or(engine::Level::Functions);
     let mut has_errors = false;
     if !source.trim().is_empty() {
         match type_check_source(&source, level) {
@@ -56,7 +56,7 @@ pub unsafe extern "C" fn repl_new(ptr: *mut u8, len: usize, level: u8) -> *mut R
     if has_errors {
         std::ptr::null_mut()
     } else {
-        Box::leak(spython_core::repl_new(&source))
+        Box::leak(engine::repl_new(&source))
     }
 }
 
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize
     assert!(!repl.is_null());
     let state = unsafe { &mut *repl };
     let code = new_string(ptr, len);
-    spython_core::repl_run(state, &code)
+    engine::repl_run(state, &code)
 }
 
 #[unsafe(no_mangle)]
