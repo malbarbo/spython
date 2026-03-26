@@ -487,6 +487,78 @@ fn level5_allows_strenum_without_annotations() {
     assert!(success);
 }
 
+// --- REPL tests ---
+
+fn run_repl(input: &str) -> (String, String, bool) {
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .arg("repl")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(input.as_bytes())?;
+            child.wait_with_output()
+        })
+        .expect("failed to run spython repl");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    // Strip the welcome banner (two lines: "Welcome to..." and "Type ctrl-d...")
+    let stdout = match stdout.find("Type ctrl-d to exit.\n") {
+        Some(pos) => stdout[pos + "Type ctrl-d to exit.\n".len()..].to_owned(),
+        None => stdout,
+    };
+    (
+        stdout,
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.success(),
+    )
+}
+
+#[test]
+fn repl_expression() {
+    let (out, _, success) = run_repl("1 + 2\n");
+    assert!(success);
+    assert_eq!(out, "3\n");
+}
+
+#[test]
+fn repl_print() {
+    let (out, _, success) = run_repl("print('hello')\n");
+    assert!(success);
+    assert_eq!(out, "hello\n");
+}
+
+#[test]
+fn repl_multiline_function() {
+    let (out, _, success) = run_repl("def f(x):\n    return x * 2\n\nf(3)\n");
+    assert!(success);
+    assert_eq!(out, "6\n");
+}
+
+#[test]
+fn repl_syntax_error() {
+    let (_, err, success) = run_repl("def\n");
+    assert!(success); // REPL doesn't exit on syntax errors
+    assert!(err.contains("SyntaxError"));
+}
+
+#[test]
+fn repl_name_error() {
+    let (_, err, success) = run_repl("undefined_var\n");
+    assert!(success);
+    assert!(err.contains("NameError"));
+}
+
+#[test]
+fn repl_multiple_statements() {
+    let (out, _, success) = run_repl("x = 10\nx * 3\n");
+    assert!(success);
+    assert_eq!(out, "30\n");
+}
+
+// --- Other tests ---
+
 #[test]
 fn missing_file() {
     let output = Command::new(cargo::cargo_bin!("spython"))

@@ -1,10 +1,14 @@
+#[cfg(target_arch = "wasm32")]
+compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm instead");
+
 use clap::Parser;
 use clap::builder::styling;
 use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::name::Name;
-use rustpython::run_shell;
+mod repl;
+
 use spython_core::{
     Level, annotation_check, collect_import_files, execute_source, format_source, new_interpreter,
     print_type_errors,
@@ -178,7 +182,7 @@ fn start_repl(file: Option<&Path>) -> Result<(), Error> {
             vm.run_string(scope.clone(), source, file_str.clone())
                 .map(drop)?;
         }
-        run_shell(vm, scope)
+        repl::run_repl(vm, scope)
     });
     if code == 0 {
         Ok(())
