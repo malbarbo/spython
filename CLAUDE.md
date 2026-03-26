@@ -12,12 +12,11 @@ teaching typed Python.
 ## Setup
 
 ```bash
-# Clone with submodules (crates/RustPython and crates/ruff)
-git clone --recurse-submodules <repo-url>
-
-# Or, if already cloned:
-git submodule update --init --recursive
+git clone <repo-url>
 ```
+
+Dependencies are fetched automatically via git dependencies in `Cargo.toml`
+(no submodules).
 
 ## Build & Run
 
@@ -29,7 +28,7 @@ cargo build
 cargo build --release
 
 # Run a Python script (with type checking)
-cargo run -- script.py
+cargo run -- run file.py
 
 # Start REPL (no type checking)
 cargo run
@@ -39,9 +38,9 @@ cargo run
 considering the task done:
 
 ```bash
-make check     # clippy, rustfmt, deno fmt
-make test      # cargo test + all web tests
-make test-web  # just the web/WASM integration tests (subset of make test)
+cargo clippy            # lint checks
+cargo fmt -- --check    # formatting check
+cargo test              # all tests
 ```
 
 Manual testing is also done with `.py` files in the repo root (e.g. `a.py`,
@@ -49,29 +48,36 @@ Manual testing is also done with `.py` files in the repo root (e.g. `a.py`,
 
 ## Architecture
 
-The project is a single Rust binary (`src/`) with two local crate dependencies:
+The project is a Rust binary (`src/`) with one local crate:
 
-- `crates/RustPython` — the Python interpreter used for execution
-- `crates/ruff` — provides the `ty` type checker and the `ruff_python_*`
-  AST/parser crates
+- `spython-core` — shared library used by both the CLI and the WASM build
 
-**Vendored crates policy**: Avoid modifying `crates/RustPython` and
-`crates/ruff` whenever possible. Prefer hooking into their public APIs from
-`spython-core` or `wasm/`. Changes to vendored crates are harder to track and
-complicate future upstream updates.
+External dependencies (via git):
 
-Known necessary exceptions:
+- `malbarbo/RustPython` (branch `spython-0.1`) — the Python interpreter
+- `malbarbo/ruff` (branch `spython-0.1`) — provides the `ty` type checker and
+  the `ruff_python_*` AST/parser crates
 
-- `crates/RustPython/crates/vm/src/vm/mod.rs` — the wasm32 branch of
-  `check_signals` was an unconditional no-op. It now declares `check_interrupt`
-  as a WASM env import and raises `KeyboardInterrupt` when the JS host sets the
-  SharedArrayBuffer interrupt flag. There is no public API hook point in the
-  eval loop, so this change cannot be avoided.
+**Fork policy**: Minimize changes to the RustPython and ruff forks. Prefer
+hooking into their public APIs from `spython-core` or `src/`. Changes to forks
+are harder to track and complicate upstream updates.
 
-**Execution pipeline** (see `src/main.rs:run_checked`; level defaults to 1):
+Current fork customizations (RustPython, 3 commits on `spython-0.1`):
+
+1. Fix WASM imports and interrupt — `FileIO`/`inspect` optional, `check_interrupt`
+   FFI, `OsError` type fix
+2. Allowlist-based freeze filtering and extra-modules feature — `FREEZE_SEEDS`
+   env var for stdlib freeze filtering, `extra-modules` feature flag
+3. Use ruff git dependency from `malbarbo/ruff` fork
+
+Current fork customizations (ruff, 1 commit on `spython-0.1`):
+
+1. Support `TYPESHED_ALLOWLIST` env var to trim typeshed stubs in zip
+
+**Execution pipeline** (see `src/main.rs:run_checked`; level defaults to 0):
 
 1. Resolve the given `.py` file to an absolute path and collect all transitively
-   imported local Python files (`collect_imports_recursive`).
+   imported local Python files (`collect_import_files`).
 2. Build a `ty` `ProjectDatabase` from those files (`build_db`).
 3. Run spython's custom checker (`spython-core/src/checker.rs`) — checks
    annotations and forbidden constructs based on the teaching level.
@@ -81,19 +87,39 @@ Known necessary exceptions:
 **Source files:**
 
 - `src/main.rs` — CLI, pipeline orchestration, import resolution
+- `src/repl.rs` — Interactive REPL with syntax highlighting, auto-indent,
+  tab completion, and multi-line editing (uses rustyline directly)
 - `spython-core/src/checker.rs` — AST walker: annotation checks + construct
   restrictions
 - `spython-core/src/lints.rs` — Lint rule declarations using `declare_lint!`
 - `spython-core/src/doctest_runner.py` — Minimal doctest runner (avoids stdlib
   `doctest` which needs `_io.FileIO`, unavailable on WASM)
 - `scripts/find_stdlib_deps.py` — Traces transitive stdlib imports at file
-  level; output goes to `crates/RustPython/Lib/freeze_allowlist.txt`
+  level (useful for verifying freeze seeds)
+
+## Binary Size
+
+Binary size matters — spython is distributed as a WASM binary for the web
+interface. Only include stdlib modules and typeshed stubs that are actually
+needed. Before adding a new dependency, stdlib seed, or typeshed entry, check
+the impact on binary size. Avoid pulling in heavy modules (e.g. `os`, `re`,
+`inspect`) unless strictly required.
+
+## Freeze Seeds
+
+The `FREEZE_SEEDS` env var (set in `.cargo/config.toml`) lists the Python
+stdlib modules that spython needs at runtime. At build time, the
+`rustpython-pylib` build script resolves transitive dependencies and generates
+a freeze allowlist automatically. Only these modules are compiled into the
+binary as frozen bytecode.
+
+Current seeds: `dataclasses,encodings,enum,typing`
 
 ## Teaching Levels
 
-The `--level` flag (CLI) or dropdown (web) controls which Python constructs are
-allowed. The checker (`spython-core/src/checker.rs`) walks statements and
-expressions, emitting diagnostics for forbidden constructs.
+The `--level` flag controls which Python constructs are allowed. The checker
+(`spython-core/src/checker.rs`) walks statements and expressions, emitting
+diagnostics for forbidden constructs.
 
 | Level | Name       | Adds                                                              |
 | ----- | ---------- | ----------------------------------------------------------------- |
@@ -113,7 +139,7 @@ spython check --level 3 file.py
 
 The `Level` enum lives in `spython-core/src/checker.rs` and is re-exported from
 `spython-core/src/lib.rs`. The WASM `repl_new` export accepts a `level: u8`
-parameter; the web UI sends it via the `load` message.
+parameter.
 
 ## Annotation Rules
 

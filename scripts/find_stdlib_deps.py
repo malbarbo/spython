@@ -2,7 +2,14 @@
 """Find the transitive stdlib dependencies of a set of seed modules.
 
 Usage:
-    python3 scripts/find_stdlib_deps.py crates/RustPython/Lib dataclasses encodings
+    python3 scripts/find_stdlib_deps.py <lib_dir> <module> [<module> ...]
+
+Example:
+    python3 scripts/find_stdlib_deps.py ~/projetos/RustPython/Lib dataclasses encodings enum typing
+
+The freeze allowlist is generated automatically at build time by the
+rustpython-pylib build.rs from the FREEZE_SEEDS env var (see .cargo/config.toml).
+This script is useful for verifying what modules a set of seeds resolves to.
 
 Traces imports at the **file level** within packages so that only the
 actually-needed submodules are included.  For example, ``inspect`` imports

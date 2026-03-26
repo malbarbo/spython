@@ -1,0 +1,13 @@
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+
+[target.wasm32-wasip1]
+linker = "/opt/wasi-sdk/bin/wasm-ld"
+
+[env]
+FREEZE_SEEDS = "dataclasses,encodings,enum,typing"
+TYPESHED_ALLOWLIST = { value = "typeshed_allowlist.txt", relative = true }
+# Used by cc-rs when cross-compiling C dependencies for wasm32-wasip1
+CC_wasm32_wasip1 = "/opt/wasi-sdk/bin/wasm32-wasip1-clang"
+CXX_wasm32_wasip1 = "/opt/wasi-sdk/bin/wasm32-wasip1-clang++"
+AR_wasm32_wasip1 = "/opt/wasi-sdk/bin/llvm-ar"
