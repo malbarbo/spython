@@ -165,7 +165,8 @@ impl Highlighter for ReplHelper<'_> {
         prompt: &'p str,
         _default: bool,
     ) -> std::borrow::Cow<'b, str> {
-        std::borrow::Cow::Owned(format!("\x1b[34m{prompt}\x1b[0m"))
+        let t = current_theme();
+        std::borrow::Cow::Owned(format!("{}{prompt}{RESET}", t.prompt))
     }
 
     fn highlight_char(
@@ -248,18 +249,62 @@ fn is_incomplete_error(err: &rustpython_compiler::CompileError) -> bool {
 
 // ── Syntax highlighting ─────────────────────────────────────────────
 
-// Colors from the Zed One Dark theme.
 const RESET: &str = "\x1b[0m";
-const COLOR_COMMENT: &str = "\x1b[38;2;93;99;111m"; // #5d636f
-const COLOR_STRING: &str = "\x1b[38;2;161;193;129m"; // #a1c181
-const COLOR_NUMBER: &str = "\x1b[38;2;191;149;106m"; // #bf956a
-const COLOR_KEYWORD: &str = "\x1b[38;2;180;119;207m"; // #b477cf
-const COLOR_BUILTIN: &str = "\x1b[38;2;115;173;233m"; // #73ade9
-const COLOR_BOOLEAN: &str = "\x1b[38;2;191;149;106m"; // #bf956a (same as number)
-const COLOR_CONSTANT: &str = "\x1b[38;2;223;193;132m"; // #dfc184
-const COLOR_DECORATOR: &str = "\x1b[38;2;116;174;232m"; // #74ade8
+
+struct Theme {
+    comment: &'static str,
+    string: &'static str,
+    number: &'static str,
+    keyword: &'static str,
+    builtin: &'static str,
+    boolean: &'static str,
+    constant: &'static str,
+    decorator: &'static str,
+    prompt: &'static str,
+}
+
+const ONE_DARK: Theme = Theme {
+    comment: "\x1b[38;2;93;99;111m",     // #5d636f
+    string: "\x1b[38;2;161;193;129m",    // #a1c181
+    number: "\x1b[38;2;191;149;106m",    // #bf956a
+    keyword: "\x1b[38;2;180;119;207m",   // #b477cf
+    builtin: "\x1b[38;2;115;173;233m",   // #73ade9
+    boolean: "\x1b[38;2;191;149;106m",   // #bf956a
+    constant: "\x1b[38;2;223;193;132m",  // #dfc184
+    decorator: "\x1b[38;2;116;174;232m", // #74ade8
+    prompt: "\x1b[38;2;116;174;232m",    // blue
+};
+
+const ONE_LIGHT: Theme = Theme {
+    comment: "\x1b[38;2;162;163;167m",  // #a2a3a7
+    string: "\x1b[38;2;100;159;87m",    // #649f57
+    number: "\x1b[38;2;173;110;37m",    // #ad6e25
+    keyword: "\x1b[38;2;164;73;171m",   // #a449ab
+    builtin: "\x1b[38;2;91;121;227m",   // #5b79e3
+    boolean: "\x1b[38;2;173;110;37m",   // #ad6e25
+    constant: "\x1b[38;2;193;132;1m",   // #c18401
+    decorator: "\x1b[38;2;92;120;226m", // #5c78e2
+    prompt: "\x1b[38;2;91;121;227m",    // blue
+};
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static USE_LIGHT_THEME: AtomicBool = AtomicBool::new(false);
+
+fn current_theme() -> &'static Theme {
+    if USE_LIGHT_THEME.load(Ordering::Relaxed) {
+        &ONE_LIGHT
+    } else {
+        &ONE_DARK
+    }
+}
+
+fn set_theme(light: bool) {
+    USE_LIGHT_THEME.store(light, Ordering::Relaxed);
+}
 
 fn highlight_python(line: &str) -> String {
+    let t = current_theme();
     let b = line.as_bytes();
     let len = b.len();
     let mut out = String::with_capacity(len + 64);
@@ -267,19 +312,18 @@ fn highlight_python(line: &str) -> String {
 
     // REPL commands: color the command keyword, highlight the argument normally.
     let trimmed = line.trim();
-    for cmd in &[":help", ":quit", ":level", ":type"] {
+    for cmd in &[":help", ":quit", ":level", ":type", ":theme"] {
         if trimmed
             .strip_prefix(cmd)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
         {
             let cmd_start = line.find(cmd).unwrap();
             out.push_str(&line[..cmd_start]);
-            out.push_str(COLOR_KEYWORD);
+            out.push_str(t.keyword);
             out.push_str(cmd);
             out.push_str(RESET);
             let rest = &line[cmd_start + cmd.len()..];
             if !rest.is_empty() {
-                // Highlight the argument as Python code.
                 out.push_str(&highlight_python(rest));
             }
             return out;
@@ -289,7 +333,7 @@ fn highlight_python(line: &str) -> String {
     while i < len {
         match b[i] {
             b'#' => {
-                out.push_str(COLOR_COMMENT);
+                out.push_str(t.comment);
                 out.push_str(&line[i..]);
                 out.push_str(RESET);
                 return out;
@@ -297,21 +341,21 @@ fn highlight_python(line: &str) -> String {
             b'\'' | b'"' => {
                 let start = i;
                 i = skip_string(b, i);
-                out.push_str(COLOR_STRING);
+                out.push_str(t.string);
                 out.push_str(&line[start..i]);
                 out.push_str(RESET);
             }
             b'0'..=b'9' => {
                 let start = i;
                 i = skip_number(b, i);
-                out.push_str(COLOR_NUMBER);
+                out.push_str(t.number);
                 out.push_str(&line[start..i]);
                 out.push_str(RESET);
             }
             b'.' if i + 1 < len && b[i + 1].is_ascii_digit() => {
                 let start = i;
                 i = skip_number(b, i);
-                out.push_str(COLOR_NUMBER);
+                out.push_str(t.number);
                 out.push_str(&line[start..i]);
                 out.push_str(RESET);
             }
@@ -323,24 +367,24 @@ fn highlight_python(line: &str) -> String {
                 let word = &line[start..i];
                 if i < len && (b[i] == b'\'' || b[i] == b'"') && is_string_prefix(word) {
                     let str_end = skip_string(b, i);
-                    out.push_str(COLOR_STRING);
+                    out.push_str(t.string);
                     out.push_str(&line[start..str_end]);
                     out.push_str(RESET);
                     i = str_end;
                 } else if PYTHON_BOOLEANS.contains(&word) {
-                    out.push_str(COLOR_BOOLEAN);
+                    out.push_str(t.boolean);
                     out.push_str(word);
                     out.push_str(RESET);
                 } else if PYTHON_CONSTANTS.contains(&word) {
-                    out.push_str(COLOR_CONSTANT);
+                    out.push_str(t.constant);
                     out.push_str(word);
                     out.push_str(RESET);
                 } else if PYTHON_KEYWORDS.contains(&word) {
-                    out.push_str(COLOR_KEYWORD);
+                    out.push_str(t.keyword);
                     out.push_str(word);
                     out.push_str(RESET);
                 } else if is_python_builtin(word) {
-                    out.push_str(COLOR_BUILTIN);
+                    out.push_str(t.builtin);
                     out.push_str(word);
                     out.push_str(RESET);
                 } else {
@@ -353,7 +397,7 @@ fn highlight_python(line: &str) -> String {
                 while i < len && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
                     i += 1;
                 }
-                out.push_str(COLOR_DECORATOR);
+                out.push_str(t.decorator);
                 out.push_str(&line[start..i]);
                 out.push_str(RESET);
             }
@@ -630,9 +674,10 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                     // REPL commands.
                     if trimmed == ":help" {
                         println!(
-                            ":type <expr>  Show the type of an expression\n\
-                             :level [n]    Show or change the teaching level (0-5)\n\
-                             :quit         Exit the REPL"
+                            ":type <expr>    Show the type of an expression\n\
+                             :level [n]      Show or change the teaching level (0-5)\n\
+                             :theme [name]   Show or change theme (light, dark)\n\
+                             :quit           Exit the REPL"
                         );
                         continue;
                     }
@@ -667,6 +712,29 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                             None => {
                                 eprintln!("Invalid level: must be 0-5");
                             }
+                        }
+                        continue;
+                    }
+                    if trimmed == ":theme" {
+                        let name = if USE_LIGHT_THEME.load(Ordering::Relaxed) {
+                            "light"
+                        } else {
+                            "dark"
+                        };
+                        println!("{name}");
+                        continue;
+                    }
+                    if let Some(name) = trimmed.strip_prefix(":theme ") {
+                        match name.trim() {
+                            "light" => {
+                                set_theme(true);
+                                println!("light");
+                            }
+                            "dark" => {
+                                set_theme(false);
+                                println!("dark");
+                            }
+                            _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
                         }
                         continue;
                     }
