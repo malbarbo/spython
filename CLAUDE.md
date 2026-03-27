@@ -91,6 +91,12 @@ The version strings for RustPython and ruff are hardcoded in `cli/main.rs`
 (`LIBS_VERSION`, `LONG_VERSION`) and `wasm/src/lib.rs` (`version()`). When
 updating these dependencies, remember to update the version strings too.
 
+### User Configuration
+
+The CLI saves user preferences (level and theme) to `config_dir()/spython/config`
+(e.g., `~/.config/spython/config` on Linux). The file uses `key=value` format.
+The `--level` CLI flag overrides the saved level. See `cli/config.rs`.
+
 ### Troubleshooting
 
 If the REPL fails with `ImportError: No such frozen object named
