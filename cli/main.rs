@@ -1,8 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm instead");
 
-use clap::Parser;
-use clap::builder::styling;
+use bpaf::{Bpaf, Parser};
 use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::{OsSystem, SystemPathBuf};
@@ -48,58 +47,65 @@ macro_rules! libs_version {
 const LIBS_VERSION: &str = libs_version!();
 const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", libs_version!(), ")");
 
-/// A student version of Python with type checking and teaching levels
-#[derive(Parser)]
-#[command(
-    name = "spython",
-    version,
-    long_version = LONG_VERSION,
-    about,
-    after_help = "Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full",
-    styles = clap::builder::Styles::styled()
-        .header(styling::AnsiColor::Yellow.on_default())
-        .usage(styling::AnsiColor::Yellow.on_default())
-        .literal(styling::AnsiColor::Green.on_default())
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Command>,
+/// Teaching level (0-5)
+fn level_arg() -> impl bpaf::Parser<u8> {
+    bpaf::short('l')
+        .long("level")
+        .help("Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
+        .argument::<u8>("LEVEL")
 }
 
-#[derive(clap::Subcommand)]
+#[derive(Debug, Clone, Bpaf)]
 enum Command {
     /// Start an interactive Python REPL (default)
+    #[bpaf(command)]
     Repl {
-        /// Optional Python file to execute before the REPL starts
-        file: Option<PathBuf>,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full
-        #[arg(short, long)]
+        #[bpaf(external(level_arg), optional)]
         level: Option<u8>,
+        /// Optional Python file to execute before the REPL starts
+        #[bpaf(positional("FILE"))]
+        file: Option<PathBuf>,
     },
     /// Run a Python script
+    #[bpaf(command)]
     Run {
-        /// Python script to run
-        file: PathBuf,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full
-        #[arg(short, long, default_value = "0")]
+        #[bpaf(external(level_arg), fallback(0))]
         level: u8,
+        /// Python script to run
+        #[bpaf(positional("FILE"))]
+        file: PathBuf,
     },
     /// Run doctests from the specified Python files
+    #[bpaf(command)]
     Check {
-        /// Python files to run doctests from
-        files: Vec<PathBuf>,
         /// Show all test attempts, not just failures
-        #[arg(short, long)]
+        #[bpaf(short, long)]
         verbose: bool,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full
-        #[arg(long, default_value = "0")]
+        #[bpaf(external(level_arg), fallback(0))]
         level: u8,
+        /// Python files to run doctests from
+        #[bpaf(positional("FILE"), many)]
+        files: Vec<PathBuf>,
     },
     /// Format Python files
+    #[bpaf(command)]
     Format {
         /// Files or directories to format (directories are searched recursively)
+        #[bpaf(positional("PATH"), many)]
         paths: Vec<PathBuf>,
     },
+    /// Show help information
+    #[bpaf(command)]
+    Help,
+}
+
+fn cli() -> bpaf::OptionParser<Option<Command>> {
+    let command = command().optional();
+    bpaf::construct!(command)
+        .to_options()
+        .version(LONG_VERSION)
+        .descr("A student version of Python with type checking and teaching levels")
+        .footer("Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
 }
 
 fn parse_level(level: u8) -> Option<Level> {
@@ -109,13 +115,56 @@ fn parse_level(level: u8) -> Option<Level> {
     })
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
+fn setup_panic_handler() {
+    std::panic::set_hook(Box::new(|info| {
+        let message = match (
+            info.payload().downcast_ref::<&str>(),
+            info.payload().downcast_ref::<String>(),
+        ) {
+            (Some(s), _) => (*s).to_string(),
+            (_, Some(s)) => s.to_string(),
+            (None, None) => "unknown error".into(),
+        };
+        let location = match info.location() {
+            Some(loc) => format!("{}:{}\n  ", loc.file(), loc.line()),
+            None => String::new(),
+        };
+        eprintln!(
+            "\n\
+            spython: internal error\n\n\
+            This is a bug in spython.\n\
+            Please report it at https://github.com/malbarbo/spython/issues\n\
+            and include this error message.\n\n\
+            Panic: {location}{message}\n\
+            Version: {version}\n\
+            OS: {os}",
+            version = LONG_VERSION,
+            os = std::env::consts::OS,
+        );
+    }));
+}
 
-    let result = match cli.command.unwrap_or(Command::Repl {
-        file: None,
+fn main() -> ExitCode {
+    setup_panic_handler();
+
+    // Hidden flag for testing the panic handler
+    if std::env::args().any(|a| a == "--test-panic") {
+        panic!("test panic");
+    }
+
+    let cli_parser = cli();
+    let command = cli_parser.run();
+
+    let result = match command.unwrap_or(Command::Repl {
         level: None,
+        file: None,
     }) {
+        Command::Help => {
+            if let Err(err) = cli().run_inner(bpaf::Args::from(&["--help"])) {
+                err.print_message(80);
+            }
+            return ExitCode::SUCCESS;
+        }
         Command::Repl { file, level } => {
             let cfg = config::load();
             let l = match level {

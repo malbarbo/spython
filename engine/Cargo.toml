@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1", features = ["freeze-stdlib"] }
+rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env", "threading"] }
 
 # On wasm32, drop features that don't work (host_env, threading, ssl).
 [target.'cfg(target_arch = "wasm32")'.dependencies]

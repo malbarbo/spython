@@ -596,6 +596,30 @@ fn repl_level1_allows_if() {
     assert_eq!(out, "ok\n");
 }
 
+// --- Panic handler test ---
+
+#[test]
+fn panic_handler_shows_message() {
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .arg("--test-panic")
+        .output()
+        .expect("failed to run spython");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("spython: internal error"),
+        "expected 'spython: internal error' in stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("test panic"),
+        "expected 'test panic' in stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("https://github.com/malbarbo/spython/issues"),
+        "expected issue URL in stderr: {stderr}"
+    );
+}
+
 // --- Other tests ---
 
 #[test]
