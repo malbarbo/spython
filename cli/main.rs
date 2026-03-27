@@ -37,12 +37,15 @@ enum Error {
 }
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const LIBS_VERSION: &str = "rustpython 0.4.0, ty/ruff 0.15.6";
 
-const LONG_VERSION: &str = concat!(
-    env!("CARGO_PKG_VERSION"),
-    " (rustpython 0.4.0, ty/ruff 0.15.6)"
-);
+macro_rules! libs_version {
+    () => {
+        "rustpython 0.5.0, ty/ruff 0.15.6"
+    };
+}
+
+const LIBS_VERSION: &str = libs_version!();
+const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", libs_version!(), ")");
 
 /// A student version of Python
 #[derive(Parser)]

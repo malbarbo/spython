@@ -85,6 +85,12 @@ Local clones for development:
 After pushing changes to a fork, run `cargo update -p <crate>` in this repo
 to pick up the new commit.
 
+### Version Strings
+
+The version strings for RustPython and ruff are hardcoded in `cli/main.rs`
+(`LIBS_VERSION`, `LONG_VERSION`) and `wasm/src/lib.rs` (`version()`). When
+updating these dependencies, remember to update the version strings too.
+
 ### Troubleshooting
 
 If the REPL fails with `ImportError: No such frozen object named

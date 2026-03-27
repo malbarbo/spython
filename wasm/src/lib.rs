@@ -140,7 +140,7 @@ pub extern "C" fn version() -> *mut std::ffi::c_char {
     let v = concat!(
         "spython ",
         env!("CARGO_PKG_VERSION"),
-        " (using rustpython 0.4.0 and ty (ruff 0.15.4))"
+        " (rustpython 0.5.0, ty/ruff 0.15.6)"
     );
     match std::ffi::CString::new(v) {
         Ok(cstr) => cstr.into_raw(),
