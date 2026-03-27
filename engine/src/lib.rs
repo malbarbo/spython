@@ -567,6 +567,20 @@ pub const REPL_QUIT: u32 = 2;
 /// Returns `REPL_OK` on success, `REPL_ERROR` on type/runtime error, or
 /// `REPL_QUIT` if the user called `exit()` / `quit()` (SystemExit raised).
 pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
+    // Handle :type command (works in both CLI and WASM).
+    let trimmed = code.trim();
+    if let Some(expr) = trimmed.strip_prefix(":type ") {
+        match infer_expression_type(&state.accumulated_source, expr) {
+            Some(ty) => println!("{ty}"),
+            None => eprintln!("Could not infer type"),
+        }
+        return REPL_OK;
+    }
+    if trimmed == ":type" {
+        eprintln!("Usage: :type <expression>");
+        return REPL_OK;
+    }
+
     if !type_check_repl_input(&state.accumulated_source, code, state.level, true) {
         return REPL_ERROR;
     }

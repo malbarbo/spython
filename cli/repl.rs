@@ -299,8 +299,16 @@ fn current_theme() -> &'static Theme {
     }
 }
 
-fn set_theme(light: bool) {
+pub fn set_theme(light: bool) {
     USE_LIGHT_THEME.store(light, Ordering::Relaxed);
+}
+
+fn current_theme_name() -> &'static str {
+    if USE_LIGHT_THEME.load(Ordering::Relaxed) {
+        "light"
+    } else {
+        "dark"
+    }
 }
 
 fn highlight_python(line: &str) -> String {
@@ -707,6 +715,7 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                                 } else {
                                     level = new_level;
                                     println!("level {level}");
+                                    crate::config::save(level, current_theme_name());
                                 }
                             }
                             None => {
@@ -729,15 +738,18 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                             "light" => {
                                 set_theme(true);
                                 println!("light");
+                                crate::config::save(level, "light");
                             }
                             "dark" => {
                                 set_theme(false);
                                 println!("dark");
+                                crate::config::save(level, "dark");
                             }
                             _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
                         }
                         continue;
                     }
+                    // :type is handled here and in engine::repl_run (for WASM).
                     if trimmed == ":type" {
                         eprintln!("Usage: :type <expression>");
                         continue;
