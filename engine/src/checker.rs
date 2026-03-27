@@ -44,7 +44,7 @@ impl std::fmt::Display for Level {
             Level::Classes => (4, "Classes"),
             Level::Full => (5, "Full"),
         };
-        write!(f, "{n} ({name})")
+        write!(f, "{n} - {name}")
     }
 }
 

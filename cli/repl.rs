@@ -273,7 +273,7 @@ fn highlight_python(line: &str) -> String {
 
     // REPL commands: color the command keyword, highlight the argument normally.
     let trimmed = line.trim();
-    for cmd in &[":quit", ":level", ":type"] {
+    for cmd in &[":help", ":quit", ":level", ":type"] {
         if trimmed == *cmd || trimmed.starts_with(&format!("{cmd} ")) {
             let cmd_start = line.find(cmd).unwrap();
             out.push_str(&line[..cmd_start]);
@@ -643,11 +643,19 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                     let trimmed = line.trim();
 
                     // REPL commands.
+                    if trimmed == ":help" {
+                        println!(
+                            ":type <expr>  Show the type of an expression\n\
+                             :level [n]    Show or change the teaching level (0-5)\n\
+                             :quit         Exit the REPL"
+                        );
+                        continue;
+                    }
                     if trimmed == ":quit" {
                         break;
                     }
                     if trimmed == ":level" {
-                        println!("level {}", level as u8);
+                        println!("level {level}");
                         continue;
                     }
                     if let Some(n) = trimmed.strip_prefix(":level ") {
@@ -663,13 +671,12 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                                     )
                                 {
                                     eprintln!(
-                                        "Cannot change to level {}: \
-                                         accumulated source has errors at that level.",
-                                        new_level as u8
+                                        "Cannot change to level {new_level}: \
+                                         accumulated source has errors at that level."
                                     );
                                 } else {
                                     level = new_level;
-                                    println!("level {}", level as u8);
+                                    println!("level {level}");
                                 }
                             }
                             None => {

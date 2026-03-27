@@ -36,9 +36,12 @@ enum Error {
     TypeChecking(Box<ProjectDatabase>, Vec<Diagnostic>),
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const LIBS_VERSION: &str = "rustpython 0.4.0, ty/ruff 0.15.6";
+
 const LONG_VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
-    " (using rustpython 0.4.0 and ty (ruff 0.15.4))"
+    " (rustpython 0.4.0, ty/ruff 0.15.6)"
 );
 
 /// A student version of Python
@@ -183,7 +186,11 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
     let interp = new_interpreter();
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
-        println!("Welcome to spython {LONG_VERSION}.\nType :quit or ctrl-d to exit.");
+        println!(
+            "Welcome to spython {VERSION}, level {level}.\n\
+             Using {LIBS_VERSION}.\n\
+             Type :help for commands, :quit or ctrl-d to exit."
+        );
         vm.sys_module.set_attr("ps1", vm.ctx.new_str(">>> "), vm)?;
         vm.sys_module.set_attr("ps2", vm.ctx.new_str("... "), vm)?;
         if let Some((source, file_str, parent_dir)) = &preload {
