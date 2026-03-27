@@ -310,7 +310,7 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     }
 
     let py_verbose = if verbose { "True" } else { "False" };
-    let doctest_runner = include_str!("../engine/src/doctest_runner.py");
+    let doctest_runner = engine::DOCTEST_RUNNER;
     let mut script = format!(
         "{doctest_runner}\n\
          import types, sys\n\

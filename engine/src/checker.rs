@@ -215,21 +215,36 @@ fn check_stmt(
                 check_stmts(&case.body, file, diagnostics, in_class, level);
             }
         }
-        Stmt::With(with_stmt) if level < Level::Full => {
-            diagnostics.push(make_lint_diagnostic(
-                &FORBIDDEN_CONSTRUCT,
-                file,
-                with_stmt.range(),
-                forbidden_msg("`with`", level, Level::Full),
-            ));
+        Stmt::With(with_stmt) => {
+            if level < Level::Full {
+                diagnostics.push(make_lint_diagnostic(
+                    &FORBIDDEN_CONSTRUCT,
+                    file,
+                    with_stmt.range(),
+                    forbidden_msg("`with`", level, Level::Full),
+                ));
+            }
+            for item in &with_stmt.items {
+                check_expr(&item.context_expr, file, diagnostics, level);
+            }
+            check_stmts(&with_stmt.body, file, diagnostics, in_class, level);
         }
-        Stmt::Try(try_stmt) if level < Level::Full => {
-            diagnostics.push(make_lint_diagnostic(
-                &FORBIDDEN_CONSTRUCT,
-                file,
-                try_stmt.range(),
-                forbidden_msg("`try`", level, Level::Full),
-            ));
+        Stmt::Try(try_stmt) => {
+            if level < Level::Full {
+                diagnostics.push(make_lint_diagnostic(
+                    &FORBIDDEN_CONSTRUCT,
+                    file,
+                    try_stmt.range(),
+                    forbidden_msg("`try`", level, Level::Full),
+                ));
+            }
+            check_stmts(&try_stmt.body, file, diagnostics, in_class, level);
+            for handler in &try_stmt.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                check_stmts(&h.body, file, diagnostics, in_class, level);
+            }
+            check_stmts(&try_stmt.orelse, file, diagnostics, in_class, level);
+            check_stmts(&try_stmt.finalbody, file, diagnostics, in_class, level);
         }
         Stmt::Global(global_stmt) if level < Level::Full => {
             diagnostics.push(make_lint_diagnostic(
@@ -302,8 +317,6 @@ fn check_stmt(
         | Stmt::Continue(_)
         | Stmt::TypeAlias(_)
         | Stmt::IpyEscapeCommand(_)
-        | Stmt::With(_)
-        | Stmt::Try(_)
         | Stmt::Global(_)
         | Stmt::Nonlocal(_)
         | Stmt::Delete(_) => {}
@@ -565,8 +578,13 @@ fn check_function(
 ) {
     let params = &func.parameters;
 
-    // Skip the first positional parameter in a method (the implicit receiver: self/cls)
-    let mut skip_first = in_class;
+    // Skip the first positional parameter in a method (the implicit receiver: self/cls),
+    // unless the method is decorated with @staticmethod.
+    let is_static = func
+        .decorator_list
+        .iter()
+        .any(|d| matches!(&d.expression, Expr::Name(name) if name.id.as_str() == "staticmethod"));
+    let mut skip_first = in_class && !is_static;
 
     for pwd in params.posonlyargs.iter().chain(params.args.iter()) {
         if skip_first {

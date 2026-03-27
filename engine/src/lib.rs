@@ -1,4 +1,7 @@
+pub mod checker;
 pub mod completion;
+pub mod lints;
+pub mod wasm_ffi;
 
 use std::collections::HashSet;
 
@@ -6,24 +9,22 @@ use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostic
 use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{InMemorySystem, SystemPath, SystemPathBuf, WritableSystem};
-use ruff_python_ast::Stmt;
 use ruff_python_ast::name::Name;
+use ruff_python_ast::{ExprRef, Stmt};
 use ruff_python_formatter::{PyFormatOptions, format_module_source};
 use rustpython::vm::AsObject;
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 use ty_module_resolver::{ModuleName, resolve_module};
 pub use ty_project::ProjectDatabase;
 use ty_project::{Db, ProjectMetadata};
-
-pub mod checker;
-pub mod lints;
-pub mod wasm_ffi;
-
-use ruff_python_ast::ExprRef;
 use ty_python_semantic::{HasType, SemanticModel};
 
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
+
+/// The doctest runner Python source. Shared between the CLI `check` command
+/// and the WASM REPL so the string is embedded only once per binary.
+pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");
 
 /// Errors returned when type checking finds problems in source code.
 pub struct TypeErrors {
@@ -257,10 +258,11 @@ pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
         .ok()?;
 
     let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
-    let db = ProjectDatabase::new(metadata, system).ok()?;
+    let mut db = ProjectDatabase::new(metadata, system).ok()?;
 
     let file_path = SystemPathBuf::from(USER_FILE);
     let file = system_path_to_file(&db, &file_path).ok()?;
+    db.project().set_included_paths(&mut db, vec![file_path]);
 
     // Parse and find the last expression statement.
     let parsed = parsed_module(&db, file);
@@ -378,8 +380,8 @@ fn print_repl_diagnostics(
 
 /// Persistent Python interpreter state for the web REPL.
 pub struct ReplState {
-    // `scope` is dropped before `interp` because Rust drops fields top-to-bottom,
-    // and the scope must be freed while the VM is still alive.
+    // `scope` is wrapped in `Option` so the `Drop` impl can take it and
+    // drop it inside the VM context (see below).
     scope: Option<vm::scope::Scope>,
     interp: vm::Interpreter,
     /// Accumulated source of all successfully type-checked and executed inputs.

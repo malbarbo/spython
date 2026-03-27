@@ -11,14 +11,8 @@ path = "main.rs"
 engine = { path = "../engine" }
 clap = { version = "4.5.60", features = ["derive"] }
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
-ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
-ty_module_resolver = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
 ruff_db = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1", features = ["os"] }
-ruff_python_parser = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
 ruff_python_ast = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
-ruff_text_size = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
-ruff_macros = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
-ruff_python_formatter = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
 rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1" }
 rustpython-compiler = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1" }
 rustyline = "17.0.1"

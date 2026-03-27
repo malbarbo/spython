@@ -179,15 +179,15 @@ fn reverse_string(s: &mut String) {
 fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
     let mut words = vec![String::new()];
     let mut startpos = 0;
-    for (i, c) in line.chars().rev().enumerate() {
+    for (char_count, (byte_offset, c)) in line.char_indices().rev().enumerate() {
         match c {
             '.' => {
-                if i != 0 && words.last().is_some_and(|s| s.is_empty()) {
+                if char_count != 0 && words.last().is_some_and(|s| s.is_empty()) {
                     return None;
                 }
                 reverse_string(words.last_mut().unwrap());
                 if words.len() == 1 {
-                    startpos = line.len() - i;
+                    startpos = byte_offset + c.len_utf8();
                 }
                 words.push(String::new());
             }
@@ -197,7 +197,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
                     if words.last().unwrap().is_empty() {
                         return None;
                     }
-                    startpos = line.len() - i;
+                    startpos = byte_offset + c.len_utf8();
                 }
                 break;
             }
