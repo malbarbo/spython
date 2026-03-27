@@ -30,7 +30,7 @@ Spython restricts which Python constructs are available based on the teaching le
 |-------|------------|-----------------------------------------------------------------------|
 | 0     | Functions  | `def`, `return`, scalars, `str` indexing                              |
 | 1     | Selection  | `if`/`elif`/`else`                                                    |
-| 2     | Types      | `class` (Enum / `@dataclass`), `match`                                |
+| 2     | User types | `class` (Enum / `@dataclass`), `match`                                |
 | 3     | Repetition | `list` literals, `for`, `while`, `+=`                                 |
 | 4     | Classes    | `class` with methods, `dict`/`set`, comprehensions, `lambda`          |
 | 5     | Full       | unrestricted (only annotations are still required)                    |
@@ -167,7 +167,7 @@ The file is checked (types and doctests) before being loaded.
 
 ## REPL commands
 
-`:quit` — Exits the REPL (or `Ctrl+d`).
+`:help` — Shows available commands.
 
 `:type` — Shows the static type of an expression without evaluating it:
 
@@ -184,12 +184,25 @@ str
 
 ```
 >>> :level
-level 0
+level 0 - Functions
 >>> :level 3
-level 3
+level 3 - Repetition
 ```
 
 If the code already entered is not compatible with the new level, the change is rejected.
+
+`:theme` — Shows or changes the syntax highlighting theme (`light` or `dark`):
+
+```
+>>> :theme
+dark
+>>> :theme light
+light
+```
+
+The theme and level preferences are saved to the user's configuration directory.
+
+`:quit` — Exits the REPL (or `Ctrl+d`).
 
 
 # Tests (doctests)

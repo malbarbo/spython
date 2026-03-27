@@ -30,7 +30,7 @@ O spython restringe as construções de Python disponíveis com base no nível d
 |-------|-----------|----------------------------------------------------------------------|
 | 0     | Funções   | `def`, `return`, escalares, indexação de `str`                       |
 | 1     | Seleção   | `if`/`elif`/`else`                                                   |
-| 2     | Tipos     | `class` (Enum / `@dataclass`), `match`                               |
+| 2     | Tipos de usuário | `class` (Enum / `@dataclass`), `match`                               |
 | 3     | Repetição | literais de `list`, `for`, `while`, `+=`                             |
 | 4     | Classes   | `class` com métodos, `dict`/`set`, compreensões, `lambda`            |
 | 5     | Completo  | irrestrito (apenas anotações são exigidas)                           |
@@ -167,7 +167,7 @@ O arquivo é verificado (tipos e doctests) antes de ser carregado.
 
 ## Comandos do REPL
 
-`:quit` — Sai do REPL (ou `Ctrl+d`).
+`:help` — Mostra os comandos disponíveis.
 
 `:type` — Mostra o tipo estático de uma expressão sem avaliá-la:
 
@@ -184,12 +184,25 @@ str
 
 ```
 >>> :level
-level 0
+level 0 - Functions
 >>> :level 3
-level 3
+level 3 - Repetition
 ```
 
 Se o código já digitado não for compatível com o novo nível, a mudança é rejeitada.
+
+`:theme` — Mostra ou altera o tema de syntax highlighting (`light` ou `dark`):
+
+```
+>>> :theme
+dark
+>>> :theme light
+light
+```
+
+As preferências de tema e nível são salvas no diretório de configuração do usuário.
+
+`:quit` — Sai do REPL (ou `Ctrl+d`).
 
 
 # Testes (doctests)

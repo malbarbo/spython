@@ -7,6 +7,7 @@ use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::{OsSystem, SystemPathBuf};
 use ruff_python_ast::name::Name;
+mod config;
 mod repl;
 
 use engine::{
@@ -47,13 +48,14 @@ macro_rules! libs_version {
 const LIBS_VERSION: &str = libs_version!();
 const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", libs_version!(), ")");
 
-/// A student version of Python
+/// A student version of Python with type checking and teaching levels
 #[derive(Parser)]
 #[command(
     name = "spython",
     version,
     long_version = LONG_VERSION,
     about,
+    after_help = "Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full",
     styles = clap::builder::Styles::styled()
         .header(styling::AnsiColor::Yellow.on_default())
         .usage(styling::AnsiColor::Yellow.on_default())
@@ -70,15 +72,15 @@ enum Command {
     Repl {
         /// Optional Python file to execute before the REPL starts
         file: Option<PathBuf>,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=repetition, 4=classes, 5=full
-        #[arg(short, long, default_value = "0")]
-        level: u8,
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full
+        #[arg(short, long)]
+        level: Option<u8>,
     },
     /// Run a Python script
     Run {
         /// Python script to run
         file: PathBuf,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=repetition, 4=classes, 5=full
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full
         #[arg(short, long, default_value = "0")]
         level: u8,
     },
@@ -89,7 +91,7 @@ enum Command {
         /// Show all test attempts, not just failures
         #[arg(short, long)]
         verbose: bool,
-        /// Teaching level (0-5): 0=functions, 1=selection, 2=types, 3=repetition, 4=classes, 5=full
+        /// Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full
         #[arg(long, default_value = "0")]
         level: u8,
     },
@@ -112,12 +114,20 @@ fn main() -> ExitCode {
 
     let result = match cli.command.unwrap_or(Command::Repl {
         file: None,
-        level: 0,
+        level: None,
     }) {
-        Command::Repl { file, level } => match parse_level(level) {
-            Some(l) => start_repl(file.as_deref(), l),
-            None => return ExitCode::FAILURE,
-        },
+        Command::Repl { file, level } => {
+            let cfg = config::load();
+            let l = match level {
+                Some(n) => match parse_level(n) {
+                    Some(l) => l,
+                    None => return ExitCode::FAILURE,
+                },
+                None => cfg.level,
+            };
+            repl::set_theme(cfg.theme == "light");
+            start_repl(file.as_deref(), l)
+        }
         Command::Run { file, level } => match parse_level(level) {
             Some(l) => run_checked(&file, l),
             None => return ExitCode::FAILURE,

@@ -55,7 +55,7 @@ The level selector in the toolbar controls which Python constructs are allowed:
 |-------|------------|-----------------------------------------------------------------------|
 | 0     | Functions  | `def`, `return`, scalars, `str` indexing                              |
 | 1     | Selection  | `if`/`elif`/`else`                                                    |
-| 2     | Types      | `class` (Enum / `@dataclass`), `match`                                |
+| 2     | User types | `class` (Enum / `@dataclass`), `match`                                |
 | 3     | Repetition | `list` literals, `for`, `while`, `+=`                                 |
 | 4     | Classes    | `class` with methods, `dict`/`set`, comprehensions, `lambda`          |
 | 5     | Full       | unrestricted (only annotations are still required)                    |

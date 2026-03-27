@@ -55,7 +55,7 @@ O seletor de nível na barra de ferramentas controla quais construções de Pyth
 |-------|-----------|----------------------------------------------------------------------|
 | 0     | Funções   | `def`, `return`, escalares, indexação de `str`                       |
 | 1     | Seleção   | `if`/`elif`/`else`                                                   |
-| 2     | Tipos     | `class` (Enum / `@dataclass`), `match`                               |
+| 2     | Tipos de usuário | `class` (Enum / `@dataclass`), `match`                               |
 | 3     | Repetição | literais de `list`, `for`, `while`, `+=`                             |
 | 4     | Classes   | `class` com métodos, `dict`/`set`, compreensões, `lambda`            |
 | 5     | Completo  | irrestrito (apenas anotações são exigidas)                           |

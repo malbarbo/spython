@@ -183,7 +183,7 @@ diagnostics for forbidden constructs.
 | ----- | ---------- | ----------------------------------------------------------------- |
 | 0     | Functions  | `def`, `return`, scalars, string `[]`                             |
 | 1     | Selection  | `if`/`elif`/`else`                                                |
-| 2     | Types      | `class` (Enum / `@dataclass`), `match`                            |
+| 2     | User types | `class` (Enum / `@dataclass`), `match`                            |
 | 3     | Repetition | `list` literals, `for`, `while`, `+=`                             |
 | 4     | Classes    | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
 | 5     | Full       | unrestricted (only annotations still required)                    |
