@@ -101,11 +101,10 @@ enum Command {
 }
 
 fn parse_level(level: u8) -> Option<Level> {
-    let result = Level::from_u8(level);
-    if result.is_none() {
+    Level::from_u8(level).or_else(|| {
         eprintln!("Invalid level {level}: must be 0-5");
-    }
-    result
+        None
+    })
 }
 
 fn main() -> ExitCode {

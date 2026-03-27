@@ -106,8 +106,8 @@ pub fn complete(
             .chain(PYTHON_BOOLEANS.iter())
             .chain(PYTHON_CONSTANTS.iter())
         {
-            if kw.starts_with(word_start) && !result.contains(&kw.to_string()) {
-                result.push(kw.to_string());
+            if kw.starts_with(word_start) && !result.iter().any(|s| s == kw) {
+                result.push((*kw).to_owned());
             }
         }
     }
@@ -203,7 +203,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
             }
         }
     }
-    if words == [String::new()] {
+    if words.len() == 1 && words[0].is_empty() {
         return None;
     }
     reverse_string(words.last_mut().unwrap());

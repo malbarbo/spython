@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use engine::Level;
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use rustpython_vm::{
@@ -44,17 +46,17 @@ enum KeyKind {
 
 impl SmartKeys {
     fn key_kind(evt: &Event) -> KeyKind {
-        if let Some(k) = evt.get(0) {
-            match k {
-                KeyEvent(KeyCode::Enter, _)
-                | KeyEvent(KeyCode::Char('M' | 'J'), Modifiers::CTRL) => KeyKind::Enter,
-                KeyEvent(KeyCode::Backspace, _) | KeyEvent(KeyCode::Char('H'), Modifiers::CTRL) => {
-                    KeyKind::Backspace
-                }
-                _ => KeyKind::Other,
+        let Some(k) = evt.get(0) else {
+            return KeyKind::Other;
+        };
+        match k {
+            KeyEvent(KeyCode::Enter, _) | KeyEvent(KeyCode::Char('M' | 'J'), Modifiers::CTRL) => {
+                KeyKind::Enter
             }
-        } else {
-            KeyKind::Other
+            KeyEvent(KeyCode::Backspace, _) | KeyEvent(KeyCode::Char('H'), Modifiers::CTRL) => {
+                KeyKind::Backspace
+            }
+            _ => KeyKind::Other,
         }
     }
 }
@@ -214,13 +216,9 @@ impl Validator for ReplHelper<'_> {
 impl rustyline::Helper for ReplHelper<'_> {}
 
 fn input_has_block(input: &str) -> bool {
-    for line in input.lines() {
-        let trimmed = line.trim();
-        if trimmed.ends_with(':') && !trimmed.starts_with('#') {
-            return true;
-        }
-    }
-    false
+    input
+        .lines()
+        .any(|line| line.trim().ends_with(':') && !line.trim().starts_with('#'))
 }
 
 fn is_incomplete_error(err: &rustpython_compiler::CompileError) -> bool {
@@ -230,18 +228,14 @@ fn is_incomplete_error(err: &rustpython_compiler::CompileError) -> bool {
     };
     match err {
         CompileError::Parse(ParseError {
-            error: ParseErrorType::Lexical(LexicalErrorType::Eof),
-            ..
-        }) => true,
-        CompileError::Parse(ParseError {
             error:
-                ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                    InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-                )),
-            ..
-        }) => true,
-        CompileError::Parse(ParseError {
-            error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
+                ParseErrorType::Lexical(
+                    LexicalErrorType::Eof
+                    | LexicalErrorType::UnclosedStringError
+                    | LexicalErrorType::FStringError(
+                        InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                    ),
+                ),
             ..
         }) => true,
         CompileError::Parse(ParseError {
@@ -274,7 +268,10 @@ fn highlight_python(line: &str) -> String {
     // REPL commands: color the command keyword, highlight the argument normally.
     let trimmed = line.trim();
     for cmd in &[":help", ":quit", ":level", ":type"] {
-        if trimmed == *cmd || trimmed.starts_with(&format!("{cmd} ")) {
+        if trimmed
+            .strip_prefix(cmd)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        {
             let cmd_start = line.find(cmd).unwrap();
             out.push_str(&line[..cmd_start]);
             out.push_str(COLOR_KEYWORD);
@@ -330,15 +327,15 @@ fn highlight_python(line: &str) -> String {
                     out.push_str(&line[start..str_end]);
                     out.push_str(RESET);
                     i = str_end;
-                } else if is_python_boolean(word) {
+                } else if PYTHON_BOOLEANS.contains(&word) {
                     out.push_str(COLOR_BOOLEAN);
                     out.push_str(word);
                     out.push_str(RESET);
-                } else if is_python_constant(word) {
+                } else if PYTHON_CONSTANTS.contains(&word) {
                     out.push_str(COLOR_CONSTANT);
                     out.push_str(word);
                     out.push_str(RESET);
-                } else if is_python_keyword(word) {
+                } else if PYTHON_KEYWORDS.contains(&word) {
                     out.push_str(COLOR_KEYWORD);
                     out.push_str(word);
                     out.push_str(RESET);
@@ -493,18 +490,6 @@ fn is_string_prefix(word: &str) -> bool {
             | "Rb"
             | "RB"
     )
-}
-
-fn is_python_boolean(word: &str) -> bool {
-    PYTHON_BOOLEANS.contains(&word)
-}
-
-fn is_python_constant(word: &str) -> bool {
-    PYTHON_CONSTANTS.contains(&word)
-}
-
-fn is_python_keyword(word: &str) -> bool {
-    PYTHON_KEYWORDS.contains(&word)
 }
 
 fn is_python_builtin(word: &str) -> bool {
@@ -667,7 +652,7 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                                         "",
                                         &accumulated_source,
                                         new_level,
-                                        std::io::IsTerminal::is_terminal(&std::io::stderr()),
+                                        std::io::stderr().is_terminal(),
                                     )
                                 {
                                     eprintln!(
@@ -700,7 +685,7 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                     let source = format!("{line}\n");
 
                     // Type-check with accumulated context.
-                    let use_color = std::io::IsTerminal::is_terminal(&std::io::stderr());
+                    let use_color = std::io::stderr().is_terminal();
                     if !engine::type_check_repl_input(
                         &accumulated_source,
                         &source,

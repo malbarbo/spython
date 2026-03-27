@@ -215,8 +215,7 @@ pub fn type_check_repl_input(
     };
 
     let te = match type_check_source(&combined, level) {
-        Ok(None) => return true,
-        Ok(Some(_)) => return true, // warnings don't block execution
+        Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };
 
@@ -227,11 +226,9 @@ pub fn type_check_repl_input(
         accumulated.lines().count()
     };
 
-    // Format errors with adjusted line numbers.
     let new_input_lines: Vec<&str> = new_input.lines().collect();
     print_repl_diagnostics(
         &te.diagnostics,
-        &te.db,
         &combined,
         line_offset,
         &new_input_lines,
@@ -307,7 +304,6 @@ fn simplify_type_display(s: &str) -> String {
 /// Print diagnostics with line numbers adjusted for REPL context.
 fn print_repl_diagnostics(
     diagnostics: &[Diagnostic],
-    _db: &ProjectDatabase,
     combined_source: &str,
     line_offset: usize,
     new_input_lines: &[&str],
@@ -317,45 +313,34 @@ fn print_repl_diagnostics(
     let mut error_count = 0;
 
     for diag in diagnostics {
-        if diag.severity() == Severity::Error {
+        let is_error = diag.severity() == Severity::Error;
+        if is_error {
             error_count += 1;
         }
 
         // Get the line number from the primary span's byte offset into combined source.
-        let (line, col, span_len) = if let Some(span) = diag.primary_span_ref() {
-            if let Some(range) = span.range() {
+        let (line, col, span_len) = diag
+            .primary_span_ref()
+            .and_then(|span| span.range())
+            .map(|range| {
                 let offset = usize::from(range.start()).min(combined_source.len());
                 let line = combined_source[..offset].matches('\n').count();
                 let line_start = combined_source[..offset].rfind('\n').map_or(0, |i| i + 1);
                 let col = offset - line_start;
                 let len = usize::from(range.end()) - usize::from(range.start());
                 (line, col, len)
-            } else {
-                (0, 0, 1)
-            }
-        } else {
-            (0, 0, 1)
-        };
+            })
+            .unwrap_or((0, 0, 1));
 
         // Adjust line number relative to new input.
         let adjusted_line = line.saturating_sub(line_offset);
         let display_line = adjusted_line + 1; // 1-indexed
 
-        let severity = match diag.severity() {
-            Severity::Error => {
-                if use_color {
-                    "\x1b[1;91merror"
-                } else {
-                    "error"
-                }
-            }
-            _ => {
-                if use_color {
-                    "\x1b[1;93mwarning"
-                } else {
-                    "warning"
-                }
-            }
+        let severity = match (is_error, use_color) {
+            (true, true) => "\x1b[1;91merror",
+            (true, false) => "error",
+            (false, true) => "\x1b[1;93mwarning",
+            (false, false) => "warning",
         };
 
         let id = diag.id();
@@ -456,6 +441,7 @@ impl Drop for ReplState {
 /// are available to subsequent `repl_run` calls. Type errors are printed to
 /// stderr and execution continues (the REPL is still created).
 pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
+    let has_source = !source.trim().is_empty();
     let interp = new_interpreter();
     let scope = interp.enter(|vm| {
         let scope = vm
@@ -470,7 +456,7 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
         ) {
             vm.print_exception(exc);
         }
-        if !source.trim().is_empty() {
+        if has_source {
             if let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned()) {
                 vm.print_exception(exc);
             } else {
@@ -488,10 +474,10 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
         }
         scope
     });
-    let accumulated_source = if source.trim().is_empty() {
-        String::new()
-    } else {
+    let accumulated_source = if has_source {
         source.to_owned()
+    } else {
+        String::new()
     };
     Box::new(ReplState {
         scope: Some(scope),
@@ -569,22 +555,20 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         .expect("should be able to add to sys.modules");
 }
 
-/// Execute one REPL expression/statement in the session's scope.
-///
-/// Returns `true` if the user called `exit()` / `quit()` (SystemExit raised),
-/// meaning the caller should restart or close the session.
-/// Return values from repl_run.
+/// Return values from `repl_run`.
 pub const REPL_OK: u32 = 0;
 pub const REPL_ERROR: u32 = 1;
 pub const REPL_QUIT: u32 = 2;
 
+/// Execute one REPL expression/statement in the session's scope.
+///
+/// Returns `REPL_OK` on success, `REPL_ERROR` on type/runtime error, or
+/// `REPL_QUIT` if the user called `exit()` / `quit()` (SystemExit raised).
 pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
-    // Type-check with accumulated context; errors use new input line numbers.
     if !type_check_repl_input(&state.accumulated_source, code, state.level, true) {
         return REPL_ERROR;
     }
 
-    // Type check passed — execute.
     let scope = state.scope.as_ref().unwrap().clone();
     let code = code.to_owned();
     let result = state.interp.enter(|vm| {
@@ -605,12 +589,8 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
         }
     });
 
-    // Only add to accumulated source if execution succeeded.
     if result == REPL_OK {
-        if !state.accumulated_source.is_empty() {
-            state.accumulated_source.push('\n');
-        }
-        state.accumulated_source.push_str(&code);
+        state.append_source(&code);
     }
 
     result

@@ -62,12 +62,11 @@ pub unsafe extern "C" fn repl_new(
     let source = new_string(code_ptr, code_len);
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
-    let mut has_errors = false;
     if !source.trim().is_empty() {
         match type_check_source(&source, level) {
             Err(te) => {
                 print_type_errors(&te.db, &te.diagnostics, true);
-                has_errors = true;
+                return std::ptr::null_mut();
             }
             Ok(Some(te)) => {
                 print_type_errors(&te.db, &te.diagnostics, true);
@@ -75,11 +74,7 @@ pub unsafe extern "C" fn repl_new(
             Ok(None) => {}
         }
     }
-    if has_errors {
-        std::ptr::null_mut()
-    } else {
-        Box::leak(engine::repl_new(&source, level))
-    }
+    Box::leak(engine::repl_new(&source, level))
 }
 
 #[unsafe(no_mangle)]
@@ -142,10 +137,8 @@ pub extern "C" fn version() -> *mut std::ffi::c_char {
         env!("CARGO_PKG_VERSION"),
         " (rustpython 0.5.0, ty/ruff 0.15.6)"
     );
-    match std::ffi::CString::new(v) {
-        Ok(cstr) => cstr.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    // v is a compile-time literal with no interior NUL bytes, so this always succeeds.
+    std::ffi::CString::new(v).unwrap().into_raw()
 }
 
 // --- Formatting ---
@@ -153,11 +146,8 @@ pub extern "C" fn version() -> *mut std::ffi::c_char {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn format(ptr: *mut u8, len: usize) -> *mut std::ffi::c_char {
     let source = new_string(ptr, len);
-    match format_source(&source) {
-        Ok(formatted) => match std::ffi::CString::new(formatted) {
-            Ok(cstr) => cstr.into_raw(),
-            Err(_) => std::ptr::null_mut(),
-        },
-        Err(_) => std::ptr::null_mut(),
-    }
+    format_source(&source)
+        .ok()
+        .and_then(|s| std::ffi::CString::new(s).ok())
+        .map_or(std::ptr::null_mut(), |cstr| cstr.into_raw())
 }
