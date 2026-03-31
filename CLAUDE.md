@@ -45,6 +45,9 @@ cargo test --workspace      # all tests
 Manual testing is also done with `.py` files in the repo root (e.g. `a.py`,
 `simple.py`, `x.py`, etc.).
 
+CI runs on GitHub Actions (`.github/workflows/ci.yaml`): lint on Linux,
+tests on 5 targets (Linux musl x86/arm, Windows, macOS x86/arm).
+
 ### WASM Build
 
 The `wasm` crate is excluded from the default workspace. It is NOT compiled
@@ -123,7 +126,7 @@ External dependencies (via git):
 hooking into their public APIs from `engine` or `cli`. Changes to forks are
 harder to track and complicate upstream updates.
 
-Current fork customizations (RustPython, 4 commits on `spython-0.1`):
+Current fork customizations (RustPython, 6 commits on `spython-0.1`):
 
 1. Fix WASM imports and interrupt — `FileIO`/`inspect` optional, `check_interrupt`
    FFI, `OsError` type fix
@@ -131,6 +134,10 @@ Current fork customizations (RustPython, 4 commits on `spython-0.1`):
    env var for stdlib freeze filtering, `extra-modules` feature flag
 3. Use ruff git dependency from `malbarbo/ruff` fork
 4. Support `FREEZE_EXTRA_DIR` for out-of-tree Python modules
+5. Gate `msvcrt` usage in `_io.rs` behind `host_env_extras` feature — fixes
+   Windows build when `host_env_extras` is not enabled
+6. Fix stack bounds detection for musl libc — `pthread_getattr_np` reports
+   128KB for the main thread on musl; falls back to `getrlimit(RLIMIT_STACK)`
 
 Current fork customizations (ruff, 1 commit on `spython-0.1`):
 
@@ -235,6 +242,10 @@ teaching graphics programming. Modules:
   re-exports color, style, and font so users import everything from `spython.image`
 - `system.py` — FFI bridge (`show_svg`, `get_key_event`, text measurement)
 - `world.py` — Interactive animation (`World` class, `animate`)
+
+All SVG float values are rounded to 6 decimal places (via `_f()` in
+`image.py` and `style.py`) to ensure cross-platform reproducibility
+(glibc, musl, macOS, Windows have different libm precision).
 
 Python files are formatted with `ruff format` (checked by `make check`).
 Image tests are in `cli/tests/images/` with SVG snapshots in
