@@ -137,7 +137,7 @@ def _attribute_to_svg(a: _Attr) -> str:
     if isinstance(a, _StrokeLineJoin):
         return _attribs("stroke-linejoin", a.value)
     if isinstance(a, _StrokeDashArray):
-        return _attribs("stroke-dasharray", ", ".join(str(v) for v in a.values))
+        return _attribs("stroke-dasharray", ", ".join(_f(v) for v in a.values))
     if isinstance(a, _StrokeOpacity):
         return _attrib("stroke-opacity", a.value)
     if isinstance(a, _StrokeWidth):
@@ -145,8 +145,15 @@ def _attribute_to_svg(a: _Attr) -> str:
     return ""
 
 
+def _f(v: float) -> str:
+    r: str = f"{v:.6f}".rstrip("0").rstrip(".")
+    if r == "-0":
+        return "0"
+    return r
+
+
 def _attrib(name: str, value: float) -> str:
-    return name + '="' + str(value) + '" '
+    return name + '="' + _f(value) + '" '
 
 
 def _attribs(name: str, value: str) -> str:

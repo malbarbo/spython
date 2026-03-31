@@ -3,6 +3,6 @@ source: cli/tests/cli.rs
 expression: "format!(\"{out}\")"
 input_file: cli/tests/images/text3.py
 ---
-<svg width="132.0" height="20.0" xmlns="http://www.w3.org/2000/svg">
-  <text dominant-baseline="alphabetic" text-anchor="start" x="0.0" y="0.0" font-family="sans-serif" font-size="20.0" font-style="italic" font-weight="normal" transform="translate(66.0,10.0) rotate(0.0 0.0 0.0) scale(1.0,1.0)" fill="rgba(0, 0, 255, 1.0)" >Italic text</text>
+<svg width="132" height="20" xmlns="http://www.w3.org/2000/svg">
+  <text dominant-baseline="alphabetic" text-anchor="start" x="0" y="0" font-family="sans-serif" font-size="20" font-style="italic" font-weight="normal" transform="translate(66,10) rotate(0 0 0) scale(1,1)" fill="rgba(0, 0, 255, 1.0)" >Italic text</text>
 </svg>

@@ -1885,24 +1885,31 @@ def _cmd_to_d(cmd: _Any, c: _Callable[[float], str]) -> str:
     return ""
 
 
+def _f(v: float) -> str:
+    r: str = f"{v:.6f}".rstrip("0").rstrip(".")
+    if r == "-0":
+        return "0"
+    return r
+
+
 def _fs(v: float) -> str:
-    return str(v)
+    return _f(v)
 
 
 def _align(v: float) -> str:
-    return str(_math.floor(v + _FP_EPSILON) + 0.5)
+    return _f(_math.floor(v + _FP_EPSILON) + 0.5)
 
 
 def _rotate_str(angle: float, center: Pointf) -> str:
-    return "rotate(" + str(angle) + " " + str(center.x) + " " + str(center.y) + ")"
+    return "rotate(" + _f(angle) + " " + _f(center.x) + " " + _f(center.y) + ")"
 
 
 def _scale_str(sx: float, sy: float) -> str:
-    return "scale(" + str(sx) + "," + str(sy) + ")"
+    return "scale(" + _f(sx) + "," + _f(sy) + ")"
 
 
 def _translate_str(x: float, y: float) -> str:
-    return "translate(" + str(x) + "," + str(y) + ")"
+    return "translate(" + _f(x) + "," + _f(y) + ")"
 
 
 def _indent(level: int) -> str:
@@ -1910,7 +1917,7 @@ def _indent(level: int) -> str:
 
 
 def _attrib(name: str, value: float) -> str:
-    return name + '="' + str(value) + '" '
+    return name + '="' + _f(value) + '" '
 
 
 def _attribs(name: str, value: str) -> str:

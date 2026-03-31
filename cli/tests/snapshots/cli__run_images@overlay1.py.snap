@@ -3,9 +3,9 @@ source: cli/tests/cli.rs
 expression: "format!(\"{out}\")"
 input_file: cli/tests/images/overlay1.py
 ---
-<svg width="60.0" height="60.0" xmlns="http://www.w3.org/2000/svg">
+<svg width="60" height="60" xmlns="http://www.w3.org/2000/svg">
   <g>
-    <path d="M 60.0 30.0 A 30.0 15.0 0.0 0 1 0.0 30.0 A 30.0 15.0 0.0 0 1 60.0 30.0 Z" fill="rgba(128, 0, 128, 1.0)" />
-    <path d="M 15.0 0.0 L 45.0 0.0 L 45.0 60.0 L 15.0 60.0 Z" fill="rgba(255, 165, 0, 1.0)" />
+    <path d="M 60 30 A 30 15 0 0 1 0 30 A 30 15 0 0 1 60 30 Z" fill="rgba(128, 0, 128, 1.0)" />
+    <path d="M 15 0 L 45 0 L 45 60 L 15 60 Z" fill="rgba(255, 165, 0, 1.0)" />
   </g>
 </svg>

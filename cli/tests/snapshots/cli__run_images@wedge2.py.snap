@@ -3,6 +3,6 @@ source: cli/tests/cli.rs
 expression: "format!(\"{out}\")"
 input_file: cli/tests/images/wedge2.py
 ---
-<svg width="80.0" height="80.0" xmlns="http://www.w3.org/2000/svg">
-  <path d="M 40.0 40.0 L 80.0 40.0 A 40.0 40.0 0.0 1 0 39.99999999999999 80.0 Z" fill="rgba(0, 0, 255, 1.0)" />
+<svg width="80" height="80" xmlns="http://www.w3.org/2000/svg">
+  <path d="M 40 40 L 80 40 A 40 40 0 1 0 40 80 Z" fill="rgba(0, 0, 255, 1.0)" />
 </svg>
