@@ -38,8 +38,7 @@ cargo run -p cli
 considering the task done:
 
 ```bash
-cargo clippy --workspace    # lint checks
-cargo fmt -- --check        # formatting check
+make check                  # clippy + fmt + ruff format
 cargo test --workspace      # all tests
 ```
 
@@ -124,13 +123,14 @@ External dependencies (via git):
 hooking into their public APIs from `engine` or `cli`. Changes to forks are
 harder to track and complicate upstream updates.
 
-Current fork customizations (RustPython, 3 commits on `spython-0.1`):
+Current fork customizations (RustPython, 4 commits on `spython-0.1`):
 
 1. Fix WASM imports and interrupt — `FileIO`/`inspect` optional, `check_interrupt`
    FFI, `OsError` type fix
 2. Allowlist-based freeze filtering and extra-modules feature — `FREEZE_SEEDS`
    env var for stdlib freeze filtering, `extra-modules` feature flag
 3. Use ruff git dependency from `malbarbo/ruff` fork
+4. Support `FREEZE_EXTRA_DIR` for out-of-tree Python modules
 
 Current fork customizations (ruff, 1 commit on `spython-0.1`):
 
@@ -177,7 +177,16 @@ stdlib modules that spython needs at runtime. At build time, the
 a freeze allowlist automatically. Only these modules are compiled into the
 binary as frozen bytecode.
 
-Current seeds: `dataclasses,encodings,enum,typing`
+Current seeds: `dataclasses,encodings,enum,typing,spython`
+
+## FREEZE_EXTRA_DIR
+
+The `FREEZE_EXTRA_DIR` env var (set in `.cargo/config.toml`) points to an
+additional directory searched for Python modules during freeze. This allows
+the spython image library to live in this repo (`lib/spython/`) instead of
+in the RustPython fork. Both the build script (dependency resolution) and
+the `py_freeze!` proc macro (bytecode compilation) use this directory as a
+fallback after the main `Lib/`.
 
 ## Teaching Levels
 
@@ -215,7 +224,18 @@ Annotation lint rules in `engine/src/lints.rs` are checked at all levels:
 
 ## Image Library
 
-The image/style/color library was removed from the RustPython fork. A copy
-is saved in `spython-lib/` (not committed) for future integration. If you
-want to work on images, ask the user first — do not start without explicit
-confirmation.
+The spython image library lives in `lib/spython/` and is frozen into the
+binary via `FREEZE_EXTRA_DIR`. It provides SVG-based image generation for
+teaching graphics programming. Modules:
+
+- `color.py` — Color type and 140+ CSS named colors
+- `style.py` — `fill()` and `stroke()` with keyword arguments
+- `font.py` — Font type with family/size/style/weight/underline
+- `image.py` — Path-based SVG rendering, shapes, transformations, composition;
+  re-exports color, style, and font so users import everything from `spython.image`
+- `system.py` — FFI bridge (`show_svg`, `get_key_event`, text measurement)
+- `world.py` — Interactive animation (`World` class, `animate`)
+
+Python files are formatted with `ruff format` (checked by `make check`).
+Image tests are in `cli/tests/images/` with SVG snapshots in
+`cli/tests/snapshots/`.

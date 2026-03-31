@@ -522,19 +522,44 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
 
     let text_width_fn = vm.new_function(
         "text_width",
-        |text: String, font: String, size: f64, vm: &vm::VirtualMachine| -> PyObjectRef {
+        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_width(&text, &font, size))
+                .new_float(wasm_ffi::measure_text_width(&text, &font_css))
                 .into()
         },
     );
 
     let text_height_fn = vm.new_function(
         "text_height",
-        |text: String, font: String, size: f64, vm: &vm::VirtualMachine| -> PyObjectRef {
+        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_height(&text, &font, size))
+                .new_float(wasm_ffi::measure_text_height(&text, &font_css))
                 .into()
+        },
+    );
+
+    let text_x_offset_fn = vm.new_function(
+        "text_x_offset",
+        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx
+                .new_float(wasm_ffi::measure_text_x_offset(&text, &font_css))
+                .into()
+        },
+    );
+
+    let text_y_offset_fn = vm.new_function(
+        "text_y_offset",
+        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx
+                .new_float(wasm_ffi::measure_text_y_offset(&text, &font_css))
+                .into()
+        },
+    );
+
+    let load_bitmap_fn = vm.new_function(
+        "load_bitmap",
+        |_path: String, vm: &vm::VirtualMachine| -> vm::PyResult {
+            Err(vm.new_runtime_error("load_bitmap is not available in native mode".to_owned()))
         },
     );
 
@@ -545,6 +570,12 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     dict.set_item("text_width", text_width_fn.into(), vm)
         .unwrap();
     dict.set_item("text_height", text_height_fn.into(), vm)
+        .unwrap();
+    dict.set_item("text_x_offset", text_x_offset_fn.into(), vm)
+        .unwrap();
+    dict.set_item("text_y_offset", text_y_offset_fn.into(), vm)
+        .unwrap();
+    dict.set_item("load_bitmap", load_bitmap_fn.into(), vm)
         .unwrap();
     let module = vm.new_module("_spython_ffi", dict, None);
 

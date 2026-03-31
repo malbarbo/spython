@@ -113,6 +113,31 @@ fn check_verbose() {
     assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
 }
 
+// --- Image tests ---
+
+fn run_image(path: &Path) -> (String, String) {
+    let dir = path.parent().expect("path has parent");
+    let filename = path.file_name().expect("path has filename");
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .current_dir(dir)
+        .args(["run", "--level", "5"])
+        .arg(filename)
+        .output()
+        .expect("failed to run spython");
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn run_images() {
+    glob!("images/*.py", |path| {
+        let (out, _err) = run_image(path);
+        assert_snapshot!(format!("{out}"));
+    });
+}
+
 // --- Level restriction tests ---
 
 fn run_level(level: u8, code: &str) -> (String, String, bool) {

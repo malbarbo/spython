@@ -11,16 +11,26 @@ unsafe extern "C" {
     fn text_width(
         text: *const u8,
         text_len: usize,
-        font: *const u8,
-        font_len: usize,
-        size: f64,
+        font_css: *const u8,
+        font_css_len: usize,
     ) -> f64;
     fn text_height(
         text: *const u8,
         text_len: usize,
-        font: *const u8,
-        font_len: usize,
-        size: f64,
+        font_css: *const u8,
+        font_css_len: usize,
+    ) -> f64;
+    fn text_x_offset(
+        text: *const u8,
+        text_len: usize,
+        font_css: *const u8,
+        font_css_len: usize,
+    ) -> f64;
+    fn text_y_offset(
+        text: *const u8,
+        text_len: usize,
+        font_css: *const u8,
+        font_css_len: usize,
     ) -> f64;
 }
 
@@ -36,29 +46,68 @@ pub fn show_svg(svg: &str) {
     }
 }
 
+/// Parse font size from CSS font string like "14.0px sans-serif" or "italic bold 20.0px serif".
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_font_size(font_css: &str) -> f64 {
+    for part in font_css.split_whitespace() {
+        if let Some(num_str) = part.strip_suffix("px")
+            && let Ok(size) = num_str.parse::<f64>()
+        {
+            return size;
+        }
+    }
+    14.0
+}
+
 /// Measure text width. On WASM, uses OffscreenCanvas; on native, uses 0.6 ratio.
-pub fn measure_text_width(text: &str, font: &str, size: f64) -> f64 {
+pub fn measure_text_width(text: &str, font_css: &str) -> f64 {
     #[cfg(target_arch = "wasm32")]
     {
-        unsafe { text_width(text.as_ptr(), text.len(), font.as_ptr(), font.len(), size) }
+        unsafe { text_width(text.as_ptr(), text.len(), font_css.as_ptr(), font_css.len()) }
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = font;
+        let size = parse_font_size(font_css);
         text.len() as f64 * size * 0.6
     }
 }
 
 /// Measure text height. On WASM, uses OffscreenCanvas; on native, uses font size.
-pub fn measure_text_height(text: &str, font: &str, size: f64) -> f64 {
+pub fn measure_text_height(text: &str, font_css: &str) -> f64 {
     #[cfg(target_arch = "wasm32")]
     {
-        unsafe { text_height(text.as_ptr(), text.len(), font.as_ptr(), font.len(), size) }
+        unsafe { text_height(text.as_ptr(), text.len(), font_css.as_ptr(), font_css.len()) }
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (text, font);
-        size
+        let _ = text;
+        parse_font_size(font_css)
+    }
+}
+
+/// Measure text x offset. On WASM, uses OffscreenCanvas; on native, returns 0.0.
+pub fn measure_text_x_offset(text: &str, font_css: &str) -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        unsafe { text_x_offset(text.as_ptr(), text.len(), font_css.as_ptr(), font_css.len()) }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (text, font_css);
+        0.0
+    }
+}
+
+/// Measure text y offset. On WASM, uses OffscreenCanvas; on native, returns 0.0.
+pub fn measure_text_y_offset(text: &str, font_css: &str) -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        unsafe { text_y_offset(text.as_ptr(), text.len(), font_css.as_ptr(), font_css.len()) }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (text, font_css);
+        0.0
     }
 }
 

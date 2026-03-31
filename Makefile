@@ -1,4 +1,9 @@
-.PHONY: release wasm
+.PHONY: check release wasm
+
+check:
+	cargo clippy --workspace
+	cargo fmt -- --check
+	ruff format --check lib/spython/
 
 release:
 	cargo build --release
