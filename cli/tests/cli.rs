@@ -4,6 +4,11 @@ use insta::{assert_snapshot, glob};
 use std::path::Path;
 use std::process::Command;
 
+/// Normalize Windows backslashes to forward slashes in test output.
+fn normalize_paths(s: &str) -> String {
+    s.replace('\\', "/")
+}
+
 fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
     let check_inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs"));
     let mut cmd = Command::new(cargo::cargo_bin!("spython"));
@@ -17,8 +22,8 @@ fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
     }
     let output = cmd.output().expect("failed to run spython");
     (
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+        normalize_paths(&String::from_utf8_lossy(&output.stdout)),
+        normalize_paths(&String::from_utf8_lossy(&output.stderr)),
         output.status.success(),
     )
 }
@@ -33,8 +38,8 @@ fn run_spython(path: &Path) -> (String, String) {
         .output()
         .expect("failed to run spython");
     (
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+        normalize_paths(&String::from_utf8_lossy(&output.stdout)),
+        normalize_paths(&String::from_utf8_lossy(&output.stderr)),
     )
 }
 
@@ -72,8 +77,9 @@ fn check_ok() {
 fn check_fail() {
     let (out, err, success) = run_check(&["fail.py"], &[]);
     assert!(!success);
+    let filter = normalize_paths(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
     insta::with_settings!({
-        filters => vec![(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"), "")]
+        filters => vec![(filter.as_str(), "")]
     }, {
         assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
     });
@@ -99,8 +105,9 @@ fn check_nonexistent_ignored() {
 fn check_multiple_prints_names() {
     let (out, err, success) = run_check(&["ok.py", "fail.py"], &[]);
     assert!(!success);
+    let filter = normalize_paths(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
     insta::with_settings!({
-        filters => vec![(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"), "")]
+        filters => vec![(filter.as_str(), "")]
     }, {
         assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
     });
@@ -155,8 +162,8 @@ fn run_level(level: u8, code: &str) -> (String, String, bool) {
         .expect("failed to run spython");
     let _ = std::fs::remove_file(&file);
     (
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+        normalize_paths(&String::from_utf8_lossy(&output.stdout)),
+        normalize_paths(&String::from_utf8_lossy(&output.stderr)),
         output.status.success(),
     )
 }
