@@ -5,6 +5,8 @@ linker = "x86_64-linux-musl-gcc"
 linker = "/opt/wasi-sdk/bin/wasm-ld"
 
 [env]
+# RustPython needs more than the default 2MB thread stack in debug mode
+RUST_MIN_STACK = "8388608"
 FREEZE_SEEDS = "dataclasses,encodings,enum,typing,spython"
 FREEZE_EXTRA_DIR = { value = "lib", relative = true }
 TYPESHED_ALLOWLIST = { value = "typeshed_allowlist.txt", relative = true }
