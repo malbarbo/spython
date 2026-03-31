@@ -10,6 +10,9 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
 
+[features]
+capture = []
+
 [dependencies]
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
 ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }
