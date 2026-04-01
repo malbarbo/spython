@@ -46,7 +46,9 @@ Manual testing is also done with `.py` files in the repo root (e.g. `a.py`,
 `simple.py`, `x.py`, etc.).
 
 CI runs on GitHub Actions (`.github/workflows/ci.yaml`): lint on Linux,
-tests on 5 targets (Linux musl x86/arm, Windows, macOS x86/arm).
+WASM build+test, and tests on 5 targets (Linux musl x86/arm, Windows,
+macOS x86/arm). A separate release workflow (`.github/workflows/release.yaml`)
+builds binaries and creates a GitHub release when a tag is pushed.
 
 ### WASM Build
 
@@ -164,6 +166,7 @@ Current fork customizations (ruff, 1 commit on `spython-0.1`):
 
 **Source files:**
 
+- `engine/build.rs` — Captures build date and git hash at compile time
 - `cli/main.rs` — CLI, pipeline orchestration, import resolution
 - `cli/repl.rs` — Interactive REPL with syntax highlighting, auto-indent,
   and multi-line editing (uses rustyline). Delegates completion to `engine`.
