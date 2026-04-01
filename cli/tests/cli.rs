@@ -1,12 +1,12 @@
 use assert_cmd::cargo;
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use insta::{assert_snapshot, glob};
 use std::path::Path;
 use std::process::Command;
 
-/// Normalize Windows backslashes to forward slashes in test output.
-fn normalize_paths(s: &str) -> String {
-    s.replace('\\', "/")
+/// Normalize Windows output: strip \r and convert backslashes to forward slashes.
+fn normalize_output(s: &str) -> String {
+    s.replace('\r', "").replace('\\', "/")
 }
 
 fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
@@ -22,8 +22,8 @@ fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
     }
     let output = cmd.output().expect("failed to run spython");
     (
-        normalize_paths(&String::from_utf8_lossy(&output.stdout)),
-        normalize_paths(&String::from_utf8_lossy(&output.stderr)),
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
         output.status.success(),
     )
 }
@@ -38,8 +38,8 @@ fn run_spython(path: &Path) -> (String, String) {
         .output()
         .expect("failed to run spython");
     (
-        normalize_paths(&String::from_utf8_lossy(&output.stdout)),
-        normalize_paths(&String::from_utf8_lossy(&output.stderr)),
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
     )
 }
 
@@ -77,7 +77,7 @@ fn check_ok() {
 fn check_fail() {
     let (out, err, success) = run_check(&["fail.py"], &[]);
     assert!(!success);
-    let filter = normalize_paths(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -105,7 +105,7 @@ fn check_nonexistent_ignored() {
 fn check_multiple_prints_names() {
     let (out, err, success) = run_check(&["ok.py", "fail.py"], &[]);
     assert!(!success);
-    let filter = normalize_paths(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -132,8 +132,8 @@ fn run_image(path: &Path) -> (String, String) {
         .output()
         .expect("failed to run spython");
     (
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
     )
 }
 
@@ -162,8 +162,8 @@ fn run_level(level: u8, code: &str) -> (String, String, bool) {
         .expect("failed to run spython");
     let _ = std::fs::remove_file(&file);
     (
-        normalize_paths(&String::from_utf8_lossy(&output.stdout)),
-        normalize_paths(&String::from_utf8_lossy(&output.stderr)),
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
         output.status.success(),
     )
 }
@@ -471,14 +471,13 @@ fn level5_allows_try() {
 
 #[test]
 fn level5_allows_with() {
-    let (out, _, success) = run_level(
-        5,
-        indoc! {"
-        with open('/dev/null') as f:
+    let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    let code = formatdoc! {"
+        with open('{null_path}') as f:
             pass
         print('ok')
-    "},
-    );
+    "};
+    let (out, _, success) = run_level(5, &code);
     assert!(success);
     assert_eq!(out, "ok\n");
 }
@@ -530,7 +529,7 @@ fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
             child.wait_with_output()
         })
         .expect("failed to run spython repl");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stdout = normalize_output(&String::from_utf8_lossy(&output.stdout));
     // Strip the welcome banner (two lines: "Welcome to..." and "Type ctrl-d...")
     let stdout = match stdout.find("to exit.\n") {
         Some(pos) => stdout[pos + "to exit.\n".len()..].to_owned(),
@@ -538,7 +537,7 @@ fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
     };
     (
         stdout,
-        String::from_utf8_lossy(&output.stderr).into_owned(),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
         output.status.success(),
     )
 }

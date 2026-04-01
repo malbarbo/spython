@@ -1,6 +1,10 @@
 [target.x86_64-unknown-linux-musl]
 linker = "x86_64-linux-musl-gcc"
 
+# Windows default main-thread stack is 1MB, not enough for RustPython debug mode
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-args=/STACK:8388608"]
+
 [target.wasm32-wasip1]
 linker = "/opt/wasi-sdk/bin/wasm-ld"
 

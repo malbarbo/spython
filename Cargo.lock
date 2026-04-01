@@ -437,6 +437,7 @@ dependencies = [
  "assert_cmd",
  "bpaf",
  "dirs-next",
+ "dunce",
  "engine",
  "indoc",
  "insta",
@@ -2697,7 +2698,7 @@ dependencies = [
 [[package]]
 name = "rustpython"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "cfg-if",
  "dirs-next",
@@ -2717,7 +2718,7 @@ dependencies = [
 [[package]]
 name = "rustpython-codegen"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "ahash",
  "bitflags 2.11.0",
@@ -2740,7 +2741,7 @@ dependencies = [
 [[package]]
 name = "rustpython-common"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "ascii",
  "bitflags 2.11.0",
@@ -2767,7 +2768,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
@@ -2781,7 +2782,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "bitflags 2.11.0",
  "bitflagset",
@@ -2796,7 +2797,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -2806,7 +2807,7 @@ dependencies = [
 [[package]]
 name = "rustpython-derive-impl"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "itertools",
  "maplit",
@@ -2822,7 +2823,7 @@ dependencies = [
 [[package]]
 name = "rustpython-doc"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "phf 0.13.1",
 ]
@@ -2830,7 +2831,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -2843,7 +2844,7 @@ dependencies = [
 [[package]]
 name = "rustpython-pylib"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -2853,7 +2854,7 @@ dependencies = [
 [[package]]
 name = "rustpython-stdlib"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "adler32",
  "ahash",
@@ -2932,7 +2933,7 @@ dependencies = [
 [[package]]
 name = "rustpython-vm"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "ahash",
  "ascii",
@@ -3002,7 +3003,7 @@ dependencies = [
 [[package]]
 name = "rustpython-wtf8"
 version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#0fdb716290bed7345db041ed34c47bd04cd309f1"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.1#063b4153eb132f7a2fdecbbc23d41c4d3e58cc09"
 dependencies = [
  "ascii",
  "bstr",

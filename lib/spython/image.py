@@ -1167,6 +1167,12 @@ def bitmap(path: str) -> Image:
     return _Bitmap(_Box(Pointf(w / 2.0, h / 2.0), w, h, 0.0), data_uri)
 
 
+def bitmap_data_uri(data_uri: str, width: float, height: float) -> Image:
+    return _Bitmap(
+        _Box(Pointf(width / 2.0, height / 2.0), width, height, 0.0), data_uri
+    )
+
+
 # **************************
 # * Transformations
 # **************************
@@ -1707,8 +1713,8 @@ def _curve_controls(
 def to_svg(img: Image) -> str:
     return (
         "<svg "
-        + _attrib("width", float(_math.ceil(widthf(img))))
-        + _attrib("height", float(_math.ceil(heightf(img))))
+        + _attrib("width", float(_math.ceil(round(widthf(img), 6))))
+        + _attrib("height", float(_math.ceil(round(heightf(img), 6))))
         + 'xmlns="http://www.w3.org/2000/svg">\n'
         + _to_svg(img, 1)
         + "</svg>"

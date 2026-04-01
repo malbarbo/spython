@@ -3,8 +3,11 @@ name = "engine"
 version = "0.1.0"
 edition = "2024"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(all(not(target_arch = "wasm32"), not(windows)))'.dependencies]
 rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env", "threading"] }
+
+[target.'cfg(all(not(target_arch = "wasm32"), windows))'.dependencies]
+rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.1", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env", "host_env_extras", "threading"] }
 
 # On wasm32, drop features that don't work (host_env, threading, ssl).
 [target.'cfg(target_arch = "wasm32")'.dependencies]

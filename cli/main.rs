@@ -271,7 +271,7 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
 /// Type-check a Python file: validates the path, builds the ty database,
 /// runs the annotation checker, then runs ty's type checker.
 fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
-    let abs_file = std::fs::canonicalize(file).map_err(|e| {
+    let abs_file = dunce::canonicalize(file).map_err(|e| {
         Error::FileResolution(format!(
             "cannot resolve '{}' to an absolute path: {e}",
             file.display()
