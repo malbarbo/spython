@@ -24,6 +24,17 @@ use ty_python_semantic::{HasType, SemanticModel};
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
 
+/// Package version from Cargo.toml.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Libraries bundled in this build (set by build.rs).
+pub const LIBS_VERSION: &str = env!("LIBS_VERSION");
+/// Build date in YYYY-MM-DD format (set by build.rs).
+pub const BUILD_DATE: &str = env!("BUILD_DATE");
+/// Short git commit hash (set by build.rs).
+pub const GIT_HASH: &str = env!("GIT_HASH");
+/// Full version string: "0.1.0 (rustpython ..., 2026-04-01, abc1234)".
+pub const LONG_VERSION: &str = env!("LONG_VERSION");
+
 /// The doctest runner Python source. Shared between the CLI `check` command
 /// and the WASM REPL so the string is embedded only once per binary.
 pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");

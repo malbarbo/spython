@@ -38,7 +38,7 @@ cargo run -p cli
 considering the task done:
 
 ```bash
-make check                  # clippy + fmt + ruff format
+make check                  # clippy + fmt + ruff format + deno fmt
 cargo test --workspace      # all tests
 ```
 
@@ -55,8 +55,14 @@ by `cargo build`, `cargo test`, or `cargo clippy` (only `engine` and `cli`
 are). To build the WASM binary:
 
 ```bash
-cargo build -p wasm --target wasm32-wasip1 --release
+make wasm                   # build + optimize
+make test-wasm              # build + run Deno tests
 ```
+
+WASM tests use Deno (`wasm/tests/`) and test the WASM binary directly via
+`repl_new`, `repl_run`, `repl_complete`, `format`, and `version` exports.
+The test WASI polyfill (`wasm/tests/wasi.ts`) and env mock provide the
+required WASM imports.
 
 ### WASM Exports
 
@@ -89,9 +95,12 @@ to pick up the new commit.
 
 ### Version Strings
 
-The version strings for RustPython and ruff are hardcoded in `cli/main.rs`
-(`LIBS_VERSION`, `LONG_VERSION`) and `wasm/src/lib.rs` (`version()`). When
-updating these dependencies, remember to update the version strings too.
+Version strings and build metadata (date, git hash) are centralized in the
+`engine` crate. `engine/build.rs` captures the build date and short git hash
+at compile time, and `engine/src/lib.rs` exposes `VERSION`, `LIBS_VERSION`,
+`BUILD_DATE`, `GIT_HASH`, and `LONG_VERSION` as public constants. Both the CLI
+and WASM crate import these constants. When updating the RustPython or ruff
+dependency versions, update the `LIBS_VERSION` value in `engine/build.rs`.
 
 ### User Configuration
 

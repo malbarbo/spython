@@ -132,12 +132,7 @@ pub unsafe extern "C" fn repl_complete(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn version() -> *mut std::ffi::c_char {
-    let v = concat!(
-        "spython ",
-        env!("CARGO_PKG_VERSION"),
-        " (rustpython 0.5.0, ty/ruff 0.15.6)"
-    );
-    // v is a compile-time literal with no interior NUL bytes, so this always succeeds.
+    let v = format!("spython {}", engine::LONG_VERSION);
     std::ffi::CString::new(v).unwrap().into_raw()
 }
 

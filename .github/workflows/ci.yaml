@@ -23,8 +23,34 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: "2.x"
+
       - name: Run checks
         run: make check
+
+  wasm:
+    name: Build & Test WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-wasip1
+
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: "2.x"
+
+      - name: Install binaryen
+        run: sudo apt-get install -y binaryen
+
+      - name: Build & Test
+        run: make test-wasm
 
   test:
     name: Test (${{ matrix.os }} / ${{ matrix.target }})

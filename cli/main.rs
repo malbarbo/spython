@@ -10,8 +10,8 @@ mod config;
 mod repl;
 
 use engine::{
-    Level, annotation_check, collect_import_files, execute_source, format_source, new_interpreter,
-    print_type_errors,
+    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
+    collect_import_files, execute_source, format_source, new_interpreter, print_type_errors,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -35,17 +35,6 @@ enum Error {
     /// Type checking errors found
     TypeChecking(Box<ProjectDatabase>, Vec<Diagnostic>),
 }
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-macro_rules! libs_version {
-    () => {
-        "rustpython 0.5.0, ty/ruff 0.15.6"
-    };
-}
-
-const LIBS_VERSION: &str = libs_version!();
-const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", libs_version!(), ")");
 
 /// Teaching level (0-5)
 fn level_arg() -> impl bpaf::Parser<u8> {
@@ -248,7 +237,7 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
         println!(
-            "Welcome to spython {VERSION}, level {level}.\n\
+            "spython level {level} - {VERSION} ({BUILD_DATE}, {GIT_HASH})\n\
              Using {LIBS_VERSION}.\n\
              Type :help for commands, :quit or ctrl-d to exit."
         );
