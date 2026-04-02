@@ -47,22 +47,24 @@ function readCstr(exports: WasmExports, ptr: number): string {
 
 // --- Mock env ---
 
-interface EnvOptions {
-  interruptAfter?: number;
+interface InterruptControl {
+  set: (on: boolean) => void;
 }
 
 function makeEnv(
   getBuffer: () => ArrayBufferLike,
   svgs: string[],
-  options: EnvOptions = {},
-): WebAssembly.ModuleImports {
-  let interruptCount = 0;
-  const interruptAfter = options.interruptAfter ?? Infinity;
+  interruptCtrl: InterruptControl,
+): { imports: WebAssembly.ModuleImports } {
+  let interrupted = false;
 
-  return {
+  interruptCtrl.set = (on: boolean) => {
+    interrupted = on;
+  };
+
+  const imports: WebAssembly.ModuleImports = {
     check_interrupt: (): number => {
-      interruptCount++;
-      return interruptCount >= interruptAfter ? 1 : 0;
+      return interrupted ? 1 : 0;
     },
     draw_svg: (ptr: number, len: number): void => {
       const b = new Uint8Array(getBuffer() as ArrayBuffer);
@@ -100,6 +102,7 @@ function makeEnv(
       _font_css_len: number,
     ): number => 0,
   };
+  return { imports };
 }
 
 // --- WASM loader ---
@@ -109,13 +112,10 @@ interface WasmContext {
   stdout: string[];
   stderr: string[];
   svgs: string[];
+  interruptCtrl: InterruptControl;
 }
 
-interface LoadOptions {
-  interruptAfter?: number;
-}
-
-async function loadWasm(options: LoadOptions = {}): Promise<WasmContext> {
+async function loadWasm(): Promise<WasmContext> {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const svgs: string[] = [];
@@ -138,10 +138,13 @@ async function loadWasm(options: LoadOptions = {}): Promise<WasmContext> {
     env: ["RUST_BACKTRACE=1"],
   });
 
-  const env = makeEnv(
+  const interruptCtrl: InterruptControl = {
+    set: () => {},
+  };
+  const { imports: env } = makeEnv(
     () => exports.memory.buffer,
     svgs,
-    { interruptAfter: options.interruptAfter },
+    interruptCtrl,
   );
 
   const instance = await WebAssembly.instantiate(module, {
@@ -151,7 +154,7 @@ async function loadWasm(options: LoadOptions = {}): Promise<WasmContext> {
 
   exports = instance.exports as unknown as WasmExports;
 
-  return { exports, stdout, stderr, svgs };
+  return { exports, stdout, stderr, svgs, interruptCtrl };
 }
 
 // --- Helper ---
@@ -162,9 +165,9 @@ interface ReplContext extends WasmContext {
 
 async function newRepl(
   source = "",
-  options: LoadOptions & { level?: number } = {},
+  options: { level?: number } = {},
 ): Promise<ReplContext> {
-  const ctx = await loadWasm(options);
+  const ctx = await loadWasm();
   const [codePtr, codeLen] = encodeString(ctx.exports, source);
   const config = options.level !== undefined ? `level=${options.level}` : "";
   const [cfgPtr, cfgLen] = encodeString(ctx.exports, config);
@@ -411,6 +414,17 @@ Deno.test("repl_complete indents under-indented line", async () => {
   const result = readCstr(ctx.exports, resultPtr);
   ctx.exports.cstr_deallocate(resultPtr);
   assertEquals(result, "i     ", "should indent by 4 spaces");
+  destroy(ctx);
+});
+
+// --- Interrupt ---
+
+Deno.test("interrupt stops infinite loop", async () => {
+  const ctx = await newRepl("", { level: 3 });
+  ctx.interruptCtrl.set(true);
+  const r = run(ctx, "while True:\n    pass");
+  assertEquals(r.result, REPL_ERROR);
+  assertMatch(r.stderr, /KeyboardInterrupt/);
   destroy(ctx);
 });
 
