@@ -138,6 +138,7 @@ fn run_image(path: &Path) -> (String, String) {
 }
 
 #[test]
+#[ignore]
 fn run_images() {
     glob!("images/*.py", |path| {
         let (out, _err) = run_image(path);

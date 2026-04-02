@@ -99,3 +99,6 @@ jobs:
 
       - name: Run tests
         run: cargo test --target ${{ matrix.target }}
+
+      - name: Run image tests
+        run: cargo test --target ${{ matrix.target }} -- --ignored
