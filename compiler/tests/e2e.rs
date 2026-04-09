@@ -91,8 +91,7 @@ fn test_engine() -> Engine {
 }
 
 fn run_fixture(engine: &Engine, path: &Path) {
-    try_run_fixture(engine, path)
-        .unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+    try_run_fixture(engine, path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
 }
 
 fn run_source(engine: &Engine, name: &str, source: &str) {
@@ -133,11 +132,11 @@ fn workspace_root() -> PathBuf {
 }
 
 fn run_wasm(engine: &Engine, wasm: &[u8], label: &str) {
-    let module = Module::new(engine, wasm)
-        .unwrap_or_else(|err| panic!("module failed for {label}: {err}"));
+    let module =
+        Module::new(engine, wasm).unwrap_or_else(|err| panic!("module failed for {label}: {err}"));
     let mut store = Store::new(engine, ());
-    let instance =
-        Instance::new(&mut store, &module, &[]).unwrap_or_else(|err| panic!("instantiation failed for {label}: {err}"));
+    let instance = Instance::new(&mut store, &module, &[])
+        .unwrap_or_else(|err| panic!("instantiation failed for {label}: {err}"));
     let run = instance
         .get_typed_func::<(), i32>(&mut store, "run")
         .unwrap_or_else(|err| panic!("missing `run` export for {label}: {err}"));
@@ -169,8 +168,8 @@ fn collect_ascii_py_files(dir: &Path, fixtures: &mut Vec<PathBuf>) -> Result<(),
         .map_err(|err| format!("cannot read fixture directory {}: {err}", dir.display()))?;
 
     for entry in entries {
-        let entry = entry
-            .map_err(|err| format!("cannot read entry in {}: {err}", dir.display()))?;
+        let entry =
+            entry.map_err(|err| format!("cannot read entry in {}: {err}", dir.display()))?;
         let path = entry.path();
         if path.is_dir() {
             collect_ascii_py_files(&path, fixtures)?;

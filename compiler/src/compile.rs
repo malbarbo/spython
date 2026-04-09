@@ -1,19 +1,17 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
 use ruff_db::diagnostic::Severity;
-use ruff_db::files::{system_path_to_file, File};
+use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{InMemorySystem, SystemPath, SystemPathBuf, WritableSystem};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{BoolOp, CmpOp, Expr, ExprRef, Operator, Stmt, StmtImport, UnaryOp};
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
 use ty_python_semantic::{HasType, SemanticModel};
-use walrus::ir::{
-    ArrayCopy, ArrayGet, ArrayGetU, ArrayNewData, BinaryOp, Block, Br, BrIf, GlobalGet,
-    GlobalSet, IfElse, Loop, Return, UnaryOp as WasmUnaryOp, Value as WasmValue,
-};
+use walrus::ir::{BinaryOp, UnaryOp as WasmUnaryOp, Value as WasmValue};
 use walrus::{
     ConstExpr, DataId, DataKind, FieldType, FunctionBuilder, FunctionId, FunctionKind, GlobalId,
     HeapType, InstrSeqBuilder, LocalFunction, LocalId, Module, RefType, StorageType, TypeId,
@@ -126,6 +124,73 @@ enum ResultKind {
     TopLevel,
     Void,
     Value(ValueType),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LoweredStringMethod {
+    Upper,
+    Lower,
+}
+
+#[derive(Debug)]
+enum LoweredCall<'a> {
+    User {
+        func_id: FunctionId,
+        param_types: Vec<ValueType>,
+        args: &'a [Expr],
+    },
+    Abs {
+        arg: &'a Expr,
+        ty: ValueType,
+    },
+    Len {
+        arg: &'a Expr,
+        ty: ValueType,
+    },
+    MinMax {
+        lhs: &'a Expr,
+        rhs: &'a Expr,
+        ty: ValueType,
+        is_max: bool,
+    },
+    Round {
+        value: &'a Expr,
+        digits: Option<&'a Expr>,
+        value_ty: ValueType,
+    },
+    Str {
+        value: &'a Expr,
+        value_ty: ValueType,
+    },
+    MathCeil {
+        arg: &'a Expr,
+    },
+    StringMethod {
+        value: &'a Expr,
+        method: LoweredStringMethod,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+enum LoweredSubscript<'a> {
+    StrIndex {
+        value: &'a Expr,
+        index: &'a Expr,
+    },
+    StrSlice {
+        value: &'a Expr,
+        lower: Option<&'a Expr>,
+        upper: Option<&'a Expr>,
+    },
+    ListIntIndex {
+        value: &'a Expr,
+        index: &'a Expr,
+    },
+    ListIntSlice {
+        value: &'a Expr,
+        lower: Option<&'a Expr>,
+        upper: Option<&'a Expr>,
+    },
 }
 
 pub struct CompileOutput {
@@ -281,7 +346,11 @@ impl<'db> ModuleCompiler<'db> {
             .iter()
             .map(|(_, ty)| self.wasm_type(*ty))
             .collect();
-        let result_types: Vec<ValType> = signature.result.map(|ty| self.wasm_type(ty)).into_iter().collect();
+        let result_types: Vec<ValType> = signature
+            .result
+            .map(|ty| self.wasm_type(ty))
+            .into_iter()
+            .collect();
         let mut builder = FunctionBuilder::new(&mut self.module.types, &param_types, &result_types);
         builder.name(signature.name.clone());
 
@@ -300,7 +369,10 @@ impl<'db> ModuleCompiler<'db> {
     }
 
     fn wasm_type(&self, ty: ValueType) -> ValType {
-        ty.wasm_type(self.string_runtime().str_ty, self.list_runtime().list_int_ty)
+        ty.wasm_type(
+            self.string_runtime().str_ty,
+            self.list_runtime().list_int_ty,
+        )
     }
 
     fn string_runtime(&self) -> StringRuntime {
@@ -477,21 +549,19 @@ impl<'db> ModuleCompiler<'db> {
             return Ok(());
         }
 
-        let id = self
-            .module
-            .globals
-            .add_local(
-                self.wasm_type(ty),
-                true,
-                false,
-                zero_const_expr(
-                    ty,
-                    self.string_runtime().str_ty,
-                    self.list_runtime().list_int_ty,
-                ),
-            );
+        let id = self.module.globals.add_local(
+            self.wasm_type(ty),
+            true,
+            false,
+            zero_const_expr(
+                ty,
+                self.string_runtime().str_ty,
+                self.list_runtime().list_int_ty,
+            ),
+        );
         self.module.globals.get_mut(id).name = Some(name.to_owned());
-        self.globals.insert(name.to_owned(), GlobalBinding { id, ty });
+        self.globals
+            .insert(name.to_owned(), GlobalBinding { id, ty });
         Ok(())
     }
 
@@ -506,8 +576,8 @@ impl<'db> ModuleCompiler<'db> {
             .ok_or_else(|| {
                 CompileError::Unsupported(format!(
                     "missing collected signature for `{}`",
-                        function.name
-                    ))
+                    function.name
+                ))
             })?;
         let func_id = *self
             .built_functions
@@ -526,7 +596,11 @@ impl<'db> ModuleCompiler<'db> {
             .iter()
             .map(|(_, ty)| self.wasm_type(*ty))
             .collect();
-        let result_types: Vec<ValType> = signature.result.map(|ty| self.wasm_type(ty)).into_iter().collect();
+        let result_types: Vec<ValType> = signature
+            .result
+            .map(|ty| self.wasm_type(ty))
+            .into_iter()
+            .collect();
         let mut builder = FunctionBuilder::new(&mut self.module.types, &param_types, &result_types);
         builder.name(signature.name.clone());
 
@@ -832,7 +906,10 @@ impl<'db> ModuleCompiler<'db> {
         }
     }
 
-    fn fallback_call_type(&self, call: &ruff_python_ast::ExprCall) -> Result<ValueType, CompileError> {
+    fn fallback_call_type(
+        &self,
+        call: &ruff_python_ast::ExprCall,
+    ) -> Result<ValueType, CompileError> {
         match &*call.func {
             Expr::Name(name) => {
                 if let Some(signature) = self.signatures.get(name.id.as_str()) {
@@ -1038,12 +1115,7 @@ impl<'db> ModuleCompiler<'db> {
         self.build_scalar_min_max("__sp_max_f64", ValType::F64, BinaryOp::F64Gt)
     }
 
-    fn build_scalar_min_max(
-        &mut self,
-        name: &str,
-        ty: ValType,
-        compare: BinaryOp,
-    ) -> FunctionId {
+    fn build_scalar_min_max(&mut self, name: &str, ty: ValType, compare: BinaryOp) -> FunctionId {
         let mut builder = FunctionBuilder::new(&mut self.module.types, &[ty, ty], &[ty]);
         builder.name(name.to_owned());
 
@@ -1117,18 +1189,16 @@ impl<'db> ModuleCompiler<'db> {
             body.f64_const(1.0).local_set(result);
             body.i64_const(0).local_set(counter);
 
-            let exit_id = {
-                let mut exit = body.dangling_instr_seq(None);
+            body.block(None, |exit| {
                 let exit_id = exit.id();
-                let loop_id = {
-                    let mut loop_body = exit.dangling_instr_seq(None);
+                exit.loop_(None, |loop_body| {
                     let loop_id = loop_body.id();
 
                     loop_body
                         .local_get(counter)
                         .local_get(positive_exponent)
                         .binop(BinaryOp::I64GeS)
-                        .instr(BrIf { block: exit_id });
+                        .br_if(exit_id);
                     loop_body
                         .local_get(result)
                         .local_get(base)
@@ -1139,14 +1209,9 @@ impl<'db> ModuleCompiler<'db> {
                         .i64_const(1)
                         .binop(BinaryOp::I64Add)
                         .local_set(counter);
-                    loop_body.instr(Br { block: loop_id });
-
-                    loop_id
-                };
-                exit.instr(Loop { seq: loop_id });
-                exit_id
-            };
-            body.instr(Block { seq: exit_id });
+                    loop_body.br(loop_id);
+                });
+            });
 
             body.local_get(exponent)
                 .i64_const(0)
@@ -1283,31 +1348,23 @@ impl<'db> ModuleCompiler<'db> {
                         else_.i32_const(1).local_set(result);
                         else_.i32_const(0).local_set(idx);
 
-                        let exit_id = {
-                            let mut exit = else_.dangling_instr_seq(None);
+                        else_.block(None, |exit| {
                             let exit_id = exit.id();
-                            let loop_id = {
-                                let mut loop_body = exit.dangling_instr_seq(None);
+                            exit.loop_(None, |loop_body| {
                                 let loop_id = loop_body.id();
 
                                 loop_body
                                     .local_get(idx)
                                     .local_get(len)
                                     .binop(BinaryOp::I32GeU)
-                                    .instr(BrIf { block: exit_id });
-                                loop_body
-                                    .local_get(lhs)
-                                    .local_get(idx)
-                                    .instr(ArrayGetU { ty: str_ty });
-                                loop_body
-                                    .local_get(rhs)
-                                    .local_get(idx)
-                                    .instr(ArrayGetU { ty: str_ty });
+                                    .br_if(exit_id);
+                                loop_body.local_get(lhs).local_get(idx).array_get_u(str_ty);
+                                loop_body.local_get(rhs).local_get(idx).array_get_u(str_ty);
                                 loop_body.binop(BinaryOp::I32Ne).if_else(
                                     None,
                                     |then_mismatch| {
                                         then_mismatch.i32_const(0).local_set(result);
-                                        then_mismatch.instr(Br { block: exit_id });
+                                        then_mismatch.br(exit_id);
                                     },
                                     |_else_| {},
                                 );
@@ -1316,14 +1373,9 @@ impl<'db> ModuleCompiler<'db> {
                                     .i32_const(1)
                                     .binop(BinaryOp::I32Add)
                                     .local_set(idx);
-                                loop_body.instr(Br { block: loop_id });
-
-                                loop_id
-                            };
-                            exit.instr(Loop { seq: loop_id });
-                            exit_id
-                        };
-                        else_.instr(Block { seq: exit_id });
+                                loop_body.br(loop_id);
+                            });
+                        });
                         else_.local_get(result);
                     },
                 );
@@ -1362,19 +1414,13 @@ impl<'db> ModuleCompiler<'db> {
                 .local_get(lhs)
                 .i32_const(0)
                 .local_get(lhs_len)
-                .instr(ArrayCopy {
-                    dst_ty: str_ty,
-                    src_ty: str_ty,
-                });
+                .array_copy(str_ty, str_ty);
             body.local_get(result)
                 .local_get(lhs_len)
                 .local_get(rhs)
                 .i32_const(0)
                 .local_get(rhs_len)
-                .instr(ArrayCopy {
-                    dst_ty: str_ty,
-                    src_ty: str_ty,
-                });
+                .array_copy(str_ty, str_ty);
             body.local_get(result);
         }
 
@@ -1419,18 +1465,16 @@ impl<'db> ModuleCompiler<'db> {
                             .local_set(result);
                         else_.i32_const(0).local_set(idx);
 
-                        let exit_id = {
-                            let mut exit = else_.dangling_instr_seq(None);
+                        else_.block(None, |exit| {
                             let exit_id = exit.id();
-                            let loop_id = {
-                                let mut loop_body = exit.dangling_instr_seq(None);
+                            exit.loop_(None, |loop_body| {
                                 let loop_id = loop_body.id();
 
                                 loop_body
                                     .local_get(idx)
                                     .local_get(count_i32)
                                     .binop(BinaryOp::I32GeU)
-                                    .instr(BrIf { block: exit_id });
+                                    .br_if(exit_id);
                                 loop_body
                                     .local_get(result)
                                     .local_get(idx)
@@ -1439,23 +1483,15 @@ impl<'db> ModuleCompiler<'db> {
                                     .local_get(value)
                                     .i32_const(0)
                                     .local_get(len)
-                                    .instr(ArrayCopy {
-                                        dst_ty: str_ty,
-                                        src_ty: str_ty,
-                                    });
+                                    .array_copy(str_ty, str_ty);
                                 loop_body
                                     .local_get(idx)
                                     .i32_const(1)
                                     .binop(BinaryOp::I32Add)
                                     .local_set(idx);
-                                loop_body.instr(Br { block: loop_id });
-
-                                loop_id
-                            };
-                            exit.instr(Loop { seq: loop_id });
-                            exit_id
-                        };
-                        else_.instr(Block { seq: exit_id });
+                                loop_body.br(loop_id);
+                            });
+                        });
                         else_.local_get(result);
                     },
                 );
@@ -1468,7 +1504,13 @@ impl<'db> ModuleCompiler<'db> {
         let str_ref = string_val_type(str_ty);
         let mut builder = FunctionBuilder::new(
             &mut self.module.types,
-            &[str_ref, ValType::I32, ValType::I64, ValType::I32, ValType::I64],
+            &[
+                str_ref,
+                ValType::I32,
+                ValType::I64,
+                ValType::I32,
+                ValType::I64,
+            ],
             &[str_ref],
         );
         builder.name("__sp_str_slice".to_owned());
@@ -1624,14 +1666,14 @@ impl<'db> ModuleCompiler<'db> {
                 .local_get(norm_start)
                 .unop(WasmUnaryOp::I32WrapI64)
                 .local_get(slice_len)
-                .instr(ArrayCopy {
-                    dst_ty: str_ty,
-                    src_ty: str_ty,
-                });
+                .array_copy(str_ty, str_ty);
             body.local_get(result);
         }
 
-        builder.finish(vec![value, has_start, start, has_end, end], &mut self.module.funcs)
+        builder.finish(
+            vec![value, has_start, start, has_end, end],
+            &mut self.module.funcs,
+        )
     }
 
     fn build_str_char_at(&mut self, str_ty: TypeId) -> FunctionId {
@@ -1671,7 +1713,7 @@ impl<'db> ModuleCompiler<'db> {
             body.local_get(value)
                 .local_get(norm_index)
                 .unop(WasmUnaryOp::I32WrapI64)
-                .instr(ArrayGetU { ty: str_ty })
+                .array_get_u(str_ty)
                 .local_set(byte);
             body.local_get(byte).array_new_fixed(str_ty, 1);
         }
@@ -1687,7 +1729,12 @@ impl<'db> ModuleCompiler<'db> {
         self.build_ascii_case_transform("__sp_str_lower", str_ty, false)
     }
 
-    fn build_ascii_case_transform(&mut self, name: &str, str_ty: TypeId, upper: bool) -> FunctionId {
+    fn build_ascii_case_transform(
+        &mut self,
+        name: &str,
+        str_ty: TypeId,
+        upper: bool,
+    ) -> FunctionId {
         let str_ref = string_val_type(str_ty);
         let mut builder = FunctionBuilder::new(&mut self.module.types, &[str_ref], &[str_ref]);
         builder.name(name.to_owned());
@@ -1707,26 +1754,22 @@ impl<'db> ModuleCompiler<'db> {
                 .local_set(result);
             body.i32_const(0).local_set(idx);
 
-            let exit_id = {
-                let mut exit = body.dangling_instr_seq(None);
+            body.block(None, |exit| {
                 let exit_id = exit.id();
-                let loop_id = {
-                    let mut loop_body = exit.dangling_instr_seq(None);
+                exit.loop_(None, |loop_body| {
                     let loop_id = loop_body.id();
 
                     loop_body
                         .local_get(idx)
                         .local_get(len)
                         .binop(BinaryOp::I32GeU)
-                        .instr(BrIf { block: exit_id });
+                        .br_if(exit_id);
                     loop_body
                         .local_get(value)
                         .local_get(idx)
-                        .instr(ArrayGetU { ty: str_ty })
+                        .array_get_u(str_ty)
                         .local_set(byte);
-                    loop_body
-                        .local_get(result)
-                        .local_get(idx);
+                    loop_body.local_get(result).local_get(idx);
                     loop_body
                         .local_get(byte)
                         .i32_const(if upper { b'a' as i32 } else { b'A' as i32 })
@@ -1738,14 +1781,11 @@ impl<'db> ModuleCompiler<'db> {
                     loop_body.binop(BinaryOp::I32And).if_else(
                         ValType::I32,
                         |then_| {
-                            then_
-                                .local_get(byte)
-                                .i32_const(32)
-                                .binop(if upper {
-                                    BinaryOp::I32Sub
-                                } else {
-                                    BinaryOp::I32Add
-                                });
+                            then_.local_get(byte).i32_const(32).binop(if upper {
+                                BinaryOp::I32Sub
+                            } else {
+                                BinaryOp::I32Add
+                            });
                         },
                         |else_| {
                             else_.local_get(byte);
@@ -1757,14 +1797,9 @@ impl<'db> ModuleCompiler<'db> {
                         .i32_const(1)
                         .binop(BinaryOp::I32Add)
                         .local_set(idx);
-                    loop_body.instr(Br { block: loop_id });
-
-                    loop_id
-                };
-                exit.instr(Loop { seq: loop_id });
-                exit_id
-            };
-            body.instr(Block { seq: exit_id });
+                    loop_body.br(loop_id);
+                });
+            });
             body.local_get(result);
         }
 
@@ -1801,16 +1836,17 @@ impl<'db> ModuleCompiler<'db> {
                     },
                 )
                 .local_set(negative);
-            body.local_get(negative).if_else(
-                ValType::I64,
-                |then_| {
-                    then_.i64_const(0).local_get(value).binop(BinaryOp::I64Sub);
-                },
-                |else_| {
-                    else_.local_get(value);
-                },
-            )
-            .local_set(magnitude);
+            body.local_get(negative)
+                .if_else(
+                    ValType::I64,
+                    |then_| {
+                        then_.i64_const(0).local_get(value).binop(BinaryOp::I64Sub);
+                    },
+                    |else_| {
+                        else_.local_get(value);
+                    },
+                )
+                .local_set(magnitude);
 
             body.local_get(magnitude)
                 .i64_const(0)
@@ -1824,18 +1860,16 @@ impl<'db> ModuleCompiler<'db> {
                         else_.i32_const(0).local_set(digits);
                         else_.local_get(magnitude).local_set(temp);
 
-                        let exit_id = {
-                            let mut exit = else_.dangling_instr_seq(None);
+                        else_.block(None, |exit| {
                             let exit_id = exit.id();
-                            let loop_id = {
-                                let mut loop_body = exit.dangling_instr_seq(None);
+                            exit.loop_(None, |loop_body| {
                                 let loop_id = loop_body.id();
 
                                 loop_body
                                     .local_get(temp)
                                     .i64_const(0)
                                     .binop(BinaryOp::I64Eq)
-                                    .instr(BrIf { block: exit_id });
+                                    .br_if(exit_id);
                                 loop_body
                                     .local_get(digits)
                                     .i32_const(1)
@@ -1846,14 +1880,9 @@ impl<'db> ModuleCompiler<'db> {
                                     .i64_const(10)
                                     .binop(BinaryOp::I64DivS)
                                     .local_set(temp);
-                                loop_body.instr(Br { block: loop_id });
-
-                                loop_id
-                            };
-                            exit.instr(Loop { seq: loop_id });
-                            exit_id
-                        };
-                        else_.instr(Block { seq: exit_id });
+                                loop_body.br(loop_id);
+                            });
+                        });
                     },
                 );
 
@@ -1881,18 +1910,16 @@ impl<'db> ModuleCompiler<'db> {
                             .array_set(str_ty);
                     },
                     |else_| {
-                        let exit_id = {
-                            let mut exit = else_.dangling_instr_seq(None);
+                        else_.block(None, |exit| {
                             let exit_id = exit.id();
-                            let loop_id = {
-                                let mut loop_body = exit.dangling_instr_seq(None);
+                            exit.loop_(None, |loop_body| {
                                 let loop_id = loop_body.id();
 
                                 loop_body
                                     .local_get(temp)
                                     .i64_const(0)
                                     .binop(BinaryOp::I64Eq)
-                                    .instr(BrIf { block: exit_id });
+                                    .br_if(exit_id);
                                 loop_body
                                     .local_get(index)
                                     .i32_const(1)
@@ -1916,14 +1943,9 @@ impl<'db> ModuleCompiler<'db> {
                                     .i64_const(10)
                                     .binop(BinaryOp::I64DivS)
                                     .local_set(temp);
-                                loop_body.instr(Br { block: loop_id });
-
-                                loop_id
-                            };
-                            exit.instr(Loop { seq: loop_id });
-                            exit_id
-                        };
-                        else_.instr(Block { seq: exit_id });
+                                loop_body.br(loop_id);
+                            });
+                        });
                     },
                 );
 
@@ -1946,8 +1968,11 @@ impl<'db> ModuleCompiler<'db> {
 
     fn build_list_int_eq(&mut self, list_ty: TypeId) -> FunctionId {
         let list_ref = list_int_val_type(list_ty);
-        let mut builder =
-            FunctionBuilder::new(&mut self.module.types, &[list_ref, list_ref], &[ValType::I32]);
+        let mut builder = FunctionBuilder::new(
+            &mut self.module.types,
+            &[list_ref, list_ref],
+            &[ValType::I32],
+        );
         builder.name("__sp_list_int_eq".to_owned());
 
         let lhs = self.module.locals.add(list_ref);
@@ -1958,53 +1983,43 @@ impl<'db> ModuleCompiler<'db> {
 
         {
             let mut body = builder.func_body();
-            body.local_get(lhs).array_len().local_set(len);
             body.local_get(lhs)
+                .array_len()
+                .local_set(len)
+                .local_get(lhs)
                 .array_len()
                 .local_get(rhs)
                 .array_len()
                 .binop(BinaryOp::I32Eq)
-                .local_set(result);
-            body.i32_const(0).local_set(idx);
+                .local_set(result)
+                .i32_const(0)
+                .local_set(idx);
 
-            let exit_id = {
-                let mut exit = body.dangling_instr_seq(None);
+            body.block(None, |exit| {
                 let exit_id = exit.id();
-                let loop_id = {
-                    let mut loop_body = exit.dangling_instr_seq(None);
+                exit.loop_(None, |loop_body| {
                     let loop_id = loop_body.id();
 
                     loop_body
                         .local_get(result)
                         .unop(WasmUnaryOp::I32Eqz)
-                        .instr(BrIf { block: exit_id });
+                        .br_if(exit_id);
                     loop_body
                         .local_get(idx)
                         .local_get(len)
                         .binop(BinaryOp::I32GeU)
-                        .instr(BrIf { block: exit_id });
-                    loop_body
-                        .local_get(lhs)
-                        .local_get(idx)
-                        .instr(ArrayGet { ty: list_ty });
-                    loop_body
-                        .local_get(rhs)
-                        .local_get(idx)
-                        .instr(ArrayGet { ty: list_ty });
+                        .br_if(exit_id);
+                    loop_body.local_get(lhs).local_get(idx).array_get(list_ty);
+                    loop_body.local_get(rhs).local_get(idx).array_get(list_ty);
                     loop_body.binop(BinaryOp::I64Eq).local_set(result);
                     loop_body
                         .local_get(idx)
                         .i32_const(1)
                         .binop(BinaryOp::I32Add)
                         .local_set(idx);
-                    loop_body.instr(Br { block: loop_id });
-
-                    loop_id
-                };
-                exit.instr(Loop { seq: loop_id });
-                exit_id
-            };
-            body.instr(Block { seq: exit_id });
+                    loop_body.br(loop_id);
+                });
+            });
             body.local_get(result);
         }
 
@@ -2015,7 +2030,13 @@ impl<'db> ModuleCompiler<'db> {
         let list_ref = list_int_val_type(list_ty);
         let mut builder = FunctionBuilder::new(
             &mut self.module.types,
-            &[list_ref, ValType::I32, ValType::I64, ValType::I32, ValType::I64],
+            &[
+                list_ref,
+                ValType::I32,
+                ValType::I64,
+                ValType::I32,
+                ValType::I64,
+            ],
             &[list_ref],
         );
         builder.name("__sp_list_int_slice".to_owned());
@@ -2034,54 +2055,66 @@ impl<'db> ModuleCompiler<'db> {
 
         {
             let mut body = builder.func_body();
-            body.local_get(value).array_len().local_set(len_i32);
-            body.local_get(len_i32)
+            body.local_get(value)
+                .array_len()
+                .local_set(len_i32)
+                .local_get(len_i32)
                 .unop(WasmUnaryOp::I64ExtendUI32)
                 .local_set(len_i64);
 
-            body.local_get(has_start).if_else(
-                ValType::I64,
-                |then_| {
-                    then_.local_get(start).i64_const(0).binop(BinaryOp::I64LtS).if_else(
-                        ValType::I64,
-                        |negative| {
-                            negative
-                                .local_get(len_i64)
-                                .local_get(start)
-                                .binop(BinaryOp::I64Add);
-                        },
-                        |non_negative| {
-                            non_negative.local_get(start);
-                        },
-                    );
-                },
-                |else_| {
-                    else_.i64_const(0);
-                },
-            )
-            .local_set(norm_start);
+            body.local_get(has_start)
+                .if_else(
+                    ValType::I64,
+                    |then_| {
+                        then_
+                            .local_get(start)
+                            .i64_const(0)
+                            .binop(BinaryOp::I64LtS)
+                            .if_else(
+                                ValType::I64,
+                                |negative| {
+                                    negative
+                                        .local_get(len_i64)
+                                        .local_get(start)
+                                        .binop(BinaryOp::I64Add);
+                                },
+                                |non_negative| {
+                                    non_negative.local_get(start);
+                                },
+                            );
+                    },
+                    |else_| {
+                        else_.i64_const(0);
+                    },
+                )
+                .local_set(norm_start);
 
-            body.local_get(has_end).if_else(
-                ValType::I64,
-                |then_| {
-                    then_.local_get(end).i64_const(0).binop(BinaryOp::I64LtS).if_else(
-                        ValType::I64,
-                        |negative| {
-                            negative
-                                .local_get(len_i64)
-                                .local_get(end)
-                                .binop(BinaryOp::I64Add);
-                        },
-                        |non_negative| {
-                            non_negative.local_get(end);
-                        },
-                    );
-                },
-                |else_| {
-                    else_.local_get(len_i64);
-                },
-            )
-            .local_set(norm_end);
+            body.local_get(has_end)
+                .if_else(
+                    ValType::I64,
+                    |then_| {
+                        then_
+                            .local_get(end)
+                            .i64_const(0)
+                            .binop(BinaryOp::I64LtS)
+                            .if_else(
+                                ValType::I64,
+                                |negative| {
+                                    negative
+                                        .local_get(len_i64)
+                                        .local_get(end)
+                                        .binop(BinaryOp::I64Add);
+                                },
+                                |non_negative| {
+                                    non_negative.local_get(end);
+                                },
+                            );
+                    },
+                    |else_| {
+                        else_.local_get(len_i64);
+                    },
+                )
+                .local_set(norm_end);
 
             body.local_get(norm_start)
                 .i64_const(0)
@@ -2145,27 +2178,30 @@ impl<'db> ModuleCompiler<'db> {
             body.i64_const(0)
                 .local_get(slice_len)
                 .array_new(list_ty)
-                .local_set(result);
-            body.local_get(result)
+                .local_set(result)
+                .local_get(result)
                 .i32_const(0)
                 .local_get(value)
                 .local_get(norm_start)
                 .unop(WasmUnaryOp::I32WrapI64)
                 .local_get(slice_len)
-                .instr(ArrayCopy {
-                    dst_ty: list_ty,
-                    src_ty: list_ty,
-                });
+                .array_copy(list_ty, list_ty);
             body.local_get(result);
         }
 
-        builder.finish(vec![value, has_start, start, has_end, end], &mut self.module.funcs)
+        builder.finish(
+            vec![value, has_start, start, has_end, end],
+            &mut self.module.funcs,
+        )
     }
 
     fn build_list_int_get(&mut self, list_ty: TypeId) -> FunctionId {
         let list_ref = list_int_val_type(list_ty);
-        let mut builder =
-            FunctionBuilder::new(&mut self.module.types, &[list_ref, ValType::I64], &[ValType::I64]);
+        let mut builder = FunctionBuilder::new(
+            &mut self.module.types,
+            &[list_ref, ValType::I64],
+            &[ValType::I64],
+        );
         builder.name("__sp_list_int_get".to_owned());
 
         let value = self.module.locals.add(list_ref);
@@ -2178,8 +2214,8 @@ impl<'db> ModuleCompiler<'db> {
             body.local_get(value)
                 .array_len()
                 .unop(WasmUnaryOp::I64ExtendUI32)
-                .local_set(len);
-            body.local_get(index)
+                .local_set(len)
+                .local_get(index)
                 .i64_const(0)
                 .binop(BinaryOp::I64LtS)
                 .if_else(
@@ -2194,11 +2230,11 @@ impl<'db> ModuleCompiler<'db> {
                         else_.local_get(index);
                     },
                 )
-                .local_set(norm_index);
-            body.local_get(value)
+                .local_set(norm_index)
+                .local_get(value)
                 .local_get(norm_index)
                 .unop(WasmUnaryOp::I32WrapI64)
-                .instr(ArrayGet { ty: list_ty });
+                .array_get(list_ty);
         }
 
         builder.finish(vec![value, index], &mut self.module.funcs)
@@ -2224,8 +2260,8 @@ impl<'db> ModuleCompiler<'db> {
             body.local_get(value)
                 .array_len()
                 .unop(WasmUnaryOp::I64ExtendUI32)
-                .local_set(len);
-            body.local_get(index)
+                .local_set(len)
+                .local_get(index)
                 .i64_const(0)
                 .binop(BinaryOp::I64LtS)
                 .if_else(
@@ -2240,8 +2276,8 @@ impl<'db> ModuleCompiler<'db> {
                         else_.local_get(index);
                     },
                 )
-                .local_set(norm_index);
-            body.local_get(value)
+                .local_set(norm_index)
+                .local_get(value)
                 .local_get(norm_index)
                 .unop(WasmUnaryOp::I32WrapI64)
                 .local_get(item)
@@ -2302,35 +2338,31 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         stmt: &Stmt,
     ) -> Result<(), CompileError> {
         match stmt {
-            Stmt::Return(ret) => {
-                match self.result_kind {
-                    ResultKind::TopLevel => Err(CompileError::Unsupported(
-                        "return outside function is not supported".to_owned(),
-                    )),
-                    ResultKind::Void => {
-                        if ret.value.is_some() {
-                            return Err(CompileError::Unsupported(
-                                "void function cannot return a value".to_owned(),
-                            ));
-                        }
-                        builder.instr(Return {});
-                        Ok(())
+            Stmt::Return(ret) => match self.result_kind {
+                ResultKind::TopLevel => Err(CompileError::Unsupported(
+                    "return outside function is not supported".to_owned(),
+                )),
+                ResultKind::Void => {
+                    if ret.value.is_some() {
+                        return Err(CompileError::Unsupported(
+                            "void function cannot return a value".to_owned(),
+                        ));
                     }
-                    ResultKind::Value(result_type) => {
-                        let value = ret.value.as_deref().ok_or_else(|| {
-                            CompileError::Unsupported(
-                                "return without value is not supported".to_owned(),
-                            )
-                        })?;
-                        self.compile_expr_as(builder, value, result_type)?;
-                        builder.instr(Return {});
-                        Ok(())
-                    }
+                    builder.return_();
+                    Ok(())
                 }
-            }
-            Stmt::Assign(assign) => {
-                self.compile_assign_stmt(builder, assign)
-            }
+                ResultKind::Value(result_type) => {
+                    let value = ret.value.as_deref().ok_or_else(|| {
+                        CompileError::Unsupported(
+                            "return without value is not supported".to_owned(),
+                        )
+                    })?;
+                    self.compile_expr_as(builder, value, result_type)?;
+                    builder.return_();
+                    Ok(())
+                }
+            },
+            Stmt::Assign(assign) => self.compile_assign_stmt(builder, assign),
             Stmt::AnnAssign(assign) => {
                 let name = name_target(&assign.target)?;
                 let binding = self.binding(&name)?;
@@ -2421,7 +2453,11 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
 
         let ty = self.compile_expr(builder, expr)?;
         match ty {
-            ValueType::Int | ValueType::Float | ValueType::Bool | ValueType::Str | ValueType::ListInt => {
+            ValueType::Int
+            | ValueType::Float
+            | ValueType::Bool
+            | ValueType::Str
+            | ValueType::ListInt => {
                 builder.drop();
             }
         }
@@ -2477,7 +2513,7 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
             builder,
             None,
             |_this, then_| {
-                then_.i32_const(failure_code).instr(Return {});
+                then_.i32_const(failure_code).return_();
                 Ok(())
             },
             |_this, _else_| Ok(()),
@@ -2687,7 +2723,9 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         compare: &ruff_python_ast::ExprCompare,
     ) -> Result<(), CompileError> {
         if compare.ops.len() != compare.comparators.len() || compare.ops.is_empty() {
-            return Err(CompileError::Unsupported("invalid comparison expression".to_owned()));
+            return Err(CompileError::Unsupported(
+                "invalid comparison expression".to_owned(),
+            ));
         }
 
         let mut compare_tys = Vec::with_capacity(compare.ops.len());
@@ -2736,19 +2774,22 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                 builder.call(self.string_runtime.str_eq);
             }
             CmpOp::NotEq if compare_ty == ValueType::Str => {
-                builder.call(self.string_runtime.str_eq);
-                builder.unop(WasmUnaryOp::I32Eqz);
+                builder
+                    .call(self.string_runtime.str_eq)
+                    .unop(WasmUnaryOp::I32Eqz);
             }
             CmpOp::Eq if compare_ty == ValueType::ListInt => {
                 builder.call(self.list_runtime.list_int_eq);
             }
             CmpOp::NotEq if compare_ty == ValueType::ListInt => {
-                builder.call(self.list_runtime.list_int_eq);
-                builder.unop(WasmUnaryOp::I32Eqz);
+                builder
+                    .call(self.list_runtime.list_int_eq)
+                    .unop(WasmUnaryOp::I32Eqz);
             }
             CmpOp::NotEq => {
-                builder.binop(self.compare_op(CmpOp::Eq, compare_ty)?);
-                builder.unop(WasmUnaryOp::I32Eqz);
+                builder
+                    .binop(self.compare_op(CmpOp::Eq, compare_ty)?)
+                    .unop(WasmUnaryOp::I32Eqz);
             }
             _ if compare_ty == ValueType::ListInt => {
                 return Err(CompileError::Unsupported(
@@ -2767,16 +2808,168 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         builder: &mut InstrSeqBuilder,
         call: &ruff_python_ast::ExprCall,
     ) -> Result<(), CompileError> {
+        let lowered = self.lower_call(call)?;
+        self.emit_call(builder, lowered)
+    }
+
+    fn lower_call<'b>(
+        &self,
+        call: &'b ruff_python_ast::ExprCall,
+    ) -> Result<LoweredCall<'b>, CompileError> {
         match &*call.func {
             Expr::Name(name) => {
                 let callee = name.id.as_str();
-                if self.signatures.contains_key(callee) {
-                    self.compile_user_function_call(builder, callee, call)
-                } else {
-                    self.compile_builtin_call(builder, callee, call)
+                if let Some(signature) = self.signatures.get(callee) {
+                    if call.arguments.args.len() != signature.params.len()
+                        || !call.arguments.keywords.is_empty()
+                    {
+                        return Err(CompileError::Unsupported(format!(
+                            "unsupported call shape for `{callee}`"
+                        )));
+                    }
+                    let func_id = *self.built_functions.get(callee).ok_or_else(|| {
+                        CompileError::Unsupported(format!(
+                            "calls to not-yet-built function `{callee}` are not supported"
+                        ))
+                    })?;
+                    let param_types = signature.params.iter().map(|(_, ty)| *ty).collect();
+                    return Ok(LoweredCall::User {
+                        func_id,
+                        param_types,
+                        args: &call.arguments.args,
+                    });
+                }
+
+                if !call.arguments.keywords.is_empty() {
+                    return Err(CompileError::Unsupported(format!(
+                        "keyword arguments are not supported in `{callee}`"
+                    )));
+                }
+
+                match callee {
+                    "abs" => {
+                        let [arg] = &*call.arguments.args else {
+                            return Err(CompileError::Unsupported(
+                                "`abs` expects exactly one argument".to_owned(),
+                            ));
+                        };
+                        Ok(LoweredCall::Abs {
+                            arg,
+                            ty: self.expr_type(arg)?,
+                        })
+                    }
+                    "len" => {
+                        let [arg] = &*call.arguments.args else {
+                            return Err(CompileError::Unsupported(
+                                "`len` expects exactly one argument".to_owned(),
+                            ));
+                        };
+                        Ok(LoweredCall::Len {
+                            arg,
+                            ty: self.expr_type(arg)?,
+                        })
+                    }
+                    "min" | "max" => {
+                        let [lhs, rhs] = &*call.arguments.args else {
+                            return Err(CompileError::Unsupported(
+                                "`min`/`max` expect exactly two arguments".to_owned(),
+                            ));
+                        };
+                        let lhs_ty = self.expr_type(lhs)?;
+                        let rhs_ty = self.expr_type(rhs)?;
+                        if lhs_ty != rhs_ty {
+                            return Err(CompileError::Unsupported(
+                                "`min`/`max` with mixed numeric types are not supported yet"
+                                    .to_owned(),
+                            ));
+                        }
+                        Ok(LoweredCall::MinMax {
+                            lhs,
+                            rhs,
+                            ty: lhs_ty,
+                            is_max: callee == "max",
+                        })
+                    }
+                    "round" => match &*call.arguments.args {
+                        [value] => Ok(LoweredCall::Round {
+                            value,
+                            digits: None,
+                            value_ty: self.expr_type(value)?,
+                        }),
+                        [value, digits] => {
+                            if self.expr_type(value)? != ValueType::Float
+                                || self.expr_type(digits)? != ValueType::Int
+                            {
+                                return Err(CompileError::Unsupported(
+                                    "`round(x, n)` currently expects `(float, int)`".to_owned(),
+                                ));
+                            }
+                            Ok(LoweredCall::Round {
+                                value,
+                                digits: Some(digits),
+                                value_ty: ValueType::Float,
+                            })
+                        }
+                        _ => Err(CompileError::Unsupported(
+                            "`round` expects one or two positional arguments".to_owned(),
+                        )),
+                    },
+                    "str" => {
+                        let [value] = &*call.arguments.args else {
+                            return Err(CompileError::Unsupported(
+                                "`str` expects exactly one argument".to_owned(),
+                            ));
+                        };
+                        Ok(LoweredCall::Str {
+                            value,
+                            value_ty: self.expr_type(value)?,
+                        })
+                    }
+                    other => Err(CompileError::Unsupported(format!(
+                        "unsupported builtin `{other}`"
+                    ))),
                 }
             }
-            Expr::Attribute(attr) => self.compile_attribute_call(builder, attr, call),
+            Expr::Attribute(attr) => {
+                if let Expr::Name(module_name) = &*attr.value
+                    && module_name.id.as_str() == "math"
+                    && attr.attr.as_str() == "ceil"
+                {
+                    let [arg] = &*call.arguments.args else {
+                        return Err(CompileError::Unsupported(
+                            "`math.ceil` expects exactly one argument".to_owned(),
+                        ));
+                    };
+                    if !call.arguments.keywords.is_empty() {
+                        return Err(CompileError::Unsupported(
+                            "keyword arguments are not supported in `math.ceil`".to_owned(),
+                        ));
+                    }
+                    return Ok(LoweredCall::MathCeil { arg });
+                }
+
+                if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+                    return Err(CompileError::Unsupported(format!(
+                        "unsupported attribute call `{:?}.{}(...)`",
+                        attr.value, attr.attr
+                    )));
+                }
+
+                match (self.expr_type(&attr.value)?, attr.attr.as_str()) {
+                    (ValueType::Str, "upper") => Ok(LoweredCall::StringMethod {
+                        value: &attr.value,
+                        method: LoweredStringMethod::Upper,
+                    }),
+                    (ValueType::Str, "lower") => Ok(LoweredCall::StringMethod {
+                        value: &attr.value,
+                        method: LoweredStringMethod::Lower,
+                    }),
+                    _ => Err(CompileError::Unsupported(format!(
+                        "unsupported attribute call `{:?}.{}()`",
+                        attr.value, attr.attr
+                    ))),
+                }
+            }
             other => Err(CompileError::Unsupported(format!(
                 "unsupported callee expression: {:?}",
                 other
@@ -2784,305 +2977,154 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         }
     }
 
-    fn compile_user_function_call(
+    fn emit_call(
         &mut self,
         builder: &mut InstrSeqBuilder,
-        callee: &str,
-        call: &ruff_python_ast::ExprCall,
+        call: LoweredCall<'_>,
     ) -> Result<(), CompileError> {
-        let signature = self.signatures.get(callee).ok_or_else(|| {
-            CompileError::Unsupported(format!("unknown function `{callee}`"))
-        })?;
-        if call.arguments.args.len() != signature.params.len() || !call.arguments.keywords.is_empty()
-        {
-            return Err(CompileError::Unsupported(format!(
-                "unsupported call shape for `{callee}`"
-            )));
-        }
-        let func_id = *self.built_functions.get(callee).ok_or_else(|| {
-            CompileError::Unsupported(format!(
-                "calls to not-yet-built function `{callee}` are not supported"
-            ))
-        })?;
-        let params = signature.params.clone();
-        for (arg, (_, param_ty)) in call.arguments.args.iter().zip(&params) {
-            self.compile_expr_as(builder, arg, *param_ty)?;
-        }
-        builder.call(func_id);
-        Ok(())
-    }
-
-    fn compile_builtin_call(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        callee: &str,
-        call: &ruff_python_ast::ExprCall,
-    ) -> Result<(), CompileError> {
-        if !call.arguments.keywords.is_empty() {
-            return Err(CompileError::Unsupported(format!(
-                "keyword arguments are not supported in `{callee}`"
-            )));
-        }
-
-        match callee {
-            "abs" => self.compile_builtin_abs(builder, call),
-            "len" => self.compile_builtin_len(builder, call),
-            "min" => self.compile_builtin_min_max(builder, call, false),
-            "max" => self.compile_builtin_min_max(builder, call, true),
-            "round" => self.compile_builtin_round(builder, call),
-            "str" => self.compile_builtin_str(builder, call),
-            other => Err(CompileError::Unsupported(format!(
-                "unsupported builtin `{other}`"
-            ))),
-        }
-    }
-
-    fn compile_builtin_abs(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        call: &ruff_python_ast::ExprCall,
-    ) -> Result<(), CompileError> {
-        let [arg] = &*call.arguments.args else {
-            return Err(CompileError::Unsupported(
-                "`abs` expects exactly one argument".to_owned(),
-            ));
-        };
-        match self.expr_type(arg)? {
-            ValueType::Int => {
-                self.compile_expr_as(builder, arg, ValueType::Int)?;
-                builder.call(self.runtime.abs_i64);
-            }
-            ValueType::Float => {
-                self.compile_expr_as(builder, arg, ValueType::Float)?;
-                builder.unop(WasmUnaryOp::F64Abs);
-            }
-            ValueType::Bool => {
-                return Err(CompileError::Unsupported(
-                    "`abs` on bool is not supported".to_owned(),
-                ));
-            }
-            ValueType::Str => {
-                return Err(CompileError::Unsupported(
-                    "`abs` on str is not supported".to_owned(),
-                ));
-            }
-            ValueType::ListInt => {
-                return Err(CompileError::Unsupported(
-                    "`abs` on list[int] is not supported".to_owned(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn compile_builtin_len(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        call: &ruff_python_ast::ExprCall,
-    ) -> Result<(), CompileError> {
-        let [arg] = &*call.arguments.args else {
-            return Err(CompileError::Unsupported(
-                "`len` expects exactly one argument".to_owned(),
-            ));
-        };
-        match self.expr_type(arg)? {
-            ValueType::Str => {
-                self.compile_expr_as(builder, arg, ValueType::Str)?;
-                builder.call(self.string_runtime.str_len);
+        match call {
+            LoweredCall::User {
+                func_id,
+                param_types,
+                args,
+            } => {
+                for (arg, param_ty) in args.iter().zip(param_types) {
+                    self.compile_expr_as(builder, arg, param_ty)?;
+                }
+                builder.call(func_id);
                 Ok(())
             }
-            ValueType::ListInt => {
-                self.compile_expr_as(builder, arg, ValueType::ListInt)?;
-                builder.array_len().unop(WasmUnaryOp::I64ExtendUI32);
-                Ok(())
-            }
-            other => Err(CompileError::Unsupported(format!(
-                "`len` is not supported for {:?}",
-                other
-            ))),
-        }
-    }
-
-    fn compile_builtin_min_max(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        call: &ruff_python_ast::ExprCall,
-        is_max: bool,
-    ) -> Result<(), CompileError> {
-        let [lhs, rhs] = &*call.arguments.args else {
-            return Err(CompileError::Unsupported(
-                "`min`/`max` expect exactly two arguments".to_owned(),
-            ));
-        };
-
-        let lhs_ty = self.expr_type(lhs)?;
-        let rhs_ty = self.expr_type(rhs)?;
-        if lhs_ty != rhs_ty {
-            return Err(CompileError::Unsupported(
-                "`min`/`max` with mixed numeric types are not supported yet".to_owned(),
-            ));
-        }
-
-        match lhs_ty {
-            ValueType::Int => {
-                self.compile_expr_as(builder, lhs, ValueType::Int)?;
-                self.compile_expr_as(builder, rhs, ValueType::Int)?;
-                builder.call(if is_max {
-                    self.runtime.max_i64
-                } else {
-                    self.runtime.min_i64
-                });
-            }
-            ValueType::Float => {
-                self.compile_expr_as(builder, lhs, ValueType::Float)?;
-                self.compile_expr_as(builder, rhs, ValueType::Float)?;
-                builder.call(if is_max {
-                    self.runtime.max_f64
-                } else {
-                    self.runtime.min_f64
-                });
-            }
-            ValueType::Bool => {
-                return Err(CompileError::Unsupported(
-                    "`min`/`max` on bool are not supported".to_owned(),
-                ));
-            }
-            ValueType::Str => {
-                return Err(CompileError::Unsupported(
-                    "`min`/`max` on str are not supported".to_owned(),
-                ));
-            }
-            ValueType::ListInt => {
-                return Err(CompileError::Unsupported(
-                    "`min`/`max` on list[int] are not supported".to_owned(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn compile_builtin_round(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        call: &ruff_python_ast::ExprCall,
-    ) -> Result<(), CompileError> {
-        match &*call.arguments.args {
-            [value] => match self.expr_type(value)? {
+            LoweredCall::Abs { arg, ty } => match ty {
                 ValueType::Int => {
-                    self.compile_expr_as(builder, value, ValueType::Int)?;
+                    self.compile_expr_as(builder, arg, ValueType::Int)?;
+                    builder.call(self.runtime.abs_i64);
+                    Ok(())
                 }
                 ValueType::Float => {
-                    self.compile_expr_as(builder, value, ValueType::Float)?;
-                    builder.call(self.runtime.round_f64_to_i64);
+                    self.compile_expr_as(builder, arg, ValueType::Float)?;
+                    builder.unop(WasmUnaryOp::F64Abs);
+                    Ok(())
                 }
-                ValueType::Bool => {
-                    return Err(CompileError::Unsupported(
-                        "`round` on bool is not supported".to_owned(),
-                    ));
-                }
+                ValueType::Bool => Err(CompileError::Unsupported(
+                    "`abs` on bool is not supported".to_owned(),
+                )),
+                ValueType::Str => Err(CompileError::Unsupported(
+                    "`abs` on str is not supported".to_owned(),
+                )),
+                ValueType::ListInt => Err(CompileError::Unsupported(
+                    "`abs` on list[int] is not supported".to_owned(),
+                )),
+            },
+            LoweredCall::Len { arg, ty } => match ty {
                 ValueType::Str => {
-                    return Err(CompileError::Unsupported(
-                        "`round` on str is not supported".to_owned(),
-                    ));
+                    self.compile_expr_as(builder, arg, ValueType::Str)?;
+                    builder.call(self.string_runtime.str_len);
+                    Ok(())
                 }
                 ValueType::ListInt => {
-                    return Err(CompileError::Unsupported(
-                        "`round` on list[int] is not supported".to_owned(),
-                    ));
+                    self.compile_expr_as(builder, arg, ValueType::ListInt)?;
+                    builder.array_len().unop(WasmUnaryOp::I64ExtendUI32);
+                    Ok(())
                 }
+                other => Err(CompileError::Unsupported(format!(
+                    "`len` is not supported for {:?}",
+                    other
+                ))),
             },
-            [value, digits] => {
-                if self.expr_type(value)? != ValueType::Float || self.expr_type(digits)? != ValueType::Int
-                {
-                    return Err(CompileError::Unsupported(
-                        "`round(x, n)` currently expects `(float, int)`".to_owned(),
-                    ));
+            LoweredCall::MinMax {
+                lhs,
+                rhs,
+                ty,
+                is_max,
+            } => match ty {
+                ValueType::Int => {
+                    self.compile_expr_as(builder, lhs, ValueType::Int)?;
+                    self.compile_expr_as(builder, rhs, ValueType::Int)?;
+                    builder.call(if is_max {
+                        self.runtime.max_i64
+                    } else {
+                        self.runtime.min_i64
+                    });
+                    Ok(())
                 }
-                self.compile_expr_as(builder, value, ValueType::Float)?;
-                self.compile_expr_as(builder, digits, ValueType::Int)?;
-                builder.call(self.runtime.round_f64_digits);
-            }
-            _ => {
-                return Err(CompileError::Unsupported(
-                    "`round` expects one or two positional arguments".to_owned(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn compile_builtin_str(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        call: &ruff_python_ast::ExprCall,
-    ) -> Result<(), CompileError> {
-        let [value] = &*call.arguments.args else {
-            return Err(CompileError::Unsupported(
-                "`str` expects exactly one argument".to_owned(),
-            ));
-        };
-        match self.expr_type(value)? {
-            ValueType::Int => {
-                self.compile_expr_as(builder, value, ValueType::Int)?;
-                builder.call(self.string_runtime.int_to_str);
+                ValueType::Float => {
+                    self.compile_expr_as(builder, lhs, ValueType::Float)?;
+                    self.compile_expr_as(builder, rhs, ValueType::Float)?;
+                    builder.call(if is_max {
+                        self.runtime.max_f64
+                    } else {
+                        self.runtime.min_f64
+                    });
+                    Ok(())
+                }
+                ValueType::Bool => Err(CompileError::Unsupported(
+                    "`min`/`max` on bool are not supported".to_owned(),
+                )),
+                ValueType::Str => Err(CompileError::Unsupported(
+                    "`min`/`max` on str are not supported".to_owned(),
+                )),
+                ValueType::ListInt => Err(CompileError::Unsupported(
+                    "`min`/`max` on list[int] are not supported".to_owned(),
+                )),
+            },
+            LoweredCall::Round {
+                value,
+                digits,
+                value_ty,
+            } => match (digits, value_ty) {
+                (None, ValueType::Int) => {
+                    self.compile_expr_as(builder, value, ValueType::Int)?;
+                    Ok(())
+                }
+                (None, ValueType::Float) => {
+                    self.compile_expr_as(builder, value, ValueType::Float)?;
+                    builder.call(self.runtime.round_f64_to_i64);
+                    Ok(())
+                }
+                (None, ValueType::Bool) => Err(CompileError::Unsupported(
+                    "`round` on bool is not supported".to_owned(),
+                )),
+                (None, ValueType::Str) => Err(CompileError::Unsupported(
+                    "`round` on str is not supported".to_owned(),
+                )),
+                (None, ValueType::ListInt) => Err(CompileError::Unsupported(
+                    "`round` on list[int] is not supported".to_owned(),
+                )),
+                (Some(digits), ValueType::Float) => {
+                    self.compile_expr_as(builder, value, ValueType::Float)?;
+                    self.compile_expr_as(builder, digits, ValueType::Int)?;
+                    builder.call(self.runtime.round_f64_digits);
+                    Ok(())
+                }
+                _ => Err(CompileError::Unsupported(
+                    "`round(x, n)` currently expects `(float, int)`".to_owned(),
+                )),
+            },
+            LoweredCall::Str { value, value_ty } => match value_ty {
+                ValueType::Int => {
+                    self.compile_expr_as(builder, value, ValueType::Int)?;
+                    builder.call(self.string_runtime.int_to_str);
+                    Ok(())
+                }
+                ValueType::Str => self.compile_expr_as(builder, value, ValueType::Str),
+                other => Err(CompileError::Unsupported(format!(
+                    "`str` is not supported for {:?}",
+                    other
+                ))),
+            },
+            LoweredCall::MathCeil { arg } => {
+                self.compile_expr_as(builder, arg, ValueType::Float)?;
+                builder.call(self.runtime.ceil_f64_to_i64);
                 Ok(())
             }
-            ValueType::Str => self.compile_expr_as(builder, value, ValueType::Str),
-            other => Err(CompileError::Unsupported(format!(
-                "`str` is not supported for {:?}",
-                other
-            ))),
-        }
-    }
-
-    fn compile_attribute_call(
-        &mut self,
-        builder: &mut InstrSeqBuilder,
-        attr: &ruff_python_ast::ExprAttribute,
-        call: &ruff_python_ast::ExprCall,
-    ) -> Result<(), CompileError> {
-        if let Expr::Name(module_name) = &*attr.value
-            && module_name.id.as_str() == "math"
-            && attr.attr.as_str() == "ceil"
-        {
-            let [arg] = &*call.arguments.args else {
-                return Err(CompileError::Unsupported(
-                    "`math.ceil` expects exactly one argument".to_owned(),
-                ));
-            };
-            if !call.arguments.keywords.is_empty() {
-                return Err(CompileError::Unsupported(
-                    "keyword arguments are not supported in `math.ceil`".to_owned(),
-                ));
-            }
-            self.compile_expr_as(builder, arg, ValueType::Float)?;
-            builder.call(self.runtime.ceil_f64_to_i64);
-            return Ok(());
-        }
-
-        if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
-            return Err(CompileError::Unsupported(format!(
-                "unsupported attribute call `{:?}.{}(...)`",
-                attr.value, attr.attr
-            )));
-        }
-
-        let receiver_ty = self.expr_type(&attr.value)?;
-        match (receiver_ty, attr.attr.as_str()) {
-            (ValueType::Str, "upper") => {
-                self.compile_expr_as(builder, &attr.value, ValueType::Str)?;
-                builder.call(self.string_runtime.str_upper);
+            LoweredCall::StringMethod { value, method } => {
+                self.compile_expr_as(builder, value, ValueType::Str)?;
+                builder.call(match method {
+                    LoweredStringMethod::Upper => self.string_runtime.str_upper,
+                    LoweredStringMethod::Lower => self.string_runtime.str_lower,
+                });
                 Ok(())
             }
-            (ValueType::Str, "lower") => {
-                self.compile_expr_as(builder, &attr.value, ValueType::Str)?;
-                builder.call(self.string_runtime.str_lower);
-                Ok(())
-            }
-            _ => Err(CompileError::Unsupported(format!(
-                "unsupported attribute call `{:?}.{}()`",
-                attr.value, attr.attr
-            ))),
         }
     }
 
@@ -3145,10 +3187,7 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         builder
             .i32_const(0)
             .i32_const(literal.len as i32)
-            .instr(ArrayNewData {
-                ty: self.string_runtime.str_ty,
-                data: literal.data,
-            });
+            .array_new_data(self.string_runtime.str_ty, literal.data);
         Ok(())
     }
 
@@ -3202,72 +3241,114 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         builder: &mut InstrSeqBuilder,
         subscript: &ruff_python_ast::ExprSubscript,
     ) -> Result<(), CompileError> {
-        match self.expr_type(&subscript.value)? {
-            ValueType::Str => match &*subscript.slice {
-                Expr::Slice(slice) => {
-                    if slice.step.is_some() {
-                        return Err(CompileError::Unsupported(
-                            "slice steps are not supported".to_owned(),
-                        ));
-                    }
-                    self.compile_expr_as(builder, &subscript.value, ValueType::Str)?;
-                    if let Some(lower) = slice.lower.as_deref() {
-                        builder.i32_const(1);
-                        self.compile_expr_as(builder, lower, ValueType::Int)?;
-                    } else {
-                        builder.i32_const(0).i64_const(0);
-                    }
-                    if let Some(upper) = slice.upper.as_deref() {
-                        builder.i32_const(1);
-                        self.compile_expr_as(builder, upper, ValueType::Int)?;
-                    } else {
-                        builder.i32_const(0).i64_const(0);
-                    }
-                    builder.call(self.string_runtime.str_slice);
-                    Ok(())
+        let lowered = self.lower_subscript(subscript)?;
+        self.emit_subscript(builder, lowered)
+    }
+
+    fn lower_subscript<'b>(
+        &self,
+        subscript: &'b ruff_python_ast::ExprSubscript,
+    ) -> Result<LoweredSubscript<'b>, CompileError> {
+        match (self.expr_type(&subscript.value)?, &*subscript.slice) {
+            (ValueType::Str, Expr::Slice(slice)) => {
+                if slice.step.is_some() {
+                    return Err(CompileError::Unsupported(
+                        "slice steps are not supported".to_owned(),
+                    ));
                 }
-                index => {
-                    self.compile_expr_as(builder, &subscript.value, ValueType::Str)?;
-                    self.compile_expr_as(builder, index, ValueType::Int)?;
-                    builder.call(self.string_runtime.str_char_at);
-                    Ok(())
+                Ok(LoweredSubscript::StrSlice {
+                    value: &subscript.value,
+                    lower: slice.lower.as_deref(),
+                    upper: slice.upper.as_deref(),
+                })
+            }
+            (ValueType::Str, index) => Ok(LoweredSubscript::StrIndex {
+                value: &subscript.value,
+                index,
+            }),
+            (ValueType::ListInt, Expr::Slice(slice)) => {
+                if slice.step.is_some() {
+                    return Err(CompileError::Unsupported(
+                        "slice steps are not supported".to_owned(),
+                    ));
                 }
-            },
-            ValueType::ListInt => match &*subscript.slice {
-                Expr::Slice(slice) => {
-                    if slice.step.is_some() {
-                        return Err(CompileError::Unsupported(
-                            "slice steps are not supported".to_owned(),
-                        ));
-                    }
-                    self.compile_expr_as(builder, &subscript.value, ValueType::ListInt)?;
-                    if let Some(lower) = slice.lower.as_deref() {
-                        builder.i32_const(1);
-                        self.compile_expr_as(builder, lower, ValueType::Int)?;
-                    } else {
-                        builder.i32_const(0).i64_const(0);
-                    }
-                    if let Some(upper) = slice.upper.as_deref() {
-                        builder.i32_const(1);
-                        self.compile_expr_as(builder, upper, ValueType::Int)?;
-                    } else {
-                        builder.i32_const(0).i64_const(0);
-                    }
-                    builder.call(self.list_runtime.list_int_slice);
-                    Ok(())
-                }
-                index => {
-                    self.compile_expr_as(builder, &subscript.value, ValueType::ListInt)?;
-                    self.compile_expr_as(builder, index, ValueType::Int)?;
-                    builder.call(self.list_runtime.list_int_get);
-                    Ok(())
-                }
-            },
-            other => Err(CompileError::Unsupported(format!(
+                Ok(LoweredSubscript::ListIntSlice {
+                    value: &subscript.value,
+                    lower: slice.lower.as_deref(),
+                    upper: slice.upper.as_deref(),
+                })
+            }
+            (ValueType::ListInt, index) => Ok(LoweredSubscript::ListIntIndex {
+                value: &subscript.value,
+                index,
+            }),
+            (other, _) => Err(CompileError::Unsupported(format!(
                 "unsupported subscript base type {:?}",
                 other
             ))),
         }
+    }
+
+    fn emit_subscript(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        subscript: LoweredSubscript<'_>,
+    ) -> Result<(), CompileError> {
+        match subscript {
+            LoweredSubscript::StrIndex { value, index } => {
+                self.compile_expr_as(builder, value, ValueType::Str)?;
+                self.compile_expr_as(builder, index, ValueType::Int)?;
+                builder.call(self.string_runtime.str_char_at);
+                Ok(())
+            }
+            LoweredSubscript::StrSlice {
+                value,
+                lower,
+                upper,
+            } => {
+                self.compile_expr_as(builder, value, ValueType::Str)?;
+                self.emit_slice_bounds(builder, lower, upper)?;
+                builder.call(self.string_runtime.str_slice);
+                Ok(())
+            }
+            LoweredSubscript::ListIntIndex { value, index } => {
+                self.compile_expr_as(builder, value, ValueType::ListInt)?;
+                self.compile_expr_as(builder, index, ValueType::Int)?;
+                builder.call(self.list_runtime.list_int_get);
+                Ok(())
+            }
+            LoweredSubscript::ListIntSlice {
+                value,
+                lower,
+                upper,
+            } => {
+                self.compile_expr_as(builder, value, ValueType::ListInt)?;
+                self.emit_slice_bounds(builder, lower, upper)?;
+                builder.call(self.list_runtime.list_int_slice);
+                Ok(())
+            }
+        }
+    }
+
+    fn emit_slice_bounds(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        lower: Option<&Expr>,
+        upper: Option<&Expr>,
+    ) -> Result<(), CompileError> {
+        if let Some(lower) = lower {
+            builder.i32_const(1);
+            self.compile_expr_as(builder, lower, ValueType::Int)?;
+        } else {
+            builder.i32_const(0).i64_const(0);
+        }
+        if let Some(upper) = upper {
+            builder.i32_const(1);
+            self.compile_expr_as(builder, upper, ValueType::Int)?;
+        } else {
+            builder.i32_const(0).i64_const(0);
+        }
+        Ok(())
     }
 
     fn emit_if_else(
@@ -3277,21 +3358,31 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         consequent: impl FnOnce(&mut Self, &mut InstrSeqBuilder) -> Result<(), CompileError>,
         alternative: impl FnOnce(&mut Self, &mut InstrSeqBuilder) -> Result<(), CompileError>,
     ) -> Result<(), CompileError> {
-        let consequent = {
-            let mut seq = builder.dangling_instr_seq(result);
-            consequent(self, &mut seq)?;
-            seq.id()
-        };
-        let alternative = {
-            let mut seq = builder.dangling_instr_seq(result);
-            alternative(self, &mut seq)?;
-            seq.id()
-        };
-        builder.instr(IfElse {
-            consequent,
-            alternative,
-        });
-        Ok(())
+        let this = self as *mut Self;
+        let error = RefCell::new(None);
+
+        builder.if_else(
+            result,
+            |then_| {
+                if let Err(err) = unsafe { consequent(&mut *this, then_) } {
+                    *error.borrow_mut() = Some(err);
+                }
+            },
+            |else_| {
+                if error.borrow().is_some() {
+                    return;
+                }
+                if let Err(err) = unsafe { alternative(&mut *this, else_) } {
+                    *error.borrow_mut() = Some(err);
+                }
+            },
+        );
+
+        if let Some(err) = error.into_inner() {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     fn binding(&self, name: &str) -> Result<Binding, CompileError> {
@@ -3301,7 +3392,9 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         if let Some(binding) = self.globals.get(name) {
             return Ok(Binding::Global(*binding));
         }
-        Err(CompileError::Unsupported(format!("unknown binding `{name}`")))
+        Err(CompileError::Unsupported(format!(
+            "unknown binding `{name}`"
+        )))
     }
 
     fn load_binding(&self, builder: &mut InstrSeqBuilder, binding: Binding) {
@@ -3310,7 +3403,7 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                 builder.local_get(binding.id);
             }
             Binding::Global(binding) => {
-                builder.instr(GlobalGet { global: binding.id });
+                builder.global_get(binding.id);
             }
         }
     }
@@ -3321,7 +3414,7 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                 builder.local_set(binding.id);
             }
             Binding::Global(binding) => {
-                builder.instr(GlobalSet { global: binding.id });
+                builder.global_set(binding.id);
             }
         }
     }
@@ -3436,7 +3529,10 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         }
     }
 
-    fn fallback_call_type(&self, call: &ruff_python_ast::ExprCall) -> Result<ValueType, CompileError> {
+    fn fallback_call_type(
+        &self,
+        call: &ruff_python_ast::ExprCall,
+    ) -> Result<ValueType, CompileError> {
         match &*call.func {
             Expr::Name(name) => {
                 if let Some(signature) = self.signatures.get(name.id.as_str()) {
