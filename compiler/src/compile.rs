@@ -15,8 +15,9 @@ use walrus::ir::{
     Loop, Return, UnaryOp as WasmUnaryOp, Value as WasmValue,
 };
 use walrus::{
-    ConstExpr, DataId, DataKind, FieldType, FunctionBuilder, FunctionId, GlobalId, HeapType,
-    InstrSeqBuilder, LocalId, Module, RefType, StorageType, TypeId, ValType,
+    ConstExpr, DataId, DataKind, FieldType, FunctionBuilder, FunctionId, FunctionKind, GlobalId,
+    HeapType, InstrSeqBuilder, LocalFunction, LocalId, Module, RefType, StorageType, TypeId,
+    ValType,
 };
 
 const PROJECT_ROOT: &str = "/";
@@ -218,19 +219,59 @@ impl<'db> ModuleCompiler<'db> {
         self.collect_signatures(suite)?;
         self.prepare_string_support(suite)?;
         self.collect_globals(suite)?;
+        self.declare_functions(suite)?;
         self.runtime = Some(self.build_runtime_helpers());
 
         for stmt in suite {
             if let Stmt::FunctionDef(function) = stmt {
-                let func_id = self.compile_function(function)?;
-                self.built_functions
-                    .insert(function.name.as_str().to_owned(), func_id);
+                self.compile_function(function)?;
             }
         }
 
         let run = self.compile_run(suite)?;
         self.module.exports.add("run", run);
         Ok(self.module.emit_wasm())
+    }
+
+    fn declare_functions(&mut self, suite: &[Stmt]) -> Result<(), CompileError> {
+        for stmt in suite {
+            if let Stmt::FunctionDef(function) = stmt {
+                let signature = self
+                    .signatures
+                    .get(function.name.as_str())
+                    .cloned()
+                    .ok_or_else(|| {
+                        CompileError::Unsupported(format!(
+                            "missing collected signature for `{}`",
+                            function.name
+                        ))
+                    })?;
+                let func_id = self.build_placeholder_function(&signature);
+                self.built_functions
+                    .insert(function.name.as_str().to_owned(), func_id);
+            }
+        }
+        Ok(())
+    }
+
+    fn build_placeholder_function(&mut self, signature: &FunctionSignature) -> FunctionId {
+        let param_types: Vec<ValType> = signature
+            .params
+            .iter()
+            .map(|(_, ty)| self.wasm_type(*ty))
+            .collect();
+        let result_types = [self.wasm_type(signature.result)];
+        let mut builder = FunctionBuilder::new(&mut self.module.types, &param_types, &result_types);
+        builder.name(signature.name.clone());
+
+        let mut params = Vec::with_capacity(signature.params.len());
+        for (_, ty) in &signature.params {
+            params.push(self.module.locals.add(self.wasm_type(*ty)));
+        }
+
+        builder.func_body().unreachable();
+        let placeholder = builder.local_func(params);
+        self.module.funcs.add_local(placeholder)
     }
 
     fn runtime(&self) -> RuntimeHelpers {
@@ -406,7 +447,7 @@ impl<'db> ModuleCompiler<'db> {
     fn compile_function(
         &mut self,
         function: &ruff_python_ast::StmtFunctionDef,
-    ) -> Result<FunctionId, CompileError> {
+    ) -> Result<(), CompileError> {
         let signature = self
             .signatures
             .get(function.name.as_str())
@@ -414,6 +455,15 @@ impl<'db> ModuleCompiler<'db> {
             .ok_or_else(|| {
                 CompileError::Unsupported(format!(
                     "missing collected signature for `{}`",
+                        function.name
+                    ))
+            })?;
+        let func_id = *self
+            .built_functions
+            .get(function.name.as_str())
+            .ok_or_else(|| {
+                CompileError::Unsupported(format!(
+                    "missing declared function id for `{}`",
                     function.name
                 ))
             })?;
@@ -459,7 +509,11 @@ impl<'db> ModuleCompiler<'db> {
             codegen.compile_stmts(&mut body, &function.body)?;
         }
 
-        Ok(builder.finish(params, &mut self.module.funcs))
+        let local_func: LocalFunction = builder.local_func(params);
+        let compiled = self.module.funcs.get_mut(func_id);
+        compiled.kind = FunctionKind::Local(local_func);
+        compiled.name = Some(signature.name.clone());
+        Ok(())
     }
 
     fn compile_run(&mut self, suite: &[Stmt]) -> Result<FunctionId, CompileError> {
@@ -3020,6 +3074,18 @@ fn is_float_literal(expr: &Expr, expected: f64) -> bool {
 }
 
 fn simplify_type_display(s: &str) -> String {
+    if s.contains('&') {
+        let parts: Vec<&str> = s.split('&').map(str::trim).collect();
+        for scalar in ["int", "float", "bool", "str"] {
+            if parts.contains(&scalar)
+                && parts
+                    .iter()
+                    .all(|part| *part == scalar || part.starts_with("~Literal["))
+            {
+                return scalar.to_owned();
+            }
+        }
+    }
     if s == "LiteralString" {
         return "str".to_owned();
     }
