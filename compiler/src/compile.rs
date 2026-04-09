@@ -11,8 +11,8 @@ use ruff_python_ast::{BoolOp, CmpOp, Expr, ExprRef, Operator, Stmt, StmtImport, 
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
 use ty_python_semantic::{HasType, SemanticModel};
 use walrus::ir::{
-    ArrayCopy, ArrayGetU, ArrayNewData, BinaryOp, Block, Br, BrIf, GlobalGet, GlobalSet, IfElse,
-    Loop, Return, UnaryOp as WasmUnaryOp, Value as WasmValue,
+    ArrayCopy, ArrayGet, ArrayGetU, ArrayNewData, BinaryOp, Block, Br, BrIf, GlobalGet,
+    GlobalSet, IfElse, Loop, Return, UnaryOp as WasmUnaryOp, Value as WasmValue,
 };
 use walrus::{
     ConstExpr, DataId, DataKind, FieldType, FunctionBuilder, FunctionId, FunctionKind, GlobalId,
@@ -28,15 +28,17 @@ enum ValueType {
     Float,
     Bool,
     Str,
+    ListInt,
 }
 
 impl ValueType {
-    fn wasm_type(self, string_ty: TypeId) -> ValType {
+    fn wasm_type(self, string_ty: TypeId, list_int_ty: TypeId) -> ValType {
         match self {
             ValueType::Int => ValType::I64,
             ValueType::Float => ValType::F64,
             ValueType::Bool => ValType::I32,
             ValueType::Str => string_val_type(string_ty),
+            ValueType::ListInt => list_int_val_type(list_int_ty),
         }
     }
 }
@@ -45,7 +47,7 @@ impl ValueType {
 struct FunctionSignature {
     name: String,
     params: Vec<(String, ValueType)>,
-    result: ValueType,
+    result: Option<ValueType>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -108,6 +110,22 @@ struct StringRuntime {
     str_upper: FunctionId,
     str_lower: FunctionId,
     int_to_str: FunctionId,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ListRuntime {
+    list_int_ty: TypeId,
+    list_int_eq: FunctionId,
+    list_int_slice: FunctionId,
+    list_int_get: FunctionId,
+    list_int_set: FunctionId,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ResultKind {
+    TopLevel,
+    Void,
+    Value(ValueType),
 }
 
 pub struct CompileOutput {
@@ -198,6 +216,7 @@ struct ModuleCompiler<'db> {
     built_functions: BTreeMap<String, FunctionId>,
     runtime: Option<RuntimeHelpers>,
     string_runtime: Option<StringRuntime>,
+    list_runtime: Option<ListRuntime>,
 }
 
 impl<'db> ModuleCompiler<'db> {
@@ -212,12 +231,14 @@ impl<'db> ModuleCompiler<'db> {
             built_functions: BTreeMap::new(),
             runtime: None,
             string_runtime: None,
+            list_runtime: None,
         }
     }
 
     fn compile_module(&mut self, suite: &[Stmt]) -> Result<Vec<u8>, CompileError> {
         self.collect_signatures(suite)?;
         self.prepare_string_support(suite)?;
+        self.prepare_list_support();
         self.collect_globals(suite)?;
         self.declare_functions(suite)?;
         self.runtime = Some(self.build_runtime_helpers());
@@ -260,7 +281,7 @@ impl<'db> ModuleCompiler<'db> {
             .iter()
             .map(|(_, ty)| self.wasm_type(*ty))
             .collect();
-        let result_types = [self.wasm_type(signature.result)];
+        let result_types: Vec<ValType> = signature.result.map(|ty| self.wasm_type(ty)).into_iter().collect();
         let mut builder = FunctionBuilder::new(&mut self.module.types, &param_types, &result_types);
         builder.name(signature.name.clone());
 
@@ -279,12 +300,17 @@ impl<'db> ModuleCompiler<'db> {
     }
 
     fn wasm_type(&self, ty: ValueType) -> ValType {
-        ty.wasm_type(self.string_runtime().str_ty)
+        ty.wasm_type(self.string_runtime().str_ty, self.list_runtime().list_int_ty)
     }
 
     fn string_runtime(&self) -> StringRuntime {
         self.string_runtime
             .expect("string runtime should be prepared first")
+    }
+
+    fn list_runtime(&self) -> ListRuntime {
+        self.list_runtime
+            .expect("list runtime should be prepared first")
     }
 
     fn prepare_string_support(&mut self, suite: &[Stmt]) -> Result<(), CompileError> {
@@ -333,6 +359,24 @@ impl<'db> ModuleCompiler<'db> {
         Ok(())
     }
 
+    fn prepare_list_support(&mut self) {
+        let list_int_ty = self.module.types.add_array(FieldType {
+            element_type: StorageType::Val(ValType::I64),
+            mutable: true,
+        });
+        let list_int_eq = self.build_list_int_eq(list_int_ty);
+        let list_int_slice = self.build_list_int_slice(list_int_ty);
+        let list_int_get = self.build_list_int_get(list_int_ty);
+        let list_int_set = self.build_list_int_set(list_int_ty);
+        self.list_runtime = Some(ListRuntime {
+            list_int_ty,
+            list_int_eq,
+            list_int_slice,
+            list_int_get,
+            list_int_set,
+        });
+    }
+
     fn collect_signatures(&mut self, suite: &[Stmt]) -> Result<(), CompileError> {
         for stmt in suite {
             if let Stmt::FunctionDef(function) = stmt {
@@ -368,13 +412,11 @@ impl<'db> ModuleCompiler<'db> {
                     params.push((parameter.name().as_str().to_owned(), ty));
                 }
 
-                let result =
-                    self.annotation_type(function.returns.as_deref().ok_or_else(|| {
-                        CompileError::Unsupported(format!(
-                            "missing return annotation in `{}`",
-                            function.name
-                        ))
-                    })?)?;
+                let result = function
+                    .returns
+                    .as_deref()
+                    .map(|annotation| self.annotation_type(annotation))
+                    .transpose()?;
 
                 self.signatures.insert(
                     function.name.as_str().to_owned(),
@@ -393,7 +435,7 @@ impl<'db> ModuleCompiler<'db> {
         for stmt in suite {
             match stmt {
                 Stmt::FunctionDef(_) | Stmt::Assert(_) => {}
-                Stmt::Expr(expr) if expr.value.is_string_literal_expr() => {}
+                Stmt::Expr(_) => {}
                 Stmt::Import(import) => validate_math_import(import)?,
                 Stmt::Assign(assign) => {
                     if assign.targets.len() != 1 {
@@ -438,7 +480,16 @@ impl<'db> ModuleCompiler<'db> {
         let id = self
             .module
             .globals
-            .add_local(self.wasm_type(ty), true, false, zero_const_expr(ty, self.string_runtime().str_ty));
+            .add_local(
+                self.wasm_type(ty),
+                true,
+                false,
+                zero_const_expr(
+                    ty,
+                    self.string_runtime().str_ty,
+                    self.list_runtime().list_int_ty,
+                ),
+            );
         self.module.globals.get_mut(id).name = Some(name.to_owned());
         self.globals.insert(name.to_owned(), GlobalBinding { id, ty });
         Ok(())
@@ -475,7 +526,7 @@ impl<'db> ModuleCompiler<'db> {
             .iter()
             .map(|(_, ty)| self.wasm_type(*ty))
             .collect();
-        let result_types = [self.wasm_type(signature.result)];
+        let result_types: Vec<ValType> = signature.result.map(|ty| self.wasm_type(ty)).into_iter().collect();
         let mut builder = FunctionBuilder::new(&mut self.module.types, &param_types, &result_types);
         builder.name(signature.name.clone());
 
@@ -500,8 +551,12 @@ impl<'db> ModuleCompiler<'db> {
             built_functions: &self.built_functions,
             runtime: self.runtime(),
             string_runtime: self.string_runtime(),
+            list_runtime: self.list_runtime(),
             bindings,
-            result_type: Some(signature.result),
+            result_kind: match signature.result {
+                Some(result) => ResultKind::Value(result),
+                None => ResultKind::Void,
+            },
         };
 
         {
@@ -529,8 +584,9 @@ impl<'db> ModuleCompiler<'db> {
             built_functions: &self.built_functions,
             runtime: self.runtime(),
             string_runtime: self.string_runtime(),
+            list_runtime: self.list_runtime(),
             bindings: BTreeMap::new(),
-            result_type: None,
+            result_kind: ResultKind::TopLevel,
         };
 
         {
@@ -577,7 +633,9 @@ impl<'db> ModuleCompiler<'db> {
                             "multiple assignment targets are not supported".to_owned(),
                         ));
                     }
-                    let name = name_target(&assign.targets[0])?;
+                    let Ok(name) = name_target(&assign.targets[0]) else {
+                        continue;
+                    };
                     if param_names.contains(&name) {
                         continue;
                     }
@@ -647,6 +705,17 @@ impl<'db> ModuleCompiler<'db> {
                     "unsupported annotation `{other}`"
                 ))),
             },
+            Expr::Subscript(subscript) => match (&*subscript.value, &*subscript.slice) {
+                (Expr::Name(name), Expr::Name(element))
+                    if name.id.as_str() == "list" && element.id.as_str() == "int" =>
+                {
+                    Ok(ValueType::ListInt)
+                }
+                _ => Err(CompileError::Unsupported(format!(
+                    "unsupported annotation expression: {:?}",
+                    expr
+                ))),
+            },
             other => Err(CompileError::Unsupported(format!(
                 "unsupported annotation expression: {:?}",
                 other
@@ -659,11 +728,17 @@ impl<'db> ModuleCompiler<'db> {
             .inferred_type(self.semantic)
             .ok_or_else(|| CompileError::Unsupported("missing inferred type".to_owned()))?;
         let display = simplify_type_display(&ty.display(self.db).to_string());
+        if matches!(expr, Expr::List(_))
+            && (display.starts_with("list[") || display.starts_with("Literal["))
+        {
+            return self.fallback_expr_type(expr);
+        }
         match display.as_str() {
             "int" => Ok(ValueType::Int),
             "float" => Ok(ValueType::Float),
             "bool" => Ok(ValueType::Bool),
             "str" => Ok(ValueType::Str),
+            "list[int]" => Ok(ValueType::ListInt),
             "int | float" | "float | int" => Ok(ValueType::Float),
             "Any" | "Unknown" => self.fallback_expr_type(expr),
             other => Err(CompileError::Unsupported(format!(
@@ -694,11 +769,22 @@ impl<'db> ModuleCompiler<'db> {
             Expr::Call(call) => self.fallback_call_type(call),
             Expr::Subscript(subscript) => match self.expr_type(&subscript.value)? {
                 ValueType::Str => Ok(ValueType::Str),
+                ValueType::ListInt => Ok(ValueType::Int),
                 other => Err(CompileError::Unsupported(format!(
                     "unsupported subscript base type {:?}",
                     other
                 ))),
             },
+            Expr::List(list) => {
+                for element in &list.elts {
+                    ensure_assignable_type(
+                        self.expr_type(element)?,
+                        ValueType::Int,
+                        "list element",
+                    )?;
+                }
+                Ok(ValueType::ListInt)
+            }
             other => Err(CompileError::Unsupported(format!(
                 "unsupported inferred type `Any` for expression: {:?}",
                 other
@@ -750,7 +836,12 @@ impl<'db> ModuleCompiler<'db> {
         match &*call.func {
             Expr::Name(name) => {
                 if let Some(signature) = self.signatures.get(name.id.as_str()) {
-                    return Ok(signature.result);
+                    return signature.result.ok_or_else(|| {
+                        CompileError::Unsupported(format!(
+                            "procedure `{}` cannot be used as an expression",
+                            signature.name
+                        ))
+                    });
                 }
                 fallback_builtin_call_type(
                     name.id.as_str(),
@@ -1852,6 +1943,313 @@ impl<'db> ModuleCompiler<'db> {
 
         builder.finish(vec![value], &mut self.module.funcs)
     }
+
+    fn build_list_int_eq(&mut self, list_ty: TypeId) -> FunctionId {
+        let list_ref = list_int_val_type(list_ty);
+        let mut builder =
+            FunctionBuilder::new(&mut self.module.types, &[list_ref, list_ref], &[ValType::I32]);
+        builder.name("__sp_list_int_eq".to_owned());
+
+        let lhs = self.module.locals.add(list_ref);
+        let rhs = self.module.locals.add(list_ref);
+        let len = self.module.locals.add(ValType::I32);
+        let idx = self.module.locals.add(ValType::I32);
+        let result = self.module.locals.add(ValType::I32);
+
+        {
+            let mut body = builder.func_body();
+            body.local_get(lhs).array_len().local_set(len);
+            body.local_get(lhs)
+                .array_len()
+                .local_get(rhs)
+                .array_len()
+                .binop(BinaryOp::I32Eq)
+                .local_set(result);
+            body.i32_const(0).local_set(idx);
+
+            let exit_id = {
+                let mut exit = body.dangling_instr_seq(None);
+                let exit_id = exit.id();
+                let loop_id = {
+                    let mut loop_body = exit.dangling_instr_seq(None);
+                    let loop_id = loop_body.id();
+
+                    loop_body
+                        .local_get(result)
+                        .unop(WasmUnaryOp::I32Eqz)
+                        .instr(BrIf { block: exit_id });
+                    loop_body
+                        .local_get(idx)
+                        .local_get(len)
+                        .binop(BinaryOp::I32GeU)
+                        .instr(BrIf { block: exit_id });
+                    loop_body
+                        .local_get(lhs)
+                        .local_get(idx)
+                        .instr(ArrayGet { ty: list_ty });
+                    loop_body
+                        .local_get(rhs)
+                        .local_get(idx)
+                        .instr(ArrayGet { ty: list_ty });
+                    loop_body.binop(BinaryOp::I64Eq).local_set(result);
+                    loop_body
+                        .local_get(idx)
+                        .i32_const(1)
+                        .binop(BinaryOp::I32Add)
+                        .local_set(idx);
+                    loop_body.instr(Br { block: loop_id });
+
+                    loop_id
+                };
+                exit.instr(Loop { seq: loop_id });
+                exit_id
+            };
+            body.instr(Block { seq: exit_id });
+            body.local_get(result);
+        }
+
+        builder.finish(vec![lhs, rhs], &mut self.module.funcs)
+    }
+
+    fn build_list_int_slice(&mut self, list_ty: TypeId) -> FunctionId {
+        let list_ref = list_int_val_type(list_ty);
+        let mut builder = FunctionBuilder::new(
+            &mut self.module.types,
+            &[list_ref, ValType::I32, ValType::I64, ValType::I32, ValType::I64],
+            &[list_ref],
+        );
+        builder.name("__sp_list_int_slice".to_owned());
+
+        let value = self.module.locals.add(list_ref);
+        let has_start = self.module.locals.add(ValType::I32);
+        let start = self.module.locals.add(ValType::I64);
+        let has_end = self.module.locals.add(ValType::I32);
+        let end = self.module.locals.add(ValType::I64);
+        let len_i32 = self.module.locals.add(ValType::I32);
+        let len_i64 = self.module.locals.add(ValType::I64);
+        let norm_start = self.module.locals.add(ValType::I64);
+        let norm_end = self.module.locals.add(ValType::I64);
+        let slice_len = self.module.locals.add(ValType::I32);
+        let result = self.module.locals.add(list_ref);
+
+        {
+            let mut body = builder.func_body();
+            body.local_get(value).array_len().local_set(len_i32);
+            body.local_get(len_i32)
+                .unop(WasmUnaryOp::I64ExtendUI32)
+                .local_set(len_i64);
+
+            body.local_get(has_start).if_else(
+                ValType::I64,
+                |then_| {
+                    then_.local_get(start).i64_const(0).binop(BinaryOp::I64LtS).if_else(
+                        ValType::I64,
+                        |negative| {
+                            negative
+                                .local_get(len_i64)
+                                .local_get(start)
+                                .binop(BinaryOp::I64Add);
+                        },
+                        |non_negative| {
+                            non_negative.local_get(start);
+                        },
+                    );
+                },
+                |else_| {
+                    else_.i64_const(0);
+                },
+            )
+            .local_set(norm_start);
+
+            body.local_get(has_end).if_else(
+                ValType::I64,
+                |then_| {
+                    then_.local_get(end).i64_const(0).binop(BinaryOp::I64LtS).if_else(
+                        ValType::I64,
+                        |negative| {
+                            negative
+                                .local_get(len_i64)
+                                .local_get(end)
+                                .binop(BinaryOp::I64Add);
+                        },
+                        |non_negative| {
+                            non_negative.local_get(end);
+                        },
+                    );
+                },
+                |else_| {
+                    else_.local_get(len_i64);
+                },
+            )
+            .local_set(norm_end);
+
+            body.local_get(norm_start)
+                .i64_const(0)
+                .binop(BinaryOp::I64LtS)
+                .if_else(
+                    None,
+                    |then_| {
+                        then_.i64_const(0).local_set(norm_start);
+                    },
+                    |_else_| {},
+                );
+            body.local_get(norm_start)
+                .local_get(len_i64)
+                .binop(BinaryOp::I64GtS)
+                .if_else(
+                    None,
+                    |then_| {
+                        then_.local_get(len_i64).local_set(norm_start);
+                    },
+                    |_else_| {},
+                );
+            body.local_get(norm_end)
+                .i64_const(0)
+                .binop(BinaryOp::I64LtS)
+                .if_else(
+                    None,
+                    |then_| {
+                        then_.i64_const(0).local_set(norm_end);
+                    },
+                    |_else_| {},
+                );
+            body.local_get(norm_end)
+                .local_get(len_i64)
+                .binop(BinaryOp::I64GtS)
+                .if_else(
+                    None,
+                    |then_| {
+                        then_.local_get(len_i64).local_set(norm_end);
+                    },
+                    |_else_| {},
+                );
+
+            body.local_get(norm_end)
+                .local_get(norm_start)
+                .binop(BinaryOp::I64LtS)
+                .if_else(
+                    ValType::I32,
+                    |then_| {
+                        then_.i32_const(0);
+                    },
+                    |else_| {
+                        else_
+                            .local_get(norm_end)
+                            .local_get(norm_start)
+                            .binop(BinaryOp::I64Sub)
+                            .unop(WasmUnaryOp::I32WrapI64);
+                    },
+                )
+                .local_set(slice_len);
+
+            body.i64_const(0)
+                .local_get(slice_len)
+                .array_new(list_ty)
+                .local_set(result);
+            body.local_get(result)
+                .i32_const(0)
+                .local_get(value)
+                .local_get(norm_start)
+                .unop(WasmUnaryOp::I32WrapI64)
+                .local_get(slice_len)
+                .instr(ArrayCopy {
+                    dst_ty: list_ty,
+                    src_ty: list_ty,
+                });
+            body.local_get(result);
+        }
+
+        builder.finish(vec![value, has_start, start, has_end, end], &mut self.module.funcs)
+    }
+
+    fn build_list_int_get(&mut self, list_ty: TypeId) -> FunctionId {
+        let list_ref = list_int_val_type(list_ty);
+        let mut builder =
+            FunctionBuilder::new(&mut self.module.types, &[list_ref, ValType::I64], &[ValType::I64]);
+        builder.name("__sp_list_int_get".to_owned());
+
+        let value = self.module.locals.add(list_ref);
+        let index = self.module.locals.add(ValType::I64);
+        let len = self.module.locals.add(ValType::I64);
+        let norm_index = self.module.locals.add(ValType::I64);
+
+        {
+            let mut body = builder.func_body();
+            body.local_get(value)
+                .array_len()
+                .unop(WasmUnaryOp::I64ExtendUI32)
+                .local_set(len);
+            body.local_get(index)
+                .i64_const(0)
+                .binop(BinaryOp::I64LtS)
+                .if_else(
+                    ValType::I64,
+                    |then_| {
+                        then_
+                            .local_get(len)
+                            .local_get(index)
+                            .binop(BinaryOp::I64Add);
+                    },
+                    |else_| {
+                        else_.local_get(index);
+                    },
+                )
+                .local_set(norm_index);
+            body.local_get(value)
+                .local_get(norm_index)
+                .unop(WasmUnaryOp::I32WrapI64)
+                .instr(ArrayGet { ty: list_ty });
+        }
+
+        builder.finish(vec![value, index], &mut self.module.funcs)
+    }
+
+    fn build_list_int_set(&mut self, list_ty: TypeId) -> FunctionId {
+        let list_ref = list_int_val_type(list_ty);
+        let mut builder = FunctionBuilder::new(
+            &mut self.module.types,
+            &[list_ref, ValType::I64, ValType::I64],
+            &[],
+        );
+        builder.name("__sp_list_int_set".to_owned());
+
+        let value = self.module.locals.add(list_ref);
+        let index = self.module.locals.add(ValType::I64);
+        let item = self.module.locals.add(ValType::I64);
+        let len = self.module.locals.add(ValType::I64);
+        let norm_index = self.module.locals.add(ValType::I64);
+
+        {
+            let mut body = builder.func_body();
+            body.local_get(value)
+                .array_len()
+                .unop(WasmUnaryOp::I64ExtendUI32)
+                .local_set(len);
+            body.local_get(index)
+                .i64_const(0)
+                .binop(BinaryOp::I64LtS)
+                .if_else(
+                    ValType::I64,
+                    |then_| {
+                        then_
+                            .local_get(len)
+                            .local_get(index)
+                            .binop(BinaryOp::I64Add);
+                    },
+                    |else_| {
+                        else_.local_get(index);
+                    },
+                )
+                .local_set(norm_index);
+            body.local_get(value)
+                .local_get(norm_index)
+                .unop(WasmUnaryOp::I32WrapI64)
+                .local_get(item)
+                .array_set(list_ty);
+        }
+
+        builder.finish(vec![value, index, item], &mut self.module.funcs)
+    }
 }
 
 struct FunctionCodegen<'a, 'db> {
@@ -1863,8 +2261,9 @@ struct FunctionCodegen<'a, 'db> {
     built_functions: &'a BTreeMap<String, FunctionId>,
     runtime: RuntimeHelpers,
     string_runtime: StringRuntime,
+    list_runtime: ListRuntime,
     bindings: BTreeMap<String, LocalBinding>,
-    result_type: Option<ValueType>,
+    result_kind: ResultKind,
 }
 
 impl<'a, 'db> FunctionCodegen<'a, 'db> {
@@ -1876,7 +2275,9 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         match stmt {
             Stmt::Import(import) => validate_math_import(import),
             Stmt::Expr(expr) if expr.value.is_string_literal_expr() => Ok(()),
-            Stmt::Assign(_) | Stmt::AnnAssign(_) | Stmt::Pass(_) => self.compile_stmt(builder, stmt),
+            Stmt::Assign(_) | Stmt::AnnAssign(_) | Stmt::Expr(_) | Stmt::Pass(_) => {
+                self.compile_stmt(builder, stmt)
+            }
             other => Err(CompileError::Unsupported(format!(
                 "unsupported top-level statement: {:?}",
                 other
@@ -1902,27 +2303,33 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
     ) -> Result<(), CompileError> {
         match stmt {
             Stmt::Return(ret) => {
-                let result_type = self.result_type.ok_or_else(|| {
-                    CompileError::Unsupported("return outside function is not supported".to_owned())
-                })?;
-                let value = ret.value.as_deref().ok_or_else(|| {
-                    CompileError::Unsupported("return without value is not supported".to_owned())
-                })?;
-                self.compile_expr_as(builder, value, result_type)?;
-                builder.instr(Return {});
-                Ok(())
+                match self.result_kind {
+                    ResultKind::TopLevel => Err(CompileError::Unsupported(
+                        "return outside function is not supported".to_owned(),
+                    )),
+                    ResultKind::Void => {
+                        if ret.value.is_some() {
+                            return Err(CompileError::Unsupported(
+                                "void function cannot return a value".to_owned(),
+                            ));
+                        }
+                        builder.instr(Return {});
+                        Ok(())
+                    }
+                    ResultKind::Value(result_type) => {
+                        let value = ret.value.as_deref().ok_or_else(|| {
+                            CompileError::Unsupported(
+                                "return without value is not supported".to_owned(),
+                            )
+                        })?;
+                        self.compile_expr_as(builder, value, result_type)?;
+                        builder.instr(Return {});
+                        Ok(())
+                    }
+                }
             }
             Stmt::Assign(assign) => {
-                if assign.targets.len() != 1 {
-                    return Err(CompileError::Unsupported(
-                        "multiple assignment targets are not supported".to_owned(),
-                    ));
-                }
-                let name = name_target(&assign.targets[0])?;
-                let binding = self.binding(&name)?;
-                self.compile_expr_as(builder, &assign.value, binding.ty())?;
-                self.store_binding(builder, binding);
-                Ok(())
+                self.compile_assign_stmt(builder, assign)
             }
             Stmt::AnnAssign(assign) => {
                 let name = name_target(&assign.target)?;
@@ -1942,13 +2349,83 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                 &if_stmt.body,
                 &if_stmt.elif_else_clauses,
             ),
+            Stmt::Assert(assert_stmt) => self.compile_runtime_assert(builder, &assert_stmt.test),
             Stmt::Expr(expr) if expr.value.is_string_literal_expr() => Ok(()),
+            Stmt::Expr(expr) => self.compile_expr_stmt(builder, &expr.value),
             Stmt::Pass(_) => Ok(()),
             other => Err(CompileError::Unsupported(format!(
                 "unsupported statement in codegen: {:?}",
                 other
             ))),
         }
+    }
+
+    fn compile_assign_stmt(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        assign: &ruff_python_ast::StmtAssign,
+    ) -> Result<(), CompileError> {
+        if assign.targets.len() != 1 {
+            return Err(CompileError::Unsupported(
+                "multiple assignment targets are not supported".to_owned(),
+            ));
+        }
+
+        match &assign.targets[0] {
+            Expr::Name(name) => {
+                let binding = self.binding(name.id.as_str())?;
+                self.compile_expr_as(builder, &assign.value, binding.ty())?;
+                self.store_binding(builder, binding);
+                Ok(())
+            }
+            Expr::Subscript(subscript) => {
+                if self.expr_type(&subscript.value)? != ValueType::ListInt {
+                    return Err(CompileError::Unsupported(format!(
+                        "unsupported assignment target: {:?}",
+                        assign.targets[0]
+                    )));
+                }
+                if matches!(&*subscript.slice, Expr::Slice(_)) {
+                    return Err(CompileError::Unsupported(
+                        "slice assignment is not supported".to_owned(),
+                    ));
+                }
+                self.compile_expr_as(builder, &subscript.value, ValueType::ListInt)?;
+                self.compile_expr_as(builder, &subscript.slice, ValueType::Int)?;
+                self.compile_expr_as(builder, &assign.value, ValueType::Int)?;
+                builder.call(self.list_runtime.list_int_set);
+                Ok(())
+            }
+            other => Err(CompileError::Unsupported(format!(
+                "unsupported assignment target: {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn compile_expr_stmt(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        expr: &Expr,
+    ) -> Result<(), CompileError> {
+        if let Expr::Call(call) = expr
+            && let Expr::Name(name) = &*call.func
+            && self
+                .signatures
+                .get(name.id.as_str())
+                .is_some_and(|signature| signature.result.is_none())
+        {
+            self.compile_call(builder, call)?;
+            return Ok(());
+        }
+
+        let ty = self.compile_expr(builder, expr)?;
+        match ty {
+            ValueType::Int | ValueType::Float | ValueType::Bool | ValueType::Str | ValueType::ListInt => {
+                builder.drop();
+            }
+        }
+        Ok(())
     }
 
     fn compile_if_stmt(
@@ -2007,6 +2484,29 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         )
     }
 
+    fn compile_runtime_assert(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        test: &Expr,
+    ) -> Result<(), CompileError> {
+        let ty = self.compile_expr(builder, test)?;
+        if ty != ValueType::Bool {
+            return Err(CompileError::Unsupported(
+                "assert test must be bool".to_owned(),
+            ));
+        }
+        builder.unop(WasmUnaryOp::I32Eqz);
+        self.emit_if_else(
+            builder,
+            None,
+            |_this, then_| {
+                then_.unreachable();
+                Ok(())
+            },
+            |_this, _else_| Ok(()),
+        )
+    }
+
     fn compile_expr(
         &mut self,
         builder: &mut InstrSeqBuilder,
@@ -2016,6 +2516,9 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         match expr {
             Expr::StringLiteral(string) => {
                 self.emit_string_literal(builder, string)?;
+            }
+            Expr::List(list) => {
+                self.compile_list_literal(builder, list)?;
             }
             Expr::NumberLiteral(number) => match &number.value {
                 ruff_python_ast::Number::Int(value) => {
@@ -2056,6 +2559,11 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                         ValueType::Str => {
                             return Err(CompileError::Unsupported(
                                 "unary minus on str is not supported".to_owned(),
+                            ));
+                        }
+                        ValueType::ListInt => {
+                            return Err(CompileError::Unsupported(
+                                "unary minus on list[int] is not supported".to_owned(),
                             ));
                         }
                     };
@@ -2178,20 +2686,52 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         builder: &mut InstrSeqBuilder,
         compare: &ruff_python_ast::ExprCompare,
     ) -> Result<(), CompileError> {
-        if compare.ops.len() != 1 || compare.comparators.len() != 1 {
+        if compare.ops.len() != compare.comparators.len() || compare.ops.is_empty() {
+            return Err(CompileError::Unsupported("invalid comparison expression".to_owned()));
+        }
+
+        let mut compare_tys = Vec::with_capacity(compare.ops.len());
+        let mut left_ty = self.expr_type(&compare.left)?;
+        for comparator in &compare.comparators {
+            let right_ty = self.expr_type(comparator)?;
+            compare_tys.push(common_compare_type(left_ty, right_ty)?);
+            left_ty = right_ty;
+        }
+
+        if compare.ops.len() == 1 {
+            let compare_ty = compare_tys[0];
+            self.compile_expr_as(builder, &compare.left, compare_ty)?;
+            self.compile_expr_as(builder, &compare.comparators[0], compare_ty)?;
+            return self.emit_compare_op(builder, compare.ops[0], compare_ty);
+        }
+
+        let chain_ty = compare_tys[0];
+        if compare_tys.iter().any(|ty| *ty != chain_ty) {
             return Err(CompileError::Unsupported(
-                "comparison chains are not supported".to_owned(),
+                "comparison chains with mixed comparison types are not supported".to_owned(),
             ));
         }
 
-        let left_ty = self.expr_type(&compare.left)?;
-        let right_ty = self.expr_type(&compare.comparators[0])?;
-        let compare_ty = common_compare_type(left_ty, right_ty)?;
+        let mut left_expr: &Expr = compare.left.as_ref();
+        for (index, (op, comparator)) in compare.ops.iter().zip(&compare.comparators).enumerate() {
+            self.compile_expr_as(builder, left_expr, chain_ty)?;
+            self.compile_expr_as(builder, comparator, chain_ty)?;
+            self.emit_compare_op(builder, *op, chain_ty)?;
+            if index > 0 {
+                builder.binop(BinaryOp::I32And);
+            }
+            left_expr = comparator;
+        }
+        Ok(())
+    }
 
-        self.compile_expr_as(builder, &compare.left, compare_ty)?;
-        self.compile_expr_as(builder, &compare.comparators[0], compare_ty)?;
-
-        match compare.ops[0] {
+    fn emit_compare_op(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        op: CmpOp,
+        compare_ty: ValueType,
+    ) -> Result<(), CompileError> {
+        match op {
             CmpOp::Eq if compare_ty == ValueType::Str => {
                 builder.call(self.string_runtime.str_eq);
             }
@@ -2199,11 +2739,23 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                 builder.call(self.string_runtime.str_eq);
                 builder.unop(WasmUnaryOp::I32Eqz);
             }
+            CmpOp::Eq if compare_ty == ValueType::ListInt => {
+                builder.call(self.list_runtime.list_int_eq);
+            }
+            CmpOp::NotEq if compare_ty == ValueType::ListInt => {
+                builder.call(self.list_runtime.list_int_eq);
+                builder.unop(WasmUnaryOp::I32Eqz);
+            }
             CmpOp::NotEq => {
                 builder.binop(self.compare_op(CmpOp::Eq, compare_ty)?);
                 builder.unop(WasmUnaryOp::I32Eqz);
             }
-            op => {
+            _ if compare_ty == ValueType::ListInt => {
+                return Err(CompileError::Unsupported(
+                    "only `==` and `!=` are supported for list[int] comparisons".to_owned(),
+                ));
+            }
+            _ => {
                 builder.binop(self.compare_op(op, compare_ty)?);
             }
         }
@@ -2314,6 +2866,11 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                     "`abs` on str is not supported".to_owned(),
                 ));
             }
+            ValueType::ListInt => {
+                return Err(CompileError::Unsupported(
+                    "`abs` on list[int] is not supported".to_owned(),
+                ));
+            }
         }
         Ok(())
     }
@@ -2332,6 +2889,11 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
             ValueType::Str => {
                 self.compile_expr_as(builder, arg, ValueType::Str)?;
                 builder.call(self.string_runtime.str_len);
+                Ok(())
+            }
+            ValueType::ListInt => {
+                self.compile_expr_as(builder, arg, ValueType::ListInt)?;
+                builder.array_len().unop(WasmUnaryOp::I64ExtendUI32);
                 Ok(())
             }
             other => Err(CompileError::Unsupported(format!(
@@ -2390,6 +2952,11 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                     "`min`/`max` on str are not supported".to_owned(),
                 ));
             }
+            ValueType::ListInt => {
+                return Err(CompileError::Unsupported(
+                    "`min`/`max` on list[int] are not supported".to_owned(),
+                ));
+            }
         }
         Ok(())
     }
@@ -2416,6 +2983,11 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                 ValueType::Str => {
                     return Err(CompileError::Unsupported(
                         "`round` on str is not supported".to_owned(),
+                    ));
+                }
+                ValueType::ListInt => {
+                    return Err(CompileError::Unsupported(
+                        "`round` on list[int] is not supported".to_owned(),
                     ));
                 }
             },
@@ -2613,6 +3185,18 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         }
     }
 
+    fn compile_list_literal(
+        &mut self,
+        builder: &mut InstrSeqBuilder,
+        list: &ruff_python_ast::ExprList,
+    ) -> Result<(), CompileError> {
+        for element in &list.elts {
+            self.compile_expr_as(builder, element, ValueType::Int)?;
+        }
+        builder.array_new_fixed(self.list_runtime.list_int_ty, list.elts.len() as u32);
+        Ok(())
+    }
+
     fn compile_subscript(
         &mut self,
         builder: &mut InstrSeqBuilder,
@@ -2646,6 +3230,36 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
                     self.compile_expr_as(builder, &subscript.value, ValueType::Str)?;
                     self.compile_expr_as(builder, index, ValueType::Int)?;
                     builder.call(self.string_runtime.str_char_at);
+                    Ok(())
+                }
+            },
+            ValueType::ListInt => match &*subscript.slice {
+                Expr::Slice(slice) => {
+                    if slice.step.is_some() {
+                        return Err(CompileError::Unsupported(
+                            "slice steps are not supported".to_owned(),
+                        ));
+                    }
+                    self.compile_expr_as(builder, &subscript.value, ValueType::ListInt)?;
+                    if let Some(lower) = slice.lower.as_deref() {
+                        builder.i32_const(1);
+                        self.compile_expr_as(builder, lower, ValueType::Int)?;
+                    } else {
+                        builder.i32_const(0).i64_const(0);
+                    }
+                    if let Some(upper) = slice.upper.as_deref() {
+                        builder.i32_const(1);
+                        self.compile_expr_as(builder, upper, ValueType::Int)?;
+                    } else {
+                        builder.i32_const(0).i64_const(0);
+                    }
+                    builder.call(self.list_runtime.list_int_slice);
+                    Ok(())
+                }
+                index => {
+                    self.compile_expr_as(builder, &subscript.value, ValueType::ListInt)?;
+                    self.compile_expr_as(builder, index, ValueType::Int)?;
+                    builder.call(self.list_runtime.list_int_get);
                     Ok(())
                 }
             },
@@ -2717,11 +3331,17 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
             .inferred_type(self.semantic)
             .ok_or_else(|| CompileError::Unsupported("missing inferred type".to_owned()))?;
         let display = simplify_type_display(&ty.display(self.db).to_string());
+        if matches!(expr, Expr::List(_))
+            && (display.starts_with("list[") || display.starts_with("Literal["))
+        {
+            return self.fallback_expr_type(expr);
+        }
         match display.as_str() {
             "int" => Ok(ValueType::Int),
             "float" => Ok(ValueType::Float),
             "bool" => Ok(ValueType::Bool),
             "str" => Ok(ValueType::Str),
+            "list[int]" => Ok(ValueType::ListInt),
             "int | float" | "float | int" => Ok(ValueType::Float),
             "Any" | "Unknown" => self.fallback_expr_type(expr),
             other => Err(CompileError::Unsupported(format!(
@@ -2753,11 +3373,22 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
             Expr::Call(call) => self.fallback_call_type(call),
             Expr::Subscript(subscript) => match self.expr_type(&subscript.value)? {
                 ValueType::Str => Ok(ValueType::Str),
+                ValueType::ListInt => Ok(ValueType::Int),
                 other => Err(CompileError::Unsupported(format!(
                     "unsupported subscript base type {:?}",
                     other
                 ))),
             },
+            Expr::List(list) => {
+                for element in &list.elts {
+                    ensure_assignable_type(
+                        self.expr_type(element)?,
+                        ValueType::Int,
+                        "list element",
+                    )?;
+                }
+                Ok(ValueType::ListInt)
+            }
             other => Err(CompileError::Unsupported(format!(
                 "unsupported inferred type `Any` for expression: {:?}",
                 other
@@ -2809,7 +3440,12 @@ impl<'a, 'db> FunctionCodegen<'a, 'db> {
         match &*call.func {
             Expr::Name(name) => {
                 if let Some(signature) = self.signatures.get(name.id.as_str()) {
-                    return Ok(signature.result);
+                    return signature.result.ok_or_else(|| {
+                        CompileError::Unsupported(format!(
+                            "procedure `{}` cannot be used as an expression",
+                            signature.name
+                        ))
+                    });
                 }
                 fallback_builtin_call_type(
                     name.id.as_str(),
@@ -2910,7 +3546,7 @@ fn common_compare_type(left: ValueType, right: ValueType) -> Result<ValueType, C
 
 fn common_numeric_type(left: ValueType, right: ValueType) -> Result<ValueType, CompileError> {
     match (left, right) {
-        (lhs, rhs) if lhs == rhs && lhs != ValueType::Bool => Ok(lhs),
+        (lhs, rhs) if lhs == rhs && matches!(lhs, ValueType::Int | ValueType::Float) => Ok(lhs),
         (ValueType::Int, ValueType::Float) | (ValueType::Float, ValueType::Int) => {
             Ok(ValueType::Float)
         }
@@ -2941,12 +3577,12 @@ fn fallback_builtin_call_type(
                     "`len` expects exactly one argument".to_owned(),
                 ));
             };
-            if expr_type(arg)? == ValueType::Str {
-                Ok(ValueType::Int)
-            } else {
-                Err(CompileError::Unsupported(
-                    "`len` is currently only supported for strings".to_owned(),
-                ))
+            match expr_type(arg)? {
+                ValueType::Str | ValueType::ListInt => Ok(ValueType::Int),
+                other => Err(CompileError::Unsupported(format!(
+                    "`len` is not supported for {:?}",
+                    other
+                ))),
             }
         }
         "min" | "max" => {
@@ -2965,6 +3601,9 @@ fn fallback_builtin_call_type(
                 )),
                 ValueType::Str => Err(CompileError::Unsupported(
                     "`round` on str is not supported".to_owned(),
+                )),
+                ValueType::ListInt => Err(CompileError::Unsupported(
+                    "`round` on list[int] is not supported".to_owned(),
                 )),
             },
             [value, digits] => {
@@ -3032,7 +3671,7 @@ fn fallback_attribute_call_type(
     }
 }
 
-fn zero_const_expr(ty: ValueType, string_ty: TypeId) -> ConstExpr {
+fn zero_const_expr(ty: ValueType, string_ty: TypeId, list_int_ty: TypeId) -> ConstExpr {
     match ty {
         ValueType::Int => ConstExpr::Value(WasmValue::I64(0)),
         ValueType::Float => ConstExpr::Value(WasmValue::F64(0.0)),
@@ -3040,6 +3679,10 @@ fn zero_const_expr(ty: ValueType, string_ty: TypeId) -> ConstExpr {
         ValueType::Str => ConstExpr::RefNull(RefType {
             nullable: true,
             heap_type: HeapType::Concrete(string_ty),
+        }),
+        ValueType::ListInt => ConstExpr::RefNull(RefType {
+            nullable: true,
+            heap_type: HeapType::Concrete(list_int_ty),
         }),
     }
 }
@@ -3076,7 +3719,7 @@ fn is_float_literal(expr: &Expr, expected: f64) -> bool {
 fn simplify_type_display(s: &str) -> String {
     if s.contains('&') {
         let parts: Vec<&str> = s.split('&').map(str::trim).collect();
-        for scalar in ["int", "float", "bool", "str"] {
+        for scalar in ["int", "float", "bool", "str", "list[int]"] {
             if parts.contains(&scalar)
                 && parts
                     .iter()
@@ -3088,6 +3731,12 @@ fn simplify_type_display(s: &str) -> String {
     }
     if s == "LiteralString" {
         return "str".to_owned();
+    }
+    if let Some(inner) = s.strip_prefix("list[").and_then(|s| s.strip_suffix(']')) {
+        let inner = simplify_type_display(inner);
+        if inner == "int" {
+            return "list[int]".to_owned();
+        }
     }
     if let Some(inner) = s.strip_prefix("Literal[").and_then(|s| s.strip_suffix(']')) {
         let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
@@ -3123,6 +3772,13 @@ fn string_val_type(string_ty: TypeId) -> ValType {
     ValType::Ref(RefType {
         nullable: true,
         heap_type: HeapType::Concrete(string_ty),
+    })
+}
+
+fn list_int_val_type(list_int_ty: TypeId) -> ValType {
+    ValType::Ref(RefType {
+        nullable: true,
+        heap_type: HeapType::Concrete(list_int_ty),
     })
 }
 
