@@ -22,6 +22,17 @@ checking. A similar project for Gleam is
 - **Interactive REPL** — syntax highlighting, auto-indent, tab completion
 - **WASM support** — runs in the browser via a WASM build
 
+
+## Samples
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/spython-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/spython-light.svg" />
+    <img alt="screenshot" src="docs/spython-dark.svg" />
+  </picture>
+</p>
+
 ## Build
 
 Requires Rust (stable). Dependencies are fetched automatically.
