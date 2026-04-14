@@ -6,6 +6,8 @@ pub mod lints;
 pub mod wasm_ffi;
 
 use std::collections::HashSet;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics};
 use ruff_db::files::{File, system_path_to_file};
@@ -396,12 +398,15 @@ pub struct ReplState {
     // `scope` is wrapped in `Option` so the `Drop` impl can take it and
     // drop it inside the VM context (see below).
     scope: Option<vm::scope::Scope>,
-    interp: vm::Interpreter,
+    interp: Option<vm::Interpreter>,
     /// Accumulated source of all successfully type-checked and executed inputs.
     accumulated_source: String,
     /// Teaching level for annotation/construct checking.
     level: Level,
 }
+
+#[cfg(test)]
+static REPL_ATEXIT_RAN: AtomicBool = AtomicBool::new(false);
 
 impl ReplState {
     /// Run a closure with access to the VM and the session's globals.
@@ -410,7 +415,10 @@ impl ReplState {
         f: impl FnOnce(&vm::VirtualMachine, &vm::builtins::PyDictRef) -> R,
     ) -> R {
         let globals = &self.scope.as_ref().expect("scope is live").globals;
-        self.interp.enter(|vm| f(vm, globals))
+        self.interp
+            .as_ref()
+            .expect("interpreter is live")
+            .enter(|vm| f(vm, globals))
     }
 
     /// The accumulated source of all successfully type-checked and executed inputs.
@@ -438,15 +446,24 @@ impl ReplState {
     /// the VM.
     pub fn enter<R>(&self, f: impl FnOnce(&vm::VirtualMachine, vm::scope::Scope) -> R) -> R {
         let scope = self.scope.as_ref().expect("scope is live").clone();
-        self.interp.enter(|vm| f(vm, scope))
+        self.interp
+            .as_ref()
+            .expect("interpreter is live")
+            .enter(|vm| f(vm, scope))
     }
 }
 
 impl Drop for ReplState {
     fn drop(&mut self) {
-        // Drop the scope inside the VM context so Python __del__ methods can run.
+        // Drop the scope inside the VM context so Python __del__ methods can run,
+        // then finalize the interpreter to release VM-owned resources.
         let scope = self.scope.take();
-        self.interp.enter(|_| drop(scope));
+        if let Some(interp) = self.interp.take() {
+            interp.enter(|_| drop(scope));
+            let _ = interp.finalize(None);
+        } else {
+            drop(scope);
+        }
     }
 }
 
@@ -498,7 +515,7 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
     };
     Box::new(ReplState {
         scope: Some(scope),
-        interp,
+        interp: Some(interp),
         accumulated_source,
         level,
     })
@@ -577,6 +594,14 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
             Err(vm.new_runtime_error("load_bitmap is not available in native mode".to_owned()))
         },
     );
+    #[cfg(test)]
+    let test_mark_atexit_ran_fn = vm.new_function(
+        "__test_mark_atexit_ran",
+        |vm: &vm::VirtualMachine| -> vm::PyObjectRef {
+            REPL_ATEXIT_RAN.store(true, Ordering::SeqCst);
+            vm.ctx.none()
+        },
+    );
 
     let dict = vm.ctx.new_dict();
     dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
@@ -591,6 +616,9 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     dict.set_item("text_y_offset", text_y_offset_fn.into(), vm)
         .unwrap();
     dict.set_item("load_bitmap", load_bitmap_fn.into(), vm)
+        .unwrap();
+    #[cfg(test)]
+    dict.set_item("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into(), vm)
         .unwrap();
     let module = vm.new_module("_spython_ffi", dict, None);
 
@@ -660,27 +688,56 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
 
     let scope = state.scope.as_ref().unwrap().clone();
     let code = code.to_owned();
-    let result = state.interp.enter(|vm| {
-        match vm
-            .compile(&code, vm::compiler::Mode::Single, "<stdin>".to_owned())
-            .map_err(|err| vm.new_syntax_error(&err, Some(&code)))
-            .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
-        {
-            Ok(_) => REPL_OK,
-            Err(exc) => {
-                if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                    REPL_QUIT
-                } else {
-                    vm.print_exception(exc);
-                    REPL_ERROR
+    let result = state
+        .interp
+        .as_ref()
+        .expect("interpreter is live")
+        .enter(|vm| {
+            match vm
+                .compile(&code, vm::compiler::Mode::Single, "<stdin>".to_owned())
+                .map_err(|err| vm.new_syntax_error(&err, Some(&code)))
+                .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
+            {
+                Ok(_) => REPL_OK,
+                Err(exc) => {
+                    if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                        REPL_QUIT
+                    } else {
+                        vm.print_exception(exc);
+                        REPL_ERROR
+                    }
                 }
             }
-        }
-    });
+        });
 
     if result == REPL_OK {
         state.append_source(&code);
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repl_drop_runs_atexit_handlers() {
+        REPL_ATEXIT_RAN.store(false, Ordering::SeqCst);
+
+        let source = format!(
+            "import atexit\n\
+from _spython_ffi import __test_mark_atexit_ran\n\
+atexit.register(__test_mark_atexit_ran)\n"
+        );
+
+        {
+            let _repl = repl_new(&source, Level::Full);
+        }
+
+        assert!(
+            REPL_ATEXIT_RAN.load(Ordering::SeqCst),
+            "expected atexit handler to run on repl drop"
+        );
+    }
 }
