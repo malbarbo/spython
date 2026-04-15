@@ -181,3 +181,35 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Checks that conditions in `if` / `elif` / `while` / ternary expressions,
+    /// operands of `and` / `or` / `not`, and `assert` tests have type `bool`
+    /// at teaching levels 0–3.
+    ///
+    /// ## Why is this bad?
+    /// Python's truthiness rules (non-zero int is truthy, non-empty string is
+    /// truthy, etc.) are a common source of bugs for students. At the teaching
+    /// levels, requiring explicit boolean expressions forces students to write
+    /// the comparison they actually mean.
+    ///
+    /// ## Example
+    /// ```python
+    /// x: int = 3
+    /// if x:          # error: condition is int, not bool
+    ///     pass
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// x: int = 3
+    /// if x > 0:
+    ///     pass
+    /// ```
+    pub(crate) static NON_BOOLEAN_CONDITION = {
+        summary: "condition is not a boolean value",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}

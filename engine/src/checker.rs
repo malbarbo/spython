@@ -6,15 +6,17 @@
 use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span};
 use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
-use ruff_python_ast::{Expr, Parameter, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef};
+use ruff_python_ast::{Expr, Parameter, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, UnaryOp};
 use ruff_text_size::Ranged;
 use ty_project::Db;
+use ty_python_semantic::types::KnownClass;
+use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::lints::{
     FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD, FORBIDDEN_COLLECTION_LITERAL,
     FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP,
     FORBIDDEN_MATCH, FORBIDDEN_SELECTION, MISSING_ATTRIBUTE_ANNOTATION,
-    MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION,
+    MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION, NON_BOOLEAN_CONDITION,
 };
 
 /// Teaching level that controls which Python constructs are allowed.
@@ -69,7 +71,8 @@ pub fn check_file_annotations(db: &dyn Db, file: File, level: Level) -> Vec<Diag
     let parsed = parsed_module(db, file);
     let module = parsed.load(db);
 
-    check_stmts(module.suite(), file, &mut diagnostics, false, level);
+    let model = SemanticModel::new(db, file);
+    check_stmts(module.suite(), file, &mut diagnostics, false, level, &model);
 
     diagnostics
 }
@@ -81,9 +84,10 @@ fn check_stmts(
     diagnostics: &mut Vec<Diagnostic>,
     in_class: bool,
     level: Level,
+    model: &SemanticModel<'_>,
 ) {
     for stmt in stmts {
-        check_stmt(stmt, file, diagnostics, in_class, level);
+        check_stmt(stmt, file, diagnostics, in_class, level, model);
     }
 }
 
@@ -94,6 +98,7 @@ fn check_stmt(
     diagnostics: &mut Vec<Diagnostic>,
     in_class: bool,
     level: Level,
+    model: &SemanticModel<'_>,
 ) {
     match stmt {
         Stmt::FunctionDef(func) => {
@@ -106,8 +111,8 @@ fn check_stmt(
                 ));
             }
             check_function(func, file, diagnostics, in_class);
-            check_stmts(&func.body, file, diagnostics, false, level);
-            check_decorators(&func.decorator_list, file, diagnostics, level);
+            check_stmts(&func.body, file, diagnostics, false, level, model);
+            check_decorators(&func.decorator_list, file, diagnostics, level, model);
         }
         Stmt::ClassDef(cls) => {
             if level < Level::UserTypes {
@@ -144,8 +149,8 @@ fn check_stmt(
                     check_class_body(cls, file, diagnostics);
                 }
             }
-            check_stmts(&cls.body, file, diagnostics, true, level);
-            check_decorators(&cls.decorator_list, file, diagnostics, level);
+            check_stmts(&cls.body, file, diagnostics, true, level, model);
+            check_decorators(&cls.decorator_list, file, diagnostics, level, model);
         }
         Stmt::For(for_stmt) => {
             if for_stmt.is_async && level < Level::Full {
@@ -163,9 +168,9 @@ fn check_stmt(
                     forbidden_msg("`for` loop", level, Level::Repetition),
                 ));
             }
-            check_expr(&for_stmt.iter, file, diagnostics, level);
-            check_stmts(&for_stmt.body, file, diagnostics, in_class, level);
-            check_stmts(&for_stmt.orelse, file, diagnostics, in_class, level);
+            check_expr(&for_stmt.iter, file, diagnostics, level, model);
+            check_stmts(&for_stmt.body, file, diagnostics, in_class, level, model);
+            check_stmts(&for_stmt.orelse, file, diagnostics, in_class, level, model);
         }
         Stmt::While(while_stmt) => {
             if level < Level::Repetition {
@@ -176,9 +181,17 @@ fn check_stmt(
                     forbidden_msg("`while` loop", level, Level::Repetition),
                 ));
             }
-            check_expr(&while_stmt.test, file, diagnostics, level);
-            check_stmts(&while_stmt.body, file, diagnostics, in_class, level);
-            check_stmts(&while_stmt.orelse, file, diagnostics, in_class, level);
+            check_bool_ctx(&while_stmt.test, file, diagnostics, level, model);
+            check_expr(&while_stmt.test, file, diagnostics, level, model);
+            check_stmts(&while_stmt.body, file, diagnostics, in_class, level, model);
+            check_stmts(
+                &while_stmt.orelse,
+                file,
+                diagnostics,
+                in_class,
+                level,
+                model,
+            );
         }
         Stmt::If(if_stmt) => {
             if level < Level::Selection {
@@ -189,13 +202,15 @@ fn check_stmt(
                     forbidden_msg("`if`", level, Level::Selection),
                 ));
             }
-            check_expr(&if_stmt.test, file, diagnostics, level);
-            check_stmts(&if_stmt.body, file, diagnostics, in_class, level);
+            check_bool_ctx(&if_stmt.test, file, diagnostics, level, model);
+            check_expr(&if_stmt.test, file, diagnostics, level, model);
+            check_stmts(&if_stmt.body, file, diagnostics, in_class, level, model);
             for clause in &if_stmt.elif_else_clauses {
                 if let Some(test) = &clause.test {
-                    check_expr(test, file, diagnostics, level);
+                    check_bool_ctx(test, file, diagnostics, level, model);
+                    check_expr(test, file, diagnostics, level, model);
                 }
-                check_stmts(&clause.body, file, diagnostics, in_class, level);
+                check_stmts(&clause.body, file, diagnostics, in_class, level, model);
             }
         }
         Stmt::Match(match_stmt) => {
@@ -207,12 +222,12 @@ fn check_stmt(
                     forbidden_msg("`match`", level, Level::UserTypes),
                 ));
             }
-            check_expr(&match_stmt.subject, file, diagnostics, level);
+            check_expr(&match_stmt.subject, file, diagnostics, level, model);
             for case in &match_stmt.cases {
                 if let Some(guard) = &case.guard {
-                    check_expr(guard, file, diagnostics, level);
+                    check_expr(guard, file, diagnostics, level, model);
                 }
-                check_stmts(&case.body, file, diagnostics, in_class, level);
+                check_stmts(&case.body, file, diagnostics, in_class, level, model);
             }
         }
         Stmt::With(with_stmt) => {
@@ -225,9 +240,9 @@ fn check_stmt(
                 ));
             }
             for item in &with_stmt.items {
-                check_expr(&item.context_expr, file, diagnostics, level);
+                check_expr(&item.context_expr, file, diagnostics, level, model);
             }
-            check_stmts(&with_stmt.body, file, diagnostics, in_class, level);
+            check_stmts(&with_stmt.body, file, diagnostics, in_class, level, model);
         }
         Stmt::Try(try_stmt) => {
             if level < Level::Full {
@@ -238,13 +253,20 @@ fn check_stmt(
                     forbidden_msg("`try`", level, Level::Full),
                 ));
             }
-            check_stmts(&try_stmt.body, file, diagnostics, in_class, level);
+            check_stmts(&try_stmt.body, file, diagnostics, in_class, level, model);
             for handler in &try_stmt.handlers {
                 let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                check_stmts(&h.body, file, diagnostics, in_class, level);
+                check_stmts(&h.body, file, diagnostics, in_class, level, model);
             }
-            check_stmts(&try_stmt.orelse, file, diagnostics, in_class, level);
-            check_stmts(&try_stmt.finalbody, file, diagnostics, in_class, level);
+            check_stmts(&try_stmt.orelse, file, diagnostics, in_class, level, model);
+            check_stmts(
+                &try_stmt.finalbody,
+                file,
+                diagnostics,
+                in_class,
+                level,
+                model,
+            );
         }
         Stmt::Global(global_stmt) if level < Level::Full => {
             diagnostics.push(make_lint_diagnostic(
@@ -279,34 +301,35 @@ fn check_stmt(
                     forbidden_msg("Augmented assignment", level, Level::Repetition),
                 ));
             }
-            check_expr(&aug.value, file, diagnostics, level);
+            check_expr(&aug.value, file, diagnostics, level, model);
         }
         // Statements that are always allowed but may contain expressions to check
         Stmt::Return(ret) => {
             if let Some(value) = &ret.value {
-                check_expr(value, file, diagnostics, level);
+                check_expr(value, file, diagnostics, level, model);
             }
         }
         Stmt::Assign(assign) => {
-            check_expr(&assign.value, file, diagnostics, level);
+            check_expr(&assign.value, file, diagnostics, level, model);
         }
         Stmt::AnnAssign(ann) => {
             if let Some(value) = &ann.value {
-                check_expr(value, file, diagnostics, level);
+                check_expr(value, file, diagnostics, level, model);
             }
         }
         Stmt::Expr(expr_stmt) => {
-            check_expr(&expr_stmt.value, file, diagnostics, level);
+            check_expr(&expr_stmt.value, file, diagnostics, level, model);
         }
         Stmt::Assert(assert_stmt) => {
-            check_expr(&assert_stmt.test, file, diagnostics, level);
+            check_bool_ctx(&assert_stmt.test, file, diagnostics, level, model);
+            check_expr(&assert_stmt.test, file, diagnostics, level, model);
             if let Some(msg) = &assert_stmt.msg {
-                check_expr(msg, file, diagnostics, level);
+                check_expr(msg, file, diagnostics, level, model);
             }
         }
         Stmt::Raise(raise) => {
             if let Some(exc) = &raise.exc {
-                check_expr(exc, file, diagnostics, level);
+                check_expr(exc, file, diagnostics, level, model);
             }
         }
         // Always allowed (or allowed at level 5), no sub-expressions to check
@@ -323,8 +346,54 @@ fn check_stmt(
     }
 }
 
+/// Check that `expr` (used in a boolean context) has type `bool`.
+///
+/// Skips `and`/`or`/`not` — their operands are checked individually as they
+/// are each in a boolean context, so reporting on the compound expression
+/// would be redundant. Only applies at levels 0–3.
+fn check_bool_ctx(
+    expr: &Expr,
+    file: File,
+    diagnostics: &mut Vec<Diagnostic>,
+    level: Level,
+    model: &SemanticModel<'_>,
+) {
+    if level >= Level::Classes {
+        return;
+    }
+    if matches!(expr, Expr::BoolOp(_)) {
+        return;
+    }
+    if let Expr::UnaryOp(u) = expr
+        && u.op == UnaryOp::Not
+    {
+        return;
+    }
+    let Some(ty) = expr.inferred_type(model) else {
+        return;
+    };
+    let bool_ty = KnownClass::Bool.to_instance(model.db());
+    if !ty.is_assignable_to(model.db(), bool_ty) {
+        diagnostics.push(make_lint_diagnostic(
+            &NON_BOOLEAN_CONDITION,
+            file,
+            expr.range(),
+            format!(
+                "Condition has type `{}`, expected `bool`",
+                ty.display(model.db())
+            ),
+        ));
+    }
+}
+
 /// Recursively check an expression for forbidden constructs.
-fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level: Level) {
+fn check_expr(
+    expr: &Expr,
+    file: File,
+    diagnostics: &mut Vec<Diagnostic>,
+    level: Level,
+    model: &SemanticModel<'_>,
+) {
     match expr {
         // Collection literals
         Expr::List(list) if level < Level::Repetition => {
@@ -438,91 +507,98 @@ fn check_expr(expr: &Expr, file: File, diagnostics: &mut Vec<Diagnostic>, level:
     match expr {
         Expr::BoolOp(e) => {
             for v in &e.values {
-                check_expr(v, file, diagnostics, level);
+                check_bool_ctx(v, file, diagnostics, level, model);
+                check_expr(v, file, diagnostics, level, model);
             }
         }
         Expr::Named(e) => {
-            check_expr(&e.target, file, diagnostics, level);
-            check_expr(&e.value, file, diagnostics, level);
+            check_expr(&e.target, file, diagnostics, level, model);
+            check_expr(&e.value, file, diagnostics, level, model);
         }
         Expr::BinOp(e) => {
-            check_expr(&e.left, file, diagnostics, level);
-            check_expr(&e.right, file, diagnostics, level);
+            check_expr(&e.left, file, diagnostics, level, model);
+            check_expr(&e.right, file, diagnostics, level, model);
         }
-        Expr::UnaryOp(e) => check_expr(&e.operand, file, diagnostics, level),
-        Expr::Lambda(e) => check_expr(&e.body, file, diagnostics, level),
+        Expr::UnaryOp(e) => {
+            if e.op == UnaryOp::Not {
+                check_bool_ctx(&e.operand, file, diagnostics, level, model);
+            }
+            check_expr(&e.operand, file, diagnostics, level, model);
+        }
+        Expr::Lambda(e) => check_expr(&e.body, file, diagnostics, level, model),
         Expr::If(e) => {
-            check_expr(&e.test, file, diagnostics, level);
-            check_expr(&e.body, file, diagnostics, level);
-            check_expr(&e.orelse, file, diagnostics, level);
+            check_bool_ctx(&e.test, file, diagnostics, level, model);
+            check_expr(&e.test, file, diagnostics, level, model);
+            check_expr(&e.body, file, diagnostics, level, model);
+            check_expr(&e.orelse, file, diagnostics, level, model);
         }
         Expr::Dict(e) => {
             for item in &e.items {
                 if let Some(k) = &item.key {
-                    check_expr(k, file, diagnostics, level);
+                    check_expr(k, file, diagnostics, level, model);
                 }
-                check_expr(&item.value, file, diagnostics, level);
+                check_expr(&item.value, file, diagnostics, level, model);
             }
         }
         Expr::Set(e) => {
             for v in &e.elts {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
         }
-        Expr::ListComp(e) => check_expr(&e.elt, file, diagnostics, level),
-        Expr::SetComp(e) => check_expr(&e.elt, file, diagnostics, level),
+        Expr::ListComp(e) => check_expr(&e.elt, file, diagnostics, level, model),
+        Expr::SetComp(e) => check_expr(&e.elt, file, diagnostics, level, model),
         Expr::DictComp(e) => {
-            check_expr(&e.key, file, diagnostics, level);
-            check_expr(&e.value, file, diagnostics, level);
+            check_expr(&e.key, file, diagnostics, level, model);
+            check_expr(&e.value, file, diagnostics, level, model);
         }
-        Expr::Generator(generator) => check_expr(&generator.elt, file, diagnostics, level),
-        Expr::Await(e) => check_expr(&e.value, file, diagnostics, level),
+        Expr::Generator(generator) => check_expr(&generator.elt, file, diagnostics, level, model),
+        Expr::Await(e) => check_expr(&e.value, file, diagnostics, level, model),
         Expr::Yield(e) => {
             if let Some(v) = &e.value {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
         }
-        Expr::YieldFrom(e) => check_expr(&e.value, file, diagnostics, level),
+        Expr::YieldFrom(e) => check_expr(&e.value, file, diagnostics, level, model),
         Expr::Compare(e) => {
-            check_expr(&e.left, file, diagnostics, level);
+            check_expr(&e.left, file, diagnostics, level, model);
             for c in &e.comparators {
-                check_expr(c, file, diagnostics, level);
+                check_expr(c, file, diagnostics, level, model);
             }
         }
         Expr::Call(e) => {
-            check_expr(&e.func, file, diagnostics, level);
+            check_expr(&e.func, file, diagnostics, level, model);
             for arg in &e.arguments.args {
-                check_expr(arg, file, diagnostics, level);
+                check_expr(arg, file, diagnostics, level, model);
             }
             for kw in &e.arguments.keywords {
-                check_expr(&kw.value, file, diagnostics, level);
+                check_expr(&kw.value, file, diagnostics, level, model);
             }
         }
-        Expr::Attribute(e) => check_expr(&e.value, file, diagnostics, level),
+        Expr::Attribute(e) => check_expr(&e.value, file, diagnostics, level, model),
         Expr::Subscript(e) => {
-            check_expr(&e.value, file, diagnostics, level);
-            check_expr(&e.slice, file, diagnostics, level);
+            check_expr(&e.value, file, diagnostics, level, model);
+            check_expr(&e.slice, file, diagnostics, level, model);
         }
-        Expr::Starred(e) => check_expr(&e.value, file, diagnostics, level),
+        Expr::Starred(e) => check_expr(&e.value, file, diagnostics, level, model),
         Expr::List(e) => {
             for v in &e.elts {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
         }
         Expr::Tuple(e) => {
             for v in &e.elts {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
         }
         Expr::Slice(e) => {
             if let Some(v) = &e.lower {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
             if let Some(v) = &e.upper {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
             if let Some(v) = &e.step {
-                check_expr(v, file, diagnostics, level);
+                check_expr(v, file, diagnostics, level, model);
             }
         }
         // Leaf expressions: no children to recurse into
@@ -544,9 +620,10 @@ fn check_decorators(
     file: File,
     diagnostics: &mut Vec<Diagnostic>,
     level: Level,
+    model: &SemanticModel<'_>,
 ) {
     for decorator in decorator_list {
-        check_expr(&decorator.expression, file, diagnostics, level);
+        check_expr(&decorator.expression, file, diagnostics, level, model);
     }
 }
 

@@ -483,6 +483,177 @@ fn level5_allows_with() {
     assert_eq!(out, "ok\n");
 }
 
+// --- Non-boolean condition tests (levels 0–3) ---
+
+#[test]
+fn level1_forbids_non_bool_if() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        x: int = 3
+        if x:
+            pass
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("non-boolean-condition"),
+        "expected non-boolean-condition in stderr: {err}"
+    );
+}
+
+#[test]
+fn level1_allows_bool_if() {
+    let (out, err, success) = run_level(
+        1,
+        indoc! {"
+        x: int = 3
+        if x > 0:
+            print('ok')
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "ok\n");
+}
+
+#[test]
+fn level1_forbids_non_bool_elif() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: int) -> None:
+            if x > 0:
+                pass
+            elif x:
+                pass
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level3_forbids_non_bool_while() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        x: int = 3
+        while x:
+            x = x - 1
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level3_allows_bool_while() {
+    let (out, _, success) = run_level(
+        3,
+        indoc! {"
+        x: int = 3
+        while x > 0:
+            x -= 1
+        print(x)
+    "},
+    );
+    assert!(success);
+    assert_eq!(out, "0\n");
+}
+
+#[test]
+fn level1_forbids_non_bool_ternary() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: int) -> int:
+            return 1 if x else 0
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level1_forbids_non_bool_and_operand() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: int, y: int) -> bool:
+            return x and y > 0
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level1_forbids_non_bool_or_operand() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: int, y: int) -> bool:
+            return x > 0 or y
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level1_forbids_non_bool_not_operand() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: int) -> bool:
+            return not x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level1_allows_bool_logical_ops() {
+    let (out, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: int, y: int) -> bool:
+            return (x > 0 and y > 0) or not (x == y)
+        print(f(1, 2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True\n");
+}
+
+#[test]
+fn level1_forbids_non_bool_assert() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        x: int = 1
+        assert x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("non-boolean-condition"), "stderr: {err}");
+}
+
+#[test]
+fn level4_allows_non_bool_if() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        x: int = 3
+        if x:
+            print('ok')
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "ok\n");
+}
+
 #[test]
 fn level5_allows_intenum_without_annotations() {
     let (_, _err, success) = run_level(
