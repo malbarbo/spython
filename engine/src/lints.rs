@@ -213,3 +213,26 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects `bool` operands in arithmetic operators (`+`, `-`, `*`, `/`,
+    /// `//`, `%`, `**`), augmented assignment with those operators, and
+    /// unary `+` / `-` at teaching levels 0–3.
+    ///
+    /// ## Why is this bad?
+    /// Python treats `bool` as a subclass of `int`, so `True + 1` silently
+    /// evaluates to `2`. This hides bugs where a student used a boolean
+    /// where they meant a number.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(x: int) -> int:
+    ///     return x + True   # error: bool operand in arithmetic
+    /// ```
+    pub(crate) static BOOL_IN_ARITHMETIC = {
+        summary: "bool operand in arithmetic expression",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}

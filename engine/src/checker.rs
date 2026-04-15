@@ -6,16 +6,18 @@
 use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span};
 use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
-use ruff_python_ast::{Expr, Parameter, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, UnaryOp};
+use ruff_python_ast::{
+    Expr, Operator, Parameter, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, UnaryOp,
+};
 use ruff_text_size::Ranged;
 use ty_project::Db;
 use ty_python_semantic::types::KnownClass;
 use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::lints::{
-    FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD, FORBIDDEN_COLLECTION_LITERAL,
-    FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP,
-    FORBIDDEN_MATCH, FORBIDDEN_SELECTION, MISSING_ATTRIBUTE_ANNOTATION,
+    BOOL_IN_ARITHMETIC, FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD,
+    FORBIDDEN_COLLECTION_LITERAL, FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT, FORBIDDEN_LAMBDA,
+    FORBIDDEN_LOOP, FORBIDDEN_MATCH, FORBIDDEN_SELECTION, MISSING_ATTRIBUTE_ANNOTATION,
     MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION, NON_BOOLEAN_CONDITION,
 };
 
@@ -301,6 +303,10 @@ fn check_stmt(
                     forbidden_msg("Augmented assignment", level, Level::Repetition),
                 ));
             }
+            if is_arithmetic_op(aug.op) {
+                reject_bool_arith_operand(&aug.target, file, diagnostics, level, model);
+                reject_bool_arith_operand(&aug.value, file, diagnostics, level, model);
+            }
             check_expr(&aug.value, file, diagnostics, level, model);
         }
         // Statements that are always allowed but may contain expressions to check
@@ -343,6 +349,50 @@ fn check_stmt(
         | Stmt::Global(_)
         | Stmt::Nonlocal(_)
         | Stmt::Delete(_) => {}
+    }
+}
+
+/// Returns true if `op` is an arithmetic operator (`+`, `-`, `*`, `/`,
+/// `//`, `%`, `**`). Bitwise and matrix operators are excluded.
+fn is_arithmetic_op(op: Operator) -> bool {
+    matches!(
+        op,
+        Operator::Add
+            | Operator::Sub
+            | Operator::Mult
+            | Operator::Div
+            | Operator::FloorDiv
+            | Operator::Mod
+            | Operator::Pow
+    )
+}
+
+/// Reject an arithmetic operand whose inferred type is `bool`. Only applies
+/// at teaching levels 0–3.
+fn reject_bool_arith_operand(
+    expr: &Expr,
+    file: File,
+    diagnostics: &mut Vec<Diagnostic>,
+    level: Level,
+    model: &SemanticModel<'_>,
+) {
+    if level >= Level::Classes {
+        return;
+    }
+    let Some(ty) = expr.inferred_type(model) else {
+        return;
+    };
+    let bool_ty = KnownClass::Bool.to_instance(model.db());
+    if ty.is_assignable_to(model.db(), bool_ty) {
+        diagnostics.push(make_lint_diagnostic(
+            &BOOL_IN_ARITHMETIC,
+            file,
+            expr.range(),
+            format!(
+                "Operand has type `{}`; `bool` is not allowed in arithmetic expressions",
+                ty.display(model.db())
+            ),
+        ));
     }
 }
 
@@ -516,12 +566,20 @@ fn check_expr(
             check_expr(&e.value, file, diagnostics, level, model);
         }
         Expr::BinOp(e) => {
+            if is_arithmetic_op(e.op) {
+                reject_bool_arith_operand(&e.left, file, diagnostics, level, model);
+                reject_bool_arith_operand(&e.right, file, diagnostics, level, model);
+            }
             check_expr(&e.left, file, diagnostics, level, model);
             check_expr(&e.right, file, diagnostics, level, model);
         }
         Expr::UnaryOp(e) => {
-            if e.op == UnaryOp::Not {
-                check_bool_ctx(&e.operand, file, diagnostics, level, model);
+            match e.op {
+                UnaryOp::Not => check_bool_ctx(&e.operand, file, diagnostics, level, model),
+                UnaryOp::UAdd | UnaryOp::USub => {
+                    reject_bool_arith_operand(&e.operand, file, diagnostics, level, model)
+                }
+                UnaryOp::Invert => {}
             }
             check_expr(&e.operand, file, diagnostics, level, model);
         }

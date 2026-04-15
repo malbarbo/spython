@@ -640,6 +640,185 @@ fn level1_forbids_non_bool_assert() {
     assert!(err.contains("non-boolean-condition"), "stderr: {err}");
 }
 
+// --- Bool in arithmetic tests (levels 0–3) ---
+
+#[test]
+fn level0_forbids_bool_plus_int() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return x + True
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("bool-in-arithmetic"),
+        "expected bool-in-arithmetic in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_forbids_int_times_bool() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int, b: bool) -> int:
+            return x * b
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_bool_sub() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return True - x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_bool_div() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> float:
+            return x / True
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_bool_floordiv() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return x // True
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_bool_mod() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return x % True
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_bool_pow() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return x ** True
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level3_forbids_bool_aug_assign() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f() -> int:
+            x: int = 0
+            x += True
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_unary_minus_bool() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(b: bool) -> int:
+            return -b
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_unary_plus_bool() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(b: bool) -> int:
+            return +b
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level0_allows_int_plus_int() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int, y: int) -> int:
+            return x + y
+        print(f(2, 3))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "5\n");
+}
+
+#[test]
+fn level0_allows_unary_minus_int() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return -x
+        print(f(5))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "-5\n");
+}
+
+#[test]
+fn level4_allows_bool_arithmetic() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: int) -> int:
+            return x + True
+        print(f(2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "3\n");
+}
+
 #[test]
 fn level4_allows_non_bool_if() {
     let (out, err, success) = run_level(
