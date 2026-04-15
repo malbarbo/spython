@@ -664,12 +664,24 @@ pub const REPL_OK: u32 = 0;
 pub const REPL_ERROR: u32 = 1;
 pub const REPL_QUIT: u32 = 2;
 
+fn format_elapsed(elapsed: std::time::Duration) -> String {
+    if elapsed.as_secs() > 0 {
+        format!("{:.2} s", elapsed.as_secs_f64())
+    } else if elapsed.as_millis() > 0 {
+        format!("{} ms", elapsed.as_millis())
+    } else if elapsed.as_micros() > 0 {
+        format!("{} us", elapsed.as_micros())
+    } else {
+        format!("{} ns", elapsed.as_nanos())
+    }
+}
+
 /// Execute one REPL expression/statement in the session's scope.
 ///
 /// Returns `REPL_OK` on success, `REPL_ERROR` on type/runtime error, or
 /// `REPL_QUIT` if the user called `exit()` / `quit()` (SystemExit raised).
 pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
-    // Handle :type command (works in both CLI and WASM).
+    // Handle :type / :time commands (works in both CLI and WASM).
     let trimmed = code.trim();
     if let Some(expr) = trimmed.strip_prefix(":type ") {
         match infer_expression_type(&state.accumulated_source, expr) {
@@ -683,12 +695,27 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
         return REPL_OK;
     }
 
-    if !type_check_repl_input(&state.accumulated_source, code, state.level, true) {
+    if trimmed == ":time" {
+        eprintln!("Usage: :time <expression>");
+        return REPL_OK;
+    }
+
+    let (code, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
+        if expr.trim().is_empty() {
+            eprintln!("Usage: :time <expression>");
+            return REPL_OK;
+        }
+        (format!("{expr}\n"), true)
+    } else {
+        (code.to_owned(), false)
+    };
+
+    if !type_check_repl_input(&state.accumulated_source, &code, state.level, true) {
         return REPL_ERROR;
     }
 
     let scope = state.scope.as_ref().unwrap().clone();
-    let code = code.to_owned();
+    let start = timed.then(std::time::Instant::now);
     let result = state
         .interp
         .as_ref()
@@ -713,6 +740,9 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
 
     if result == REPL_OK {
         state.append_source(&code);
+        if let Some(start) = start {
+            println!("Time: {}", format_elapsed(start.elapsed()));
+        }
     }
 
     result

@@ -1095,6 +1095,7 @@ fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
         Some(pos) => stdout[pos + "to exit.\n".len()..].to_owned(),
         None => stdout,
     };
+    let stdout = stdout.replace(">>> ", "").replace("... ", "");
     (
         stdout,
         normalize_output(&String::from_utf8_lossy(&output.stderr)),
@@ -1148,6 +1149,24 @@ fn repl_multiple_statements() {
     let (out, _, success) = run_repl("x = 10\nx * 3\n");
     assert!(success);
     assert_eq!(out, "30\n");
+}
+
+#[test]
+fn repl_time_command_evaluates_and_shows_elapsed() {
+    let (out, _, success) = run_repl(":time 1 + 2\n");
+    assert!(success);
+    assert!(out.contains("3\n"), "expected expression output: {out}");
+    assert!(
+        out.contains("Time: "),
+        "expected timing output for :time command: {out}"
+    );
+}
+
+#[test]
+fn repl_time_command_without_expression_shows_usage() {
+    let (_, err, success) = run_repl(":time\n");
+    assert!(success);
+    assert!(err.contains("Usage: :time <expression>"), "stderr: {err}");
 }
 
 // --- REPL type checking tests ---

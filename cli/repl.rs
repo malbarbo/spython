@@ -1,4 +1,5 @@
 use std::io::IsTerminal;
+use std::time::Instant;
 
 use engine::Level;
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
@@ -247,6 +248,18 @@ fn is_incomplete_error(err: &rustpython_compiler::CompileError) -> bool {
     }
 }
 
+fn format_elapsed(elapsed: std::time::Duration) -> String {
+    if elapsed.as_secs() > 0 {
+        format!("{:.2} s", elapsed.as_secs_f64())
+    } else if elapsed.as_millis() > 0 {
+        format!("{} ms", elapsed.as_millis())
+    } else if elapsed.as_micros() > 0 {
+        format!("{} us", elapsed.as_micros())
+    } else {
+        format!("{} ns", elapsed.as_nanos())
+    }
+}
+
 // ── Syntax highlighting ─────────────────────────────────────────────
 
 const RESET: &str = "\x1b[0m";
@@ -320,7 +333,7 @@ fn highlight_python(line: &str) -> String {
 
     // REPL commands: color the command keyword, highlight the argument normally.
     let trimmed = line.trim();
-    for cmd in &[":help", ":quit", ":level", ":type", ":theme"] {
+    for cmd in &[":help", ":quit", ":level", ":type", ":time", ":theme"] {
         if trimmed
             .strip_prefix(cmd)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
@@ -683,6 +696,7 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                     if trimmed == ":help" {
                         println!(
                             ":type <expr>    Show the type of an expression\n\
+                             :time <expr>    Evaluate and show execution time\n\
                              :level [n]      Show or change the teaching level (0-5)\n\
                              :theme [name]   Show or change theme (light, dark)\n\
                              :quit           Exit the REPL"
@@ -761,8 +775,21 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                         }
                         continue;
                     }
+                    // :time is handled here and in engine::repl_run (for WASM).
+                    if trimmed == ":time" {
+                        eprintln!("Usage: :time <expression>");
+                        continue;
+                    }
 
-                    let source = format!("{line}\n");
+                    let (source, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
+                        if expr.trim().is_empty() {
+                            eprintln!("Usage: :time <expression>");
+                            continue;
+                        }
+                        (format!("{expr}\n"), true)
+                    } else {
+                        (format!("{line}\n"), false)
+                    };
 
                     // Type-check with accumulated context.
                     let use_color = std::io::stderr().is_terminal();
@@ -776,12 +803,16 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                     }
 
                     // Execute.
+                    let start = timed.then(Instant::now);
                     match repl_exec(vm, &source, scope.clone()) {
                         Ok(_) => {
                             if !accumulated_source.is_empty() {
                                 accumulated_source.push('\n');
                             }
                             accumulated_source.push_str(&source);
+                            if let Some(start) = start {
+                                println!("Time: {}", format_elapsed(start.elapsed()));
+                            }
                         }
                         Err(exc) => {
                             if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
