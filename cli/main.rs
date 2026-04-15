@@ -292,7 +292,7 @@ fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
         .collect();
     db.project().set_included_paths(&mut db, sys_files);
 
-    let mut diagnostics = annotation_check(&db, level);
+    let mut diagnostics = annotation_check(&db, level, false);
     // Filter out unresolved-import errors for the spython library module,
     // which is frozen into the binary and not visible to ty's resolver.
     diagnostics.extend(db.check().into_iter().filter(|d| {

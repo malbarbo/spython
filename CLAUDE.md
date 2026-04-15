@@ -233,6 +233,26 @@ The `Level` enum lives in `engine/src/checker.rs` and is re-exported from
 `engine/src/lib.rs`. The WASM `repl_new` export accepts a `level: u8`
 parameter.
 
+### Beginner-level restrictions (0–3)
+
+Independent of which constructs are allowed at each level, levels 0 through
+3 apply additional lints aimed at common beginner mistakes. All are lifted
+at level 4:
+
+- `non-boolean-condition` — tests of `if`/`elif`/`while`/ternary/`assert`
+  and operands of `and`/`or`/`not` must have type `bool` (checked via ty's
+  inferred types, not just the AST).
+- `bool-in-arithmetic` — `bool` is not allowed as an operand of `+`, `-`,
+  `*`, `/`, `//`, `%`, `**`, augmented assignment with those operators, or
+  unary `+`/`-`.
+- `chained-comparison` — `Compare` with more than one comparator
+  (`a < b < c`, `a == b != c`) is rejected.
+- `bare-expression` — `Stmt::Expr` whose value isn't a `Call`,
+  `StringLiteral` (docstring), or `EllipsisLiteral` is rejected.
+  Suppressed in REPL context (`in_repl=true` in `check_file_annotations`)
+  since a bare expression at a REPL prompt is the display-result idiom.
+- `forbidden-default-arg` — function parameters cannot have default values.
+
 ## Annotation Rules
 
 Annotation lint rules in `engine/src/lints.rs` are checked at all levels:

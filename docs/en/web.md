@@ -60,6 +60,18 @@ The level selector in the toolbar controls which Python constructs are allowed:
 | 4     | Classes    | `class` with methods, `dict`/`set`, comprehensions, `lambda`          |
 | 5     | Full       | unrestricted (only annotations are still required)                    |
 
+Levels 0 through 3 apply extra restrictions aimed at common beginner
+mistakes, all lifted at level 4:
+
+- **Boolean conditions** — the test of `if`/`elif`/`while`/ternary/`assert`
+  and the operands of `and`/`or`/`not` must have type `bool`.
+- **No `bool` in arithmetic** — `bool` values are not allowed in `+`, `-`,
+  `*`, `/`, `//`, `%`, `**`, augmented assignment, or unary `+`/`-`.
+- **No chained comparisons** — `a < b < c` must be split with `and`.
+- **No bare expression statements** — an expression whose result is
+  discarded (other than a function call, a docstring, or `...`) is rejected.
+- **No default argument values** — function parameters cannot have defaults.
+
 
 # Themes
 

@@ -236,3 +236,77 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects chained comparisons like `a < b < c` or `a == b != c` at
+    /// teaching levels 0–3.
+    ///
+    /// ## Why is this bad?
+    /// Python interprets `a == b != c` as `(a == b) and (b != c)`, which is
+    /// surprising for beginners who expect left-to-right evaluation. Requiring
+    /// explicit `and` / `or` forces students to write what they mean.
+    ///
+    /// ## Example
+    /// ```python
+    /// if a < b < c:          # error: chained comparison
+    ///     pass
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// if a < b and b < c:
+    ///     pass
+    /// ```
+    pub(crate) static CHAINED_COMPARISON = {
+        summary: "chained comparison",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects expression statements whose result is discarded (other than
+    /// function calls and string/ellipsis literals) at teaching levels 0–3.
+    ///
+    /// ## Why is this bad?
+    /// An expression statement like `x + 1` has no effect — the value is
+    /// computed and thrown away. It usually means the student forgot an
+    /// assignment or a `print`. Calls are allowed because they may have side
+    /// effects, and string literals are allowed as docstrings.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(x: int) -> int:
+    ///     x + 1        # error: result is discarded
+    ///     return x
+    /// ```
+    pub(crate) static BARE_EXPRESSION = {
+        summary: "bare expression statement has no effect",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects default values on function parameters at teaching levels 0–3.
+    ///
+    /// ## Why is this bad?
+    /// Default arguments add subtle behavior — especially mutable defaults
+    /// that are shared between calls — and hide which values a function
+    /// actually needs. At the teaching levels, students should pass every
+    /// argument explicitly.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(x: int = 0) -> int:   # error: default argument
+    ///     return x
+    /// ```
+    pub(crate) static FORBIDDEN_DEFAULT_ARG = {
+        summary: "default argument value is not allowed at this level",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}

@@ -833,6 +833,215 @@ fn level4_allows_non_bool_if() {
     assert_eq!(out, "ok\n");
 }
 
+// --- Chained comparison tests ---
+
+#[test]
+fn level0_forbids_chained_comparison() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(a: int, b: int, c: int) -> bool:
+            return a < b < c
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("chained-comparison"),
+        "expected chained-comparison in stderr: {err}"
+    );
+}
+
+#[test]
+fn level1_forbids_mixed_chained_comparison() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(a: int, b: int, c: int) -> bool:
+            return a == b != c
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("chained-comparison"), "stderr: {err}");
+}
+
+#[test]
+fn level0_allows_single_comparison() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(a: int, b: int) -> bool:
+            return a < b
+        print(f(1, 2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True\n");
+}
+
+#[test]
+fn level4_allows_chained_comparison() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(a: int, b: int, c: int) -> bool:
+            return a < b < c
+        print(f(1, 2, 3))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True\n");
+}
+
+// --- Bare expression statement tests ---
+
+#[test]
+fn level0_forbids_bare_binop_statement() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            x + 1
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("bare-expression"),
+        "expected bare-expression in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_forbids_bare_name_statement() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            x
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bare-expression"), "stderr: {err}");
+}
+
+#[test]
+fn level0_forbids_bare_compare_statement() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            x == 0
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bare-expression"), "stderr: {err}");
+}
+
+#[test]
+fn level0_allows_call_statement() {
+    let (out, _, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> None:
+            print(x)
+        f(42)
+    "},
+    );
+    assert!(success);
+    assert_eq!(out, "42\n");
+}
+
+#[test]
+fn level0_allows_docstring() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {r#"
+        def f(x: int) -> int:
+            """Double x."""
+            return x * 2
+        print(f(3))
+    "#},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "6\n");
+}
+
+#[test]
+fn level4_allows_bare_expression_statement() {
+    let (out, _, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: int) -> int:
+            x + 1
+            return x
+        print(f(3))
+    "},
+    );
+    assert!(success);
+    assert_eq!(out, "3\n");
+}
+
+// --- Default argument tests ---
+
+#[test]
+fn level0_forbids_default_arg() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int = 0) -> int:
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("forbidden-default-arg"),
+        "expected forbidden-default-arg in stderr: {err}"
+    );
+}
+
+#[test]
+fn level3_forbids_default_arg_kwonly() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f(*, x: int = 0) -> int:
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("forbidden-default-arg"), "stderr: {err}");
+}
+
+#[test]
+fn level0_allows_function_without_default() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return x
+        print(f(5))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "5\n");
+}
+
+#[test]
+fn level4_allows_default_arg() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: int = 7) -> int:
+            return x
+        print(f())
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "7\n");
+}
+
 #[test]
 fn level5_allows_intenum_without_annotations() {
     let (_, _err, success) = run_level(

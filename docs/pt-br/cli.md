@@ -57,6 +57,30 @@ error[forbidden-selection]: `if` statement is not allowed at level 0 (Functions)
 ```
 
 
+## Restrições adicionais nos níveis 0–3
+
+Além de controlar quais construções estão disponíveis, os níveis 0 a 3
+aplicam restrições extras pensadas para evitar erros comuns de iniciantes.
+Todas elas são liberadas no nível 4.
+
+- **Condições booleanas** — o teste de `if`/`elif`/`while`/ternário/`assert`
+  e os operandos de `and`/`or`/`not` precisam ter tipo `bool`. "Truthiness"
+  implícita (`if x:` com `x: int`) é rejeitada.
+- **Sem `bool` em aritmética** — valores `bool` não são aceitos como
+  operandos de `+`, `-`, `*`, `/`, `//`, `%`, `**`, atribuição aumentada ou
+  unário `+`/`-`. Isso evita bugs de aluno como `x + True`, que funciona
+  silenciosamente porque `bool` é subclasse de `int`.
+- **Sem comparações encadeadas** — `a < b < c` e `a == b != c` precisam ser
+  desmembradas com `and`, já que a semântica de comparação encadeada do
+  Python é confusa para iniciantes.
+- **Sem expressão como statement** — uma expressão cujo resultado é
+  descartado (qualquer coisa que não seja uma chamada de função, uma
+  docstring ou `...`) é rejeitada, capturando casos como `x + 1` onde o
+  aluno esqueceu de atribuir ou imprimir.
+- **Sem valores padrão em parâmetros** — parâmetros de função não podem ter
+  valores padrão; todo argumento deve ser passado explicitamente.
+
+
 ## Anotações obrigatórias
 
 Em todos os níveis, o spython exige anotações de tipo completas:

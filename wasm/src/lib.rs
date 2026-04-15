@@ -63,7 +63,7 @@ pub unsafe extern "C" fn repl_new(
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
     if !source.trim().is_empty() {
-        match type_check_source(&source, level) {
+        match type_check_source(&source, level, false) {
             Err(te) => {
                 print_type_errors(&te.db, &te.diagnostics, true);
                 return std::ptr::null_mut();

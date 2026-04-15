@@ -69,6 +69,12 @@ spython
 | 4     | Classes    | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
 | 5     | Full       | unrestricted (only annotations still required)                    |
 
+Levels 0 through 3 also apply extra restrictions aimed at common beginner
+mistakes (all lifted at level 4): conditions must be boolean, `bool` is
+not allowed in arithmetic, chained comparisons are rejected, expression
+statements whose result is discarded are rejected, and function parameters
+cannot have default values.
+
 ## Standard Library
 
 spython ships with a minimal subset of the Python standard library. The goal is

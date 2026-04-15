@@ -64,6 +64,7 @@ pub fn new_interpreter() -> vm::Interpreter {
 pub fn type_check_source(
     source: &str,
     level: Level,
+    in_repl: bool,
 ) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
     let system = InMemorySystem::new(cwd.clone());
@@ -81,7 +82,7 @@ pub fn type_check_source(
 
     db.project().set_included_paths(&mut db, vec![file_path]);
 
-    let mut diagnostics = annotation_check(&db, level);
+    let mut diagnostics = annotation_check(&db, level, in_repl);
     // Filter out unresolved-import errors for the spython library module,
     // which is frozen into the binary and not visible to ty's resolver.
     diagnostics.extend(db.check().into_iter().filter(|d| {
@@ -103,7 +104,7 @@ pub fn type_check_source(
 /// Run the annotation checker on all files registered in `db`.
 pub use checker::Level;
 
-pub fn annotation_check(db: &ProjectDatabase, level: Level) -> Vec<Diagnostic> {
+pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in &db.project().files(db) {
         // Skip library code (Lib/spython/) — only check student files.
@@ -112,7 +113,7 @@ pub fn annotation_check(db: &ProjectDatabase, level: Level) -> Vec<Diagnostic> {
             .as_system_path()
             .is_some_and(|p| p.as_str().contains("/Lib/spython/"));
         if !is_spython_library {
-            diagnostics.extend(checker::check_file_annotations(db, file, level));
+            diagnostics.extend(checker::check_file_annotations(db, file, level, in_repl));
         }
     }
     diagnostics
@@ -230,7 +231,7 @@ pub fn type_check_repl_input(
         format!("{accumulated}\n{new_input}")
     };
 
-    let te = match type_check_source(&combined, level) {
+    let te = match type_check_source(&combined, level, true) {
         Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };

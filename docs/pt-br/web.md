@@ -60,6 +60,21 @@ O seletor de nível na barra de ferramentas controla quais construções de Pyth
 | 4     | Classes   | `class` com métodos, `dict`/`set`, compreensões, `lambda`            |
 | 5     | Completo  | irrestrito (apenas anotações são exigidas)                           |
 
+Os níveis 0 a 3 aplicam restrições extras focadas em erros comuns de
+iniciantes, todas liberadas no nível 4:
+
+- **Condições booleanas** — o teste de `if`/`elif`/`while`/ternário/`assert`
+  e os operandos de `and`/`or`/`not` precisam ter tipo `bool`.
+- **Sem `bool` em aritmética** — valores `bool` não são aceitos em `+`, `-`,
+  `*`, `/`, `//`, `%`, `**`, atribuição aumentada ou unário `+`/`-`.
+- **Sem comparações encadeadas** — `a < b < c` precisa ser desmembrada com
+  `and`.
+- **Sem expressão como statement** — uma expressão cujo resultado é
+  descartado (que não seja chamada de função, docstring ou `...`) é
+  rejeitada.
+- **Sem valores padrão em parâmetros** — parâmetros de função não podem ter
+  valores padrão.
+
 
 # Temas
 
