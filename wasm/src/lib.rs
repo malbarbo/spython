@@ -1,5 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
+#[cfg(feature = "wasm-backend")]
+use engine::execute_source;
 use engine::{ReplState, format_source, print_type_errors, type_check_source};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -88,6 +90,45 @@ pub unsafe extern "C" fn repl_new(
         }
     }
     Box::leak(engine::repl_new(&source, level))
+}
+
+/// Type-check `code` and, if no errors, execute it as a script.
+/// Returns 0 on success, 1 on type errors or execution failure.
+/// `filename` is used in Python tracebacks.
+///
+/// Only compiled when the `wasm-backend` feature is enabled — used by the
+/// `wasm/spython.ts` wrapper that backs dual-run integration tests. The
+/// distributed production binary does not include this export.
+#[cfg(feature = "wasm-backend")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn run_source(
+    code_ptr: *mut u8,
+    code_len: usize,
+    filename_ptr: *mut u8,
+    filename_len: usize,
+    config_ptr: *mut u8,
+    config_len: usize,
+) -> u32 {
+    init();
+    let source = new_string(code_ptr, code_len);
+    let filename = new_string(filename_ptr, filename_len);
+    let config = new_string(config_ptr, config_len);
+    let level = parse_config_level(&config);
+    match type_check_source(&source, level, false) {
+        Err(te) => {
+            print_type_errors(&te.db, &te.diagnostics, false);
+            return 1;
+        }
+        Ok(Some(te)) => {
+            print_type_errors(&te.db, &te.diagnostics, false);
+        }
+        Ok(None) => {}
+    }
+    if execute_source(&source, &filename, "/") {
+        0
+    } else {
+        1
+    }
 }
 
 #[unsafe(no_mangle)]

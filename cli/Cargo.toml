@@ -20,7 +20,16 @@ dirs = { package = "dirs-next", version = "2.0" }
 walkdir = "2"
 dunce = "1"
 
+[features]
+# When enabled, the CLI integration tests also run their `spython run FILE.py`
+# invocations through the WASM backend (via `wasm/spython.ts` + Deno) and
+# assert that stdout/stderr match the native binary after normalization.
+# Requires the `wasm32-wasip1` target and Deno on PATH. Enable with
+# `cargo test -p cli --features wasm-backend --test cli`.
+wasm-backend = []
+
 [dev-dependencies]
 assert_cmd = "2.0.16"
 indoc = "2"
 insta = { version = "1.41.1", features = ["glob", "filters"] }
+regex = "1"

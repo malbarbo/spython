@@ -17,3 +17,13 @@ panic = "abort"
 inherits = "release"
 opt-level = 's'
 panic = "abort"
+
+# Optimize dependencies in debug / test builds. RustPython's VM has deep
+# call chains during interpreter init; with unoptimized frames (especially
+# on aarch64) these chains consume >4 MB of C stack, tripping the
+# `MAX_C_STACK_USAGE` guard in the spython-0.1 fork with a RecursionError
+# during `_frozen_importlib` load. Optimizing third-party deps shrinks
+# those frames enough to bring init comfortably back under the guard.
+# Workspace crates stay unoptimized so edit-build-test stays snappy.
+[profile.dev.package."*"]
+opt-level = 2

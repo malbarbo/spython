@@ -52,6 +52,9 @@ jobs:
       - name: Build & Test
         run: make test-wasm
 
+      - name: Run CLI tests against WASM backend
+        run: make test-wasm-cli
+
   test:
     name: Test (${{ matrix.os }} / ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -98,7 +101,11 @@ jobs:
         run: echo "${{ matrix.linker }}" >> $GITHUB_ENV
 
       - name: Run tests
+        env:
+          RUST_BACKTRACE: "1"
         run: cargo test --target ${{ matrix.target }}
 
       - name: Run image tests
+        env:
+          RUST_BACKTRACE: "1"
         run: cargo test --target ${{ matrix.target }} -- --ignored

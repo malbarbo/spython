@@ -441,6 +441,7 @@ dependencies = [
  "engine",
  "indoc",
  "insta",
+ "regex",
  "ruff_db",
  "ruff_python_ast",
  "rustpython-compiler",

@@ -7,5 +7,12 @@ edition = "2024"
 name = "spython"
 crate-type = ["cdylib"]
 
+[features]
+# Extra exports used only by the dual-run integration tests in
+# `cli/tests/cli.rs` (via `wasm/spython.ts`). Not compiled into the
+# production binary — keeps the distributed WASM lean. Paired with
+# the identically-named feature on the `cli` crate.
+wasm-backend = []
+
 [dependencies]
 engine = { path = "../engine" }

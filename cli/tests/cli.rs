@@ -9,6 +9,80 @@ fn normalize_output(s: &str) -> String {
     s.replace('\r', "").replace('\\', "/")
 }
 
+/// Run `spython <args>` with the given cwd. Used by helpers that can be
+/// dual-checked against the WASM backend. When the `wasm-backend` feature is
+/// enabled, also runs the Deno wrapper with the same args and asserts that
+/// stdout/stderr match after normalization.
+fn run_spython_cmd(args: &[&str], cwd: &Path) -> (String, String, bool) {
+    let native = run_spython_native(args, cwd);
+    #[cfg(feature = "wasm-backend")]
+    {
+        let wasm = run_spython_wasm(args, cwd);
+        let norm = |s: &str| normalize_diagnostic_paths(s);
+        assert_eq!(
+            norm(&native.0),
+            norm(&wasm.0),
+            "stdout: native vs wasm differ for args {args:?}"
+        );
+        assert_eq!(
+            norm(&native.1),
+            norm(&wasm.1),
+            "stderr: native vs wasm differ for args {args:?}"
+        );
+        assert_eq!(
+            native.2, wasm.2,
+            "exit status: native vs wasm differ for args {args:?}"
+        );
+    }
+    native
+}
+
+fn run_spython_native(args: &[&str], cwd: &Path) -> (String, String, bool) {
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .current_dir(cwd)
+        .args(args)
+        .output()
+        .expect("failed to run spython");
+    (
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
+        output.status.success(),
+    )
+}
+
+#[cfg(feature = "wasm-backend")]
+fn run_spython_wasm(args: &[&str], cwd: &Path) -> (String, String, bool) {
+    let wrapper = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("wasm")
+        .join("spython.ts")
+        .canonicalize()
+        .expect("canonicalize wasm/spython.ts");
+    let mut cmd = Command::new("deno");
+    cmd.current_dir(cwd)
+        .args(["run", "--quiet", "--allow-read"])
+        .arg(&wrapper)
+        .args(args);
+    let output = cmd.output().expect("failed to run deno wrapper");
+    (
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
+        output.status.success(),
+    )
+}
+
+/// Collapse every `<path>.py:` token down to `<file>.py:`. The native
+/// binary reports a relative path, while the WASM backend reports
+/// `user.py` (the in-memory name). Collapsing both to a canonical form
+/// lets dual-run compare diagnostic bodies without caring about paths.
+#[cfg(feature = "wasm-backend")]
+fn normalize_diagnostic_paths(s: &str) -> String {
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"[\w./-]+\.py").unwrap());
+    re.replace_all(s, "<file>.py").into_owned()
+}
+
 fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
     let check_inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs"));
     let mut cmd = Command::new(cargo::cargo_bin!("spython"));
@@ -30,23 +104,49 @@ fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
 
 fn run_spython(path: &Path) -> (String, String) {
     let dir = path.parent().expect("path has parent");
-    let filename = path.file_name().expect("path has filename");
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .current_dir(dir)
-        .args(["run", "--level", "4"])
-        .arg(filename)
-        .output()
-        .expect("failed to run spython");
-    (
-        normalize_output(&String::from_utf8_lossy(&output.stdout)),
-        normalize_output(&String::from_utf8_lossy(&output.stderr)),
-    )
+    let filename = path
+        .file_name()
+        .expect("path has filename")
+        .to_str()
+        .expect("filename is utf8");
+    let (out, err, _) = run_spython_cmd(&["run", "--level", "4", filename], dir);
+    (out, err)
+}
+
+/// Like `run_spython`, but skips the dual-run even when `wasm-backend` is
+/// enabled. Use for tests that depend on capabilities the WASM backend
+/// doesn't support (multi-file imports, stdlib `open`, `os`, PNG output, etc.).
+fn run_spython_native_only(path: &Path) -> (String, String) {
+    let dir = path.parent().expect("path has parent");
+    let filename = path
+        .file_name()
+        .expect("path has filename")
+        .to_str()
+        .expect("filename is utf8");
+    let (out, err, _) = run_spython_native(&["run", "--level", "4", filename], dir);
+    (out, err)
+}
+
+fn run_level_native_only(level: u8, code: &str) -> (String, String, bool) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir();
+    let filename = format!("_spython_level_native_{n}.py");
+    let file = dir.join(&filename);
+    std::fs::write(&file, code).unwrap();
+    let level_str = level.to_string();
+    let result = run_spython_native(&["run", "--level", &level_str, &filename], &dir);
+    let _ = std::fs::remove_file(&file);
+    result
 }
 
 #[test]
 fn run_files() {
+    // Native-only: `inputs/*.py` includes multi-file import tests that the
+    // WASM backend cannot execute (single-buffer source).
     glob!("inputs/*.py", |path| {
-        let (out, err) = run_spython(path);
+        let (out, err) = run_spython_native_only(path);
         assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
     });
 }
@@ -65,7 +165,7 @@ fn ok_simple() {
 #[test]
 fn check_ok() {
     let (out, err, success) = run_check(&["ok.py"], &[]);
-    assert!(success);
+    assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(out, "");
     assert_eq!(
         err,
@@ -281,20 +381,13 @@ fn run_level(level: u8, code: &str) -> (String, String, bool) {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir();
-    let file = dir.join(format!("_spython_level_test_{n}.py"));
+    let filename = format!("_spython_level_test_{n}.py");
+    let file = dir.join(&filename);
     std::fs::write(&file, code).unwrap();
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .current_dir(&dir)
-        .args(["run", "--level", &level.to_string()])
-        .arg(&file)
-        .output()
-        .expect("failed to run spython");
+    let level_str = level.to_string();
+    let result = run_spython_cmd(&["run", "--level", &level_str, &filename], &dir);
     let _ = std::fs::remove_file(&file);
-    (
-        normalize_output(&String::from_utf8_lossy(&output.stdout)),
-        normalize_output(&String::from_utf8_lossy(&output.stderr)),
-        output.status.success(),
-    )
+    result
 }
 
 #[test]
@@ -600,13 +693,15 @@ fn level5_allows_try() {
 
 #[test]
 fn level5_allows_with() {
+    // Native-only: `open()` on /dev/null requires WASI `path_open`, which
+    // the minimal WASI polyfill used by the Deno wrapper does not provide.
     let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let code = formatdoc! {"
         with open('{null_path}') as f:
             pass
         print('ok')
     "};
-    let (out, _, success) = run_level(5, &code);
+    let (out, _, success) = run_level_native_only(5, &code);
     assert!(success);
     assert_eq!(out, "ok\n");
 }
