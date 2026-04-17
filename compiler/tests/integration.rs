@@ -214,6 +214,21 @@ fn _ignore_level2_match_struct() {
     run(include_str!("integration/level2/match_struct.py"));
 }
 
+// #[test] sequence match patterns ([x], [x, y], [x, *rest]) not supported
+fn _ignore_level2_match_tuple() {
+    run(include_str!("integration/level2/match_tuple.py"));
+}
+
+// #[test] nested sequence patterns ([[x1, y1], [x2, y2]]) not supported
+fn _ignore_level2_match_nested() {
+    run(include_str!("integration/level2/match_nested.py"));
+}
+
+// #[test] class match patterns (Expr(op=Op.NEG, args=[x])) not supported
+fn _ignore_level2_match_mixed() {
+    run(include_str!("integration/level2/match_mixed.py"));
+}
+
 // =====================================================================
 // Level 3 — Repetition and lists
 // =====================================================================
