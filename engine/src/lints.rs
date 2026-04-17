@@ -310,3 +310,36 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects docstring lines that start with `>>>` or `...` but are not
+    /// followed by a single space (e.g. `>>>foo`). The doctest runner and
+    /// the stdlib `doctest` module silently ignore such lines, so the test
+    /// appears to pass while not running at all.
+    ///
+    /// ## Example
+    /// ```python
+    /// def add(x: int, y: int) -> int:
+    ///     """
+    ///     >>>add(1, 2)    # error: missing space after `>>>`
+    ///     3
+    ///     """
+    ///     return x + y
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def add(x: int, y: int) -> int:
+    ///     """
+    ///     >>> add(1, 2)
+    ///     3
+    ///     """
+    ///     return x + y
+    /// ```
+    pub(crate) static DOCTEST_MALFORMED_PROMPT = {
+        summary: "malformed doctest prompt",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}

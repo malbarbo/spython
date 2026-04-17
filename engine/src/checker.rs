@@ -79,385 +79,313 @@ pub fn check_file_annotations(
     in_repl: bool,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-
     let parsed = parsed_module(db, file);
     let module = parsed.load(db);
-
     let model = SemanticModel::new(db, file);
-    check_stmts(
-        module.suite(),
+    let checker = Checker {
         file,
-        &mut diagnostics,
-        false,
+        model: &model,
         level,
-        &model,
         in_repl,
-    );
-
+    };
+    checker.check_stmts(module.suite(), &mut diagnostics, false, false);
     diagnostics
 }
 
-/// Recursively check a list of statements.
-fn check_stmts(
-    stmts: &[Stmt],
+/// Per-file immutable context shared by every recursive check call.
+///
+/// `in_class` and `in_doctest` flip as recursion enters a class body or a
+/// synthetic doctest wrapper function, so they stay as method parameters
+/// instead of fields.
+struct Checker<'a> {
     file: File,
-    diagnostics: &mut Vec<Diagnostic>,
-    in_class: bool,
+    model: &'a SemanticModel<'a>,
     level: Level,
-    model: &SemanticModel<'_>,
     in_repl: bool,
-) {
-    for stmt in stmts {
-        check_stmt(stmt, file, diagnostics, in_class, level, model, in_repl);
-    }
 }
 
-/// Check a single statement for annotations and forbidden constructs.
-fn check_stmt(
-    stmt: &Stmt,
-    file: File,
-    diagnostics: &mut Vec<Diagnostic>,
-    in_class: bool,
-    level: Level,
-    model: &SemanticModel<'_>,
-    in_repl: bool,
-) {
-    match stmt {
-        Stmt::FunctionDef(func) => {
-            if func.is_async && level < Level::Full {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_CONSTRUCT,
-                    file,
-                    func.range(),
-                    forbidden_msg("`async def`", level, Level::Full),
-                ));
-            }
-            check_function(func, file, diagnostics, in_class, level);
-            check_stmts(&func.body, file, diagnostics, false, level, model, in_repl);
-            check_decorators(&func.decorator_list, file, diagnostics, level, model);
+impl Checker<'_> {
+    /// Recursively check a list of statements.
+    ///
+    /// `in_doctest` is true when we are inside a synthetic
+    /// `__spython_doctest_N__` wrapper function — it suppresses
+    /// `BARE_EXPRESSION` the same way `in_repl` does, since `>>> x` in a
+    /// docstring is a value-display idiom.
+    fn check_stmts(
+        &self,
+        stmts: &[Stmt],
+        diagnostics: &mut Vec<Diagnostic>,
+        in_class: bool,
+        in_doctest: bool,
+    ) {
+        for stmt in stmts {
+            self.check_stmt(stmt, diagnostics, in_class, in_doctest);
         }
-        Stmt::ClassDef(cls) => {
-            if level < Level::UserTypes {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_CLASS,
-                    file,
-                    cls.name.range(),
-                    forbidden_msg("`class`", level, Level::UserTypes),
-                ));
-            } else {
-                // Check for methods (FunctionDef inside class) before level 4
-                if level < Level::Classes {
-                    for body_stmt in &cls.body {
-                        if let Stmt::FunctionDef(func) = body_stmt {
-                            diagnostics.push(make_lint_diagnostic(
-                                &FORBIDDEN_CLASS_METHOD,
-                                file,
-                                func.name.range(),
-                                forbidden_msg("Methods in classes", level, Level::Classes),
-                            ));
+    }
+
+    /// Check a single statement for annotations and forbidden constructs.
+    fn check_stmt(
+        &self,
+        stmt: &Stmt,
+        diagnostics: &mut Vec<Diagnostic>,
+        in_class: bool,
+        in_doctest: bool,
+    ) {
+        let file = self.file;
+        let level = self.level;
+        let model = self.model;
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                if func.is_async && level < Level::Full {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_CONSTRUCT,
+                        file,
+                        func.range(),
+                        forbidden_msg("`async def`", level, Level::Full),
+                    ));
+                }
+                check_function(func, file, diagnostics, in_class, level);
+                let body_in_doctest =
+                    in_doctest || crate::doctests::is_synthetic_fn_name(func.name.as_str());
+                self.check_stmts(&func.body, diagnostics, false, body_in_doctest);
+                check_decorators(&func.decorator_list, file, diagnostics, level, model);
+            }
+            Stmt::ClassDef(cls) => {
+                if level < Level::UserTypes {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_CLASS,
+                        file,
+                        cls.name.range(),
+                        forbidden_msg("`class`", level, Level::UserTypes),
+                    ));
+                } else {
+                    // Check for methods (FunctionDef inside class) before level 4
+                    if level < Level::Classes {
+                        for body_stmt in &cls.body {
+                            if let Stmt::FunctionDef(func) = body_stmt {
+                                diagnostics.push(make_lint_diagnostic(
+                                    &FORBIDDEN_CLASS_METHOD,
+                                    file,
+                                    func.name.range(),
+                                    forbidden_msg("Methods in classes", level, Level::Classes),
+                                ));
+                            }
                         }
                     }
+                    // Skip annotation check for Enum subclasses — Enum members
+                    // don't need (and shouldn't have) type annotations.
+                    let is_enum = cls.arguments.as_ref().is_some_and(|args| {
+                        args.args.iter().any(|arg| {
+                            matches!(arg, Expr::Name(name)
+                                if matches!(name.id.as_str(),
+                                    "Enum" | "IntEnum" | "StrEnum" | "Flag" | "IntFlag"))
+                        })
+                    });
+                    if !is_enum {
+                        check_class_body(cls, file, diagnostics);
+                    }
                 }
-                // Skip annotation check for Enum subclasses — Enum members
-                // don't need (and shouldn't have) type annotations.
-                let is_enum = cls.arguments.as_ref().is_some_and(|args| {
-                    args.args.iter().any(|arg| {
-                        matches!(arg, Expr::Name(name)
-                            if matches!(name.id.as_str(),
-                                "Enum" | "IntEnum" | "StrEnum" | "Flag" | "IntFlag"))
-                    })
-                });
-                if !is_enum {
-                    check_class_body(cls, file, diagnostics);
+                self.check_stmts(&cls.body, diagnostics, true, in_doctest);
+                check_decorators(&cls.decorator_list, file, diagnostics, level, model);
+            }
+            Stmt::For(for_stmt) => {
+                if for_stmt.is_async && level < Level::Full {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_CONSTRUCT,
+                        file,
+                        for_stmt.range(),
+                        forbidden_msg("`async for`", level, Level::Full),
+                    ));
+                } else if level < Level::Repetition {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_LOOP,
+                        file,
+                        for_stmt.range(),
+                        forbidden_msg("`for` loop", level, Level::Repetition),
+                    ));
+                }
+                check_expr(&for_stmt.iter, file, diagnostics, level, model);
+                self.check_stmts(&for_stmt.body, diagnostics, in_class, in_doctest);
+                self.check_stmts(&for_stmt.orelse, diagnostics, in_class, in_doctest);
+            }
+            Stmt::While(while_stmt) => {
+                if level < Level::Repetition {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_LOOP,
+                        file,
+                        while_stmt.range(),
+                        forbidden_msg("`while` loop", level, Level::Repetition),
+                    ));
+                }
+                check_bool_ctx(&while_stmt.test, file, diagnostics, level, model);
+                check_expr(&while_stmt.test, file, diagnostics, level, model);
+                self.check_stmts(&while_stmt.body, diagnostics, in_class, in_doctest);
+                self.check_stmts(&while_stmt.orelse, diagnostics, in_class, in_doctest);
+            }
+            Stmt::If(if_stmt) => {
+                if level < Level::Selection {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_SELECTION,
+                        file,
+                        if_stmt.range(),
+                        forbidden_msg("`if`", level, Level::Selection),
+                    ));
+                }
+                check_bool_ctx(&if_stmt.test, file, diagnostics, level, model);
+                check_expr(&if_stmt.test, file, diagnostics, level, model);
+                self.check_stmts(&if_stmt.body, diagnostics, in_class, in_doctest);
+                for clause in &if_stmt.elif_else_clauses {
+                    if let Some(test) = &clause.test {
+                        check_bool_ctx(test, file, diagnostics, level, model);
+                        check_expr(test, file, diagnostics, level, model);
+                    }
+                    self.check_stmts(&clause.body, diagnostics, in_class, in_doctest);
                 }
             }
-            check_stmts(&cls.body, file, diagnostics, true, level, model, in_repl);
-            check_decorators(&cls.decorator_list, file, diagnostics, level, model);
-        }
-        Stmt::For(for_stmt) => {
-            if for_stmt.is_async && level < Level::Full {
+            Stmt::Match(match_stmt) => {
+                if level < Level::UserTypes {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_MATCH,
+                        file,
+                        match_stmt.range(),
+                        forbidden_msg("`match`", level, Level::UserTypes),
+                    ));
+                }
+                check_expr(&match_stmt.subject, file, diagnostics, level, model);
+                for case in &match_stmt.cases {
+                    if let Some(guard) = &case.guard {
+                        check_expr(guard, file, diagnostics, level, model);
+                    }
+                    self.check_stmts(&case.body, diagnostics, in_class, in_doctest);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                if level < Level::Full {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_CONSTRUCT,
+                        file,
+                        with_stmt.range(),
+                        forbidden_msg("`with`", level, Level::Full),
+                    ));
+                }
+                for item in &with_stmt.items {
+                    check_expr(&item.context_expr, file, diagnostics, level, model);
+                }
+                self.check_stmts(&with_stmt.body, diagnostics, in_class, in_doctest);
+            }
+            Stmt::Try(try_stmt) => {
+                if level < Level::Full {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_CONSTRUCT,
+                        file,
+                        try_stmt.range(),
+                        forbidden_msg("`try`", level, Level::Full),
+                    ));
+                }
+                self.check_stmts(&try_stmt.body, diagnostics, in_class, in_doctest);
+                for handler in &try_stmt.handlers {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                    self.check_stmts(&h.body, diagnostics, in_class, in_doctest);
+                }
+                self.check_stmts(&try_stmt.orelse, diagnostics, in_class, in_doctest);
+                self.check_stmts(&try_stmt.finalbody, diagnostics, in_class, in_doctest);
+            }
+            Stmt::Global(global_stmt) if level < Level::Full => {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_CONSTRUCT,
                     file,
-                    for_stmt.range(),
-                    forbidden_msg("`async for`", level, Level::Full),
-                ));
-            } else if level < Level::Repetition {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_LOOP,
-                    file,
-                    for_stmt.range(),
-                    forbidden_msg("`for` loop", level, Level::Repetition),
+                    global_stmt.range(),
+                    forbidden_msg("`global`", level, Level::Full),
                 ));
             }
-            check_expr(&for_stmt.iter, file, diagnostics, level, model);
-            check_stmts(
-                &for_stmt.body,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-            check_stmts(
-                &for_stmt.orelse,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-        }
-        Stmt::While(while_stmt) => {
-            if level < Level::Repetition {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_LOOP,
-                    file,
-                    while_stmt.range(),
-                    forbidden_msg("`while` loop", level, Level::Repetition),
-                ));
-            }
-            check_bool_ctx(&while_stmt.test, file, diagnostics, level, model);
-            check_expr(&while_stmt.test, file, diagnostics, level, model);
-            check_stmts(
-                &while_stmt.body,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-            check_stmts(
-                &while_stmt.orelse,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-        }
-        Stmt::If(if_stmt) => {
-            if level < Level::Selection {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_SELECTION,
-                    file,
-                    if_stmt.range(),
-                    forbidden_msg("`if`", level, Level::Selection),
-                ));
-            }
-            check_bool_ctx(&if_stmt.test, file, diagnostics, level, model);
-            check_expr(&if_stmt.test, file, diagnostics, level, model);
-            check_stmts(
-                &if_stmt.body,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-            for clause in &if_stmt.elif_else_clauses {
-                if let Some(test) = &clause.test {
-                    check_bool_ctx(test, file, diagnostics, level, model);
-                    check_expr(test, file, diagnostics, level, model);
-                }
-                check_stmts(
-                    &clause.body,
-                    file,
-                    diagnostics,
-                    in_class,
-                    level,
-                    model,
-                    in_repl,
-                );
-            }
-        }
-        Stmt::Match(match_stmt) => {
-            if level < Level::UserTypes {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_MATCH,
-                    file,
-                    match_stmt.range(),
-                    forbidden_msg("`match`", level, Level::UserTypes),
-                ));
-            }
-            check_expr(&match_stmt.subject, file, diagnostics, level, model);
-            for case in &match_stmt.cases {
-                if let Some(guard) = &case.guard {
-                    check_expr(guard, file, diagnostics, level, model);
-                }
-                check_stmts(
-                    &case.body,
-                    file,
-                    diagnostics,
-                    in_class,
-                    level,
-                    model,
-                    in_repl,
-                );
-            }
-        }
-        Stmt::With(with_stmt) => {
-            if level < Level::Full {
+            Stmt::Nonlocal(nonlocal_stmt) if level < Level::Full => {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_CONSTRUCT,
                     file,
-                    with_stmt.range(),
-                    forbidden_msg("`with`", level, Level::Full),
+                    nonlocal_stmt.range(),
+                    forbidden_msg("`nonlocal`", level, Level::Full),
                 ));
             }
-            for item in &with_stmt.items {
-                check_expr(&item.context_expr, file, diagnostics, level, model);
-            }
-            check_stmts(
-                &with_stmt.body,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-        }
-        Stmt::Try(try_stmt) => {
-            if level < Level::Full {
+            Stmt::Delete(del_stmt) if level < Level::Full => {
                 diagnostics.push(make_lint_diagnostic(
                     &FORBIDDEN_CONSTRUCT,
                     file,
-                    try_stmt.range(),
-                    forbidden_msg("`try`", level, Level::Full),
+                    del_stmt.range(),
+                    forbidden_msg("`del`", level, Level::Full),
                 ));
             }
-            check_stmts(
-                &try_stmt.body,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-            for handler in &try_stmt.handlers {
-                let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                check_stmts(&h.body, file, diagnostics, in_class, level, model, in_repl);
+            Stmt::AugAssign(aug) => {
+                if level < Level::Repetition {
+                    diagnostics.push(make_lint_diagnostic(
+                        &FORBIDDEN_AUG_ASSIGN,
+                        file,
+                        aug.range(),
+                        forbidden_msg("Augmented assignment", level, Level::Repetition),
+                    ));
+                }
+                if is_arithmetic_op(aug.op) {
+                    reject_bool_arith_operand(&aug.target, file, diagnostics, level, model);
+                    reject_bool_arith_operand(&aug.value, file, diagnostics, level, model);
+                }
+                check_expr(&aug.value, file, diagnostics, level, model);
             }
-            check_stmts(
-                &try_stmt.orelse,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-            check_stmts(
-                &try_stmt.finalbody,
-                file,
-                diagnostics,
-                in_class,
-                level,
-                model,
-                in_repl,
-            );
-        }
-        Stmt::Global(global_stmt) if level < Level::Full => {
-            diagnostics.push(make_lint_diagnostic(
-                &FORBIDDEN_CONSTRUCT,
-                file,
-                global_stmt.range(),
-                forbidden_msg("`global`", level, Level::Full),
-            ));
-        }
-        Stmt::Nonlocal(nonlocal_stmt) if level < Level::Full => {
-            diagnostics.push(make_lint_diagnostic(
-                &FORBIDDEN_CONSTRUCT,
-                file,
-                nonlocal_stmt.range(),
-                forbidden_msg("`nonlocal`", level, Level::Full),
-            ));
-        }
-        Stmt::Delete(del_stmt) if level < Level::Full => {
-            diagnostics.push(make_lint_diagnostic(
-                &FORBIDDEN_CONSTRUCT,
-                file,
-                del_stmt.range(),
-                forbidden_msg("`del`", level, Level::Full),
-            ));
-        }
-        Stmt::AugAssign(aug) => {
-            if level < Level::Repetition {
-                diagnostics.push(make_lint_diagnostic(
-                    &FORBIDDEN_AUG_ASSIGN,
-                    file,
-                    aug.range(),
-                    forbidden_msg("Augmented assignment", level, Level::Repetition),
-                ));
+            // Statements that are always allowed but may contain expressions to check
+            Stmt::Return(ret) => {
+                if let Some(value) = &ret.value {
+                    check_expr(value, file, diagnostics, level, model);
+                }
             }
-            if is_arithmetic_op(aug.op) {
-                reject_bool_arith_operand(&aug.target, file, diagnostics, level, model);
-                reject_bool_arith_operand(&aug.value, file, diagnostics, level, model);
+            Stmt::Assign(assign) => {
+                check_expr(&assign.value, file, diagnostics, level, model);
             }
-            check_expr(&aug.value, file, diagnostics, level, model);
-        }
-        // Statements that are always allowed but may contain expressions to check
-        Stmt::Return(ret) => {
-            if let Some(value) = &ret.value {
-                check_expr(value, file, diagnostics, level, model);
+            Stmt::AnnAssign(ann) => {
+                if let Some(value) = &ann.value {
+                    check_expr(value, file, diagnostics, level, model);
+                }
             }
-        }
-        Stmt::Assign(assign) => {
-            check_expr(&assign.value, file, diagnostics, level, model);
-        }
-        Stmt::AnnAssign(ann) => {
-            if let Some(value) = &ann.value {
-                check_expr(value, file, diagnostics, level, model);
+            Stmt::Expr(expr_stmt) => {
+                if !self.in_repl
+                    && !in_doctest
+                    && level < Level::Classes
+                    && !matches!(
+                        &*expr_stmt.value,
+                        Expr::Call(_) | Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
+                    )
+                {
+                    diagnostics.push(make_lint_diagnostic(
+                        &BARE_EXPRESSION,
+                        file,
+                        expr_stmt.range(),
+                        "Expression statement has no effect; did you forget `=` or `print(...)`?"
+                            .to_owned(),
+                    ));
+                }
+                check_expr(&expr_stmt.value, file, diagnostics, level, model);
             }
-        }
-        Stmt::Expr(expr_stmt) => {
-            if !in_repl
-                && level < Level::Classes
-                && !matches!(
-                    &*expr_stmt.value,
-                    Expr::Call(_) | Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
-                )
-            {
-                diagnostics.push(make_lint_diagnostic(
-                    &BARE_EXPRESSION,
-                    file,
-                    expr_stmt.range(),
-                    "Expression statement has no effect; did you forget `=` or `print(...)`?"
-                        .to_owned(),
-                ));
+            Stmt::Assert(assert_stmt) => {
+                check_bool_ctx(&assert_stmt.test, file, diagnostics, level, model);
+                check_expr(&assert_stmt.test, file, diagnostics, level, model);
+                if let Some(msg) = &assert_stmt.msg {
+                    check_expr(msg, file, diagnostics, level, model);
+                }
             }
-            check_expr(&expr_stmt.value, file, diagnostics, level, model);
-        }
-        Stmt::Assert(assert_stmt) => {
-            check_bool_ctx(&assert_stmt.test, file, diagnostics, level, model);
-            check_expr(&assert_stmt.test, file, diagnostics, level, model);
-            if let Some(msg) = &assert_stmt.msg {
-                check_expr(msg, file, diagnostics, level, model);
+            Stmt::Raise(raise) => {
+                if let Some(exc) = &raise.exc {
+                    check_expr(exc, file, diagnostics, level, model);
+                }
             }
+            // Always allowed (or allowed at level 5), no sub-expressions to check
+            Stmt::Import(_)
+            | Stmt::ImportFrom(_)
+            | Stmt::Pass(_)
+            | Stmt::Break(_)
+            | Stmt::Continue(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::IpyEscapeCommand(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Delete(_) => {}
         }
-        Stmt::Raise(raise) => {
-            if let Some(exc) = &raise.exc {
-                check_expr(exc, file, diagnostics, level, model);
-            }
-        }
-        // Always allowed (or allowed at level 5), no sub-expressions to check
-        Stmt::Import(_)
-        | Stmt::ImportFrom(_)
-        | Stmt::Pass(_)
-        | Stmt::Break(_)
-        | Stmt::Continue(_)
-        | Stmt::TypeAlias(_)
-        | Stmt::IpyEscapeCommand(_)
-        | Stmt::Global(_)
-        | Stmt::Nonlocal(_)
-        | Stmt::Delete(_) => {}
     }
 }
 
@@ -926,7 +854,7 @@ fn forbidden_msg(construct: &str, level: Level, min_level: Level) -> String {
 }
 
 /// Create a lint diagnostic that matches ty's format.
-fn make_lint_diagnostic(
+pub(crate) fn make_lint_diagnostic(
     lint: &ty_python_semantic::lint::LintMetadata,
     file: File,
     range: ruff_text_size::TextRange,

@@ -120,6 +120,134 @@ fn check_verbose() {
     assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
 }
 
+// --- Doctest validation tests ---
+
+#[test]
+fn check_doctest_type_error() {
+    let (out, err, success) = run_check(&["doctest_type_error.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
+fn check_doctest_no_space() {
+    let (out, err, success) = run_check(&["doctest_no_space.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
+fn check_doctest_continuation_no_space() {
+    let (out, err, success) = run_check(&["doctest_continuation_no_space.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
+fn check_doctest_bare_name_allowed() {
+    // A bare `>>> y` line is a value-display idiom in doctests and must not
+    // trigger the BARE_EXPRESSION lint — otherwise teaching examples like
+    // `>>> x: int = 2` / `>>> x` / `2` would fail level-0 checks.
+    let (out, err, success) = run_check(&["doctest_bare_name.py"], &[]);
+    assert!(success, "stdout={out} stderr={err}");
+    assert_eq!(out, "");
+    assert_eq!(
+        err,
+        "Running tests...\n2 tests, 2 successes, 0 failures and 0 errors.\n"
+    );
+}
+
+#[test]
+fn check_doctest_level_restriction() {
+    // `if` inside a doctest must be rejected at level 0 like any other code.
+    let (out, err, success) = run_check(&["doctest_level_restriction.py"], &["--level", "0"]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
+fn check_doctest_module_level() {
+    let (out, err, success) = run_check(&["doctest_module_level.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
+fn check_doctest_cross_module() {
+    // Doctest references a name imported from a sibling first-party file
+    // (`from helper import square`). Type-checking the doctest must resolve
+    // `square` through the import so that the wrong-type call is caught.
+    let subdir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/check_inputs/doctest_cross_module"
+    ));
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .current_dir(subdir)
+        .args(["check", "--level", "4", "main.py"])
+        .output()
+        .expect("failed to run spython");
+    let err = normalize_output(&String::from_utf8_lossy(&output.stderr));
+    assert!(
+        !output.status.success(),
+        "expected failure but succeeded; stderr={err}"
+    );
+    assert!(
+        err.contains("in doctest of use")
+            && err.contains("Argument to function `square` is incorrect"),
+        "expected cross-module doctest error, got: {err}"
+    );
+}
+
+#[test]
+fn run_rejects_doctest_type_error() {
+    // `spython run` should reject doctest type errors even though it never
+    // executes the doctests themselves — they are part of the file and must
+    // pass the same type checks as any other code.
+    let path = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/check_inputs/doctest_type_error.py"
+    ));
+    let dir = path.parent().expect("path has parent");
+    let filename = path.file_name().expect("path has filename");
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .current_dir(dir)
+        .args(["run", "--level", "4"])
+        .arg(filename)
+        .output()
+        .expect("failed to run spython");
+    assert!(!output.status.success());
+    let err = normalize_output(&String::from_utf8_lossy(&output.stderr));
+    assert!(
+        err.contains("in doctest of add"),
+        "expected doctest error in stderr, got: {err}"
+    );
+}
+
 // --- Image tests ---
 
 fn run_image(path: &Path) -> (String, String) {

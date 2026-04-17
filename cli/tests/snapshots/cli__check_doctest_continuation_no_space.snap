@@ -1,0 +1,18 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-malformed-prompt]: Doctest continuation must be followed by a single space: change `...x` to `... x`
+ --> doctest_continuation_no_space.py:4:1
+  |
+2 |     """
+3 |     >>> y = (
+4 |     ...x
+  | ^^^^^^^^
+5 |     ... )
+6 |     """
+  |
+
+Found 1 error.

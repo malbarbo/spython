@@ -2,6 +2,7 @@ pub mod output;
 
 pub mod checker;
 pub mod completion;
+pub mod doctests;
 pub mod lints;
 pub mod wasm_ffi;
 
@@ -77,7 +78,7 @@ pub fn type_check_source(
         .expect("building ProjectDatabase with in-memory system should never fail");
 
     let file_path = SystemPathBuf::from(USER_FILE);
-    let _file = system_path_to_file(&db, &file_path)
+    let user_file = system_path_to_file(&db, &file_path)
         .expect("user.py should be resolvable after writing it to the in-memory filesystem");
 
     db.project().set_included_paths(&mut db, vec![file_path]);
@@ -88,6 +89,11 @@ pub fn type_check_source(
     diagnostics.extend(db.check().into_iter().filter(|d| {
         !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
     }));
+    // Doctests are code too — validate prompt format and type-check snippets.
+    // Skip in REPL context, where incremental input doesn't have docstrings.
+    if !in_repl {
+        diagnostics.extend(check_file_doctests(&db, user_file, level));
+    }
 
     let has_errors = diagnostics
         .iter()
@@ -116,6 +122,91 @@ pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Ve
             diagnostics.extend(checker::check_file_annotations(db, file, level, in_repl));
         }
     }
+    diagnostics
+}
+
+/// Type-check and format-check doctests inside a file's docstrings.
+///
+/// Returns diagnostics for:
+/// * malformed prompts (`>>>x` / `...x`) — always reported;
+/// * annotation rules / level restrictions / ty type errors found inside the
+///   doctest snippets, remapped to the original docstring locations.
+///
+/// Doctest diagnostics complement the ordinary file-level check; callers
+/// should append this to their existing diagnostic list.
+pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Vec<Diagnostic> {
+    let parsed = parsed_module(db, file);
+    let module = parsed.load(db);
+    let source = ruff_db::source::source_text(db, file);
+    let source_str = source.as_str();
+
+    let extraction = doctests::extract_doctests(module.syntax(), source_str);
+
+    let mut diagnostics = doctests::malformed_prompt_diagnostics(file, &extraction.malformed);
+
+    if extraction.snippets.is_empty() {
+        return diagnostics;
+    }
+
+    let (syn_source, syn_map) = doctests::build_synthetic_source(source_str, &extraction.snippets);
+
+    // Reuse the original file's real path in the scratch db so that imports
+    // from sibling first-party files (`from helper import square`) resolve
+    // against mirrored copies of those files.
+    let Some(original_path) = file.path(db).as_system_path() else {
+        return diagnostics;
+    };
+    let original_path_buf = original_path.to_path_buf();
+    let cwd = original_path
+        .parent()
+        .map(SystemPath::to_path_buf)
+        .unwrap_or_else(|| SystemPathBuf::from(PROJECT_ROOT));
+    let system = InMemorySystem::new(cwd.clone());
+
+    // Mirror transitive first-party imports at their original paths so ty's
+    // resolver can follow `from helper import …` references from inside
+    // doctests.
+    let mut transitive: HashSet<File> = HashSet::new();
+    collect_import_files(db, file, &mut transitive);
+    for dep in &transitive {
+        if *dep == file {
+            continue;
+        }
+        let Some(dep_path) = dep.path(db).as_system_path() else {
+            continue;
+        };
+        let dep_src = ruff_db::source::source_text(db, *dep);
+        let _ = system.write_file(dep_path, dep_src.as_str());
+    }
+
+    // Write the synthetic source at the original file's path.
+    system
+        .write_file(&original_path_buf, &syn_source)
+        .expect("writing to in-memory filesystem should never fail");
+
+    let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let mut scratch = ProjectDatabase::new(metadata, system)
+        .expect("building ProjectDatabase with in-memory system should never fail");
+    let syn_file = system_path_to_file(&scratch, &original_path_buf)
+        .expect("synthetic file should be resolvable after writing it");
+    scratch
+        .project()
+        .set_included_paths(&mut scratch, vec![original_path_buf]);
+
+    let mut raw = annotation_check(&scratch, level, false);
+    raw.extend(scratch.check().into_iter().filter(|d| {
+        !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
+    }));
+
+    let remapped = doctests::remap_diagnostics(
+        raw,
+        syn_file,
+        file,
+        &extraction.snippets,
+        &syn_map,
+        &syn_source,
+    );
+    diagnostics.extend(remapped);
     diagnostics
 }
 

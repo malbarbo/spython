@@ -1,0 +1,7 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+Error: argument `--level` cannot be used multiple times in this context

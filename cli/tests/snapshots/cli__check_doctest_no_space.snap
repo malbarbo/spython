@@ -1,0 +1,18 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-malformed-prompt]: Doctest prompt must be followed by a single space: change `>>>x` to `>>> x`
+ --> doctest_no_space.py:3:1
+  |
+1 | def add(x: int, y: int) -> int:
+2 |     """
+3 |     >>>add(1, 2)
+  | ^^^^^^^^^^^^^^^^
+4 |     3
+5 |     """
+  |
+
+Found 1 error.

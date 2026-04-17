@@ -1,0 +1,18 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[invalid-argument-type]: in doctest of add: Argument to function `add` is incorrect
+ --> doctest_type_error.py:3:9
+  |
+1 | def add(x: int, y: int) -> int:
+2 |     """
+3 |     >>> add("a", 2)
+  |         ^^^^^^^^^^^
+4 |     3
+5 |     """
+  |
+
+Found 1 error.

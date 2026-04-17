@@ -298,6 +298,16 @@ fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
     diagnostics.extend(db.check().into_iter().filter(|d| {
         !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
     }));
+    // Validate and type-check doctests inside each user file's docstrings.
+    for f in &files {
+        let is_spython_library = f
+            .path(&db)
+            .as_system_path()
+            .is_some_and(|p| p.as_str().contains("/Lib/spython/"));
+        if !is_spython_library {
+            diagnostics.extend(engine::check_file_doctests(&db, *f, level));
+        }
+    }
     if !diagnostics.is_empty() {
         return Err(Error::TypeChecking(Box::new(db), diagnostics));
     }

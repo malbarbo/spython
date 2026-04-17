@@ -1,0 +1,17 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[unsupported-operator]: in doctest of module: Unsupported `+` operation
+ --> doctest_module_level.py:3:5
+  |
+1 | """
+2 | >>> x: int = 1
+3 | >>> x + "a"
+  |     ^^^^^^^
+4 | """
+  |
+
+Found 1 error.
