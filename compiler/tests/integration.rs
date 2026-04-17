@@ -199,6 +199,21 @@ fn level2_season() {
     run(include_str!("integration/level2/season.py"));
 }
 
+// #[test] named match patterns (variable binding) not supported
+fn _ignore_level2_match_binding() {
+    run(include_str!("integration/level2/match_binding.py"));
+}
+
+// #[test] sequence match patterns ([x], [x, y], [x, *rest]) not supported
+fn _ignore_level2_match_list() {
+    run(include_str!("integration/level2/match_list.py"));
+}
+
+// #[test] class match patterns (Pixel(x=x, y=y, ...)) not supported
+fn _ignore_level2_match_struct() {
+    run(include_str!("integration/level2/match_struct.py"));
+}
+
 // =====================================================================
 // Level 3 — Repetition and lists
 // =====================================================================
