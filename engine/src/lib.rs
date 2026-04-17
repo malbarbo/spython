@@ -126,6 +126,26 @@ pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Ve
     diagnostics
 }
 
+/// Convert an absolute filesystem path (Unix `/foo/bar` or Windows
+/// `C:\foo\bar`) into a POSIX-style path rooted at `/` that `InMemorySystem`
+/// will accept as its current directory. MemoryFileSystem asserts `cwd`
+/// starts with `/`, which a Windows drive-letter absolute path does not.
+/// Applying the same transform to every sibling preserves relative layout,
+/// so imports still resolve.
+fn virtualize_path(path: &SystemPath) -> SystemPathBuf {
+    let normalized = path.as_str().replace('\\', "/");
+    let stripped = match normalized.as_bytes() {
+        [b, b':', ..] if b.is_ascii_alphabetic() => &normalized[2..],
+        _ => normalized.as_str(),
+    };
+    let mut out = String::with_capacity(stripped.len() + 1);
+    if !stripped.starts_with('/') {
+        out.push('/');
+    }
+    out.push_str(stripped);
+    SystemPathBuf::from(out)
+}
+
 /// Type-check and format-check doctests inside a file's docstrings.
 ///
 /// Returns diagnostics for:
@@ -151,22 +171,21 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
 
     let (syn_source, syn_map) = doctests::build_synthetic_source(source_str, &extraction.snippets);
 
-    // Reuse the original file's real path in the scratch db so that imports
-    // from sibling first-party files (`from helper import square`) resolve
-    // against mirrored copies of those files.
+    // Mirror the original file (and its transitive first-party imports) into
+    // an in-memory filesystem under POSIX-virtual paths so ty's resolver can
+    // follow `from helper import …` references from inside doctests. We
+    // virtualize because `InMemorySystem`'s MemoryFileSystem asserts that its
+    // cwd starts with `/`, which a Windows absolute path like `C:/…` does not.
     let Some(original_path) = file.path(db).as_system_path() else {
         return diagnostics;
     };
-    let original_path_buf = original_path.to_path_buf();
-    let cwd = original_path
+    let original_virtual = virtualize_path(original_path);
+    let cwd = original_virtual
         .parent()
         .map(SystemPath::to_path_buf)
         .unwrap_or_else(|| SystemPathBuf::from(PROJECT_ROOT));
     let system = InMemorySystem::new(cwd.clone());
 
-    // Mirror transitive first-party imports at their original paths so ty's
-    // resolver can follow `from helper import …` references from inside
-    // doctests.
     let mut transitive: HashSet<File> = HashSet::new();
     collect_import_files(db, file, &mut transitive);
     for dep in &transitive {
@@ -177,22 +196,22 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
             continue;
         };
         let dep_src = ruff_db::source::source_text(db, *dep);
-        let _ = system.write_file(dep_path, dep_src.as_str());
+        let _ = system.write_file(&virtualize_path(dep_path), dep_src.as_str());
     }
 
-    // Write the synthetic source at the original file's path.
+    // Write the synthetic source at the virtualized original file path.
     system
-        .write_file(&original_path_buf, &syn_source)
+        .write_file(&original_virtual, &syn_source)
         .expect("writing to in-memory filesystem should never fail");
 
     let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
     let mut scratch = ProjectDatabase::new(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
-    let syn_file = system_path_to_file(&scratch, &original_path_buf)
+    let syn_file = system_path_to_file(&scratch, &original_virtual)
         .expect("synthetic file should be resolvable after writing it");
     scratch
         .project()
-        .set_included_paths(&mut scratch, vec![original_path_buf]);
+        .set_included_paths(&mut scratch, vec![original_virtual]);
 
     let mut raw = annotation_check(&scratch, level, false);
     raw.extend(scratch.check().into_iter().filter(|d| {
