@@ -71,6 +71,8 @@ def run_doctests(module, verbose=False):
         _obj = getattr(module, _name)
         if not callable(_obj):
             continue
+        if getattr(_obj, "__module__", None) != module.__name__:
+            continue
         _doc = getattr(_obj, "__doc__", None)
         if not _doc or ">>>" not in _doc:
             continue
