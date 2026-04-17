@@ -450,3 +450,21 @@ Deno.test("load with doctests runs them", async () => {
   );
   destroy(ctx);
 });
+
+Deno.test("panic handler intercepts Rust panics", async () => {
+  const ctx = await newRepl();
+  try {
+    // string_deallocate(null, _) trips `assert!(!ptr.is_null())` in wasm/src/lib.rs,
+    // which panics. The handler should format the message and write it to stderr
+    // before the module aborts.
+    ctx.exports.string_deallocate(0, 10);
+  } catch (_e) {
+    // Expected: WASM execution aborts after the panic.
+  }
+  const stderr = ctx.stderr.join("");
+  assertEquals(
+    stderr.includes("spython: internal error"),
+    true,
+    `expected formatted panic message in stderr, got: ${stderr}`,
+  );
+});

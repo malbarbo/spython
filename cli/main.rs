@@ -104,37 +104,8 @@ fn parse_level(level: u8) -> Option<Level> {
     })
 }
 
-fn setup_panic_handler() {
-    std::panic::set_hook(Box::new(|info| {
-        let message = match (
-            info.payload().downcast_ref::<&str>(),
-            info.payload().downcast_ref::<String>(),
-        ) {
-            (Some(s), _) => (*s).to_string(),
-            (_, Some(s)) => s.to_string(),
-            (None, None) => "unknown error".into(),
-        };
-        let location = match info.location() {
-            Some(loc) => format!("{}:{}\n  ", loc.file(), loc.line()),
-            None => String::new(),
-        };
-        eprintln!(
-            "\n\
-            spython: internal error\n\n\
-            This is a bug in spython.\n\
-            Please report it at https://github.com/malbarbo/spython/issues\n\
-            and include this error message.\n\n\
-            Panic: {location}{message}\n\
-            Version: {version}\n\
-            OS: {os}",
-            version = LONG_VERSION,
-            os = std::env::consts::OS,
-        );
-    }));
-}
-
 fn main() -> ExitCode {
-    setup_panic_handler();
+    engine::panic::add_handler();
 
     // Hidden flag for testing the panic handler
     if std::env::args().any(|a| a == "--test-panic") {

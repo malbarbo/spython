@@ -1,11 +1,21 @@
 #![allow(clippy::missing_safety_doc)]
 
 use engine::{ReplState, format_source, print_type_errors, type_check_source};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static INIT: AtomicBool = AtomicBool::new(false);
+
+fn init() {
+    if !INIT.swap(true, Ordering::Relaxed) {
+        engine::panic::add_handler();
+    }
+}
 
 // --- Memory helpers ---
 
 #[unsafe(no_mangle)]
 pub extern "C" fn string_allocate(size: usize) -> *mut u8 {
+    init();
     let mut buf = Vec::with_capacity(size);
     let ptr = buf.as_mut_ptr();
     std::mem::forget(buf);
@@ -14,6 +24,7 @@ pub extern "C" fn string_allocate(size: usize) -> *mut u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn string_deallocate(ptr: *mut u8, size: usize) {
+    init();
     assert!(!ptr.is_null());
     unsafe {
         let _ = Vec::from_raw_parts(ptr, 0, size);
@@ -22,6 +33,7 @@ pub unsafe extern "C" fn string_deallocate(ptr: *mut u8, size: usize) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cstr_deallocate(ptr: *mut std::ffi::c_char) {
+    init();
     assert!(!ptr.is_null());
     unsafe {
         let _ = std::ffi::CString::from_raw(ptr);
@@ -59,6 +71,7 @@ pub unsafe extern "C" fn repl_new(
     config_ptr: *mut u8,
     config_len: usize,
 ) -> *mut ReplState {
+    init();
     let source = new_string(code_ptr, code_len);
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
@@ -79,6 +92,7 @@ pub unsafe extern "C" fn repl_new(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize) -> u32 {
+    init();
     assert!(!repl.is_null());
     let state = unsafe { &mut *repl };
     let code = new_string(ptr, len);
@@ -87,6 +101,7 @@ pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
+    init();
     assert!(!repl.is_null());
     unsafe {
         let _ = Box::from_raw(repl);
@@ -102,6 +117,7 @@ pub unsafe extern "C" fn repl_complete(
     text_len: usize,
     cursor_pos: usize,
 ) -> *mut std::ffi::c_char {
+    init();
     assert!(!repl.is_null());
     let state = unsafe { &*repl };
     let text = new_string(text_ptr, text_len);
@@ -132,6 +148,7 @@ pub unsafe extern "C" fn repl_complete(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn version() -> *mut std::ffi::c_char {
+    init();
     let v = format!("spython {}", engine::LONG_VERSION);
     std::ffi::CString::new(v).unwrap().into_raw()
 }
@@ -140,6 +157,7 @@ pub extern "C" fn version() -> *mut std::ffi::c_char {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn format(ptr: *mut u8, len: usize) -> *mut std::ffi::c_char {
+    init();
     let source = new_string(ptr, len);
     format_source(&source)
         .ok()

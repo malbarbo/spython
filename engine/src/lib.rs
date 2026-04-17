@@ -4,6 +4,7 @@ pub mod checker;
 pub mod completion;
 pub mod doctests;
 pub mod lints;
+pub mod panic;
 pub mod wasm_ffi;
 
 use std::collections::HashSet;
