@@ -194,6 +194,11 @@ fn level2_resolution() {
     run(include_str!("integration/level2/resolution.py"));
 }
 
+#[test]
+fn level2_season() {
+    run(include_str!("integration/level2/season.py"));
+}
+
 // =====================================================================
 // Level 3 — Repetition and lists
 // =====================================================================
