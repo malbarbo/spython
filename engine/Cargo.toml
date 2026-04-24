@@ -1,6 +1,6 @@
 [package]
 name = "engine"
-version = "0.2.0-dev"
+version = "0.2.0"
 edition = "2024"
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(windows)))'.dependencies]
