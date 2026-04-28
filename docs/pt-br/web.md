@@ -76,6 +76,26 @@ iniciantes, todas liberadas no nível 4:
   valores padrão.
 
 
+# Comandos do REPL
+
+`:type` — Mostra o tipo estático de uma expressão sem avaliá-la:
+
+```
+>>> :type 1 + 2
+int
+>>> :type [1, 2, 3]
+list[int]
+```
+
+`:time` — Avalia uma expressão e mostra o tempo de execução:
+
+```
+>>> :time 2 ** 100000
+... número grande ...
+Time: 5 ms
+```
+
+
 # Temas
 
 O playground suporta dois temas baseados no editor Zed:

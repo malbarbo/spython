@@ -204,6 +204,14 @@ list[int]
 str
 ```
 
+`:time` — Avalia uma expressão e mostra o tempo de execução:
+
+```
+>>> :time 2 ** 100000
+... número grande ...
+Time: 5 ms
+```
+
 `:level` — Mostra ou altera o nível de ensino:
 
 ```
@@ -236,6 +244,9 @@ Para executar os doctests de um arquivo:
 ```sh
 spython check arquivo.py
 ```
+
+Os doctests são verificados quanto a tipos antes de serem executados,
+seguindo as mesmas regras do nível de ensino atual.
 
 Os testes são escritos como doctests nas docstrings:
 

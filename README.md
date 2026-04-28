@@ -1,8 +1,7 @@
 # spython
 
-A Python interpreter with integrated type checking, designed for teaching typed
-Python. It enforces complete type annotations before running code and
-progressively unlocks language constructs through teaching levels.
+A teaching-oriented Python interpreter that requires complete type annotations
+and progressively unlocks language features through six teaching levels.
 
 spython is built on [RustPython](https://github.com/RustPython/RustPython) for
 execution and [ty](https://github.com/astral-sh/ty) (from ruff) for type
@@ -19,7 +18,8 @@ checking. A similar project for Gleam is
   class variable must be annotated
 - **Image library** — built-in SVG-based graphics library for teaching,
   inspired by [HtDP](https://htdp.org/) image teachpacks
-- **Interactive REPL** — syntax highlighting, auto-indent, tab completion
+- **Interactive REPL** — syntax highlighting, auto-indent, tab completion, and
+  built-in commands (`:type`, `:time`, `:level`, `:theme`)
 - **WASM support** — runs in the browser via a WASM build
 
 
@@ -53,6 +53,9 @@ spython run --level 3 file.py
 
 # Type-check and run doctests (no main execution)
 spython check file.py
+
+# Format Python files (powered by ruff)
+spython format file.py
 
 # Start the REPL
 spython

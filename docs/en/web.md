@@ -73,6 +73,26 @@ mistakes, all lifted at level 4:
 - **No default argument values** — function parameters cannot have defaults.
 
 
+# REPL commands
+
+`:type` — Shows the static type of an expression without evaluating it:
+
+```
+>>> :type 1 + 2
+int
+>>> :type [1, 2, 3]
+list[int]
+```
+
+`:time` — Evaluates an expression and shows its execution time:
+
+```
+>>> :time 2 ** 100000
+... large number ...
+Time: 5 ms
+```
+
+
 # Themes
 
 The playground supports two themes based on the Zed editor:
