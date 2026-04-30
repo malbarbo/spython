@@ -22,7 +22,11 @@ use rustpython::vm::AsObject;
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 use ty_module_resolver::{ModuleName, resolve_module};
 pub use ty_project::ProjectDatabase;
+use ty_project::metadata::Options;
+use ty_project::metadata::options::Rules;
+use ty_project::metadata::value::RangedValue;
 use ty_project::{Db, ProjectMetadata};
+use ty_python_semantic::lint::Level as TyLevel;
 use ty_python_semantic::{HasType, SemanticModel};
 
 const PROJECT_ROOT: &str = "/";
@@ -47,6 +51,30 @@ pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");
 pub struct TypeErrors {
     pub db: ProjectDatabase,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Create a `ProjectMetadata` with spython's lint rule overrides applied.
+///
+/// Promotes a few ty rules from `Ignore`/`Warn` to `Error` for the teaching
+/// context: `possibly-unresolved-reference` (variable assigned only in some
+/// branches) and `division-by-zero` (literal `/ 0`, `% 0`, etc.).
+pub fn make_project_metadata(cwd: SystemPathBuf) -> ProjectMetadata {
+    let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let rules = Rules::from_iter([
+        (
+            RangedValue::cli("possibly-unresolved-reference".to_string()),
+            RangedValue::cli(TyLevel::Error),
+        ),
+        (
+            RangedValue::cli("division-by-zero".to_string()),
+            RangedValue::cli(TyLevel::Error),
+        ),
+    ]);
+    metadata.apply_options(Options {
+        rules: Some(rules),
+        ..Options::default()
+    });
+    metadata
 }
 
 /// Create a RustPython interpreter with the standard library loaded.
@@ -74,7 +102,7 @@ pub fn type_check_source(
         .write_file(SystemPath::new(USER_FILE), source)
         .expect("writing to in-memory filesystem should never fail");
 
-    let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let metadata = make_project_metadata(cwd);
     let mut db = ProjectDatabase::new(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
@@ -204,7 +232,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
         .write_file(&original_virtual, &syn_source)
         .expect("writing to in-memory filesystem should never fail");
 
-    let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let metadata = make_project_metadata(cwd);
     let mut scratch = ProjectDatabase::new(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
     let syn_file = system_path_to_file(&scratch, &original_virtual)
@@ -384,7 +412,7 @@ pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
         .write_file(SystemPath::new(USER_FILE), &source)
         .ok()?;
 
-    let metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let metadata = make_project_metadata(cwd);
     let mut db = ProjectDatabase::new(metadata, system).ok()?;
 
     let file_path = SystemPathBuf::from(USER_FILE);

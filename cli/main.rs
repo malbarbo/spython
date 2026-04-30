@@ -5,19 +5,19 @@ use bpaf::{Bpaf, Parser};
 use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::{OsSystem, SystemPathBuf};
-use ruff_python_ast::name::Name;
 mod config;
 mod repl;
 
 use engine::{
     BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
-    collect_import_files, execute_source, format_source, new_interpreter, print_type_errors,
+    collect_import_files, execute_source, format_source, make_project_metadata, new_interpreter,
+    print_type_errors,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use ty_project::{Db, ProjectDatabase, ProjectMetadata};
+use ty_project::{Db, ProjectDatabase};
 use walkdir::WalkDir;
 
 /// Errors that can occur during file checking and execution.
@@ -380,7 +380,7 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
     })?;
 
     let system = OsSystem::new(&cwd_sys);
-    let metadata = ProjectMetadata::new(Name::new("spython"), cwd_sys);
+    let metadata = make_project_metadata(cwd_sys);
 
     ProjectDatabase::new(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
 }
