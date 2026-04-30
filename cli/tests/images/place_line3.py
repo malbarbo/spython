@@ -4,6 +4,8 @@ from spython.image import (
     to_svg,
     fill,
     stroke,
+    LineCap,
+    LineJoin,
     darkolivegreen,
     goldenrod,
 )
@@ -16,7 +18,7 @@ print(
             25,
             100,
             100,
-            stroke(goldenrod, width=30, linejoin="round", linecap="round"),
+            stroke(goldenrod, width=30, linejoin=LineJoin.ROUND, linecap=LineCap.ROUND),
         )
     )
 )

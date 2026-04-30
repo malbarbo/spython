@@ -1,5 +1,6 @@
 import math as _math
 from collections.abc import Callable as _Callable
+from enum import Enum as _Enum
 from typing import Any as _Any
 
 from spython import font as _font
@@ -8,6 +9,9 @@ from spython.color import Color as _Color
 from spython.color import *  # noqa: F401,F403 — re-export all colors
 from spython.style import (
     Style,
+    LineCap,
+    LineJoin,
+    FillRule,
     fill,
     stroke,
     join,
@@ -19,13 +23,26 @@ from spython.style import (
 )
 from spython import system as _system
 
-# Alignment constants
-LEFT: str = "left"
-CENTER: str = "center"
-RIGHT: str = "right"
-TOP: str = "top"
-MIDDLE: str = "middle"
-BOTTOM: str = "bottom"
+
+class XPlace(_Enum):
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
+class YPlace(_Enum):
+    TOP = "top"
+    MIDDLE = "middle"
+    BOTTOM = "bottom"
+
+
+# Alignment shorthands so users can write `LEFT` instead of `XPlace.LEFT`.
+LEFT: XPlace = XPlace.LEFT
+CENTER: XPlace = XPlace.CENTER
+RIGHT: XPlace = XPlace.RIGHT
+TOP: YPlace = YPlace.TOP
+MIDDLE: YPlace = YPlace.MIDDLE
+BOTTOM: YPlace = YPlace.BOTTOM
 
 _FP_EPSILON: float = 1.0e-10
 _SQRT3_2: float = 0.8660254037844386
@@ -731,7 +748,7 @@ def _points_to_path(points: list, style: Style) -> Image:
 # **************************
 
 
-def _x_place_dx(x_place: str, wa: float, wb: float) -> tuple:
+def _x_place_dx(x_place: XPlace, wa: float, wb: float) -> tuple:
     if x_place == LEFT:
         return (0.0, 0.0)
     if x_place == RIGHT:
@@ -742,7 +759,7 @@ def _x_place_dx(x_place: str, wa: float, wb: float) -> tuple:
     return (_mid(wm, wa), _mid(wm, wb))
 
 
-def _y_place_dy(y_place: str, ha: float, hb: float) -> tuple:
+def _y_place_dy(y_place: YPlace, ha: float, hb: float) -> tuple:
     if y_place == TOP:
         return (0.0, 0.0)
     if y_place == BOTTOM:
@@ -1265,7 +1282,9 @@ def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
     )
 
 
-def crop_align(img: Image, x_place: str, y_place: str, cw: float, ch: float) -> Image:
+def crop_align(
+    img: Image, x_place: XPlace, y_place: YPlace, cw: float, ch: float
+) -> Image:
     cw = _positive(float(cw))
     ch = _positive(float(ch))
     _, dx = _x_place_dx(x_place, width(img), cw)
@@ -1289,7 +1308,7 @@ def above(a: Image, b: Image) -> Image:
     return above_align(a, CENTER, b)
 
 
-def above_align(a: Image, x_place: str, b: Image) -> Image:
+def above_align(a: Image, x_place: XPlace, b: Image) -> Image:
     dxa, dxb = _x_place_dx(x_place, width(a), width(b))
     return _Combination(_translate(a, dxa, 0.0), _translate(b, dxb, height(a)))
 
@@ -1298,7 +1317,7 @@ def beside(a: Image, b: Image) -> Image:
     return beside_align(a, MIDDLE, b)
 
 
-def beside_align(a: Image, y_place: str, b: Image) -> Image:
+def beside_align(a: Image, y_place: YPlace, b: Image) -> Image:
     dya, dyb = _y_place_dy(y_place, height(a), height(b))
     return _Combination(_translate(a, 0.0, dya), _translate(b, width(a), dyb))
 
@@ -1307,7 +1326,7 @@ def overlay(top: Image, bottom: Image) -> Image:
     return overlay_align(top, CENTER, MIDDLE, bottom)
 
 
-def overlay_align(top: Image, x_place: str, y_place: str, bottom: Image) -> Image:
+def overlay_align(top: Image, x_place: XPlace, y_place: YPlace, bottom: Image) -> Image:
     dxa, dxb = _x_place_dx(x_place, width(top), width(bottom))
     dya, dyb = _y_place_dy(y_place, height(top), height(bottom))
     return _fix_position(
@@ -1320,7 +1339,7 @@ def overlay_offset(top: Image, x: float, y: float, bottom: Image) -> Image:
 
 
 def overlay_align_offset(
-    top: Image, x_place: str, y_place: str, x: float, y: float, bottom: Image
+    top: Image, x_place: XPlace, y_place: YPlace, x: float, y: float, bottom: Image
 ) -> Image:
     return overlay_align(top, x_place, y_place, _translate(bottom, float(x), float(y)))
 
@@ -1333,7 +1352,9 @@ def underlay(bottom: Image, top: Image) -> Image:
     return overlay(top, bottom)
 
 
-def underlay_align(bottom: Image, x_place: str, y_place: str, top: Image) -> Image:
+def underlay_align(
+    bottom: Image, x_place: XPlace, y_place: YPlace, top: Image
+) -> Image:
     return overlay_align(top, x_place, y_place, bottom)
 
 
@@ -1342,7 +1363,7 @@ def underlay_offset(bottom: Image, x: float, y: float, top: Image) -> Image:
 
 
 def underlay_align_offset(
-    bottom: Image, x_place: str, y_place: str, x: float, y: float, top: Image
+    bottom: Image, x_place: XPlace, y_place: YPlace, x: float, y: float, top: Image
 ) -> Image:
     return underlay_align(bottom, x_place, y_place, _translate(top, float(x), float(y)))
 
@@ -1374,7 +1395,7 @@ def place_image(scene: Image, x: float, y: float, img: Image) -> Image:
 
 
 def place_image_align(
-    scene: Image, x: float, y: float, x_place: str, y_place: str, img: Image
+    scene: Image, x: float, y: float, x_place: XPlace, y_place: YPlace, img: Image
 ) -> Image:
     x = float(x)
     y = float(y)
@@ -1410,7 +1431,7 @@ def place_images(scene: Image, positions: list, images: list) -> Image:
 
 
 def place_images_align(
-    scene: Image, positions: list, x_place: str, y_place: str, images: list
+    scene: Image, positions: list, x_place: XPlace, y_place: YPlace, images: list
 ) -> Image:
     for i in range(min(len(positions), len(images))):
         p = positions[i]
@@ -1746,8 +1767,8 @@ def _to_svg(img: Image, level: int) -> str:
             + _attrib("y", y_offset)
             + _attribs("font-family", img.font.family)
             + _attrib("font-size", img.font.size)
-            + _attribs("font-style", _font._style_to_svg(img.font.style))
-            + _attribs("font-weight", _font._weight_to_svg(img.font.weight))
+            + _attribs("font-style", img.font.style.value)
+            + _attribs("font-weight", img.font.weight.value)
             + (_attribs("text-decoration", "underline") if img.font.underline else "")
             + _attribs(
                 "transform",

@@ -1,5 +1,24 @@
+from enum import Enum
+
 from spython import color as _color
 from spython.color import Color as _Color
+
+
+class LineCap(Enum):
+    BUTT = "butt"
+    ROUND = "round"
+    SQUARE = "square"
+
+
+class LineJoin(Enum):
+    MITER = "miter"
+    ROUND = "round"
+    BEVEL = "bevel"
+
+
+class FillRule(Enum):
+    NONZERO = "nonzero"
+    EVENODD = "evenodd"
 
 
 class _Fill:
@@ -13,8 +32,8 @@ class _FillOpacity:
 
 
 class _FillRule:
-    def __init__(self, value: str) -> None:
-        self.value: str = value
+    def __init__(self, value: FillRule) -> None:
+        self.value: FillRule = value
 
 
 class _Stroke:
@@ -38,13 +57,13 @@ class _StrokeDashArray:
 
 
 class _StrokeLineCap:
-    def __init__(self, value: str) -> None:
-        self.value: str = value
+    def __init__(self, value: LineCap) -> None:
+        self.value: LineCap = value
 
 
 class _StrokeLineJoin:
-    def __init__(self, value: str) -> None:
-        self.value: str = value
+    def __init__(self, value: LineJoin) -> None:
+        self.value: LineJoin = value
 
 
 _Attr = (
@@ -129,13 +148,13 @@ def _attribute_to_svg(a: _Attr) -> str:
     if isinstance(a, _FillOpacity):
         return _attrib("fill-opacity", a.value)
     if isinstance(a, _FillRule):
-        return _attribs("fill-rule", a.value)
+        return _attribs("fill-rule", a.value.value)
     if isinstance(a, _Stroke):
         return _attribs("stroke", a.color.to_svg())
     if isinstance(a, _StrokeLineCap):
-        return _attribs("stroke-linecap", a.value)
+        return _attribs("stroke-linecap", a.value.value)
     if isinstance(a, _StrokeLineJoin):
-        return _attribs("stroke-linejoin", a.value)
+        return _attribs("stroke-linejoin", a.value.value)
     if isinstance(a, _StrokeDashArray):
         return _attribs("stroke-dasharray", ", ".join(_f(v) for v in a.values))
     if isinstance(a, _StrokeOpacity):
@@ -172,7 +191,9 @@ def join(*styles: Style) -> Style:
     return Style(attrs)
 
 
-def fill(c: _Color, *, opacity: float | None = None, rule: str | None = None) -> Style:
+def fill(
+    c: _Color, *, opacity: float | None = None, rule: FillRule | None = None
+) -> Style:
     attrs: list[_Attr] = [_Fill(c)]
     if opacity is not None:
         attrs.append(_FillOpacity(max(0.0, min(1.0, float(opacity)))))
@@ -187,8 +208,8 @@ def stroke(
     width: float | None = None,
     opacity: float | None = None,
     dash_array: list[int] | None = None,
-    linecap: str | None = None,
-    linejoin: str | None = None,
+    linecap: LineCap | None = None,
+    linejoin: LineJoin | None = None,
 ) -> Style:
     attrs: list[_Attr] = [_Stroke(c)]
     if width is not None:

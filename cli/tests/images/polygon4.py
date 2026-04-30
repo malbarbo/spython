@@ -5,6 +5,8 @@ from spython.image import (
     underlay,
     fill,
     stroke,
+    LineCap,
+    LineJoin,
     mediumseagreen,
     darkslategray,
 )
@@ -15,7 +17,9 @@ print(
             rectangle(80, 80, fill(mediumseagreen)),
             polygon(
                 [(0, 0), (50, 0), (0, 50), (50, 50)],
-                stroke(darkslategray, width=10, linecap="round", linejoin="round"),
+                stroke(
+                    darkslategray, width=10, linecap=LineCap.ROUND, linejoin=LineJoin.ROUND
+                ),
             ),
         )
     )

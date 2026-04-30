@@ -1,13 +1,26 @@
-class FontStyle:
-    NORMAL: int = 0
-    ITALIC: int = 1
-    SLANT: int = 2
+from enum import Enum
 
 
-class FontWeight:
-    LIGHT: int = 0
-    REGULAR: int = 1
-    BOLD: int = 2
+class FontStyle(Enum):
+    NORMAL = "normal"
+    ITALIC = "italic"
+    SLANT = "oblique"
+
+
+class FontWeight(Enum):
+    LIGHT = "lighter"
+    REGULAR = "normal"
+    BOLD = "bold"
+
+
+# Module-level shorthands so users can write `style=ITALIC` instead of
+# `style=FontStyle.ITALIC`.
+NORMAL: FontStyle = FontStyle.NORMAL
+ITALIC: FontStyle = FontStyle.ITALIC
+SLANT: FontStyle = FontStyle.SLANT
+LIGHT: FontWeight = FontWeight.LIGHT
+REGULAR: FontWeight = FontWeight.REGULAR
+BOLD: FontWeight = FontWeight.BOLD
 
 
 class Font:
@@ -16,31 +29,15 @@ class Font:
         *,
         family: str = "sans-serif",
         size: float = 14.0,
-        style: int = FontStyle.NORMAL,
-        weight: int = FontWeight.REGULAR,
+        style: FontStyle = FontStyle.NORMAL,
+        weight: FontWeight = FontWeight.REGULAR,
         underline: bool = False,
     ) -> None:
         self.family: str = family
         self.size: float = size
-        self.style: int = style
-        self.weight: int = weight
+        self.style: FontStyle = style
+        self.weight: FontWeight = weight
         self.underline: bool = underline
-
-
-def _style_to_svg(s: int) -> str:
-    if s == FontStyle.ITALIC:
-        return "italic"
-    if s == FontStyle.SLANT:
-        return "oblique"
-    return "normal"
-
-
-def _weight_to_svg(w: int) -> str:
-    if w == FontWeight.LIGHT:
-        return "lighter"
-    if w == FontWeight.BOLD:
-        return "bold"
-    return "normal"
 
 
 def _to_css(font: Font) -> str:

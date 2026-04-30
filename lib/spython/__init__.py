@@ -152,9 +152,28 @@ from spython.color import (
     yellowgreen,
 )
 
-from spython.font import Font, FontStyle, FontWeight
+from spython.font import (
+    Font,
+    FontStyle,
+    FontWeight,
+    NORMAL,
+    ITALIC,
+    SLANT,
+    LIGHT,
+    REGULAR,
+    BOLD,
+)
 
-from spython.style import Style, join, none, fill, stroke
+from spython.style import (
+    Style,
+    LineCap,
+    LineJoin,
+    FillRule,
+    join,
+    none,
+    fill,
+    stroke,
+)
 
 from spython.image import (
     LEFT,
@@ -163,6 +182,8 @@ from spython.image import (
     TOP,
     MIDDLE,
     BOTTOM,
+    XPlace,
+    YPlace,
     Image,
     Point,
     empty,
