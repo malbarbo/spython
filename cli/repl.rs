@@ -35,6 +35,27 @@ impl rustyline::Prompt for ReplPrompt {
     }
 }
 
+const REPL_COMMANDS: &[&str] = &[":help", ":level", ":quit", ":theme", ":time", ":type"];
+
+/// Complete REPL commands when the current line starts with `:` and has no
+/// arguments yet. Returns `(startpos, candidates)` or `None` if not applicable.
+fn complete_repl_command(line: &str, pos: usize) -> Option<(usize, Vec<String>)> {
+    let before = line.get(..pos)?;
+    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+    let current_line = &before[line_start..];
+    let leading_ws = current_line.len() - current_line.trim_start().len();
+    let prefix = &current_line[leading_ws..];
+    if !prefix.starts_with(':') || prefix.contains(char::is_whitespace) {
+        return None;
+    }
+    let candidates = REPL_COMMANDS
+        .iter()
+        .filter(|c| c.starts_with(prefix))
+        .map(|c| (*c).to_owned())
+        .collect();
+    Some((line_start + leading_ws, candidates))
+}
+
 // ── Smart keys (auto-indent / smart backspace) ──────────────────────
 
 struct SmartKeys;
@@ -141,6 +162,9 @@ impl Completer for ReplHelper<'_> {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
+        if let Some((startpos, candidates)) = complete_repl_command(line, pos) {
+            return Ok((startpos, candidates));
+        }
         match completion::tab_action(self.vm, &self.globals, line, pos) {
             TabAction::Indent(spaces) => Ok((pos, vec![spaces])),
             TabAction::Complete(startpos, candidates) => Ok((startpos, candidates)),
@@ -333,7 +357,7 @@ fn highlight_python(line: &str) -> String {
 
     // REPL commands: color the command keyword, highlight the argument normally.
     let trimmed = line.trim();
-    for cmd in &[":help", ":quit", ":level", ":type", ":time", ":theme"] {
+    for cmd in REPL_COMMANDS {
         if trimmed
             .strip_prefix(cmd)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
@@ -841,4 +865,45 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complete_repl_command_colon_alone_lists_all() {
+        let (start, candidates) = complete_repl_command(":", 1).unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(candidates.len(), REPL_COMMANDS.len());
+        for cmd in REPL_COMMANDS {
+            assert!(candidates.iter().any(|c| c == *cmd));
+        }
+    }
+
+    #[test]
+    fn complete_repl_command_prefix_filters() {
+        let (start, candidates) = complete_repl_command(":t", 2).unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(candidates, vec![":theme", ":time", ":type"]);
+    }
+
+    #[test]
+    fn complete_repl_command_with_leading_whitespace() {
+        let (start, candidates) = complete_repl_command("  :h", 4).unwrap();
+        assert_eq!(start, 2);
+        assert_eq!(candidates, vec![":help"]);
+    }
+
+    #[test]
+    fn complete_repl_command_after_space_is_skipped() {
+        assert!(complete_repl_command(":help ", 6).is_none());
+        assert!(complete_repl_command(":type pri", 9).is_none());
+    }
+
+    #[test]
+    fn complete_repl_command_non_colon_is_skipped() {
+        assert!(complete_repl_command("pri", 3).is_none());
+        assert!(complete_repl_command("", 0).is_none());
+    }
 }
