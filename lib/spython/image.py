@@ -1,7 +1,6 @@
 import math as _math
 from collections.abc import Callable as _Callable
 from enum import Enum as _Enum
-from typing import Any as _Any
 
 from spython import font as _font
 from spython.font import Font, FontStyle, FontWeight
@@ -393,7 +392,7 @@ def _path_box(
 
 
 def _cmd_box(
-    cmd: _Any, prev: Point, min_x: float, min_y: float, max_x: float, max_y: float
+    cmd: _PathCmd, prev: Point, min_x: float, min_y: float, max_x: float, max_y: float
 ) -> tuple[float, float, float, float]:
     if isinstance(cmd, _MoveTo):
         return _update_bounds(cmd.p, min_x, min_y, max_x, max_y)
@@ -621,7 +620,7 @@ def _angle_vec(ux: float, uy: float, vx: float, vy: float) -> float:
 # **************************
 
 
-def _cmd_endpoint(cmd: _Any) -> Point:
+def _cmd_endpoint(cmd: _PathCmd) -> Point:
     if isinstance(cmd, _MoveTo):
         return cmd.p
     if isinstance(cmd, _LineTo):
@@ -635,7 +634,7 @@ def _cmd_endpoint(cmd: _Any) -> Point:
     return Point(0.0, 0.0)
 
 
-def _cmd_translate(cmd: _Any, dx: float, dy: float) -> _Any:
+def _cmd_translate(cmd: _PathCmd, dx: float, dy: float) -> _PathCmd:
     if isinstance(cmd, _MoveTo):
         return _MoveTo(_point_translate(cmd.p, dx, dy))
     if isinstance(cmd, _LineTo):
@@ -662,7 +661,7 @@ def _cmd_translate(cmd: _Any, dx: float, dy: float) -> _Any:
     return cmd
 
 
-def _cmd_rotate(cmd: _Any, center: Point, angle: float) -> _Any:
+def _cmd_rotate(cmd: _PathCmd, center: Point, angle: float) -> _PathCmd:
     if isinstance(cmd, _MoveTo):
         return _MoveTo(_point_rotate(cmd.p, center, angle))
     if isinstance(cmd, _LineTo):
@@ -690,7 +689,7 @@ def _cmd_rotate(cmd: _Any, center: Point, angle: float) -> _Any:
     return cmd
 
 
-def _cmd_scale(cmd: _Any, xf: float, yf: float) -> _Any:
+def _cmd_scale(cmd: _PathCmd, xf: float, yf: float) -> _PathCmd:
     if isinstance(cmd, _MoveTo):
         return _MoveTo(Point(cmd.p.x * xf, cmd.p.y * yf))
     if isinstance(cmd, _LineTo):
@@ -718,7 +717,7 @@ def _cmd_scale(cmd: _Any, xf: float, yf: float) -> _Any:
     return cmd
 
 
-def _cmd_flip(cmd: _Any, pf: _Callable[[Point], Point]) -> _Any:
+def _cmd_flip(cmd: _PathCmd, pf: _Callable[[Point], Point]) -> _PathCmd:
     if isinstance(cmd, _MoveTo):
         return _MoveTo(pf(cmd.p))
     if isinstance(cmd, _LineTo):
@@ -1839,7 +1838,7 @@ def _commands_to_d(commands: list[_PathCmd], aligned: bool) -> str:
     return " ".join(parts)
 
 
-def _cmd_to_d(cmd: _Any, c: _Callable[[float], str]) -> str:
+def _cmd_to_d(cmd: _PathCmd, c: _Callable[[float], str]) -> str:
     if isinstance(cmd, _MoveTo):
         return "M " + c(cmd.p.x) + " " + c(cmd.p.y)
     if isinstance(cmd, _LineTo):

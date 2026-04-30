@@ -1,6 +1,5 @@
 import time
 from collections.abc import Callable
-from typing import Any
 
 from spython.image import Image, to_svg
 from spython.system import get_key_event, show_svg
@@ -15,38 +14,38 @@ MAX_TICK_RATE: int = 1000
 KEY_EVENT_POLLING_DELAY: int = 10
 
 
-class World:
-    def __init__(self, state: Any, to_image: Callable[[Any], Image]) -> None:
-        self.state: Any = state
-        self.to_image: Callable[[Any], Image] = to_image
+class World[S]:
+    def __init__(self, state: S, to_image: Callable[[S], Image]) -> None:
+        self.state: S = state
+        self.to_image: Callable[[S], Image] = to_image
         self.rate: int = DEFAULT_TICK_RATE
-        self.on_tick_fn: Callable[[Any], Any] | None = None
-        self.stop_when_fn: Callable[[Any], bool] | None = None
-        self.on_key_press_fn: Callable[[Any, str], Any] | None = None
-        self.on_key_down_fn: Callable[[Any, str], Any] | None = None
-        self.on_key_up_fn: Callable[[Any, str], Any] | None = None
+        self.on_tick_fn: Callable[[S], S] | None = None
+        self.stop_when_fn: Callable[[S], bool] | None = None
+        self.on_key_press_fn: Callable[[S, str], S] | None = None
+        self.on_key_down_fn: Callable[[S, str], S] | None = None
+        self.on_key_up_fn: Callable[[S, str], S] | None = None
 
-    def on_tick(self, handler: Callable[[Any], Any]) -> "World":
+    def on_tick(self, handler: Callable[[S], S]) -> "World[S]":
         self.on_tick_fn = handler
         return self
 
-    def tick_rate(self, rate: int) -> "World":
+    def tick_rate(self, rate: int) -> "World[S]":
         self.rate = max(MIN_TICK_RATE, min(MAX_TICK_RATE, rate))
         return self
 
-    def stop_when(self, handler: Callable[[Any], bool]) -> "World":
+    def stop_when(self, handler: Callable[[S], bool]) -> "World[S]":
         self.stop_when_fn = handler
         return self
 
-    def on_key_press(self, handler: Callable[[Any, str], Any]) -> "World":
+    def on_key_press(self, handler: Callable[[S, str], S]) -> "World[S]":
         self.on_key_press_fn = handler
         return self
 
-    def on_key_down(self, handler: Callable[[Any, str], Any]) -> "World":
+    def on_key_down(self, handler: Callable[[S, str], S]) -> "World[S]":
         self.on_key_down_fn = handler
         return self
 
-    def on_key_up(self, handler: Callable[[Any, str], Any]) -> "World":
+    def on_key_up(self, handler: Callable[[S, str], S]) -> "World[S]":
         self.on_key_up_fn = handler
         return self
 
