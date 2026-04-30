@@ -18,7 +18,10 @@ print(
             polygon(
                 [(0, 0), (50, 0), (0, 50), (50, 50)],
                 stroke(
-                    darkslategray, width=10, linecap=LineCap.ROUND, linejoin=LineJoin.ROUND
+                    darkslategray,
+                    width=10,
+                    linecap=LineCap.ROUND,
+                    linejoin=LineJoin.ROUND,
                 ),
             ),
         )

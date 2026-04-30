@@ -18,7 +18,7 @@ use ruff_db::parsed::parsed_module;
 use ruff_db::system::{InMemorySystem, SystemPath, SystemPathBuf, WritableSystem};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{ExprRef, Stmt};
-use ruff_python_formatter::{PyFormatOptions, format_module_source};
+use ruff_python_formatter::{DocstringCode, PyFormatOptions, QuoteStyle, format_module_source};
 use rustpython::vm::AsObject;
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 use ty_module_resolver::{ModuleName, resolve_module};
@@ -324,7 +324,10 @@ fn visit_module(
 /// Format Python source with ruff's formatter.
 /// Returns `Err(message)` if the source cannot be parsed.
 pub fn format_source(source: &str) -> Result<String, String> {
-    format_module_source(source, PyFormatOptions::default())
+    let options = PyFormatOptions::default()
+        .with_docstring_code(DocstringCode::Enabled)
+        .with_quote_style(QuoteStyle::Single);
+    format_module_source(source, options)
         .map(|f| f.into_code())
         .map_err(|e| e.to_string())
 }
