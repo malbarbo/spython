@@ -5,6 +5,7 @@ pub mod completion;
 pub mod doctests;
 pub mod lints;
 pub mod panic;
+pub mod spython_lib;
 pub mod wasm_ffi;
 
 use std::collections::HashSet;
@@ -23,8 +24,8 @@ use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 use ty_module_resolver::{ModuleName, resolve_module};
 pub use ty_project::ProjectDatabase;
 use ty_project::metadata::Options;
-use ty_project::metadata::options::Rules;
-use ty_project::metadata::value::RangedValue;
+use ty_project::metadata::options::{EnvironmentOptions, Rules};
+use ty_project::metadata::value::{RangedValue, RelativePathBuf};
 use ty_project::{Db, ProjectMetadata};
 use ty_python_semantic::lint::Level as TyLevel;
 use ty_python_semantic::{HasType, SemanticModel};
@@ -58,7 +59,13 @@ pub struct TypeErrors {
 /// Promotes a few ty rules from `Ignore`/`Warn` to `Error` for the teaching
 /// context: `possibly-unresolved-reference` (variable assigned only in some
 /// branches) and `division-by-zero` (literal `/ 0`, `% 0`, etc.).
-pub fn make_project_metadata(cwd: SystemPathBuf) -> ProjectMetadata {
+///
+/// `extra_paths` is added to ty's module search path — used to surface the
+/// embedded spython library so `from spython import ...` resolves.
+pub fn make_project_metadata(
+    cwd: SystemPathBuf,
+    extra_paths: Vec<SystemPathBuf>,
+) -> ProjectMetadata {
     let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd);
     let rules = Rules::from_iter([
         (
@@ -70,8 +77,18 @@ pub fn make_project_metadata(cwd: SystemPathBuf) -> ProjectMetadata {
             RangedValue::cli(TyLevel::Error),
         ),
     ]);
+    let environment = (!extra_paths.is_empty()).then(|| EnvironmentOptions {
+        extra_paths: Some(
+            extra_paths
+                .into_iter()
+                .map(|p| RelativePathBuf::cli(p.as_path()))
+                .collect(),
+        ),
+        ..EnvironmentOptions::default()
+    });
     metadata.apply_options(Options {
         rules: Some(rules),
+        environment,
         ..Options::default()
     });
     metadata
@@ -101,8 +118,9 @@ pub fn type_check_source(
     system
         .write_file(SystemPath::new(USER_FILE), source)
         .expect("writing to in-memory filesystem should never fail");
+    let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
-    let metadata = make_project_metadata(cwd);
+    let metadata = make_project_metadata(cwd, vec![lib_root]);
     let mut db = ProjectDatabase::new(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
@@ -113,11 +131,7 @@ pub fn type_check_source(
     db.project().set_included_paths(&mut db, vec![file_path]);
 
     let mut diagnostics = annotation_check(&db, level, in_repl);
-    // Filter out unresolved-import errors for the spython library module,
-    // which is frozen into the binary and not visible to ty's resolver.
-    diagnostics.extend(db.check().into_iter().filter(|d| {
-        !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
-    }));
+    diagnostics.extend(db.check());
     // Doctests are code too — validate prompt format and type-check snippets.
     // Skip in REPL context, where incremental input doesn't have docstrings.
     if !in_repl {
@@ -142,11 +156,11 @@ pub use checker::Level;
 pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in &db.project().files(db) {
-        // Skip library code (Lib/spython/) — only check student files.
+        // Skip the embedded spython library — only check student files.
         let is_spython_library = file
             .path(db)
             .as_system_path()
-            .is_some_and(|p| p.as_str().contains("/Lib/spython/"));
+            .is_some_and(spython_lib::is_lib_path);
         if !is_spython_library {
             diagnostics.extend(checker::check_file_annotations(db, file, level, in_repl));
         }
@@ -213,6 +227,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
         .map(SystemPath::to_path_buf)
         .unwrap_or_else(|| SystemPathBuf::from(PROJECT_ROOT));
     let system = InMemorySystem::new(cwd.clone());
+    let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
     let mut transitive: HashSet<File> = HashSet::new();
     collect_import_files(db, file, &mut transitive);
@@ -232,7 +247,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
         .write_file(&original_virtual, &syn_source)
         .expect("writing to in-memory filesystem should never fail");
 
-    let metadata = make_project_metadata(cwd);
+    let metadata = make_project_metadata(cwd, vec![lib_root]);
     let mut scratch = ProjectDatabase::new(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
     let syn_file = system_path_to_file(&scratch, &original_virtual)
@@ -242,9 +257,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
         .set_included_paths(&mut scratch, vec![original_virtual]);
 
     let mut raw = annotation_check(&scratch, level, false);
-    raw.extend(scratch.check().into_iter().filter(|d| {
-        !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
-    }));
+    raw.extend(scratch.check());
 
     let remapped = doctests::remap_diagnostics(
         raw,
@@ -411,8 +424,9 @@ pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
     system
         .write_file(SystemPath::new(USER_FILE), &source)
         .ok()?;
+    let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
-    let metadata = make_project_metadata(cwd);
+    let metadata = make_project_metadata(cwd, vec![lib_root]);
     let mut db = ProjectDatabase::new(metadata, system).ok()?;
 
     let file_path = SystemPathBuf::from(USER_FILE);

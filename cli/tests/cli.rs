@@ -220,6 +220,51 @@ fn check_verbose() {
     assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
 }
 
+// --- Embedded spython library visibility ---
+
+#[test]
+fn check_spython_wildcard_ok() {
+    // `from spython import *` must surface the lib's public names to ty's
+    // resolver, so a valid call to `square` / `fill` / `red` type-checks.
+    let (out, err, success) = run_check(&["spython_wildcard_ok.py"], &[]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(out, "");
+    assert_eq!(err, "");
+}
+
+#[test]
+fn check_spython_wildcard_unresolved() {
+    // Names not exported by `spython` must still error after
+    // `from spython import *` — we resolve real exports, not synthesize
+    // arbitrary names.
+    let (out, err, success) = run_check(&["spython_wildcard_unresolved.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
+fn check_spython_lib_type_error() {
+    // ty must type-check calls into the spython lib using real signatures —
+    // passing a `Color` where a `Style` is expected should fail.
+    let (out, err, success) = run_check(&["spython_lib_type_error.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    // Strip the user-specific cache prefix so the snapshot is portable.
+    insta::with_settings!({
+        filters => vec![
+            (filter.as_str(), ""),
+            (r"\S+/_spython_lib/spython/", "<lib>/"),
+        ]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
 // --- Doctest validation tests ---
 
 #[test]

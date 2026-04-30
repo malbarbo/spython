@@ -11,7 +11,7 @@ mod repl;
 use engine::{
     BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
     collect_import_files, execute_source, format_source, make_project_metadata, new_interpreter,
-    print_type_errors,
+    print_type_errors, spython_lib,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -264,17 +264,13 @@ fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
     db.project().set_included_paths(&mut db, sys_files);
 
     let mut diagnostics = annotation_check(&db, level, false);
-    // Filter out unresolved-import errors for the spython library module,
-    // which is frozen into the binary and not visible to ty's resolver.
-    diagnostics.extend(db.check().into_iter().filter(|d| {
-        !(d.id().as_str() == "unresolved-import" && d.primary_message().contains("spython"))
-    }));
+    diagnostics.extend(db.check());
     // Validate and type-check doctests inside each user file's docstrings.
     for f in &files {
         let is_spython_library = f
             .path(&db)
             .as_system_path()
-            .is_some_and(|p| p.as_str().contains("/Lib/spython/"));
+            .is_some_and(spython_lib::is_lib_path);
         if !is_spython_library {
             diagnostics.extend(engine::check_file_doctests(&db, *f, level));
         }
@@ -380,7 +376,30 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
     })?;
 
     let system = OsSystem::new(&cwd_sys);
-    let metadata = make_project_metadata(cwd_sys);
+    let extra_paths = ensure_spython_lib_extracted()
+        .map(|p| vec![p])
+        .unwrap_or_default();
+    let metadata = make_project_metadata(cwd_sys, extra_paths);
 
     ProjectDatabase::new(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
+}
+
+/// Extract the embedded spython lib to a stable cache directory so ty's
+/// resolver can find it via `extra-paths`. The package dir is wiped and
+/// rewritten every run (idempotent, ~1ms) — caching by version would mask
+/// local edits to `lib/spython/` during development, and stale files from
+/// prior versions (e.g. files later removed or renamed) would shadow the
+/// current set. Returns the path to add to `extra-paths` (i.e. the parent
+/// of `spython/`).
+fn ensure_spython_lib_extracted() -> Option<SystemPathBuf> {
+    let cache_root = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
+    let stub_root = cache_root.join("spython").join("lib-stubs");
+    let pkg_dir = stub_root.join(spython_lib::LIB_DIR).join("spython");
+
+    let _ = std::fs::remove_dir_all(&pkg_dir);
+    std::fs::create_dir_all(&pkg_dir).ok()?;
+    for (name, content) in spython_lib::FILES {
+        std::fs::write(pkg_dir.join(name), content).ok()?;
+    }
+    SystemPathBuf::from_path_buf(stub_root.join(spython_lib::LIB_DIR)).ok()
 }

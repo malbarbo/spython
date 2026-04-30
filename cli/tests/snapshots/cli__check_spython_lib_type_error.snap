@@ -1,0 +1,23 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[invalid-argument-type]: Argument to function `square` is incorrect
+ --> spython_lib_type_error.py:5:25
+  |
+4 | def make() -> Image:
+5 |     return square(50.0, red)
+  |                         ^^^ Expected `Style`, found `Color`
+  |
+info: Function defined here
+   --> <lib>/image.py:808:5
+    |
+808 | def square(side: float, *style_args: Style) -> Image:
+    |     ^^^^^^              ------------------ Parameter declared here
+809 |     return rectangle(side, side, *style_args)
+    |
+info: rule `invalid-argument-type` is enabled by default
+
+Found 1 error.

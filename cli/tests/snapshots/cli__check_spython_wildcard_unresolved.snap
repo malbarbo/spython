@@ -1,0 +1,17 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[unresolved-reference]: Name `not_a_real_spython_export` used when not defined
+ --> spython_wildcard_unresolved.py:5:11
+  |
+4 | def f() -> int:
+5 |     print(not_a_real_spython_export)
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+6 |     return 0
+  |
+info: rule `unresolved-reference` is enabled by default
+
+Found 1 error.
