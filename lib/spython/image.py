@@ -37,45 +37,31 @@ _clip_counter: int = 0
 # **************************
 
 
-class Pointf:
+class Point:
     def __init__(self, x: float, y: float) -> None:
         self.x: float = x
         self.y: float = y
 
 
-class Point:
-    def __init__(self, x: int, y: int) -> None:
-        self.x: int = x
-        self.y: int = y
+def _point_translate(p: Point, dx: float, dy: float) -> Point:
+    return Point(p.x + dx, p.y + dy)
 
 
-def _point_translate(p: Pointf, dx: float, dy: float) -> Pointf:
-    return Pointf(p.x + dx, p.y + dy)
-
-
-def _point_rotate(p: Pointf, center: Pointf, angle: float) -> Pointf:
+def _point_rotate(p: Point, center: Point, angle: float) -> Point:
     dx: float = p.x - center.x
     dy: float = p.y - center.y
-    return Pointf(
+    return Point(
         center.x + dx * _cos_deg(angle) - dy * _sin_deg(angle),
         center.y + dx * _sin_deg(angle) + dy * _cos_deg(angle),
     )
 
 
-def _point_flip_x(p: Pointf) -> Pointf:
-    return Pointf(-p.x, p.y)
+def _point_flip_x(p: Point) -> Point:
+    return Point(-p.x, p.y)
 
 
-def _point_flip_y(p: Pointf) -> Pointf:
-    return Pointf(p.x, -p.y)
-
-
-def _point_to_pointf(p: Point) -> Pointf:
-    return Pointf(float(p.x), float(p.y))
-
-
-def _pointf_to_point(p: Pointf) -> Point:
-    return Point(round(p.x), round(p.y))
+def _point_flip_y(p: Point) -> Point:
+    return Point(p.x, -p.y)
 
 
 # **************************
@@ -105,26 +91,26 @@ def _sin_deg(angle: float) -> float:
 
 
 class _MoveTo:
-    def __init__(self, p: Pointf) -> None:
-        self.p: Pointf = p
+    def __init__(self, p: Point) -> None:
+        self.p: Point = p
 
 
 class _LineTo:
-    def __init__(self, p: Pointf) -> None:
-        self.p: Pointf = p
+    def __init__(self, p: Point) -> None:
+        self.p: Point = p
 
 
 class _QuadTo:
-    def __init__(self, control: Pointf, end: Pointf) -> None:
-        self.control: Pointf = control
-        self.end: Pointf = end
+    def __init__(self, control: Point, end: Point) -> None:
+        self.control: Point = control
+        self.end: Point = end
 
 
 class _CubicTo:
-    def __init__(self, c1: Pointf, c2: Pointf, end: Pointf) -> None:
-        self.c1: Pointf = c1
-        self.c2: Pointf = c2
-        self.end: Pointf = end
+    def __init__(self, c1: Point, c2: Point, end: Point) -> None:
+        self.c1: Point = c1
+        self.c2: Point = c2
+        self.end: Point = end
 
 
 class _ArcTo:
@@ -135,32 +121,32 @@ class _ArcTo:
         rotation: float,
         large_arc: bool,
         sweep: bool,
-        end: Pointf,
+        end: Point,
     ) -> None:
         self.rx: float = rx
         self.ry: float = ry
         self.rotation: float = rotation
         self.large_arc: bool = large_arc
         self.sweep: bool = sweep
-        self.end: Pointf = end
+        self.end: Point = end
 
 
 def move_to(x: float, y: float) -> _MoveTo:
-    return _MoveTo(Pointf(x, y))
+    return _MoveTo(Point(x, y))
 
 
 def line_to(x: float, y: float) -> _LineTo:
-    return _LineTo(Pointf(x, y))
+    return _LineTo(Point(x, y))
 
 
 def quad_to(cx: float, cy: float, x: float, y: float) -> _QuadTo:
-    return _QuadTo(Pointf(cx, cy), Pointf(x, y))
+    return _QuadTo(Point(cx, cy), Point(x, y))
 
 
 def cubic_to(
     c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float
 ) -> _CubicTo:
-    return _CubicTo(Pointf(c1x, c1y), Pointf(c2x, c2y), Pointf(x, y))
+    return _CubicTo(Point(c1x, c1y), Point(c2x, c2y), Point(x, y))
 
 
 def arc_to(
@@ -172,10 +158,10 @@ def arc_to(
     x: float,
     y: float,
 ) -> _ArcTo:
-    return _ArcTo(rx, ry, rotation, large_arc, sweep, Pointf(x, y))
+    return _ArcTo(rx, ry, rotation, large_arc, sweep, Point(x, y))
 
 
-def pathf(commands: list, closed: bool, *style_args: Style) -> "Image":
+def path(commands: list, closed: bool, *style_args: Style) -> "Image":
     return _fix_position(_Path(_make_style(*style_args), commands, closed))
 
 
@@ -190,9 +176,9 @@ class Image:
 
 class _Box:
     def __init__(
-        self, center: Pointf, width: float, height: float, angle: float
+        self, center: Point, width: float, height: float, angle: float
     ) -> None:
-        self.center: Pointf = center
+        self.center: Point = center
         self.width: float = width
         self.height: float = height
         self.angle: float = angle
@@ -210,18 +196,18 @@ def _box_box(b: _Box) -> tuple:
     return (_point_translate(b.center, -dx, -dy), _point_translate(b.center, dx, dy))
 
 
-def _box_rotate(b: _Box, center: Pointf, angle: float) -> _Box:
+def _box_rotate(b: _Box, center: Point, angle: float) -> _Box:
     return _Box(
         _point_rotate(b.center, center, angle), b.width, b.height, b.angle + angle
     )
 
 
 def _box_scale(b: _Box, x_factor: float, y_factor: float) -> _Box:
-    c: Pointf = Pointf(b.center.x * x_factor, b.center.y * y_factor)
+    c: Point = Point(b.center.x * x_factor, b.center.y * y_factor)
     return _Box(c, b.width * x_factor, b.height * y_factor, b.angle)
 
 
-def _box_flip(b: _Box, point_flip: _Callable[[Pointf], Pointf]) -> _Box:
+def _box_flip(b: _Box, point_flip: _Callable[[Point], Point]) -> _Box:
     return _Box(point_flip(b.center), b.width, b.height, -b.angle)
 
 
@@ -284,41 +270,24 @@ def _make_style(*style_args: Style) -> Style:
 # **************************
 
 
-def widthf(img: Image) -> float:
+def width(img: Image) -> float:
     mn, mx = _box(img)
     return mx.x - mn.x
 
 
-def width(img: Image) -> int:
-    return round(widthf(img))
-
-
-def heightf(img: Image) -> float:
+def height(img: Image) -> float:
     mn, mx = _box(img)
     return mx.y - mn.y
 
 
-def height(img: Image) -> int:
-    return round(heightf(img))
-
-
-def dimensionf(img: Image) -> tuple:
+def dimension(img: Image) -> tuple:
     mn, mx = _box(img)
     return (mx.x - mn.x, mx.y - mn.y)
 
 
-def dimension(img: Image) -> tuple:
-    w, h = dimensionf(img)
-    return (round(w), round(h))
-
-
-def centerf(img: Image) -> Pointf:
-    mn, mx = _box(img)
-    return Pointf(_mid(mx.x, mn.x), _mid(mx.y, mn.y))
-
-
 def center(img: Image) -> Point:
-    return _pointf_to_point(centerf(img))
+    mn, mx = _box(img)
+    return Point(_mid(mx.x, mn.x), _mid(mx.y, mn.y))
 
 
 # **************************
@@ -366,16 +335,16 @@ def _fix_position(img: Image) -> Image:
 def _box(img: Image) -> tuple:
     if isinstance(img, _Path):
         if len(img.commands) == 0:
-            return (Pointf(0.0, 0.0), Pointf(0.0, 0.0))
+            return (Point(0.0, 0.0), Point(0.0, 0.0))
         first = img.commands[0]
-        p: Pointf = _cmd_endpoint(first)
+        p: Point = _cmd_endpoint(first)
         return _path_box(img.commands, 1, p, p.x, p.y, p.x, p.y)
     if isinstance(img, _Combination):
         amn, amx = _box(img.a)
         bmn, bmx = _box(img.b)
         return (
-            Pointf(min(amn.x, bmn.x), min(amn.y, bmn.y)),
-            Pointf(max(amx.x, bmx.x), max(amx.y, bmx.y)),
+            Point(min(amn.x, bmn.x), min(amn.y, bmn.y)),
+            Point(max(amx.x, bmx.x), max(amx.y, bmx.y)),
         )
     if isinstance(img, _Crop):
         return _box_box(img.box)
@@ -383,13 +352,13 @@ def _box(img: Image) -> tuple:
         return _box_box(img.box)
     if isinstance(img, _Bitmap):
         return _box_box(img.box)
-    return (Pointf(0.0, 0.0), Pointf(0.0, 0.0))
+    return (Point(0.0, 0.0), Point(0.0, 0.0))
 
 
 def _path_box(
     commands: list,
     idx: int,
-    prev: Pointf,
+    prev: Point,
     min_x: float,
     min_y: float,
     max_x: float,
@@ -400,11 +369,11 @@ def _path_box(
         min_x, min_y, max_x, max_y = _cmd_box(cmd, prev, min_x, min_y, max_x, max_y)
         prev = _cmd_endpoint(cmd)
         idx += 1
-    return (Pointf(min_x, min_y), Pointf(max_x, max_y))
+    return (Point(min_x, min_y), Point(max_x, max_y))
 
 
 def _cmd_box(
-    cmd: _Any, prev: Pointf, min_x: float, min_y: float, max_x: float, max_y: float
+    cmd: _Any, prev: Point, min_x: float, min_y: float, max_x: float, max_y: float
 ) -> tuple:
     if isinstance(cmd, _MoveTo):
         return _update_bounds(cmd.p, min_x, min_y, max_x, max_y)
@@ -432,15 +401,15 @@ def _cmd_box(
 
 
 def _update_bounds(
-    p: Pointf, min_x: float, min_y: float, max_x: float, max_y: float
+    p: Point, min_x: float, min_y: float, max_x: float, max_y: float
 ) -> tuple:
     return (min(min_x, p.x), min(min_y, p.y), max(max_x, p.x), max(max_y, p.y))
 
 
 def _quad_box(
-    p0: Pointf,
-    c: Pointf,
-    e: Pointf,
+    p0: Point,
+    c: Point,
+    e: Point,
     min_x: float,
     min_y: float,
     max_x: float,
@@ -469,10 +438,10 @@ def _quad_at(t: float, p0: float, c: float, e: float) -> float:
 
 
 def _cubic_box(
-    p0: Pointf,
-    c1: Pointf,
-    c2: Pointf,
-    e: Pointf,
+    p0: Point,
+    c1: Point,
+    c2: Point,
+    e: Point,
     min_x: float,
     min_y: float,
     max_x: float,
@@ -526,13 +495,13 @@ def _cubic_at(t: float, p0: float, c1: float, c2: float, e: float) -> float:
 
 
 def _arc_box(
-    p1: Pointf,
+    p1: Point,
     rx: float,
     ry: float,
     phi_deg: float,
     large_arc: bool,
     sweep: bool,
-    p2: Pointf,
+    p2: Point,
     min_x: float,
     min_y: float,
     max_x: float,
@@ -630,7 +599,7 @@ def _angle_vec(ux: float, uy: float, vx: float, vy: float) -> float:
 # **************************
 
 
-def _cmd_endpoint(cmd: _Any) -> Pointf:
+def _cmd_endpoint(cmd: _Any) -> Point:
     if isinstance(cmd, _MoveTo):
         return cmd.p
     if isinstance(cmd, _LineTo):
@@ -641,7 +610,7 @@ def _cmd_endpoint(cmd: _Any) -> Pointf:
         return cmd.end
     if isinstance(cmd, _ArcTo):
         return cmd.end
-    return Pointf(0.0, 0.0)
+    return Point(0.0, 0.0)
 
 
 def _cmd_translate(cmd: _Any, dx: float, dy: float) -> _Any:
@@ -671,7 +640,7 @@ def _cmd_translate(cmd: _Any, dx: float, dy: float) -> _Any:
     return cmd
 
 
-def _cmd_rotate(cmd: _Any, center: Pointf, angle: float) -> _Any:
+def _cmd_rotate(cmd: _Any, center: Point, angle: float) -> _Any:
     if isinstance(cmd, _MoveTo):
         return _MoveTo(_point_rotate(cmd.p, center, angle))
     if isinstance(cmd, _LineTo):
@@ -701,19 +670,19 @@ def _cmd_rotate(cmd: _Any, center: Pointf, angle: float) -> _Any:
 
 def _cmd_scale(cmd: _Any, xf: float, yf: float) -> _Any:
     if isinstance(cmd, _MoveTo):
-        return _MoveTo(Pointf(cmd.p.x * xf, cmd.p.y * yf))
+        return _MoveTo(Point(cmd.p.x * xf, cmd.p.y * yf))
     if isinstance(cmd, _LineTo):
-        return _LineTo(Pointf(cmd.p.x * xf, cmd.p.y * yf))
+        return _LineTo(Point(cmd.p.x * xf, cmd.p.y * yf))
     if isinstance(cmd, _QuadTo):
         return _QuadTo(
-            Pointf(cmd.control.x * xf, cmd.control.y * yf),
-            Pointf(cmd.end.x * xf, cmd.end.y * yf),
+            Point(cmd.control.x * xf, cmd.control.y * yf),
+            Point(cmd.end.x * xf, cmd.end.y * yf),
         )
     if isinstance(cmd, _CubicTo):
         return _CubicTo(
-            Pointf(cmd.c1.x * xf, cmd.c1.y * yf),
-            Pointf(cmd.c2.x * xf, cmd.c2.y * yf),
-            Pointf(cmd.end.x * xf, cmd.end.y * yf),
+            Point(cmd.c1.x * xf, cmd.c1.y * yf),
+            Point(cmd.c2.x * xf, cmd.c2.y * yf),
+            Point(cmd.end.x * xf, cmd.end.y * yf),
         )
     if isinstance(cmd, _ArcTo):
         return _ArcTo(
@@ -722,12 +691,12 @@ def _cmd_scale(cmd: _Any, xf: float, yf: float) -> _Any:
             cmd.rotation,
             cmd.large_arc,
             cmd.sweep,
-            Pointf(cmd.end.x * xf, cmd.end.y * yf),
+            Point(cmd.end.x * xf, cmd.end.y * yf),
         )
     return cmd
 
 
-def _cmd_flip(cmd: _Any, pf: _Callable[[Pointf], Pointf]) -> _Any:
+def _cmd_flip(cmd: _Any, pf: _Callable[[Point], Point]) -> _Any:
     if isinstance(cmd, _MoveTo):
         return _MoveTo(pf(cmd.p))
     if isinstance(cmd, _LineTo):
@@ -796,10 +765,10 @@ def rectangle(w: float, h: float, *style_args: Style) -> Image:
     return _Path(
         s,
         [
-            _MoveTo(Pointf(0.0, 0.0)),
-            _LineTo(Pointf(w, 0.0)),
-            _LineTo(Pointf(w, h)),
-            _LineTo(Pointf(0.0, h)),
+            _MoveTo(Point(0.0, 0.0)),
+            _LineTo(Point(w, 0.0)),
+            _LineTo(Point(w, h)),
+            _LineTo(Point(0.0, h)),
         ],
         True,
     )
@@ -818,9 +787,9 @@ def ellipse(w: float, h: float, *style_args: Style) -> Image:
     return _Path(
         s,
         [
-            _MoveTo(Pointf(w, ry)),
-            _ArcTo(rx, ry, 0.0, False, True, Pointf(0.0, ry)),
-            _ArcTo(rx, ry, 0.0, False, True, Pointf(w, ry)),
+            _MoveTo(Point(w, ry)),
+            _ArcTo(rx, ry, 0.0, False, True, Point(0.0, ry)),
+            _ArcTo(rx, ry, 0.0, False, True, Point(w, ry)),
         ],
         True,
     )
@@ -834,9 +803,7 @@ def circle(radius: float, *style_args: Style) -> Image:
 def line(x: float, y: float, *style_args: Style) -> Image:
     s: Style = _make_style(*style_args)
     return _fix_position(
-        _Path(
-            s, [_MoveTo(Pointf(0.0, 0.0)), _LineTo(Pointf(float(x), float(y)))], False
-        )
+        _Path(s, [_MoveTo(Point(0.0, 0.0)), _LineTo(Point(float(x), float(y)))], False)
     )
 
 
@@ -849,18 +816,14 @@ def triangle(side: float, *style_args: Style) -> Image:
     side = _positive(float(side))
     h: float = side * _SQRT3_2
     s: Style = _make_style(*style_args)
-    return _points_to_path(
-        [Pointf(side / 2.0, 0.0), Pointf(side, h), Pointf(0.0, h)], s
-    )
+    return _points_to_path([Point(side / 2.0, 0.0), Point(side, h), Point(0.0, h)], s)
 
 
 def right_triangle(side1: float, side2: float, *style_args: Style) -> Image:
     side1 = _positive(float(side1))
     side2 = _positive(float(side2))
     s: Style = _make_style(*style_args)
-    return _points_to_path(
-        [Pointf(0.0, 0.0), Pointf(0.0, side2), Pointf(side1, side2)], s
-    )
+    return _points_to_path([Point(0.0, 0.0), Point(0.0, side2), Point(side1, side2)], s)
 
 
 def isosceles_triangle(side_length: float, angle: float, *style_args: Style) -> Image:
@@ -871,9 +834,9 @@ def isosceles_triangle(side_length: float, angle: float, *style_args: Style) -> 
     return _fix_position(
         _points_to_path(
             [
-                Pointf(side_length * _sin_deg(hangle), side_length * _cos_deg(hangle)),
-                Pointf(0.0, 0.0),
-                Pointf(-side_length * _sin_deg(hangle), side_length * _cos_deg(hangle)),
+                Point(side_length * _sin_deg(hangle), side_length * _cos_deg(hangle)),
+                Point(0.0, 0.0),
+                Point(-side_length * _sin_deg(hangle), side_length * _cos_deg(hangle)),
             ],
             s,
         )
@@ -886,7 +849,7 @@ def _triangle_from_sides_angle(
     cx: float = side_b * _cos_deg(angle_a)
     cy: float = side_b * _sin_deg(angle_a)
     return _fix_position(
-        _points_to_path([Pointf(0.0, 0.0), Pointf(side_c, 0.0), Pointf(cx, cy)], style)
+        _points_to_path([Point(0.0, 0.0), Point(side_c, 0.0), Point(cx, cy)], style)
     )
 
 
@@ -991,10 +954,10 @@ def rhombus(side_length: float, angle: float, *style_args: Style) -> Image:
     s: Style = _make_style(*style_args)
     return _points_to_path(
         [
-            Pointf(0.0, h / 2.0),
-            Pointf(w / 2.0, 0.0),
-            Pointf(w, h / 2.0),
-            Pointf(w / 2.0, h),
+            Point(0.0, h / 2.0),
+            Point(w / 2.0, 0.0),
+            Point(w, h / 2.0),
+            Point(w / 2.0, h),
         ],
         s,
     )
@@ -1007,12 +970,10 @@ def regular_polygon(side_length: float, side_count: int, *style_args: Style) -> 
 def polygon(points: list, *style_args: Style) -> Image:
     pts: list = []
     for p in points:
-        if isinstance(p, Pointf):
+        if isinstance(p, Point):
             pts.append(p)
-        elif isinstance(p, Point):
-            pts.append(_point_to_pointf(p))
         else:
-            pts.append(Pointf(float(p[0]), float(p[1])))
+            pts.append(Point(float(p[0]), float(p[1])))
     return _fix_position(_points_to_path(pts, _make_style(*style_args)))
 
 
@@ -1027,7 +988,7 @@ def star_polygon(
     pts: list = []
     for i in range(side_count):
         theta: float = alpha + 360.0 * float(i * step_count % side_count) / scf
-        pts.append(Pointf(radius * _cos_deg(theta), radius * _sin_deg(theta)))
+        pts.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
     s: Style = _make_style(*style_args)
     return _fix_position(_points_to_path(pts, s))
 
@@ -1048,10 +1009,10 @@ def radial_star(
         theta1: float = alpha + 360.0 * float(i * 2) / float(2 * point_count)
         theta2: float = alpha + 360.0 * float(i * 2 + 1) / float(2 * point_count)
         pts.append(
-            Pointf(outer_radius * _cos_deg(theta1), outer_radius * _sin_deg(theta1))
+            Point(outer_radius * _cos_deg(theta1), outer_radius * _sin_deg(theta1))
         )
         pts.append(
-            Pointf(inner_radius * _cos_deg(theta2), inner_radius * _sin_deg(theta2))
+            Point(inner_radius * _cos_deg(theta2), inner_radius * _sin_deg(theta2))
         )
     s: Style = _make_style(*style_args)
     return _fix_position(_points_to_path(pts, s))
@@ -1067,36 +1028,36 @@ def pulled_regular_polygon(
     vertices: list = []
     for i in range(side_count):
         theta: float = alpha + 360.0 * float(i) / scf
-        vertices.append(Pointf(radius * _cos_deg(theta), radius * _sin_deg(theta)))
+        vertices.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
     if len(vertices) == 0:
         return empty
-    first: Pointf = vertices[0]
+    first: Point = vertices[0]
     edges: list = _pulled_edges(vertices, first, float(pull), float(angle))
     s: Style = _make_style(*style_args)
     return _fix_position(_Path(s, [_MoveTo(first)] + edges, True))
 
 
-def _pulled_edges(vertices: list, first: Pointf, pull: float, angle: float) -> list:
+def _pulled_edges(vertices: list, first: Point, pull: float, angle: float) -> list:
     result: list = []
     n: int = len(vertices)
     for i in range(n):
-        a: Pointf = vertices[i]
-        b: Pointf = vertices[i + 1] if i + 1 < n else first
+        a: Point = vertices[i]
+        b: Point = vertices[i + 1] if i + 1 < n else first
         result.append(_edge_cubic(a, b, pull, angle))
     return result
 
 
-def _edge_cubic(fr: Pointf, to: Pointf, pull: float, angle: float) -> _CubicTo:
+def _edge_cubic(fr: Point, to: Point, pull: float, angle: float) -> _CubicTo:
     dx: float = to.x - fr.x
     dy: float = to.y - fr.y
     dist: float = _math.sqrt(dx * dx + dy * dy)
     edge_rad: float = _math.atan2(dy, dx)
     angle_rad: float = angle * _math.pi / 180.0
-    c1: Pointf = Pointf(
+    c1: Point = Point(
         fr.x + pull * dist * _math.cos(edge_rad + angle_rad),
         fr.y + pull * dist * _math.sin(edge_rad + angle_rad),
     )
-    c2: Pointf = Pointf(
+    c2: Point = Point(
         to.x - pull * dist * _math.cos(edge_rad - angle_rad),
         to.y - pull * dist * _math.sin(edge_rad - angle_rad),
     )
@@ -1125,9 +1086,9 @@ def _wedge_path(radius: float, angle: float, style: Style) -> Image:
     return _Path(
         style,
         [
-            _MoveTo(Pointf(0.0, 0.0)),
-            _LineTo(Pointf(x1, y1)),
-            _ArcTo(r, r, 0.0, large_arc, sweep_flag, Pointf(x2, y2)),
+            _MoveTo(Point(0.0, 0.0)),
+            _LineTo(Point(x1, y1)),
+            _ArcTo(r, r, 0.0, large_arc, sweep_flag, Point(x2, y2)),
         ],
         True,
     )
@@ -1154,7 +1115,7 @@ def text(
     w: float = _system.text_width(txt, css)
     h: float = _system.text_height(txt, css)
     s: Style = _make_style(*style_args)
-    return _Text(s, _Box(Pointf(w / 2.0, h / 2.0), w, h, 0.0), txt, False, False, f)
+    return _Text(s, _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), txt, False, False, f)
 
 
 # **************************
@@ -1164,13 +1125,11 @@ def text(
 
 def bitmap(path: str) -> Image:
     w, h, data_uri = _system.load_bitmap(path)
-    return _Bitmap(_Box(Pointf(w / 2.0, h / 2.0), w, h, 0.0), data_uri)
+    return _Bitmap(_Box(Point(w / 2.0, h / 2.0), w, h, 0.0), data_uri)
 
 
 def bitmap_data_uri(data_uri: str, width: float, height: float) -> Image:
-    return _Bitmap(
-        _Box(Pointf(width / 2.0, height / 2.0), width, height, 0.0), data_uri
-    )
+    return _Bitmap(_Box(Point(width / 2.0, height / 2.0), width, height, 0.0), data_uri)
 
 
 # **************************
@@ -1179,10 +1138,10 @@ def bitmap_data_uri(data_uri: str, width: float, height: float) -> Image:
 
 
 def rotate(img: Image, angle: float) -> Image:
-    return _fix_position(_rotate_around(img, centerf(img), -float(angle)))
+    return _fix_position(_rotate_around(img, center(img), -float(angle)))
 
 
-def _rotate_around(img: Image, center: Pointf, angle: float) -> Image:
+def _rotate_around(img: Image, center: Point, angle: float) -> Image:
     if isinstance(img, _Path):
         return _Path(
             img.style, [_cmd_rotate(c, center, angle) for c in img.commands], img.closed
@@ -1255,7 +1214,7 @@ def flip_vertical(img: Image) -> Image:
 
 
 def _flip(
-    img: Image, point_flip: _Callable[[Pointf], Pointf], fh: bool, fv: bool
+    img: Image, point_flip: _Callable[[Point], Point], fh: bool, fv: bool
 ) -> Image:
     if isinstance(img, _Path):
         return _Path(
@@ -1292,8 +1251,8 @@ def frame(img: Image) -> Image:
 
 
 def color_frame(img: Image, color: _Color) -> Image:
-    w: float = widthf(img)
-    h: float = heightf(img)
+    w: float = width(img)
+    h: float = height(img)
     frame_style: Style = _stroke(color, width=2.0)
     return crop(overlay(rectangle(w, h, frame_style), img), 0.0, 0.0, w, h)
 
@@ -1302,15 +1261,15 @@ def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
     w = _positive(float(w))
     h = _positive(float(h))
     return _Crop(
-        _Box(Pointf(w / 2.0, h / 2.0), w, h, 0.0), _translate(img, -float(x), -float(y))
+        _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), _translate(img, -float(x), -float(y))
     )
 
 
 def crop_align(img: Image, x_place: str, y_place: str, cw: float, ch: float) -> Image:
     cw = _positive(float(cw))
     ch = _positive(float(ch))
-    _, dx = _x_place_dx(x_place, widthf(img), cw)
-    _, dy = _y_place_dy(y_place, heightf(img), ch)
+    _, dx = _x_place_dx(x_place, width(img), cw)
+    _, dy = _y_place_dy(y_place, height(img), ch)
     return crop(img, dx, dy, cw, ch)
 
 
@@ -1331,8 +1290,8 @@ def above(a: Image, b: Image) -> Image:
 
 
 def above_align(a: Image, x_place: str, b: Image) -> Image:
-    dxa, dxb = _x_place_dx(x_place, widthf(a), widthf(b))
-    return _Combination(_translate(a, dxa, 0.0), _translate(b, dxb, heightf(a)))
+    dxa, dxb = _x_place_dx(x_place, width(a), width(b))
+    return _Combination(_translate(a, dxa, 0.0), _translate(b, dxb, height(a)))
 
 
 def beside(a: Image, b: Image) -> Image:
@@ -1340,8 +1299,8 @@ def beside(a: Image, b: Image) -> Image:
 
 
 def beside_align(a: Image, y_place: str, b: Image) -> Image:
-    dya, dyb = _y_place_dy(y_place, heightf(a), heightf(b))
-    return _Combination(_translate(a, 0.0, dya), _translate(b, widthf(a), dyb))
+    dya, dyb = _y_place_dy(y_place, height(a), height(b))
+    return _Combination(_translate(a, 0.0, dya), _translate(b, width(a), dyb))
 
 
 def overlay(top: Image, bottom: Image) -> Image:
@@ -1349,8 +1308,8 @@ def overlay(top: Image, bottom: Image) -> Image:
 
 
 def overlay_align(top: Image, x_place: str, y_place: str, bottom: Image) -> Image:
-    dxa, dxb = _x_place_dx(x_place, widthf(top), widthf(bottom))
-    dya, dyb = _y_place_dy(y_place, heightf(top), heightf(bottom))
+    dxa, dxb = _x_place_dx(x_place, width(top), width(bottom))
+    dya, dyb = _y_place_dy(y_place, height(top), height(bottom))
     return _fix_position(
         _Combination(_translate(bottom, dxb, dyb), _translate(top, dxa, dya))
     )
@@ -1421,21 +1380,21 @@ def place_image_align(
     y = float(y)
     dx: float = 0.0
     if x_place == CENTER:
-        dx = widthf(img) / -2.0
+        dx = width(img) / -2.0
     elif x_place == RIGHT:
-        dx = -widthf(img)
+        dx = -width(img)
     dy: float = 0.0
     if y_place == MIDDLE:
-        dy = heightf(img) / -2.0
+        dy = height(img) / -2.0
     elif y_place == BOTTOM:
-        dy = -heightf(img)
+        dy = -height(img)
     return _fix_position(
         crop(
             _Combination(scene, _translate(img, x + dx, y + dy)),
             0.0,
             0.0,
-            widthf(scene),
-            heightf(scene),
+            width(scene),
+            height(scene),
         )
     )
 
@@ -1443,10 +1402,8 @@ def place_image_align(
 def place_images(scene: Image, positions: list, images: list) -> Image:
     for i in range(min(len(positions), len(images))):
         p = positions[i]
-        if isinstance(p, Pointf):
+        if isinstance(p, Point):
             scene = place_image(scene, p.x, p.y, images[i])
-        elif isinstance(p, Point):
-            scene = place_image(scene, float(p.x), float(p.y), images[i])
         else:
             scene = place_image(scene, float(p[0]), float(p[1]), images[i])
     return scene
@@ -1457,12 +1414,8 @@ def place_images_align(
 ) -> Image:
     for i in range(min(len(positions), len(images))):
         p = positions[i]
-        if isinstance(p, Pointf):
+        if isinstance(p, Point):
             scene = place_image_align(scene, p.x, p.y, x_place, y_place, images[i])
-        elif isinstance(p, Point):
-            scene = place_image_align(
-                scene, float(p.x), float(p.y), x_place, y_place, images[i]
-            )
         else:
             scene = place_image_align(
                 scene, float(p[0]), float(p[1]), x_place, y_place, images[i]
@@ -1481,16 +1434,16 @@ def place_line(
                 _Path(
                     s,
                     [
-                        _MoveTo(Pointf(float(x1), float(y1))),
-                        _LineTo(Pointf(float(x2), float(y2))),
+                        _MoveTo(Point(float(x1), float(y1))),
+                        _LineTo(Point(float(x2), float(y2))),
                     ],
                     False,
                 ),
             ),
             0.0,
             0.0,
-            widthf(scene),
-            heightf(scene),
+            width(scene),
+            height(scene),
         )
     )
 
@@ -1498,20 +1451,18 @@ def place_line(
 def place_polygon(scene: Image, points: list, *style_args: Style) -> Image:
     pts: list = []
     for p in points:
-        if isinstance(p, Pointf):
+        if isinstance(p, Point):
             pts.append(p)
-        elif isinstance(p, Point):
-            pts.append(_point_to_pointf(p))
         else:
-            pts.append(Pointf(float(p[0]), float(p[1])))
+            pts.append(Point(float(p[0]), float(p[1])))
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
             _Combination(scene, _points_to_path(pts, s)),
             0.0,
             0.0,
-            widthf(scene),
-            heightf(scene),
+            width(scene),
+            height(scene),
         )
     )
 
@@ -1542,14 +1493,14 @@ def place_curve(
                 scene,
                 _Path(
                     s,
-                    [_MoveTo(Pointf(x1, y1)), _CubicTo(c1, c2, Pointf(x2, y2))],
+                    [_MoveTo(Point(x1, y1)), _CubicTo(c1, c2, Point(x2, y2))],
                     False,
                 ),
             ),
             0.0,
             0.0,
-            widthf(scene),
-            heightf(scene),
+            width(scene),
+            height(scene),
         )
     )
 
@@ -1568,14 +1519,14 @@ def place_wedge(
             ),
             0.0,
             0.0,
-            widthf(scene),
-            heightf(scene),
+            width(scene),
+            height(scene),
         )
     )
 
 
 def put_image(scene: Image, x: float, y: float, img: Image) -> Image:
-    return place_image(scene, float(x), heightf(scene) - float(y), img)
+    return place_image(scene, float(x), height(scene) - float(y), img)
 
 
 # **************************
@@ -1593,8 +1544,8 @@ def add_line(
             _Path(
                 s,
                 [
-                    _MoveTo(Pointf(float(x1), float(y1))),
-                    _LineTo(Pointf(float(x2), float(y2))),
+                    _MoveTo(Point(float(x1), float(y1))),
+                    _LineTo(Point(float(x2), float(y2))),
                 ],
                 False,
             ),
@@ -1605,12 +1556,10 @@ def add_line(
 def add_polygon(img: Image, points: list, *style_args: Style) -> Image:
     pts: list = []
     for p in points:
-        if isinstance(p, Pointf):
+        if isinstance(p, Point):
             pts.append(p)
-        elif isinstance(p, Point):
-            pts.append(_point_to_pointf(p))
         else:
-            pts.append(Pointf(float(p[0]), float(p[1])))
+            pts.append(Point(float(p[0]), float(p[1])))
     s: Style = _make_style(*style_args)
     return _fix_position(_Combination(img, _points_to_path(pts, s)))
 
@@ -1638,9 +1587,7 @@ def add_curve(
     return _fix_position(
         _Combination(
             img,
-            _Path(
-                s, [_MoveTo(Pointf(x1, y1)), _CubicTo(c1, c2, Pointf(x2, y2))], False
-            ),
+            _Path(s, [_MoveTo(Point(x1, y1)), _CubicTo(c1, c2, Point(x2, y2))], False),
         )
     )
 
@@ -1668,7 +1615,7 @@ def add_solid_curve(
     return _fix_position(
         _Combination(
             img,
-            _Path(s, [_MoveTo(Pointf(x1, y1)), _CubicTo(c1, c2, Pointf(x2, y2))], True),
+            _Path(s, [_MoveTo(Point(x1, y1)), _CubicTo(c1, c2, Point(x2, y2))], True),
         )
     )
 
@@ -1696,10 +1643,10 @@ def _curve_controls(
     pull2: float,
 ) -> tuple:
     dist: float = _math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
-    c1: Pointf = Pointf(
+    c1: Point = Point(
         x1 + pull1 * dist * _cos_deg(angle1), y1 - pull1 * dist * _sin_deg(angle1)
     )
-    c2: Pointf = Pointf(
+    c2: Point = Point(
         x2 - pull2 * dist * _cos_deg(angle2), y2 + pull2 * dist * _sin_deg(angle2)
     )
     return (c1, c2)
@@ -1713,8 +1660,8 @@ def _curve_controls(
 def to_svg(img: Image) -> str:
     return (
         "<svg "
-        + _attrib("width", float(_math.ceil(round(widthf(img), 6))))
-        + _attrib("height", float(_math.ceil(round(heightf(img), 6))))
+        + _attrib("width", float(_math.ceil(round(width(img), 6))))
+        + _attrib("height", float(_math.ceil(round(height(img), 6))))
         + 'xmlns="http://www.w3.org/2000/svg">\n'
         + _to_svg(img, 1)
         + "</svg>"
@@ -1806,7 +1753,7 @@ def _to_svg(img: Image, level: int) -> str:
                 "transform",
                 _translate_str(b.center.x, b.center.y)
                 + " "
-                + _rotate_str(b.angle, Pointf(0.0, 0.0))
+                + _rotate_str(b.angle, Point(0.0, 0.0))
                 + " "
                 + _scale_str(scale_x, scale_y),
             )
@@ -1906,7 +1853,7 @@ def _align(v: float) -> str:
     return _f(_math.floor(v + _FP_EPSILON) + 0.5)
 
 
-def _rotate_str(angle: float, center: Pointf) -> str:
+def _rotate_str(angle: float, center: Point) -> str:
     return "rotate(" + _f(angle) + " " + _f(center.x) + " " + _f(center.y) + ")"
 
 

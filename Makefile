@@ -1,6 +1,6 @@
 WASM_TARGET = wasm32-wasip1
 
-.PHONY: check release wasm wasm-test test test-wasm test-wasm-cli
+.PHONY: check release wasm wasm-test test test-images test-wasm test-wasm-cli
 
 check:
 	cargo clippy --workspace
@@ -22,8 +22,11 @@ wasm-test:
 	cargo build -p wasm --target $(WASM_TARGET) --profile release-small --features wasm-backend
 	wasm-opt -Oz --enable-bulk-memory --enable-mutable-globals --enable-sign-ext --enable-nontrapping-float-to-int target/$(WASM_TARGET)/release-small/spython.wasm -o target/$(WASM_TARGET)/release-small/spython.wasm
 
-test: test-wasm test-wasm-cli
+test: test-wasm test-wasm-cli test-images
 	cargo test --workspace
+
+test-images:
+	cargo test --workspace -- --ignored
 
 test-wasm: wasm
 	deno test --allow-read wasm/tests/

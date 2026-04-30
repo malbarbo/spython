@@ -164,7 +164,6 @@ from spython.image import (
     MIDDLE,
     BOTTOM,
     Image,
-    Pointf,
     Point,
     empty,
     rectangle,
@@ -193,13 +192,9 @@ from spython.image import (
     text,
     bitmap,
     width,
-    widthf,
     height,
-    heightf,
     dimension,
-    dimensionf,
     center,
-    centerf,
     rotate,
     scale,
     scale_xy,
@@ -246,7 +241,7 @@ from spython.image import (
     quad_to,
     cubic_to,
     arc_to,
-    pathf,
+    path,
 )
 
 from spython.system import show_svg
