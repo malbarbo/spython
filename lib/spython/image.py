@@ -1346,7 +1346,7 @@ def overlay_offset(top: Image, x: float, y: float, bottom: Image) -> Image:
 
 
 def overlay_align_offset(
-    top: Image, x_place: XPlace, y_place: YPlace, x: float, y: float, bottom: Image
+    top: Image, x: float, y: float, x_place: XPlace, y_place: YPlace, bottom: Image
 ) -> Image:
     return overlay_align(top, x_place, y_place, _translate(bottom, float(x), float(y)))
 
@@ -1370,7 +1370,7 @@ def underlay_offset(bottom: Image, x: float, y: float, top: Image) -> Image:
 
 
 def underlay_align_offset(
-    bottom: Image, x_place: XPlace, y_place: YPlace, x: float, y: float, top: Image
+    bottom: Image, x: float, y: float, x_place: XPlace, y_place: YPlace, top: Image
 ) -> Image:
     return underlay_align(bottom, x_place, y_place, _translate(top, float(x), float(y)))
 

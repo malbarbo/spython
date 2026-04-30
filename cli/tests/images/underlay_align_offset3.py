@@ -19,24 +19,24 @@ print(
             underlay_align_offset(
                 underlay_align_offset(
                     underlay_align_offset(
-                        rhombus(120, 90, fill(navy)), LEFT, TOP, 16, 16, star
+                        rhombus(120, 90, fill(navy)), 16, 16, LEFT, TOP, star
                     ),
-                    RIGHT,
-                    TOP,
                     -16,
                     16,
+                    RIGHT,
+                    TOP,
                     star,
                 ),
-                LEFT,
-                BOTTOM,
                 16,
                 -16,
+                LEFT,
+                BOTTOM,
                 star,
             ),
+            -16,
+            -16,
             RIGHT,
             BOTTOM,
-            -16,
-            -16,
             star,
         )
     )

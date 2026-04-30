@@ -14,10 +14,10 @@ print(
     to_svg(
         underlay_align_offset(
             star_polygon(20, 20, 3, fill(navy)),
+            10,
+            10,
             RIGHT,
             BOTTOM,
-            10,
-            10,
             circle(30, fill(cornflowerblue)),
         )
     )
