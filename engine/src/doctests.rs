@@ -266,8 +266,13 @@ fn scan_docstring(
                     }
                 }
                 PromptClass::MalformedEmpty => {
-                    // bare `>>>` on its own — treat as an empty line in the
-                    // accumulated snippet so the line count stays stable.
+                    // `>>>` alone on a line — almost always a typo (the
+                    // student forgot the example). Report it like any other
+                    // malformed primary prompt.
+                    out.malformed.push(MalformedPrompt {
+                        range: full_line_range,
+                        kind: PromptKind::Primary,
+                    });
                     i += 1;
                 }
                 PromptClass::Malformed => {
@@ -341,16 +346,76 @@ pub fn malformed_prompt_diagnostics(file: File, malformed: &[MalformedPrompt]) -
         .collect()
 }
 
+/// Indent (in bytes) prepended to each snippet body line by
+/// `build_synthetic_source`. The body bytes that follow are byte-identical to
+/// the original docstring content, so byte offsets within the body translate
+/// 1:1 between the synthetic source and the original line range.
+const SYNTHETIC_BODY_INDENT: u32 = 4;
+
+/// Remap a synthetic `prim_range` to a sub-range of `line_range` in the
+/// original source, preserving column information when both endpoints lie on
+/// the same synthetic body line. If the diagnostic spans multiple synthetic
+/// lines, the end is clamped to the end of `line_range`.
+fn remap_range_within_line(
+    prim_range: TextRange,
+    line_idx: usize,
+    line_starts: &[u32],
+    line_range: TextRange,
+    byte_to_line: impl Fn(u32) -> usize,
+) -> TextRange {
+    let line_start = line_starts.get(line_idx).copied().unwrap_or(0);
+    let body_len: u32 = line_range.len().into();
+    let prim_start: u32 = prim_range.start().into();
+    let prim_end: u32 = prim_range.end().into();
+
+    let col = |byte: u32| {
+        byte.saturating_sub(line_start)
+            .saturating_sub(SYNTHETIC_BODY_INDENT)
+            .min(body_len)
+    };
+
+    let new_start = line_range.start() + TextSize::new(col(prim_start));
+    // Only refine the end when it shares the same synthetic line; otherwise
+    // we'd cross a real-source line boundary that has no meaningful mapping.
+    // Use `prim_end - 1` to look up the inclusive last byte's line.
+    let same_line = prim_end <= prim_start
+        || byte_to_line(prim_end.saturating_sub(1).max(prim_start)) == line_idx;
+    let new_end = if same_line {
+        line_range.start() + TextSize::new(col(prim_end))
+    } else {
+        line_range.end()
+    };
+
+    if new_end >= new_start {
+        TextRange::new(new_start, new_end)
+    } else {
+        line_range
+    }
+}
+
 // --- Synthetic source + diagnostic remapping --------------------------------
+
+/// Origin of a single line in a synthetic source built by `build_synthetic_source`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyntheticLine {
+    /// A line copied verbatim from the original source (or a trailing newline
+    /// we added). Diagnostics here are dropped — they are already reported
+    /// against the real file.
+    Original,
+    /// A scaffold line for snippet `usize`: blank separator, `def` header, or
+    /// the `pass` body of an empty snippet. Diagnostics here are remapped to
+    /// the snippet's anchor range so they don't get silently lost.
+    SyntheticHeader(usize),
+    /// A real doctest body line: `(snippet_idx, line_idx_in_snippet)`.
+    SyntheticBody(usize, usize),
+}
 
 /// Maps lines of the synthetic source (produced by `build_synthetic_source`)
 /// back to the original snippets.
 #[derive(Debug)]
 pub struct SyntheticMap {
-    /// For each 0-based line index in the synthetic source:
-    /// * `Some((snippet_idx, line_idx_in_snippet))` if the line came from a doctest snippet;
-    /// * `None` for verbatim-original lines, blank separators, and `def` headers.
-    pub lines: Vec<Option<(usize, usize)>>,
+    /// One entry per 0-based line index in the synthetic source.
+    pub lines: Vec<SyntheticLine>,
     /// Byte offset in the synthetic source where the verbatim copy of the
     /// original ends (i.e. where the appended doctest functions begin).
     pub original_len: u32,
@@ -372,32 +437,33 @@ pub fn build_synthetic_source(
     }
     let original_len = u32::try_from(syn.len()).unwrap();
 
-    // One `None` per line of the original (including the newline we may have added).
     let original_line_count = syn.lines().count();
-    let mut line_map: Vec<Option<(usize, usize)>> = vec![None; original_line_count];
+    let mut line_map: Vec<SyntheticLine> = vec![SyntheticLine::Original; original_line_count];
 
     for (idx, snippet) in snippets.iter().enumerate() {
         // Blank separator line.
         syn.push('\n');
-        line_map.push(None);
+        line_map.push(SyntheticLine::SyntheticHeader(idx));
         // `def __spython_doctest_N__() -> None:`
         syn.push_str("def ");
         syn.push_str(SYNTHETIC_FN_PREFIX);
         syn.push_str(&idx.to_string());
         syn.push_str(SYNTHETIC_FN_SUFFIX);
         syn.push_str("() -> None:\n");
-        line_map.push(None); // the `def` header line
+        line_map.push(SyntheticLine::SyntheticHeader(idx));
 
+        // `String::split('\n')` always yields at least one element, so an empty
+        // snippet appears as `[""]` here and falls into the all-empty branch.
         let body_lines: Vec<&str> = snippet.code.split('\n').collect();
-        if body_lines.is_empty() || body_lines.iter().all(|l| l.is_empty()) {
+        if body_lines.iter().all(|l| l.is_empty()) {
             syn.push_str("    pass\n");
-            line_map.push(None);
+            line_map.push(SyntheticLine::SyntheticHeader(idx));
         } else {
             for (line_idx, body_line) in body_lines.iter().enumerate() {
                 syn.push_str("    ");
                 syn.push_str(body_line);
                 syn.push('\n');
-                line_map.push(Some((idx, line_idx)));
+                line_map.push(SyntheticLine::SyntheticBody(idx, line_idx));
             }
         }
     }
@@ -414,10 +480,10 @@ pub fn build_synthetic_source(
 /// Filter and rewrite diagnostics from a synthetic source:
 /// * drop any whose primary span falls within the verbatim-original portion
 ///   (already reported against the real file);
-/// * drop any whose primary line didn't come from a doctest snippet (e.g. the
-///   `def` header);
 /// * rewrite the primary span to point at the original docstring location and
-///   prepend `"in doctest of <owner>: "` to the message.
+///   prepend `"in doctest of <owner>: "` to the message. Diagnostics that
+///   land on a scaffold line (`def` header, blank, or synthetic `pass`) fall
+///   back to the snippet's anchor range so they aren't silently dropped.
 pub fn remap_diagnostics(
     diags: Vec<Diagnostic>,
     synthetic_file: File,
@@ -471,15 +537,27 @@ pub fn remap_diagnostics(
             continue;
         }
         let line_idx = byte_to_line(prim_start);
-        let Some(Some((snippet_idx, line_in_snippet))) = map.lines.get(line_idx).copied() else {
-            continue;
+        let (snippet_idx, original_range) = match map.lines.get(line_idx).copied() {
+            Some(SyntheticLine::SyntheticBody(idx, line)) => {
+                let snippet = &snippets[idx];
+                let line_range = snippet
+                    .line_ranges
+                    .get(line)
+                    .copied()
+                    .unwrap_or(snippet.anchor_range);
+                let range = remap_range_within_line(
+                    prim_range,
+                    line_idx,
+                    &line_starts,
+                    line_range,
+                    byte_to_line,
+                );
+                (idx, range)
+            }
+            Some(SyntheticLine::SyntheticHeader(idx)) => (idx, snippets[idx].anchor_range),
+            Some(SyntheticLine::Original) | None => continue,
         };
         let snippet = &snippets[snippet_idx];
-        let original_range = snippet
-            .line_ranges
-            .get(line_in_snippet)
-            .copied()
-            .unwrap_or(snippet.anchor_range);
 
         let id = diag.id();
         let severity = diag.severity();
@@ -558,6 +636,82 @@ mod tests {
     }
 
     #[test]
+    fn malformed_bare_primary_prompt() {
+        // `>>>` alone (with no example after it) is almost certainly a typo;
+        // surface it instead of silently swallowing the line.
+        let src = "def f(x: int) -> int:\n    \"\"\"\n    >>>\n    \"\"\"\n    return x\n";
+        let ex = extract(src);
+        assert_eq!(ex.snippets.len(), 0);
+        assert_eq!(ex.malformed.len(), 1);
+        assert_eq!(ex.malformed[0].kind, PromptKind::Primary);
+    }
+
+    #[test]
+    fn remap_within_line_preserves_column() {
+        // synthetic line content: "    add(\"a\", 2)\n"
+        //                        ^^^^               ← 4-byte indent
+        //                            ^^^^^^^^^^^   ← body, 11 bytes
+        // simulate ty's range pointing at the `"a"` argument (cols 8..=10
+        // inside the synthetic line, which is body cols 4..=6).
+        let line_starts = vec![0u32, 16];
+        let line_range = TextRange::new(TextSize::new(100), TextSize::new(111)); // 11-byte original body
+        let prim = TextRange::new(TextSize::new(8), TextSize::new(11));
+        let remapped = remap_range_within_line(prim, 0, &line_starts, line_range, |b| {
+            line_starts.partition_point(|&s| s <= b).saturating_sub(1)
+        });
+        assert_eq!(u32::from(remapped.start()), 100 + 4);
+        assert_eq!(u32::from(remapped.end()), 100 + 7);
+    }
+
+    #[test]
+    fn remap_clamps_end_when_diag_crosses_lines() {
+        // Diagnostic starts on line 0 and ends on line 1: end clamps to the
+        // first line's end so we never produce a range outside `line_range`.
+        let line_starts = vec![0u32, 16, 32];
+        let line_range = TextRange::new(TextSize::new(100), TextSize::new(111));
+        let prim = TextRange::new(TextSize::new(8), TextSize::new(20));
+        let remapped = remap_range_within_line(prim, 0, &line_starts, line_range, |b| {
+            line_starts.partition_point(|&s| s <= b).saturating_sub(1)
+        });
+        assert_eq!(u32::from(remapped.start()), 100 + 4);
+        assert_eq!(u32::from(remapped.end()), 111);
+    }
+
+    #[test]
+    fn remap_clamps_when_diag_starts_in_indent() {
+        // Diagnostic that includes the synthetic 4-space indent collapses to
+        // the start of the body content (col 0), not a negative offset.
+        let line_starts = vec![0u32, 16];
+        let line_range = TextRange::new(TextSize::new(100), TextSize::new(111));
+        let prim = TextRange::new(TextSize::new(2), TextSize::new(6));
+        let remapped = remap_range_within_line(prim, 0, &line_starts, line_range, |b| {
+            line_starts.partition_point(|&s| s <= b).saturating_sub(1)
+        });
+        assert_eq!(u32::from(remapped.start()), 100);
+        assert_eq!(u32::from(remapped.end()), 100 + 2);
+    }
+
+    #[test]
+    fn synthetic_header_lines_marked_for_fallback() {
+        // The blank separator and `def` header preceding each snippet must
+        // be marked as `SyntheticHeader`, so a diagnostic landing on either
+        // can be remapped to the snippet's anchor range instead of dropped.
+        let src = "def add(x: int, y: int) -> int:\n    \"\"\"\n    >>> add(1, 2)\n    \"\"\"\n    return x + y\n";
+        let ex = extract(src);
+        let (_, map) = build_synthetic_source(src, &ex.snippets);
+        assert!(
+            map.lines
+                .iter()
+                .any(|l| matches!(l, SyntheticLine::SyntheticHeader(0)))
+        );
+        assert!(
+            map.lines
+                .iter()
+                .any(|l| matches!(l, SyntheticLine::SyntheticBody(0, 0)))
+        );
+    }
+
+    #[test]
     fn malformed_continuation() {
         let src = "def f(x: int) -> int:\n    \"\"\"\n    >>> y = (\n    ...x\n    ... )\n    \"\"\"\n    return x\n";
         let ex = extract(src);
@@ -596,8 +750,8 @@ mod tests {
         assert_eq!(ex.snippets[0].code, "add(1, 2)\nadd(-1, 1)");
         let (syn, map) = build_synthetic_source(src, &ex.snippets);
         assert!(syn.contains("def __spython_doctest_0__() -> None:"));
-        assert!(map.lines.contains(&Some((0, 0))));
-        assert!(map.lines.contains(&Some((0, 1))));
+        assert!(map.lines.contains(&SyntheticLine::SyntheticBody(0, 0)));
+        assert!(map.lines.contains(&SyntheticLine::SyntheticBody(0, 1)));
     }
 
     #[test]
