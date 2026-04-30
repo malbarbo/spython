@@ -13,7 +13,8 @@
 
 use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
-use ruff_python_ast::{Expr, ModModule, Stmt, StmtClassDef, StmtFunctionDef};
+use ruff_python_ast::visitor::Visitor;
+use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_text_size::{TextRange, TextSize};
 
 use crate::checker::make_lint_diagnostic;
@@ -86,70 +87,79 @@ pub struct DoctestExtraction {
 /// Walk `module` looking for docstrings and extract doctest snippets from them.
 /// `source` must be the exact source text the module was parsed from.
 pub fn extract_doctests(module: &ModModule, source: &str) -> DoctestExtraction {
-    let mut out = DoctestExtraction::default();
-    walk_stmts(&module.body, source, "module", &mut out);
-    out
+    let mut visitor = DoctestVisitor {
+        source,
+        scope: "module".to_owned(),
+        out: DoctestExtraction::default(),
+    };
+    visitor.visit_body(&module.body);
+    visitor.out
 }
 
-fn walk_stmts(stmts: &[Stmt], source: &str, scope: &str, out: &mut DoctestExtraction) {
-    // The docstring is the very first statement (if any) when it is a plain
-    // string-literal expression statement.
-    if let Some(first) = stmts.first()
-        && let Stmt::Expr(expr_stmt) = first
-        && let Expr::StringLiteral(s) = &*expr_stmt.value
-    {
-        // Skip implicitly concatenated docstrings: we can't cleanly map
-        // offsets back to the original source when parts are joined.
-        if !s.value.is_implicit_concatenated() {
+/// Walks the module collecting doctests from docstrings on the module,
+/// functions, and classes. Tracks the qualified scope name (`"module"`,
+/// `"func"`, `"Class.method"`, …) for snippet ownership.
+struct DoctestVisitor<'a> {
+    source: &'a str,
+    scope: String,
+    out: DoctestExtraction,
+}
+
+impl DoctestVisitor<'_> {
+    /// Push a child name onto the scope: `module` → `name`, otherwise
+    /// `parent` → `parent.name`. Returns the previous scope to restore.
+    fn enter_scope(&mut self, name: &str) -> String {
+        let new_scope = if self.scope == "module" {
+            name.to_owned()
+        } else {
+            format!("{}.{}", self.scope, name)
+        };
+        std::mem::replace(&mut self.scope, new_scope)
+    }
+}
+
+impl<'a> Visitor<'a> for DoctestVisitor<'_> {
+    fn visit_body(&mut self, body: &'a [Stmt]) {
+        // The docstring is the very first statement (if any) when it is a
+        // plain string-literal expression statement. Skip implicitly
+        // concatenated docstrings: we can't cleanly map offsets back to the
+        // original source when parts are joined.
+        if let Some(Stmt::Expr(expr_stmt)) = body.first()
+            && let Expr::StringLiteral(s) = &*expr_stmt.value
+            && !s.value.is_implicit_concatenated()
+        {
             let part = s
                 .value
                 .iter()
                 .next()
                 .expect("non-concatenated string has exactly one part");
-            scan_docstring(part.content_range(), source, scope, out);
+            scan_docstring(
+                part.content_range(),
+                self.source,
+                &self.scope,
+                &mut self.out,
+            );
+        }
+        for stmt in body {
+            self.visit_stmt(stmt);
         }
     }
-    for stmt in stmts {
-        match stmt {
-            Stmt::FunctionDef(func) => walk_function(func, source, scope, out),
-            Stmt::ClassDef(cls) => walk_class(cls, source, scope, out),
-            _ => {}
-        }
-    }
-}
 
-fn walk_function(func: &StmtFunctionDef, source: &str, scope: &str, out: &mut DoctestExtraction) {
-    let name = if scope == "module" {
-        func.name.to_string()
-    } else {
-        format!("{scope}.{}", func.name)
-    };
-    walk_stmts(&func.body, source, &name, out);
-}
-
-fn walk_class(cls: &StmtClassDef, source: &str, scope: &str, out: &mut DoctestExtraction) {
-    let name = if scope == "module" {
-        cls.name.to_string()
-    } else {
-        format!("{scope}.{}", cls.name)
-    };
-    // Collect a class docstring under the class name.
-    if let Some(first) = cls.body.first()
-        && let Stmt::Expr(expr_stmt) = first
-        && let Expr::StringLiteral(s) = &*expr_stmt.value
-        && !s.value.is_implicit_concatenated()
-    {
-        let part = s
-            .value
-            .iter()
-            .next()
-            .expect("non-concatenated string has exactly one part");
-        scan_docstring(part.content_range(), source, &name, out);
-    }
-    for stmt in &cls.body {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        // Only function and class bodies introduce a new scope (and a
+        // potential docstring); other statements (if/for/while/...) don't
+        // own doctests, so we skip them entirely.
         match stmt {
-            Stmt::FunctionDef(func) => walk_function(func, source, &name, out),
-            Stmt::ClassDef(inner) => walk_class(inner, source, &name, out),
+            Stmt::FunctionDef(func) => {
+                let prev = self.enter_scope(func.name.as_str());
+                self.visit_body(&func.body);
+                self.scope = prev;
+            }
+            Stmt::ClassDef(cls) => {
+                let prev = self.enter_scope(cls.name.as_str());
+                self.visit_body(&cls.body);
+                self.scope = prev;
+            }
             _ => {}
         }
     }
