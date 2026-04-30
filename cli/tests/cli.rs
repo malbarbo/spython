@@ -235,6 +235,21 @@ fn check_doctest_type_error() {
 }
 
 #[test]
+fn check_doctest_syntax_error() {
+    // A doctest with a parse error (unclosed paren) must be reported by the
+    // static checker — not slip through to the runtime doctest runner, which
+    // would surface it in a non-spython format.
+    let (out, err, success) = run_check(&["doctest_syntax_error.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
 fn check_doctest_no_space() {
     let (out, err, success) = run_check(&["doctest_no_space.py"], &[]);
     assert!(!success);
