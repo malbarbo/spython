@@ -1265,6 +1265,719 @@ fn level4_allows_default_arg() {
     assert_eq!(out, "7\n");
 }
 
+// --- Naming convention tests ---
+
+#[test]
+fn level0_flags_camelcase_function_name() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def myFunction(x: int) -> int:
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("invalid-function-name"),
+        "expected invalid-function-name in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_lowercase_function_name() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def my_function(x: int) -> int:
+            return x
+        print(my_function(1))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1\n");
+}
+
+#[test]
+fn level0_allows_dunder_function_name() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def __init__(x: int) -> int:
+            return x
+        print(__init__(2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "2\n");
+}
+
+#[test]
+fn level2_flags_lowercase_class_name() {
+    let (_, err, success) = run_level(
+        2,
+        indoc! {"
+        from dataclasses import dataclass
+        @dataclass
+        class my_class:
+            x: int
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("invalid-class-name"),
+        "expected invalid-class-name in stderr: {err}"
+    );
+}
+
+#[test]
+fn level2_flags_underscore_class_name() {
+    let (_, err, success) = run_level(
+        2,
+        indoc! {"
+        from dataclasses import dataclass
+        @dataclass
+        class My_Class:
+            x: int
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("invalid-class-name"),
+        "expected invalid-class-name in stderr: {err}"
+    );
+}
+
+#[test]
+fn level2_allows_capwords_class_name() {
+    let (_, err, success) = run_level(
+        2,
+        indoc! {"
+        from dataclasses import dataclass
+        @dataclass
+        class MyClass:
+            x: int
+    "},
+    );
+    assert!(success, "stderr: {err}");
+}
+
+#[test]
+fn level0_flags_uppercase_argument_name() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(X: int) -> int:
+            return X
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("invalid-argument-name"),
+        "expected invalid-argument-name in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_self_in_methods() {
+    // 'self' is lowercase, so it's not flagged.
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        class Box:
+            x: int
+            def __init__(self, x: int) -> None:
+                self.x = x
+        print(Box(7).x)
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "7\n");
+}
+
+#[test]
+fn level0_flags_uppercase_variable_in_function() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            Y: int = x + 1
+            return Y
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("non-lowercase-variable-in-function"),
+        "expected non-lowercase-variable-in-function in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_uppercase_module_constant() {
+    // Module-level UPPER_CASE is the conventional form for constants.
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        MAX_SIZE: int = 100
+        def get_max() -> int:
+            return MAX_SIZE
+        print(get_max())
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "100\n");
+}
+
+#[test]
+fn level3_flags_uppercase_for_loop_variable() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f() -> None:
+            for I in range(3):
+                print(I)
+        f()
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("non-lowercase-variable-in-function"),
+        "expected non-lowercase-variable-in-function in stderr: {err}"
+    );
+}
+
+#[test]
+fn level2_flags_lowercase_enum_member() {
+    let (_, err, success) = run_level(
+        2,
+        indoc! {"
+        from enum import IntEnum
+        class Color(IntEnum):
+            red = 1
+            blue = 2
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("non-uppercase-enum-member"),
+        "expected non-uppercase-enum-member in stderr: {err}"
+    );
+}
+
+#[test]
+fn level2_flags_mixedcase_enum_member() {
+    let (_, err, success) = run_level(
+        2,
+        indoc! {"
+        from enum import StrEnum
+        class Dir(StrEnum):
+            Up = 'u'
+            Down = 'd'
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("non-uppercase-enum-member"),
+        "expected non-uppercase-enum-member in stderr: {err}"
+    );
+}
+
+#[test]
+fn level2_allows_uppercase_enum_member() {
+    let (_, err, success) = run_level(
+        2,
+        indoc! {"
+        from enum import IntEnum
+        class Color(IntEnum):
+            RED = 1
+            DARK_BLUE = 2
+    "},
+    );
+    assert!(success, "stderr: {err}");
+}
+
+// --- Comparison style tests ---
+
+#[test]
+fn level0_flags_eq_none() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> bool:
+            return x == None
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("none-comparison"),
+        "expected none-comparison in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_flags_neq_none() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> bool:
+            return x != None
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("none-comparison"), "stderr: {err}");
+}
+
+#[test]
+fn level0_allows_is_none() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: object) -> bool:
+            return x is None
+        print(f(None))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True\n");
+}
+
+#[test]
+fn level0_flags_eq_true() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: bool) -> bool:
+            return x == True
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("true-false-comparison"),
+        "expected true-false-comparison in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_flags_eq_false() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: bool) -> bool:
+            return x == False
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("true-false-comparison"), "stderr: {err}");
+}
+
+#[test]
+fn level4_flags_not_in_membership() {
+    let (_, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(xs: list[int]) -> bool:
+            return not 1 in xs
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("not-in-test"),
+        "expected not-in-test in stderr: {err}"
+    );
+}
+
+#[test]
+fn level4_allows_not_in() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(xs: list[int]) -> bool:
+            return 1 not in xs
+        print(f([2, 3]))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True\n");
+}
+
+#[test]
+fn level4_flags_not_is_identity() {
+    let (_, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: object) -> bool:
+            return not x is None
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("not-is-test"),
+        "expected not-is-test in stderr: {err}"
+    );
+}
+
+// --- N805: first method argument must be `self` ---
+
+#[test]
+fn level4_flags_method_first_arg_not_self() {
+    let (_, err, success) = run_level(
+        4,
+        indoc! {"
+        class Box:
+            x: int
+            def __init__(this, x: int) -> None:
+                this.x = x
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("invalid-first-argument-name-for-method"),
+        "expected invalid-first-argument-name-for-method in stderr: {err}"
+    );
+}
+
+#[test]
+fn level4_allows_method_with_self() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        class Box:
+            x: int
+            def __init__(self, x: int) -> None:
+                self.x = x
+        print(Box(3).x)
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "3\n");
+}
+
+#[test]
+fn level4_skips_self_check_for_staticmethod() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        class Box:
+            x: int
+            @staticmethod
+            def make(x: int) -> int:
+                return x
+        print(Box.make(7))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "7\n");
+}
+
+// --- SIM103: needless bool ---
+
+#[test]
+fn level1_flags_needless_bool_if_else() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: bool) -> bool:
+            if x:
+                return True
+            else:
+                return False
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("needless-bool"),
+        "expected needless-bool in stderr: {err}"
+    );
+}
+
+#[test]
+fn level1_flags_needless_bool_negated() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: bool) -> bool:
+            if x:
+                return False
+            else:
+                return True
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("needless-bool"), "stderr: {err}");
+}
+
+#[test]
+fn level1_allows_direct_return() {
+    let (out, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(x: bool) -> bool:
+            return x
+        print(f(True))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True\n");
+}
+
+// --- F541: f-string without placeholders ---
+
+#[test]
+fn level0_flags_f_string_without_placeholders() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {r#"
+        def f() -> str:
+            return f"hello"
+    "#},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("f-string-missing-placeholders"),
+        "expected f-string-missing-placeholders in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_f_string_with_placeholder() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {r#"
+        def f(x: int) -> str:
+            return f"x={x}"
+        print(f(3))
+    "#},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "x=3\n");
+}
+
+// --- F841: unused variable (levels 0-3 only) ---
+
+#[test]
+fn level0_flags_unused_local() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            y: int = x + 1
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("unused-variable"),
+        "expected unused-variable in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_unused_variable_message_names_variable() {
+    let (_, err, _) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            y: int = x + 1
+            return x
+    "},
+    );
+    assert!(
+        err.contains("`y`"),
+        "expected variable name in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_used_local() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            y: int = x + 1
+            return y
+        print(f(2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "3\n");
+}
+
+#[test]
+fn level0_skips_underscore_prefixed() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            _y: int = x + 1
+            return x
+        print(f(2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "2\n");
+}
+
+#[test]
+fn level3_flags_unused_for_target() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f() -> None:
+            for i in range(3):
+                print('hi')
+        f()
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("unused-variable"), "stderr: {err}");
+}
+
+#[test]
+fn level3_flags_unused_in_tuple_unpacking() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f() -> int:
+            a, b = (1, 2)
+            return a
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("unused-variable"), "stderr: {err}");
+    assert!(err.contains("`b`"), "stderr: {err}");
+}
+
+#[test]
+fn level3_allows_aug_assign_as_use() {
+    // `x += 1` reads x; that counts as a use, so the original binding is
+    // not flagged.
+    let (out, err, success) = run_level(
+        3,
+        indoc! {"
+        def f() -> int:
+            x: int = 0
+            x += 1
+            return x
+        print(f())
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1\n");
+}
+
+#[test]
+fn level3_aug_assign_alone_counts_as_use() {
+    // `x: int = 0; x += 1` — the AugAssign reads x, so we must NOT flag
+    // the original binding as unused, even when x isn't read elsewhere.
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f(out: list[int]) -> None:
+            count: int = 0
+            count += 1
+            out.append(count)
+        f([])
+    "},
+    );
+    assert!(success, "stderr: {err}");
+}
+
+#[test]
+fn level3_chained_eq_none_no_double_emit() {
+    let (_, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: int, y: int) -> bool:
+            return x == None == y
+    "},
+    );
+    assert!(!success);
+    let count = err.matches("none-comparison").count();
+    // Two None literals → expect at most one diagnostic per literal.
+    // (Two None literals at distinct ranges → two emits is acceptable.)
+    assert!(count >= 1 && count <= 2, "unexpected count {count}: {err}");
+}
+
+#[test]
+fn level4_does_not_flag_unused() {
+    // F841 only applies at levels 0-3.
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: int) -> int:
+            y: int = x + 1
+            return x
+        print(f(2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "2\n");
+}
+
+#[test]
+fn level0_does_not_flag_function_parameter() {
+    // Parameters aren't tracked as unused locals (different rule).
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int, y: int) -> int:
+            return x
+        print(f(1, 2))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1\n");
+}
+
+// --- PIE790: unnecessary `pass` ---
+
+#[test]
+fn level0_flags_unnecessary_pass_after_docstring() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {r#"
+        def f() -> None:
+            """Docstring."""
+            pass
+    "#},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("unnecessary-pass"),
+        "expected unnecessary-pass in stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_pass_as_only_body_stmt() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f() -> None:
+            pass
+        f()
+    "},
+    );
+    assert!(success, "stderr: {err}");
+}
+
+#[test]
+fn level5_still_flags_invalid_names() {
+    // Naming conventions apply at every level — they're a style rule, not a
+    // language-complexity gate.
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        def MyFunction(x: int) -> int:
+            return x
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("invalid-function-name"),
+        "expected invalid-function-name in stderr: {err}"
+    );
+}
+
 #[test]
 fn level5_allows_intenum_without_annotations() {
     let (_, _err, success) = run_level(

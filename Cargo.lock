@@ -824,6 +824,7 @@ dependencies = [
  "ruff_python_ast",
  "ruff_python_formatter",
  "ruff_python_parser",
+ "ruff_python_stdlib",
  "ruff_text_size",
  "rustpython",
  "ty_module_resolver",

@@ -313,6 +313,330 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Checks that function names follow the `snake_case` naming convention
+    /// (lowercase letters, digits, and underscores).
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 recommends `snake_case` for function names. Mixing styles makes
+    /// student code harder to read and inconsistent with most Python libraries.
+    ///
+    /// Methods explicitly decorated with `@override` or `@overload` are
+    /// exempt — those are defined elsewhere with the original name.
+    ///
+    /// ## Example
+    /// ```python
+    /// def myFunction() -> None:    # error: should be lowercase
+    ///     pass
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def my_function() -> None:
+    ///     pass
+    /// ```
+    pub(crate) static INVALID_FUNCTION_NAME = {
+        summary: "function name should be lowercase",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Checks that class names follow the `CapWords` (CamelCase) convention.
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 recommends `CapWords` for class names. The check accepts an
+    /// optional leading underscore and rejects names containing underscores
+    /// after the first character (e.g. `My_Class`) or names starting with a
+    /// lowercase letter (e.g. `my_class`).
+    ///
+    /// ## Example
+    /// ```python
+    /// class my_class:    # error: should use CapWords
+    ///     pass
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// class MyClass:
+    ///     pass
+    /// ```
+    pub(crate) static INVALID_CLASS_NAME = {
+        summary: "class name should use CapWords convention",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Checks that function and method parameters use `snake_case` (no
+    /// uppercase letters).
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 recommends lowercase parameter names, matching variable and
+    /// function naming. Methods explicitly decorated with `@override` are
+    /// exempt — the parameter names there mirror the parent class.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(X: int) -> int:    # error: argument should be lowercase
+    ///     return X
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def f(x: int) -> int:
+    ///     return x
+    /// ```
+    pub(crate) static INVALID_ARGUMENT_NAME = {
+        summary: "argument name should be lowercase",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Checks that variables assigned inside a function (including loop
+    /// targets) use `snake_case`. Module-level `UPPER_CASE` constants are
+    /// allowed and not flagged.
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 recommends lowercase names for local variables. Uppercase or
+    /// mixedCase locals confuse the reader: `UPPER_CASE` is the convention
+    /// for module-level constants.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(x: int) -> int:
+    ///     Y: int = x + 1    # error: variable should be lowercase
+    ///     return Y
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def f(x: int) -> int:
+    ///     y: int = x + 1
+    ///     return y
+    /// ```
+    pub(crate) static NON_LOWERCASE_VARIABLE_IN_FUNCTION = {
+        summary: "variable in function should be lowercase",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Checks that members of an `Enum` (or `IntEnum`, `StrEnum`, `Flag`,
+    /// `IntFlag`) subclass use `UPPER_CASE` names.
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 treats enum members as class-level constants and recommends
+    /// `UPPER_CASE_WITH_UNDERSCORES` for them. Methods on the enum class are
+    /// not flagged.
+    ///
+    /// ## Example
+    /// ```python
+    /// from enum import IntEnum
+    ///
+    /// class Color(IntEnum):
+    ///     red = 1     # error: should be uppercase
+    ///     blue = 2
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// from enum import IntEnum
+    ///
+    /// class Color(IntEnum):
+    ///     RED = 1
+    ///     BLUE = 2
+    /// ```
+    pub(crate) static NON_UPPERCASE_ENUM_MEMBER = {
+        summary: "enum member should be uppercase",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects equality comparisons against `None` (`x == None`, `x != None`).
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 says comparisons to singletons like `None` should always use
+    /// `is` / `is not`, never `==` / `!=`. The two are not always equivalent
+    /// (custom `__eq__` can lie), and `is None` is the idiomatic Python.
+    pub(crate) static NONE_COMPARISON = {
+        summary: "comparison to `None` should use `is` / `is not`",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects equality comparisons against `True` or `False` (e.g.
+    /// `x == True`).
+    ///
+    /// ## Why is this bad?
+    /// Comparing a boolean to `True` is redundant — write `x` instead of
+    /// `x == True`, and `not x` instead of `x == False`.
+    pub(crate) static TRUE_FALSE_COMPARISON = {
+        summary: "comparison to `True` / `False` is redundant",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects `not <a> in <b>`; suggests `<a> not in <b>`.
+    ///
+    /// ## Why is this bad?
+    /// The `not in` operator reads more naturally and is what PEP 8
+    /// recommends. `not x in y` looks like `(not x) in y` to a careless
+    /// reader.
+    pub(crate) static NOT_IN_TEST = {
+        summary: "test for membership should use `not in`",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects `not <a> is <b>`; suggests `<a> is not <b>`.
+    ///
+    /// ## Why is this bad?
+    /// `is not` reads more naturally than `not ... is ...` and is the form
+    /// PEP 8 recommends.
+    pub(crate) static NOT_IS_TEST = {
+        summary: "test for object identity should use `is not`",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Checks that the first parameter of an instance method is named
+    /// `self`. `@staticmethod` and `@classmethod` are skipped.
+    ///
+    /// ## Why is this bad?
+    /// PEP 8 says: "Always use `self` for the first argument to instance
+    /// methods." Diverging confuses readers and tools that expect the
+    /// convention.
+    ///
+    /// ## Example
+    /// ```python
+    /// class Box:
+    ///     x: int
+    ///     def __init__(this, x: int) -> None:    # error
+    ///         this.x = x
+    /// ```
+    pub(crate) static INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD = {
+        summary: "first argument of an instance method should be `self`",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Detects an `if` whose only purpose is to return `True` or `False`,
+    /// like `if cond: return True else: return False`.
+    ///
+    /// ## Why is this bad?
+    /// `return cond` (or `return not cond`) says the same thing in one
+    /// line. The longer form suggests the author didn't realize a boolean
+    /// expression is already a value.
+    ///
+    /// ## Example
+    /// ```python
+    /// def positive(x: int) -> bool:
+    ///     if x > 0:
+    ///         return True
+    ///     else:
+    ///         return False
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def positive(x: int) -> bool:
+    ///     return x > 0
+    /// ```
+    pub(crate) static NEEDLESS_BOOL = {
+        summary: "return the condition directly instead of `if cond: return True else: return False`",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Detects f-strings that have no placeholder expressions
+    /// (e.g. `f"hello"`).
+    ///
+    /// ## Why is this bad?
+    /// An f-string without placeholders is just a regular string, and the
+    /// `f` prefix is misleading: a reader might expect interpolations that
+    /// aren't there. It can also indicate that the author forgot to add
+    /// the `{...}` they meant to.
+    pub(crate) static F_STRING_MISSING_PLACEHOLDERS = {
+        summary: "f-string has no placeholders; use a regular string",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Detects local variables in a function that are assigned to but
+    /// never read. Only enabled at teaching levels 0–3, since at higher
+    /// levels closures and shadowing make the simple AST-based detection
+    /// unreliable.
+    ///
+    /// Variables whose name starts with `_` are exempt (the conventional
+    /// "I know it's unused" marker).
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(x: int) -> int:
+    ///     y: int = x + 1   # error: y is never read
+    ///     return x
+    /// ```
+    pub(crate) static UNUSED_VARIABLE = {
+        summary: "local variable is assigned but never used",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Detects `pass` statements in a body that already contains other
+    /// statements (e.g. a docstring followed by `pass`). `pass` is a
+    /// placeholder for an empty body and is unnecessary in that case.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f() -> None:
+    ///     """Docstring."""
+    ///     pass    # error: unnecessary
+    /// ```
+    pub(crate) static UNNECESSARY_PASS = {
+        summary: "unnecessary `pass` statement",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects docstring lines that start with `>>>` or `...` but are not
     /// followed by a single space (e.g. `>>>foo`). The doctest runner and
     /// the stdlib `doctest` module silently ignore such lines, so the test
