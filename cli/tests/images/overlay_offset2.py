@@ -1,6 +1,6 @@
 from spython.image import (
     circle,
-    overlay_offset,
+    overlay,
     rectangle,
     to_svg,
     fill,
@@ -10,13 +10,16 @@ from spython.image import (
 
 print(
     to_svg(
-        overlay_offset(
-            overlay_offset(
-                rectangle(60, 20, fill(black)), -50, 0, circle(20, fill(darkorange))
+        overlay(
+            overlay(
+                rectangle(60, 20, fill(black)),
+                circle(20, fill(darkorange)),
+                x_offset=-50,
+                y_offset=0,
             ),
-            70,
-            0,
             circle(20, fill(darkorange)),
+            x_offset=70,
+            y_offset=0,
         )
     )
 )

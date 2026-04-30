@@ -1,17 +1,17 @@
-from spython.image import circle, overlay_offset, to_svg, fill, rgba
+from spython.image import circle, overlay, to_svg, fill, rgba
 
 print(
     to_svg(
-        overlay_offset(
-            overlay_offset(
+        overlay(
+            overlay(
                 circle(30, fill(rgba(0, 150, 0, 0.5))),
-                26,
-                0,
                 circle(30, fill(rgba(0, 0, 255, 0.5))),
+                x_offset=26,
+                y_offset=0,
             ),
-            0,
-            26,
             circle(30, fill(rgba(200, 0, 0, 0.5))),
+            x_offset=0,
+            y_offset=26,
         )
     )
 )

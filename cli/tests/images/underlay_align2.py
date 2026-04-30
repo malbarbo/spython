@@ -3,7 +3,7 @@ from spython.image import (
     TOP,
     square,
     to_svg,
-    underlay_align,
+    underlay,
     fill,
     seagreen,
     silver,
@@ -11,18 +11,13 @@ from spython.image import (
 
 print(
     to_svg(
-        underlay_align(
-            underlay_align(
-                underlay_align(
-                    square(50, fill(seagreen)), RIGHT, TOP, square(40, fill(silver))
-                ),
-                RIGHT,
-                TOP,
-                square(30, fill(seagreen)),
-            ),
-            RIGHT,
-            TOP,
+        underlay(
+            square(50, fill(seagreen)),
+            square(40, fill(silver)),
+            square(30, fill(seagreen)),
             square(20, fill(silver)),
+            x_place=RIGHT,
+            y_place=TOP,
         )
     )
 )

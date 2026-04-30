@@ -1,5 +1,5 @@
 from spython.image import (
-    above_align,
+    above,
     ellipse,
     to_svg,
     RIGHT,
@@ -12,18 +12,12 @@ from spython.image import (
 
 print(
     to_svg(
-        above_align(
-            above_align(
-                above_align(
-                    ellipse(70, 20, fill(yellowgreen)),
-                    RIGHT,
-                    ellipse(50, 20, fill(olivedrab)),
-                ),
-                RIGHT,
-                ellipse(30, 20, fill(darkolivegreen)),
-            ),
-            RIGHT,
+        above(
+            ellipse(70, 20, fill(yellowgreen)),
+            ellipse(50, 20, fill(olivedrab)),
+            ellipse(30, 20, fill(darkolivegreen)),
             ellipse(10, 20, fill(darkgreen)),
+            x_place=RIGHT,
         )
     )
 )

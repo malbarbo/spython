@@ -1,5 +1,5 @@
 from spython.image import (
-    beside_align,
+    beside,
     ellipse,
     to_svg,
     BOTTOM,
@@ -12,18 +12,12 @@ from spython.image import (
 
 print(
     to_svg(
-        beside_align(
-            beside_align(
-                beside_align(
-                    ellipse(20, 70, fill(lightsteelblue)),
-                    BOTTOM,
-                    ellipse(20, 50, fill(mediumslateblue)),
-                ),
-                BOTTOM,
-                ellipse(20, 30, fill(slateblue)),
-            ),
-            BOTTOM,
+        beside(
+            ellipse(20, 70, fill(lightsteelblue)),
+            ellipse(20, 50, fill(mediumslateblue)),
+            ellipse(20, 30, fill(slateblue)),
             ellipse(20, 10, fill(navy)),
+            y_place=BOTTOM,
         )
     )
 )

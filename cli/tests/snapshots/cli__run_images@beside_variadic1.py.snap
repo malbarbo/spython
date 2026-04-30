@@ -1,0 +1,15 @@
+---
+source: cli/tests/cli.rs
+assertion_line: 433
+expression: "format!(\"{out}\")"
+input_file: cli/tests/images/beside_variadic1.py
+---
+<svg width="48" height="60" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <g>
+      <path d="M 16 30 A 8 30 0 0 1 0 30 A 8 30 0 0 1 16 30 Z" fill="rgba(0, 0, 128, 1.0)" />
+      <path d="M 32 20 A 8 20 0 0 1 16 20 A 8 20 0 0 1 32 20 Z" fill="rgba(0, 0, 255, 1.0)" />
+    </g>
+    <path d="M 48 10 A 8 10 0 0 1 32 10 A 8 10 0 0 1 48 10 Z" fill="rgba(30, 144, 255, 1.0)" />
+  </g>
+</svg>

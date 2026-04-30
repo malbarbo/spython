@@ -1311,29 +1311,37 @@ def combine(images: list[Image], op: _Callable[[Image, Image], Image]) -> Image:
     return result
 
 
-def above(a: Image, b: Image) -> Image:
-    return above_align(a, CENTER, b)
-
-
-def above_align(a: Image, x_place: XPlace, b: Image) -> Image:
+def _above_pair(a: Image, b: Image, x_place: XPlace) -> Image:
     dxa, dxb = _x_place_dx(x_place, width(a), width(b))
     return _Combination(_translate(a, dxa, 0.0), _translate(b, dxb, height(a)))
 
 
-def beside(a: Image, b: Image) -> Image:
-    return beside_align(a, MIDDLE, b)
+def above(*images: Image, x_place: XPlace = CENTER) -> Image:
+    if len(images) < 2:
+        raise TypeError("above expects at least 2 images")
+    result: Image = images[0]
+    for img in images[1:]:
+        result = _above_pair(result, img, x_place)
+    return result
 
 
-def beside_align(a: Image, y_place: YPlace, b: Image) -> Image:
+def _beside_pair(a: Image, b: Image, y_place: YPlace) -> Image:
     dya, dyb = _y_place_dy(y_place, height(a), height(b))
     return _Combination(_translate(a, 0.0, dya), _translate(b, width(a), dyb))
 
 
-def overlay(top: Image, bottom: Image) -> Image:
-    return overlay_align(top, CENTER, MIDDLE, bottom)
+def beside(*images: Image, y_place: YPlace = MIDDLE) -> Image:
+    if len(images) < 2:
+        raise TypeError("beside expects at least 2 images")
+    result: Image = images[0]
+    for img in images[1:]:
+        result = _beside_pair(result, img, y_place)
+    return result
 
 
-def overlay_align(top: Image, x_place: XPlace, y_place: YPlace, bottom: Image) -> Image:
+def _overlay_aligned(
+    top: Image, bottom: Image, x_place: XPlace, y_place: YPlace
+) -> Image:
     dxa, dxb = _x_place_dx(x_place, width(top), width(bottom))
     dya, dyb = _y_place_dy(y_place, height(top), height(bottom))
     return _fix_position(
@@ -1341,38 +1349,42 @@ def overlay_align(top: Image, x_place: XPlace, y_place: YPlace, bottom: Image) -
     )
 
 
-def overlay_offset(top: Image, x: float, y: float, bottom: Image) -> Image:
-    return overlay(top, _translate(bottom, float(x), float(y)))
-
-
-def overlay_align_offset(
-    top: Image, x: float, y: float, x_place: XPlace, y_place: YPlace, bottom: Image
+def overlay(
+    *images: Image,
+    x_offset: float = 0.0,
+    y_offset: float = 0.0,
+    x_place: XPlace = CENTER,
+    y_place: YPlace = MIDDLE,
 ) -> Image:
-    return overlay_align(top, x_place, y_place, _translate(bottom, float(x), float(y)))
+    if len(images) < 2:
+        raise TypeError("overlay expects at least 2 images")
+    dx: float = float(x_offset)
+    dy: float = float(y_offset)
+    result: Image = images[0]
+    for img in images[1:]:
+        result = _overlay_aligned(result, _translate(img, dx, dy), x_place, y_place)
+    return result
 
 
 def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
     return _fix_position(_Combination(_translate(bottom, float(x), float(y)), top))
 
 
-def underlay(bottom: Image, top: Image) -> Image:
-    return overlay(top, bottom)
-
-
-def underlay_align(
-    bottom: Image, x_place: XPlace, y_place: YPlace, top: Image
+def underlay(
+    *images: Image,
+    x_offset: float = 0.0,
+    y_offset: float = 0.0,
+    x_place: XPlace = CENTER,
+    y_place: YPlace = MIDDLE,
 ) -> Image:
-    return overlay_align(top, x_place, y_place, bottom)
-
-
-def underlay_offset(bottom: Image, x: float, y: float, top: Image) -> Image:
-    return overlay(_translate(top, float(x), float(y)), bottom)
-
-
-def underlay_align_offset(
-    bottom: Image, x: float, y: float, x_place: XPlace, y_place: YPlace, top: Image
-) -> Image:
-    return underlay_align(bottom, x_place, y_place, _translate(top, float(x), float(y)))
+    if len(images) < 2:
+        raise TypeError("underlay expects at least 2 images")
+    dx: float = float(x_offset)
+    dy: float = float(y_offset)
+    result: Image = images[0]
+    for img in images[1:]:
+        result = _overlay_aligned(_translate(img, dx, dy), result, x_place, y_place)
+    return result
 
 
 def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
@@ -1397,12 +1409,14 @@ def empty_scene_color(w: float, h: float, color: _Color) -> Image:
     return crop(rectangle(w, h, frame_style), 0.0, 0.0, w, h)
 
 
-def place_image(scene: Image, x: float, y: float, img: Image) -> Image:
-    return place_image_align(scene, x, y, CENTER, MIDDLE, img)
-
-
-def place_image_align(
-    scene: Image, x: float, y: float, x_place: XPlace, y_place: YPlace, img: Image
+def place_image(
+    scene: Image,
+    x: float,
+    y: float,
+    img: Image,
+    *,
+    x_place: XPlace = CENTER,
+    y_place: YPlace = MIDDLE,
 ) -> Image:
     x = float(x)
     y = float(y)
@@ -1431,30 +1445,24 @@ def place_images(
     scene: Image,
     positions: list[Point | tuple[float, float]],
     images: list[Image],
+    *,
+    x_place: XPlace = CENTER,
+    y_place: YPlace = MIDDLE,
 ) -> Image:
     for i in range(min(len(positions), len(images))):
         p = positions[i]
         if isinstance(p, Point):
-            scene = place_image(scene, p.x, p.y, images[i])
+            scene = place_image(
+                scene, p.x, p.y, images[i], x_place=x_place, y_place=y_place
+            )
         else:
-            scene = place_image(scene, float(p[0]), float(p[1]), images[i])
-    return scene
-
-
-def place_images_align(
-    scene: Image,
-    positions: list[Point | tuple[float, float]],
-    x_place: XPlace,
-    y_place: YPlace,
-    images: list[Image],
-) -> Image:
-    for i in range(min(len(positions), len(images))):
-        p = positions[i]
-        if isinstance(p, Point):
-            scene = place_image_align(scene, p.x, p.y, x_place, y_place, images[i])
-        else:
-            scene = place_image_align(
-                scene, float(p[0]), float(p[1]), x_place, y_place, images[i]
+            scene = place_image(
+                scene,
+                float(p[0]),
+                float(p[1]),
+                images[i],
+                x_place=x_place,
+                y_place=y_place,
             )
     return scene
 

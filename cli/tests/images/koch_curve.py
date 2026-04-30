@@ -1,5 +1,5 @@
 from spython.image import (
-    beside_align,
+    beside,
     rotate,
     square,
     to_svg,
@@ -15,14 +15,12 @@ def koch_curve(n: int) -> Image:
         return square(1, fill(black))
     else:
         smaller: Image = koch_curve(n - 1)
-        return beside_align(
-            beside_align(
-                beside_align(smaller, BOTTOM, rotate(smaller, 60)),
-                BOTTOM,
-                rotate(smaller, -60),
-            ),
-            BOTTOM,
+        return beside(
             smaller,
+            rotate(smaller, 60),
+            rotate(smaller, -60),
+            smaller,
+            y_place=BOTTOM,
         )
 
 

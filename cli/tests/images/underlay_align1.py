@@ -4,7 +4,7 @@ from spython.image import (
     ellipse,
     rectangle,
     to_svg,
-    underlay_align,
+    underlay,
     fill,
     orange,
     purple,
@@ -12,8 +12,11 @@ from spython.image import (
 
 print(
     to_svg(
-        underlay_align(
-            rectangle(30, 60, fill(orange)), LEFT, MIDDLE, ellipse(60, 30, fill(purple))
+        underlay(
+            rectangle(30, 60, fill(orange)),
+            ellipse(60, 30, fill(purple)),
+            x_place=LEFT,
+            y_place=MIDDLE,
         )
     )
 )

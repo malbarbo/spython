@@ -1,5 +1,6 @@
 ---
 source: cli/tests/cli.rs
+assertion_line: 433
 expression: "format!(\"{out}\")"
 input_file: cli/tests/images/place_image_align3.py
 ---
@@ -8,14 +9,11 @@ input_file: cli/tests/images/place_image_align3.py
     <g>
       <g>
         <g>
-          <g>
-            <path d=" Z" />
-            <defs><clipPath id="clip0" ><rect x="0" y="0" width="32" height="32" transform="rotate(0 16 16)" /></clipPath></defs>
-            <g clip-path="url(#clip0)" >
-              <g>
-                <path d="M 0.5 0.5 L 32.5 0.5 L 32.5 32.5 L 0.5 32.5 Z" fill="none" stroke="rgba(0, 0, 0, 1.0)" stroke-linecap="round" stroke-linejoin="miter" stroke-miterlimit="10" />
-                <path d="M 8 0 A 8 8 0 0 1 -8 0 A 8 8 0 0 1 8 0 Z" fill="rgba(255, 99, 71, 1.0)" />
-              </g>
+          <defs><clipPath id="clip0" ><rect x="0" y="0" width="32" height="32" transform="rotate(0 16 16)" /></clipPath></defs>
+          <g clip-path="url(#clip0)" >
+            <g>
+              <path d="M 0.5 0.5 L 32.5 0.5 L 32.5 32.5 L 0.5 32.5 Z" fill="none" stroke="rgba(0, 0, 0, 1.0)" stroke-linecap="round" stroke-linejoin="miter" stroke-miterlimit="10" />
+              <path d="M 8 0 A 8 8 0 0 1 -8 0 A 8 8 0 0 1 8 0 Z" fill="rgba(255, 99, 71, 1.0)" />
             </g>
           </g>
           <defs><clipPath id="clip1" ><rect x="32" y="0" width="32" height="32" transform="rotate(0 48 16)" /></clipPath></defs>

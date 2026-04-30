@@ -1,5 +1,5 @@
 from spython.image import (
-    place_images_align,
+    place_images,
     rectangle,
     to_svg,
     triangle,
@@ -12,16 +12,16 @@ from spython.image import (
 
 print(
     to_svg(
-        place_images_align(
+        place_images(
             rectangle(64, 64, fill(goldenrod)),
             [(64, 64), (64, 48), (64, 32)],
-            RIGHT,
-            BOTTOM,
             [
                 triangle(48, fill(yellowgreen)),
                 triangle(48, fill(yellowgreen)),
                 triangle(48, fill(yellowgreen)),
             ],
+            x_place=RIGHT,
+            y_place=BOTTOM,
         )
     )
 )

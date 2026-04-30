@@ -1,6 +1,6 @@
 from spython.image import (
     circle,
-    overlay_align_offset,
+    overlay,
     star_polygon,
     to_svg,
     LEFT,
@@ -12,13 +12,13 @@ from spython.image import (
 
 print(
     to_svg(
-        overlay_align_offset(
+        overlay(
             star_polygon(20, 20, 3, fill(navy)),
-            -10,
-            10,
-            LEFT,
-            BOTTOM,
             circle(30, fill(cornflowerblue)),
+            x_offset=-10,
+            y_offset=10,
+            x_place=LEFT,
+            y_place=BOTTOM,
         )
     )
 )

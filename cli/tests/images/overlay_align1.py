@@ -1,6 +1,6 @@
 from spython.image import (
     ellipse,
-    overlay_align,
+    overlay,
     rectangle,
     to_svg,
     LEFT,
@@ -12,8 +12,11 @@ from spython.image import (
 
 print(
     to_svg(
-        overlay_align(
-            rectangle(30, 60, fill(orange)), LEFT, MIDDLE, ellipse(60, 30, fill(purple))
+        overlay(
+            rectangle(30, 60, fill(orange)),
+            ellipse(60, 30, fill(purple)),
+            x_place=LEFT,
+            y_place=MIDDLE,
         )
     )
 )

@@ -6,7 +6,7 @@ from spython.image import (
     rhombus,
     star_polygon,
     to_svg,
-    underlay_align_offset,
+    underlay,
     fill,
     navy,
     cornflowerblue,
@@ -15,29 +15,34 @@ from spython.image import (
 star = star_polygon(20, 11, 3, fill(cornflowerblue))
 print(
     to_svg(
-        underlay_align_offset(
-            underlay_align_offset(
-                underlay_align_offset(
-                    underlay_align_offset(
-                        rhombus(120, 90, fill(navy)), 16, 16, LEFT, TOP, star
+        underlay(
+            underlay(
+                underlay(
+                    underlay(
+                        rhombus(120, 90, fill(navy)),
+                        star,
+                        x_offset=16,
+                        y_offset=16,
+                        x_place=LEFT,
+                        y_place=TOP,
                     ),
-                    -16,
-                    16,
-                    RIGHT,
-                    TOP,
                     star,
+                    x_offset=-16,
+                    y_offset=16,
+                    x_place=RIGHT,
+                    y_place=TOP,
                 ),
-                16,
-                -16,
-                LEFT,
-                BOTTOM,
                 star,
+                x_offset=16,
+                y_offset=-16,
+                x_place=LEFT,
+                y_place=BOTTOM,
             ),
-            -16,
-            -16,
-            RIGHT,
-            BOTTOM,
             star,
+            x_offset=-16,
+            y_offset=-16,
+            x_place=RIGHT,
+            y_place=BOTTOM,
         )
     )
 )

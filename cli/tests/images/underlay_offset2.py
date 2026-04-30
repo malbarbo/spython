@@ -1,12 +1,17 @@
-from spython.image import circle, to_svg, underlay_offset, fill, gray, navy
+from spython.image import circle, to_svg, underlay, fill, gray, navy
 
 print(
     to_svg(
-        underlay_offset(
+        underlay(
             circle(40, fill(gray)),
-            0,
-            -10,
-            underlay_offset(circle(10, fill(navy)), -30, 0, circle(10, fill(navy))),
+            underlay(
+                circle(10, fill(navy)),
+                circle(10, fill(navy)),
+                x_offset=-30,
+                y_offset=0,
+            ),
+            x_offset=0,
+            y_offset=-10,
         )
     )
 )

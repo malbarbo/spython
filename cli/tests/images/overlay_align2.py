@@ -1,5 +1,5 @@
 from spython.image import (
-    overlay_align,
+    overlay,
     square,
     to_svg,
     RIGHT,
@@ -11,18 +11,13 @@ from spython.image import (
 
 print(
     to_svg(
-        overlay_align(
-            overlay_align(
-                overlay_align(
-                    square(20, fill(silver)), RIGHT, BOTTOM, square(30, fill(seagreen))
-                ),
-                RIGHT,
-                BOTTOM,
-                square(40, fill(silver)),
-            ),
-            RIGHT,
-            BOTTOM,
+        overlay(
+            square(20, fill(silver)),
+            square(30, fill(seagreen)),
+            square(40, fill(silver)),
             square(50, fill(seagreen)),
+            x_place=RIGHT,
+            y_place=BOTTOM,
         )
     )
 )

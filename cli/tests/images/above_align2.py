@@ -1,5 +1,5 @@
 from spython.image import (
-    above_align,
+    above,
     ellipse,
     to_svg,
     LEFT,
@@ -12,16 +12,12 @@ from spython.image import (
 
 print(
     to_svg(
-        above_align(
-            above_align(
-                above_align(
-                    ellipse(70, 20, fill(gold)), LEFT, ellipse(50, 20, fill(goldenrod))
-                ),
-                LEFT,
-                ellipse(30, 20, fill(darkgoldenrod)),
-            ),
-            LEFT,
+        above(
+            ellipse(70, 20, fill(gold)),
+            ellipse(50, 20, fill(goldenrod)),
+            ellipse(30, 20, fill(darkgoldenrod)),
             ellipse(10, 20, fill(sienna)),
+            x_place=LEFT,
         )
     )
 )
