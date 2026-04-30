@@ -376,6 +376,28 @@ impl Checker<'_> {
         }
     }
 
+    /// Visit the *sub-expressions* of an assignment-style target so that
+    /// expression-level lints fire on `arr[lambda: 0] = 1` and similar.
+    ///
+    /// Tuple / list / starred wrappers are unpacking patterns, not literal
+    /// expressions, so they are descended into without being flagged. Plain
+    /// `Name` targets carry `ctx=Store` and have nothing to check.
+    fn visit_assign_target_subexprs(&mut self, target: &Expr) {
+        match target {
+            Expr::Tuple(t) => t
+                .elts
+                .iter()
+                .for_each(|e| self.visit_assign_target_subexprs(e)),
+            Expr::List(l) => l
+                .elts
+                .iter()
+                .for_each(|e| self.visit_assign_target_subexprs(e)),
+            Expr::Starred(s) => self.visit_assign_target_subexprs(&s.value),
+            Expr::Subscript(_) | Expr::Attribute(_) => self.visit_expr(target),
+            _ => {}
+        }
+    }
+
     /// N806: variables assigned inside a function should be lowercase.
     /// Walks tuple/list unpacking targets recursively. Attribute and
     /// subscript targets (`self.x`, `a[0]`) are not name introductions.
@@ -587,6 +609,11 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 self.in_function = false;
                 self.visit_body(&cls.body);
                 (self.in_class, self.in_function) = prev;
+                // Base classes and keyword arguments are evaluated in the
+                // enclosing scope, so visit them after restoring the flags.
+                if let Some(args) = &cls.arguments {
+                    self.visit_arguments(args);
+                }
                 for d in &cls.decorator_list {
                     self.visit_decorator(d);
                 }
@@ -605,6 +632,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 if self.in_function {
                     self.check_assign_target_names(&for_stmt.target);
                 }
+                self.visit_assign_target_subexprs(&for_stmt.target);
                 self.visit_body(&for_stmt.body);
                 self.visit_body(&for_stmt.orelse);
             }
@@ -651,6 +679,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 }
                 self.visit_expr(&match_stmt.subject);
                 for case in &match_stmt.cases {
+                    self.visit_pattern(&case.pattern);
                     if let Some(guard) = &case.guard {
                         self.visit_expr(guard);
                     }
@@ -663,6 +692,12 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 }
                 for item in &with_stmt.items {
                     self.visit_expr(&item.context_expr);
+                    if let Some(target) = &item.optional_vars {
+                        if self.in_function {
+                            self.check_assign_target_names(target);
+                        }
+                        self.visit_assign_target_subexprs(target);
+                    }
                 }
                 self.visit_body(&with_stmt.body);
             }
@@ -699,6 +734,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     self.reject_bool_arith_operand(&aug.target);
                     self.reject_bool_arith_operand(&aug.value);
                 }
+                self.visit_assign_target_subexprs(&aug.target);
                 self.visit_expr(&aug.value);
             }
             Stmt::Return(ret) => {
@@ -712,12 +748,16 @@ impl<'a> Visitor<'a> for Checker<'_> {
                         self.check_assign_target_names(target);
                     }
                 }
+                for target in &assign.targets {
+                    self.visit_assign_target_subexprs(target);
+                }
                 self.visit_expr(&assign.value);
             }
             Stmt::AnnAssign(ann) => {
                 if self.in_function {
                     self.check_assign_target_names(&ann.target);
                 }
+                self.visit_assign_target_subexprs(&ann.target);
                 if let Some(value) = &ann.value {
                     self.visit_expr(value);
                 }
@@ -750,6 +790,9 @@ impl<'a> Visitor<'a> for Checker<'_> {
             Stmt::Raise(raise) => {
                 if let Some(exc) = &raise.exc {
                     self.visit_expr(exc);
+                }
+                if let Some(cause) = &raise.cause {
+                    self.visit_expr(cause);
                 }
             }
             // Always allowed (or allowed at level 5): no checks, no
@@ -956,6 +999,20 @@ impl<'a> UnusedWalker<'a> {
             _ => {}
         }
     }
+
+    /// For an assignment target like `x[i] = 1` or `obj.attr = 1`, the
+    /// outer expression isn't a binding but the inner names *are* read.
+    /// Walk into Subscript/Attribute targets so those uses are recorded;
+    /// recurse through tuple/list/starred wrappers to reach nested ones.
+    fn visit_target_reads(&mut self, target: &'a Expr) {
+        match target {
+            Expr::Subscript(_) | Expr::Attribute(_) => self.visit_expr(target),
+            Expr::Tuple(t) => t.elts.iter().for_each(|v| self.visit_target_reads(v)),
+            Expr::List(l) => l.elts.iter().for_each(|v| self.visit_target_reads(v)),
+            Expr::Starred(s) => self.visit_target_reads(&s.value),
+            _ => {}
+        }
+    }
 }
 
 impl<'a> Visitor<'a> for UnusedWalker<'a> {
@@ -964,11 +1021,16 @@ impl<'a> Visitor<'a> for UnusedWalker<'a> {
             Stmt::Assign(a) => {
                 for t in &a.targets {
                     self.add_target(t);
+                    // Targets like `x[i]` or `obj.attr` aren't bindings, but
+                    // the inner names are reads of `x` / `i` / `obj`. Walk
+                    // them so those uses are recorded.
+                    self.visit_target_reads(t);
                 }
                 self.visit_expr(&a.value);
             }
             Stmt::AnnAssign(a) => {
                 self.add_target(&a.target);
+                self.visit_target_reads(&a.target);
                 if let Some(v) = &a.value {
                     self.visit_expr(v);
                 }
@@ -1074,4 +1136,206 @@ pub(crate) fn make_lint_diagnostic(
     let mut diag = Diagnostic::new(diag_id, Severity::Error, message);
     diag.annotate(Annotation::primary(Span::from(file).with_range(range)));
     diag
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ruff_db::files::system_path_to_file;
+    use ruff_db::system::{InMemorySystem, SystemPath, SystemPathBuf, WritableSystem};
+    use ty_project::ProjectDatabase;
+
+    /// Run the annotation checker on `source` and return the diagnostic IDs
+    /// in the order they were emitted.
+    fn check(source: &str, level: Level) -> Vec<String> {
+        let cwd = SystemPathBuf::from("/");
+        let system = InMemorySystem::new(cwd.clone());
+        let path = SystemPathBuf::from("/test.py");
+        system
+            .write_file(SystemPath::new("/test.py"), source)
+            .expect("write");
+        let metadata = crate::make_project_metadata(cwd);
+        let mut db = ProjectDatabase::new(metadata, system).expect("db");
+        let file = system_path_to_file(&db, &path).expect("file");
+        db.project().set_included_paths(&mut db, vec![path]);
+        check_file_annotations(&db, file, level, false)
+            .into_iter()
+            .map(|d| d.id().as_str().to_string())
+            .collect()
+    }
+
+    fn count(diags: &[String], id: &str) -> usize {
+        diags.iter().filter(|d| d.as_str() == id).count()
+    }
+
+    // -- Stmt::Raise.cause is visited ----------------------------------------
+
+    #[test]
+    fn raise_cause_is_visited() {
+        // `from <list>` at level 3 (lambda still forbidden) — the lambda
+        // hides inside the cause expression.
+        let diags = check(
+            "def f() -> None:\n    raise ValueError from (lambda: 0)()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "forbidden-lambda"), 1, "{diags:?}");
+    }
+
+    // -- Stmt::Match patterns are visited ------------------------------------
+
+    #[test]
+    fn match_pattern_value_is_visited() {
+        // F541 is level-independent; a MatchValue with an empty f-string
+        // should be flagged via the new visit_pattern → visit_expr path.
+        let diags = check(
+            "def f(x: object) -> None:\n    match x:\n        case f\"\":\n            pass\n",
+            Level::Full,
+        );
+        assert!(
+            diags.contains(&"f-string-missing-placeholders".to_string()),
+            "{diags:?}"
+        );
+    }
+
+    // -- Stmt::With.optional_vars is name-checked and visited ----------------
+
+    #[test]
+    fn with_optional_vars_name_check() {
+        // N806: bound name in `as Bar` should be lowercase.
+        let diags = check(
+            "def f() -> None:\n    with open(\"x\") as Bar:\n        pass\n",
+            Level::Full,
+        );
+        assert!(
+            diags.contains(&"non-lowercase-variable-in-function".to_string()),
+            "{diags:?}"
+        );
+    }
+
+    // -- Stmt::ClassDef base classes / kwargs are visited --------------------
+
+    #[test]
+    fn class_base_argument_is_visited() {
+        // metaclass=lambda forbidden at level 3 (lambda < Classes).
+        let diags = check(
+            "class Foo(metaclass=(lambda: 0)):\n    x: int = 0\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "forbidden-lambda"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn class_positional_base_is_visited() {
+        // f-string-missing-placeholders is independent of teaching level.
+        let diags = check("class Foo(type(f\"\")):\n    x: int = 0\n", Level::Full);
+        assert!(
+            diags.contains(&"f-string-missing-placeholders".to_string()),
+            "{diags:?}"
+        );
+    }
+
+    // -- Stmt::AugAssign target sub-expressions are visited ------------------
+
+    #[test]
+    fn aug_assign_subscript_slice_is_visited() {
+        // x[lambda: 0] += 1 — slice contains a forbidden lambda at level 3.
+        // (Aug assign and subscript indexing are both allowed at level 3.)
+        let diags = check(
+            "def f(x: list[int]) -> None:\n    x[(lambda: 0)()] += 1\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "forbidden-lambda"), 1, "{diags:?}");
+    }
+
+    // -- Stmt::Assign target sub-expressions are visited ---------------------
+
+    #[test]
+    fn assign_subscript_slice_is_visited() {
+        let diags = check(
+            "def f(d: dict[int, int]) -> None:\n    d[(lambda: 0)()] = 1\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "forbidden-lambda"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn assign_attribute_value_is_visited() {
+        // f-string-missing-placeholders fires on f"" inside an attribute target.
+        let diags = check(
+            "class Foo:\n    x: int = 0\n\ndef f(o: Foo) -> None:\n    (f\"\" or o).x = 1\n",
+            Level::Full,
+        );
+        assert!(
+            diags.contains(&"f-string-missing-placeholders".to_string()),
+            "{diags:?}"
+        );
+    }
+
+    #[test]
+    fn assign_tuple_unpacking_is_not_flagged_as_literal() {
+        // Tuple unpacking on the LHS must NOT trigger
+        // FORBIDDEN_COLLECTION_LITERAL even at level 0.
+        let diags = check(
+            "def f() -> tuple[int, int]:\n    return (1, 2)\n\ndef g() -> None:\n    a, b = f()\n",
+            Level::Functions,
+        );
+        // The Tuple in the RHS of `return (1, 2)` does fire (it's a literal),
+        // but the LHS `a, b` must not.
+        assert_eq!(
+            count(&diags, "forbidden-collection-literal"),
+            1,
+            "{diags:?}"
+        );
+    }
+
+    // -- Stmt::AnnAssign target sub-expressions are visited ------------------
+
+    #[test]
+    fn ann_assign_subscript_slice_is_visited() {
+        let diags = check(
+            "def f(d: dict[int, int]) -> None:\n    d[(lambda: 0)()]: int = 1\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "forbidden-lambda"), 1, "{diags:?}");
+    }
+
+    // -- Stmt::For target sub-expressions are visited -----------------------
+
+    #[test]
+    fn for_target_subscript_slice_is_visited() {
+        let diags = check(
+            "def f(arr: list[int]) -> None:\n    for arr[(lambda: 0)()] in [1, 2]:\n        pass\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "forbidden-lambda"), 1, "{diags:?}");
+    }
+
+    // -- UnusedWalker: subscript / attribute target reads are recorded -------
+
+    #[test]
+    fn unused_walker_records_subscript_target_reads() {
+        // `a` is only read by `a[0] = 1` — the Subscript target's value is a
+        // load of `a`. With the fix, `a` is not flagged unused.
+        let diags = check(
+            "def f(arr: list[int]) -> None:\n    a: list[int] = arr\n    a[0] = 1\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_attribute_target_reads() {
+        let diags = check(
+            "class P:\n    x: int = 0\n\ndef f(p: P) -> None:\n    o: P = p\n    o.x = 1\n",
+            Level::UserTypes,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_still_flags_truly_unused() {
+        // Sanity check: a local that's never read is still flagged.
+        let diags = check("def f() -> None:\n    a: int = 1\n", Level::Functions);
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
 }
