@@ -148,6 +148,9 @@ class _ArcTo:
         self.end: Point = end
 
 
+_PathCmd = _MoveTo | _LineTo | _QuadTo | _CubicTo | _ArcTo
+
+
 def move_to(x: float, y: float) -> _MoveTo:
     return _MoveTo(Point(x, y))
 
@@ -178,7 +181,7 @@ def arc_to(
     return _ArcTo(rx, ry, rotation, large_arc, sweep, Point(x, y))
 
 
-def path(commands: list, closed: bool, *style_args: Style) -> "Image":
+def path(commands: list[_PathCmd], closed: bool, *style_args: Style) -> "Image":
     return _fix_position(_Path(_make_style(*style_args), commands, closed))
 
 
@@ -205,7 +208,7 @@ def _box_translate(b: _Box, dx: float, dy: float) -> _Box:
     return _Box(_point_translate(b.center, dx, dy), b.width, b.height, b.angle)
 
 
-def _box_box(b: _Box) -> tuple:
+def _box_box(b: _Box) -> tuple[Point, Point]:
     hw: float = b.width / 2.0
     hh: float = b.height / 2.0
     dx: float = hw * abs(_cos_deg(b.angle)) + hh * abs(_sin_deg(b.angle))
@@ -229,9 +232,9 @@ def _box_flip(b: _Box, point_flip: _Callable[[Point], Point]) -> _Box:
 
 
 class _Path(Image):
-    def __init__(self, style: Style, commands: list, closed: bool) -> None:
+    def __init__(self, style: Style, commands: list[_PathCmd], closed: bool) -> None:
         self.style: Style = style
-        self.commands: list = commands
+        self.commands: list[_PathCmd] = commands
         self.closed: bool = closed
 
 
@@ -297,7 +300,7 @@ def height(img: Image) -> float:
     return mx.y - mn.y
 
 
-def dimension(img: Image) -> tuple:
+def dimension(img: Image) -> tuple[float, float]:
     mn, mx = _box(img)
     return (mx.x - mn.x, mx.y - mn.y)
 
@@ -349,7 +352,7 @@ def _fix_position(img: Image) -> Image:
 # **************************
 
 
-def _box(img: Image) -> tuple:
+def _box(img: Image) -> tuple[Point, Point]:
     if isinstance(img, _Path):
         if len(img.commands) == 0:
             return (Point(0.0, 0.0), Point(0.0, 0.0))
@@ -373,14 +376,14 @@ def _box(img: Image) -> tuple:
 
 
 def _path_box(
-    commands: list,
+    commands: list[_PathCmd],
     idx: int,
     prev: Point,
     min_x: float,
     min_y: float,
     max_x: float,
     max_y: float,
-) -> tuple:
+) -> tuple[Point, Point]:
     while idx < len(commands):
         cmd = commands[idx]
         min_x, min_y, max_x, max_y = _cmd_box(cmd, prev, min_x, min_y, max_x, max_y)
@@ -391,7 +394,7 @@ def _path_box(
 
 def _cmd_box(
     cmd: _Any, prev: Point, min_x: float, min_y: float, max_x: float, max_y: float
-) -> tuple:
+) -> tuple[float, float, float, float]:
     if isinstance(cmd, _MoveTo):
         return _update_bounds(cmd.p, min_x, min_y, max_x, max_y)
     if isinstance(cmd, _LineTo):
@@ -419,7 +422,7 @@ def _cmd_box(
 
 def _update_bounds(
     p: Point, min_x: float, min_y: float, max_x: float, max_y: float
-) -> tuple:
+) -> tuple[float, float, float, float]:
     return (min(min_x, p.x), min(min_y, p.y), max(max_x, p.x), max(max_y, p.y))
 
 
@@ -431,14 +434,16 @@ def _quad_box(
     min_y: float,
     max_x: float,
     max_y: float,
-) -> tuple:
+) -> tuple[float, float, float, float]:
     min_x, min_y, max_x, max_y = _update_bounds(e, min_x, min_y, max_x, max_y)
     min_x, max_x = _quad_axis_extrema(p0.x, c.x, e.x, min_x, max_x)
     min_y, max_y = _quad_axis_extrema(p0.y, c.y, e.y, min_y, max_y)
     return (min_x, min_y, max_x, max_y)
 
 
-def _quad_axis_extrema(p0: float, c: float, e: float, mn: float, mx: float) -> tuple:
+def _quad_axis_extrema(
+    p0: float, c: float, e: float, mn: float, mx: float
+) -> tuple[float, float]:
     denom: float = p0 - 2.0 * c + e
     if denom == 0.0:
         return (mn, mx)
@@ -463,7 +468,7 @@ def _cubic_box(
     min_y: float,
     max_x: float,
     max_y: float,
-) -> tuple:
+) -> tuple[float, float, float, float]:
     min_x, min_y, max_x, max_y = _update_bounds(e, min_x, min_y, max_x, max_y)
     min_x, max_x = _cubic_axis_extrema(p0.x, c1.x, c2.x, e.x, min_x, max_x)
     min_y, max_y = _cubic_axis_extrema(p0.y, c1.y, c2.y, e.y, min_y, max_y)
@@ -472,7 +477,7 @@ def _cubic_box(
 
 def _cubic_axis_extrema(
     p0: float, c1: float, c2: float, e: float, mn: float, mx: float
-) -> tuple:
+) -> tuple[float, float]:
     a: float = -p0 + 3.0 * c1 - 3.0 * c2 + e
     b: float = 2.0 * (p0 - 2.0 * c1 + c2)
     c: float = c1 - p0
@@ -523,7 +528,7 @@ def _arc_box(
     min_y: float,
     max_x: float,
     max_y: float,
-) -> tuple:
+) -> tuple[float, float, float, float]:
     min_x, min_y, max_x, max_y = _update_bounds(p2, min_x, min_y, max_x, max_y)
     rx = abs(rx)
     ry = abs(ry)
@@ -598,7 +603,7 @@ def _ellipse_point(
     cos_phi: float,
     sin_phi: float,
     theta: float,
-) -> tuple:
+) -> tuple[float, float]:
     ct: float = _math.cos(theta)
     st: float = _math.sin(theta)
     return (
@@ -729,7 +734,7 @@ def _cmd_flip(cmd: _Any, pf: _Callable[[Point], Point]) -> _Any:
     return cmd
 
 
-def _points_to_path(points: list, style: Style) -> Image:
+def _points_to_path(points: list[Point], style: Style) -> Image:
     n: int = len(points)
     if n == 0:
         return _Path(style, [], False)
@@ -737,7 +742,7 @@ def _points_to_path(points: list, style: Style) -> Image:
         return _Path(style, [_MoveTo(points[0])], False)
     if n == 2:
         return _Path(style, [_MoveTo(points[0]), _LineTo(points[1])], False)
-    cmds: list = [_MoveTo(points[0])]
+    cmds: list[_PathCmd] = [_MoveTo(points[0])]
     for i in range(1, n):
         cmds.append(_LineTo(points[i]))
     return _Path(style, cmds, True)
@@ -748,7 +753,7 @@ def _points_to_path(points: list, style: Style) -> Image:
 # **************************
 
 
-def _x_place_dx(x_place: XPlace, wa: float, wb: float) -> tuple:
+def _x_place_dx(x_place: XPlace, wa: float, wb: float) -> tuple[float, float]:
     if x_place == LEFT:
         return (0.0, 0.0)
     if x_place == RIGHT:
@@ -759,7 +764,7 @@ def _x_place_dx(x_place: XPlace, wa: float, wb: float) -> tuple:
     return (_mid(wm, wa), _mid(wm, wb))
 
 
-def _y_place_dy(y_place: YPlace, ha: float, hb: float) -> tuple:
+def _y_place_dy(y_place: YPlace, ha: float, hb: float) -> tuple[float, float]:
     if y_place == TOP:
         return (0.0, 0.0)
     if y_place == BOTTOM:
@@ -984,8 +989,8 @@ def regular_polygon(side_length: float, side_count: int, *style_args: Style) -> 
     return star_polygon(side_length, side_count, 1, *style_args)
 
 
-def polygon(points: list, *style_args: Style) -> Image:
-    pts: list = []
+def polygon(points: list[Point | tuple[float, float]], *style_args: Style) -> Image:
+    pts: list[Point] = []
     for p in points:
         if isinstance(p, Point):
             pts.append(p)
@@ -1002,7 +1007,7 @@ def star_polygon(
     step_count = max(1, step_count)
     radius: float = _positive(float(side_length)) / (2.0 * _sin_deg(180.0 / scf))
     alpha: float = 90.0 + 180.0 / scf if side_count % 2 == 0 else -90.0
-    pts: list = []
+    pts: list[Point] = []
     for i in range(side_count):
         theta: float = alpha + 360.0 * float(i * step_count % side_count) / scf
         pts.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
@@ -1021,7 +1026,7 @@ def radial_star(
     inner_radius = _positive(float(inner_radius))
     outer_radius = _positive(float(outer_radius))
     alpha: float = 90.0 + 180.0 / float(point_count) if point_count % 2 == 0 else -90.0
-    pts: list = []
+    pts: list[Point] = []
     for i in range(point_count):
         theta1: float = alpha + 360.0 * float(i * 2) / float(2 * point_count)
         theta2: float = alpha + 360.0 * float(i * 2 + 1) / float(2 * point_count)
@@ -1042,20 +1047,22 @@ def pulled_regular_polygon(
     scf: float = float(side_count)
     radius: float = _positive(float(side_length)) / (2.0 * _sin_deg(180.0 / scf))
     alpha: float = 90.0 + 180.0 / scf if side_count % 2 == 0 else -90.0
-    vertices: list = []
+    vertices: list[Point] = []
     for i in range(side_count):
         theta: float = alpha + 360.0 * float(i) / scf
         vertices.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
     if len(vertices) == 0:
         return empty
     first: Point = vertices[0]
-    edges: list = _pulled_edges(vertices, first, float(pull), float(angle))
+    edges: list[_CubicTo] = _pulled_edges(vertices, first, float(pull), float(angle))
     s: Style = _make_style(*style_args)
     return _fix_position(_Path(s, [_MoveTo(first)] + edges, True))
 
 
-def _pulled_edges(vertices: list, first: Point, pull: float, angle: float) -> list:
-    result: list = []
+def _pulled_edges(
+    vertices: list[Point], first: Point, pull: float, angle: float
+) -> list[_CubicTo]:
+    result: list[_CubicTo] = []
     n: int = len(vertices)
     for i in range(n):
         a: Point = vertices[i]
@@ -1420,7 +1427,11 @@ def place_image_align(
     )
 
 
-def place_images(scene: Image, positions: list, images: list) -> Image:
+def place_images(
+    scene: Image,
+    positions: list[Point | tuple[float, float]],
+    images: list[Image],
+) -> Image:
     for i in range(min(len(positions), len(images))):
         p = positions[i]
         if isinstance(p, Point):
@@ -1431,7 +1442,11 @@ def place_images(scene: Image, positions: list, images: list) -> Image:
 
 
 def place_images_align(
-    scene: Image, positions: list, x_place: XPlace, y_place: YPlace, images: list
+    scene: Image,
+    positions: list[Point | tuple[float, float]],
+    x_place: XPlace,
+    y_place: YPlace,
+    images: list[Image],
 ) -> Image:
     for i in range(min(len(positions), len(images))):
         p = positions[i]
@@ -1469,8 +1484,12 @@ def place_line(
     )
 
 
-def place_polygon(scene: Image, points: list, *style_args: Style) -> Image:
-    pts: list = []
+def place_polygon(
+    scene: Image,
+    points: list[Point | tuple[float, float]],
+    *style_args: Style,
+) -> Image:
+    pts: list[Point] = []
     for p in points:
         if isinstance(p, Point):
             pts.append(p)
@@ -1574,8 +1593,12 @@ def add_line(
     )
 
 
-def add_polygon(img: Image, points: list, *style_args: Style) -> Image:
-    pts: list = []
+def add_polygon(
+    img: Image,
+    points: list[Point | tuple[float, float]],
+    *style_args: Style,
+) -> Image:
+    pts: list[Point] = []
     for p in points:
         if isinstance(p, Point):
             pts.append(p)
@@ -1662,7 +1685,7 @@ def _curve_controls(
     y2: float,
     angle2: float,
     pull2: float,
-) -> tuple:
+) -> tuple[Point, Point]:
     dist: float = _math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
     c1: Point = Point(
         x1 + pull1 * dist * _cos_deg(angle1), y1 - pull1 * dist * _sin_deg(angle1)
@@ -1800,9 +1823,9 @@ def _to_svg(img: Image, level: int) -> str:
     return ""
 
 
-def _commands_to_d(commands: list, aligned: bool) -> str:
+def _commands_to_d(commands: list[_PathCmd], aligned: bool) -> str:
     c = _align if aligned else _fs
-    parts: list = []
+    parts: list[str] = []
     for cmd in commands:
         parts.append(_cmd_to_d(cmd, c))
     return " ".join(parts)
