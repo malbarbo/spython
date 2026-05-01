@@ -51,4 +51,4 @@ def _to_css(font: Font) -> str:
         w = "bold "
     elif font.weight == FontWeight.LIGHT:
         w = "lighter "
-    return s + w + str(font.size) + "px " + font.family
+    return s + w + font.family

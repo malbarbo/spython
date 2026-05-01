@@ -1137,8 +1137,8 @@ def text(
             underline=f.underline,
         )
     css: str = _font._to_css(f)
-    w: float = _system.text_width(txt, css)
-    h: float = _system.text_height(txt, css)
+    w: float = _system.text_width(txt, css, int(f.size))
+    h: float = _system.text_height(txt, css, int(f.size))
     s: Style = _make_style(*style_args)
     return _Text(s, _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), txt, False, False, f)
 
@@ -1780,10 +1780,11 @@ def _to_svg(img: Image, level: int) -> str:
     if isinstance(img, _Text):
         b = img.box
         css: str = _font._to_css(img.font)
-        original_width: float = _system.text_width(img.text, css)
-        original_height: float = _system.text_height(img.text, css)
-        x_offset: float = _system.text_x_offset(img.text, css)
-        y_offset: float = _system.text_y_offset(img.text, css)
+        sz: int = int(img.font.size)
+        original_width: float = _system.text_width(img.text, css, sz)
+        original_height: float = _system.text_height(img.text, css, sz)
+        x_offset: float = _system.text_x_offset(img.text, css, sz)
+        y_offset: float = _system.text_y_offset(img.text, css, sz)
         scale_x: float = (
             b.width / original_width * (-1.0 if img.flip_horizontal else 1.0)
         )

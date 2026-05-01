@@ -711,36 +711,36 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
 
     let text_width_fn = vm.new_function(
         "text_width",
-        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_width(&text, &font_css))
+                .new_float(wasm_ffi::measure_text_width(&text, &font, size))
                 .into()
         },
     );
 
     let text_height_fn = vm.new_function(
         "text_height",
-        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_height(&text, &font_css))
+                .new_float(wasm_ffi::measure_text_height(&text, &font, size))
                 .into()
         },
     );
 
     let text_x_offset_fn = vm.new_function(
         "text_x_offset",
-        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_x_offset(&text, &font_css))
+                .new_float(wasm_ffi::measure_text_x_offset(&text, &font, size))
                 .into()
         },
     );
 
     let text_y_offset_fn = vm.new_function(
         "text_y_offset",
-        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_y_offset(&text, &font_css))
+                .new_float(wasm_ffi::measure_text_y_offset(&text, &font, size))
                 .into()
         },
     );
