@@ -4,9 +4,12 @@ compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm inst
 use bpaf::{Bpaf, Parser};
 use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
-use ruff_db::system::{OsSystem, SystemPathBuf};
+use ruff_db::system::SystemPathBuf;
 mod config;
+mod overlay_system;
 mod repl;
+
+use overlay_system::OverlaySystem;
 
 use engine::{
     BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
@@ -375,31 +378,8 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
         Error::DatabaseBuild("current directory contains non-Unicode characters".to_string())
     })?;
 
-    let system = OsSystem::new(&cwd_sys);
-    let extra_paths = ensure_spython_lib_extracted()
-        .map(|p| vec![p])
-        .unwrap_or_default();
-    let metadata = make_project_metadata(cwd_sys, extra_paths);
+    let (system, lib_root) = OverlaySystem::new(&cwd_sys);
+    let metadata = make_project_metadata(cwd_sys, vec![lib_root]);
 
     ProjectDatabase::new(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
-}
-
-/// Extract the embedded spython lib to a stable cache directory so ty's
-/// resolver can find it via `extra-paths`. The package dir is wiped and
-/// rewritten every run (idempotent, ~1ms) — caching by version would mask
-/// local edits to `lib/spython/` during development, and stale files from
-/// prior versions (e.g. files later removed or renamed) would shadow the
-/// current set. Returns the path to add to `extra-paths` (i.e. the parent
-/// of `spython/`).
-fn ensure_spython_lib_extracted() -> Option<SystemPathBuf> {
-    let cache_root = dirs::cache_dir().unwrap_or_else(std::env::temp_dir);
-    let stub_root = cache_root.join("spython").join("lib-stubs");
-    let pkg_dir = stub_root.join(spython_lib::LIB_DIR).join("spython");
-
-    let _ = std::fs::remove_dir_all(&pkg_dir);
-    std::fs::create_dir_all(&pkg_dir).ok()?;
-    for (name, content) in spython_lib::FILES {
-        std::fs::write(pkg_dir.join(name), content).ok()?;
-    }
-    SystemPathBuf::from_path_buf(stub_root.join(spython_lib::LIB_DIR)).ok()
 }

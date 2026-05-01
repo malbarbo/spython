@@ -443,6 +443,7 @@ dependencies = [
  "insta",
  "regex",
  "ruff_db",
+ "ruff_notebook",
  "ruff_python_ast",
  "rustpython-compiler",
  "rustpython-vm",
