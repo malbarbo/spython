@@ -249,7 +249,34 @@ export function makeWasi(options: WasiOptions) {
     path_filestat_get: (): number => WASI_ENOSYS,
     fd_prestat_get: (): number => WASI_EBADF,
     fd_prestat_dir_name: (): number => WASI_ENOSYS,
-    poll_oneoff: (): number => WASI_ENOSYS,
+    poll_oneoff: (
+      inPtr: number,
+      outPtr: number,
+      nsubscriptions: number,
+      neventsPtr: number,
+    ): number => {
+      // Test polyfill: emit a clock event for the first clock subscription
+      // (so std::thread::sleep / time.sleep don't panic), but skip the
+      // actual block to keep tests fast.
+      try {
+        const dv = new DataView(buf());
+        for (let i = 0; i < nsubscriptions; i++) {
+          const o = inPtr + i * 48;
+          const userdata = dv.getBigUint64(o, true);
+          const tag = dv.getUint8(o + 8);
+          if (tag !== 0) continue;
+          const u8 = new Uint8Array(buf());
+          u8.fill(0, outPtr, outPtr + 32);
+          dv.setBigUint64(outPtr, userdata, true);
+          dv.setInt32(neventsPtr, 1, true);
+          return WASI_ESUCCESS;
+        }
+        dv.setInt32(neventsPtr, 0, true);
+        return WASI_ESUCCESS;
+      } catch {
+        return WASI_ENOSYS;
+      }
+    },
     sched_yield: (): number => WASI_ESUCCESS,
   };
 }

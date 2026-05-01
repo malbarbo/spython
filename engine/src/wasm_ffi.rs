@@ -6,7 +6,6 @@
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
-    fn sleep(ms: i64);
     fn draw_svg(ptr: *const u8, len: usize);
     fn get_key_event(key_ptr: *mut u8, key_len: usize, mods_ptr: *mut u8) -> i32;
     fn text_width(
@@ -33,22 +32,6 @@ unsafe extern "C" {
         font_css: *const u8,
         font_css_len: usize,
     ) -> f64;
-}
-
-/// Block for `ms` milliseconds. On WASM, calls the host's env.sleep (which yields
-/// to the JS event loop and wakes early on Stop). On native, uses std::thread::sleep.
-pub fn sleep_ms(ms: i64) {
-    if ms <= 0 {
-        return;
-    }
-    #[cfg(target_arch = "wasm32")]
-    unsafe {
-        sleep(ms);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::thread::sleep(std::time::Duration::from_millis(ms as u64));
-    }
 }
 
 /// Show an SVG image. On WASM, calls the env import; on native, prints to stdout.

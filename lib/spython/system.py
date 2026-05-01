@@ -1,10 +1,18 @@
 import sys
 import builtins
+import time as _time
+
+
+def sleep(ms: int) -> None:
+    _time.sleep(ms / 1000.0)
+
+
+def now_ms() -> int:
+    return int(_time.time() * 1000)
+
 
 try:
     from _spython_ffi import (
-        sleep,
-        now_ms,
         show_svg,
         get_key_event,
         text_width,
@@ -14,13 +22,6 @@ try:
         load_bitmap,
     )  # type: ignore[import-not-found]
 except ImportError:
-    import time as _time
-
-    def sleep(ms: int) -> None:
-        _time.sleep(ms / 1000.0)
-
-    def now_ms() -> int:
-        return int(_time.time() * 1000)
 
     def show_svg(svg: str) -> None:
         print(svg)

@@ -23,6 +23,7 @@ os
 os.path
 re
 sys
+time
 types
 typing
 typing_extensions
