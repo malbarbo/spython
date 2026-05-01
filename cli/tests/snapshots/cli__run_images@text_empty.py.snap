@@ -1,0 +1,15 @@
+---
+source: cli/tests/cli.rs
+assertion_line: 433
+expression: "format!(\"{out}\")"
+input_file: cli/tests/images/text_empty.py
+---
+<svg width="10" height="16" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <g>
+      <path d=" Z" />
+      <text dominant-baseline="alphabetic" text-anchor="start" x="0" y="0" font-family="sans-serif" font-size="16" font-style="normal" font-weight="normal" transform="translate(4.8,8) rotate(0 0 0) scale(1,1)" fill="rgba(255, 0, 0, 1.0)" >a</text>
+    </g>
+    <path d=" Z" />
+  </g>
+</svg>

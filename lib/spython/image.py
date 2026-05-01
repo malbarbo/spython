@@ -1125,6 +1125,8 @@ def _wedge_path(radius: float, angle: float, style: Style) -> Image:
 def text(
     txt: str, *style_args: Style, size: float | None = None, font: Font | None = None
 ) -> Image:
+    if txt == "":
+        return empty
     f: Font = font if font is not None else Font()
     if size is not None:
         f = Font(
