@@ -66,6 +66,8 @@ function makeEnv(
     check_interrupt: (): number => {
       return interrupted ? 1 : 0;
     },
+    sleep: (_ms: bigint): void => {},
+    now_ms: (): bigint => BigInt(Date.now()),
     draw_svg: (ptr: number, len: number): void => {
       const b = new Uint8Array(getBuffer() as ArrayBuffer);
       svgs.push(decoder.decode(b.slice(ptr, ptr + len)));

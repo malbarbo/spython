@@ -682,6 +682,22 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
 fn register_ffi_module(vm: &vm::VirtualMachine) {
     use rustpython::vm::PyObjectRef;
 
+    let sleep_fn = vm.new_function(
+        "sleep",
+        |ms: i64, vm: &vm::VirtualMachine| -> vm::PyResult {
+            wasm_ffi::sleep_ms(ms);
+            Ok(vm.ctx.none())
+        },
+    );
+
+    let now_ms_fn = vm.new_function("now_ms", |vm: &vm::VirtualMachine| -> PyObjectRef {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        vm.ctx.new_int(ms).into()
+    });
+
     let show_svg_fn = vm.new_function(
         "show_svg",
         |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
@@ -761,6 +777,8 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     );
 
     let dict = vm.ctx.new_dict();
+    dict.set_item("sleep", sleep_fn.into(), vm).unwrap();
+    dict.set_item("now_ms", now_ms_fn.into(), vm).unwrap();
     dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
     dict.set_item("get_key_event", get_key_event_fn.into(), vm)
         .unwrap();
