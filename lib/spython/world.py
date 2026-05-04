@@ -58,7 +58,7 @@ class World[S]:
             if now >= next_tick_at:
                 if self.on_tick_fn is not None:
                     self.state = self.on_tick_fn(self.state)
-                self._show()
+                    self._show()
                 # Schedule from the deadline (not from now) to absorb minor
                 # overruns without drift. If we overran by more than a full
                 # period, snap forward so we don't burn ticks catching up.
@@ -74,12 +74,18 @@ class World[S]:
                 event_type: int = event[0]
                 key: str = event[1]
                 # event[2..6]: alt, ctrl, shift, meta, repeat
+                handled: bool = False
                 if self.on_key_down_fn is not None and event_type == KEYDOWN:
                     self.state = self.on_key_down_fn(self.state, key)
+                    handled = True
                 if self.on_key_press_fn is not None and event_type == KEYPRESS:
                     self.state = self.on_key_press_fn(self.state, key)
+                    handled = True
                 if self.on_key_up_fn is not None and event_type == KEYUP:
                     self.state = self.on_key_up_fn(self.state, key)
+                    handled = True
+                if handled:
+                    self._show()
 
             if self.stop_when_fn is not None and self.stop_when_fn(self.state):
                 self._show()
