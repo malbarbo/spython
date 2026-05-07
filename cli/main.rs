@@ -13,8 +13,8 @@ use overlay_system::OverlaySystem;
 
 use engine::{
     BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
-    collect_import_files, execute_source, format_source, make_project_metadata, new_interpreter,
-    print_type_errors, spython_lib,
+    collect_import_files, execute_source, format_source, init_repl_runtime, make_project_metadata,
+    new_interpreter, print_type_errors, spython_lib,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -109,6 +109,7 @@ fn parse_level(level: u8) -> Option<Level> {
 
 fn main() -> ExitCode {
     engine::panic::add_handler();
+    engine::install_panic_hook();
 
     // Hidden flag for testing the panic handler
     if std::env::args().any(|a| a == "--test-panic") {
@@ -210,6 +211,7 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
     let interp = new_interpreter();
     let code = interp.run(|vm| {
         let scope = vm.new_scope_with_main()?;
+        init_repl_runtime(vm, &scope);
         println!(
             "spython level {level} - {VERSION} ({BUILD_DATE}, {GIT_HASH})\n\
              Using {LIBS_VERSION}.\n\

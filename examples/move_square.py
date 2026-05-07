@@ -57,6 +57,6 @@ def stop(p: Pos) -> bool:
 
 
 w: World[Pos] = World(Pos(LINES // 2, COLUMNS // 2), draw)
-w.on_key_down(move)
+w.on_key_press(move)
 w.stop_when(stop)
 w.run()

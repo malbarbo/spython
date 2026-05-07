@@ -1,7 +1,14 @@
 from collections.abc import Callable
 
-from spython.image import Image, to_svg
-from spython.system import get_key_event, now_ms, show_svg, sleep
+from spython.image import Image
+from spython.system import (
+    enter_animation,
+    exit_animation,
+    get_key_event,
+    now_ms,
+    show,
+    sleep,
+)
 
 KEYPRESS: int = 0
 KEYDOWN: int = 1
@@ -50,6 +57,13 @@ class World[S]:
         return self
 
     def run(self) -> None:
+        enter_animation()
+        try:
+            self._run_loop()
+        finally:
+            exit_animation()
+
+    def _run_loop(self) -> None:
         self._show()
         period_ms: int = MS_PER_SECOND // self.rate
         next_tick_at: int = now_ms() + period_ms
@@ -96,7 +110,7 @@ class World[S]:
                 sleep(wait_ms)
 
     def _show(self) -> None:
-        show_svg(to_svg(self.to_image(self.state)))
+        show(self.to_image(self.state))
 
 
 def animate(create_image: Callable[[int], Image]) -> None:
@@ -104,7 +118,7 @@ def animate(create_image: Callable[[int], Image]) -> None:
     next_frame_at: int = now_ms()
     frame: int = 0
     while True:
-        show_svg(to_svg(create_image(frame)))
+        show(create_image(frame))
         next_frame_at += period_ms
         wait_ms: int = next_frame_at - now_ms()
         if wait_ms > 0:

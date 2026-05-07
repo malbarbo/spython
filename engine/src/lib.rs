@@ -1,12 +1,30 @@
+// Bring `#[pyclass]`, `#[pymethod]`, `#[pymodule]`, `#[pyattr]`,
+// `#[derive(PyPayload)]`, `#[derive(FromArgs)]` into scope for the
+// `drawlist` module without per-file `use` lines. Mirrors the way
+// `rustpython-stdlib` exposes them.
+#[cfg(not(target_arch = "wasm32"))]
+#[macro_use]
+extern crate rustpython_derive;
+
 pub mod output;
 
 pub mod checker;
 pub mod completion;
 pub mod doctests;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod drawlist;
+pub mod host;
 pub mod lints;
 pub mod panic;
 pub mod spython_lib;
-pub mod wasm_ffi;
+
+/// Install a panic hook that restores the terminal (alt-screen + raw mode)
+/// before the default panic message prints. Native-only — on WASM there is
+/// no terminal state to restore. Call once at process startup.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn install_panic_hook() {
+    simage::install_panic_hook();
+}
 
 use std::collections::HashSet;
 #[cfg(test)]
@@ -98,10 +116,13 @@ pub fn make_project_metadata(
 pub fn new_interpreter() -> vm::Interpreter {
     let mut settings = vm::Settings::default();
     settings.write_bytecode = false;
-    InterpreterBuilder::new()
-        .settings(settings)
-        .init_stdlib()
-        .interpreter()
+    let builder = InterpreterBuilder::new().settings(settings).init_stdlib();
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = {
+        let def = drawlist::module_def(&builder.ctx);
+        builder.add_native_module(def)
+    };
+    builder.interpreter()
 }
 
 /// Type-check `source` entirely in memory (no OS filesystem access).
@@ -345,6 +366,20 @@ pub fn execute_source(source: &str, filename: &str, parent_dir: &str) -> bool {
         vm.run_string(scope, &source, filename).map(drop)
     });
     code == 0
+}
+
+/// Initialize the runtime for an interactive REPL: register `_spython_ffi`
+/// and install the displayhook that renders `Image` results via `show_svg`.
+/// Should be called once after creating the scope, before any user input.
+pub fn init_repl_runtime(vm: &vm::VirtualMachine, scope: &vm::scope::Scope) {
+    register_ffi_module(vm);
+    if let Err(exc) = vm.run_string(
+        scope.clone(),
+        "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
+        "<init>".to_owned(),
+    ) {
+        vm.print_exception(exc);
+    }
 }
 
 /// Print type errors to stderr. Pass `use_color = true` in WASM (ansi.ts renders
@@ -636,17 +671,9 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
         let scope = vm
             .new_scope_with_main()
             .expect("creating the main scope should not fail");
-        register_ffi_module(vm);
+        init_repl_runtime(vm, &scope);
         #[cfg(feature = "capture")]
         install_capture_writers(vm);
-        #[cfg(target_arch = "wasm32")]
-        if let Err(exc) = vm.run_string(
-            scope.clone(),
-            "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
-            "<init>".to_owned(),
-        ) {
-            vm.print_exception(exc);
-        }
         if has_source {
             if let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned()) {
                 vm.print_exception(exc);
@@ -685,14 +712,35 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     let show_svg_fn = vm.new_function(
         "show_svg",
         |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
-            wasm_ffi::show_svg(&svg);
+            host::show_svg(&svg);
             Ok(vm.ctx.none())
+        },
+    );
+
+    let kitty_supported_fn = vm.new_function(
+        "kitty_supported",
+        |vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx.new_bool(host::kitty_supported()).into()
+        },
+    );
+
+    let sixel_supported_fn = vm.new_function(
+        "sixel_supported",
+        |vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx.new_bool(host::sixel_supported()).into()
+        },
+    );
+
+    let text_blocks_supported_fn = vm.new_function(
+        "text_blocks_supported",
+        |vm: &vm::VirtualMachine| -> PyObjectRef {
+            vm.ctx.new_bool(host::text_blocks_supported()).into()
         },
     );
 
     let get_key_event_fn =
         vm.new_function("get_key_event", |vm: &vm::VirtualMachine| -> PyObjectRef {
-            match wasm_ffi::poll_key_event() {
+            match host::poll_key_event() {
                 None => vm.ctx.none(),
                 Some((event_type, key, mods)) => {
                     let elements = vec![
@@ -713,7 +761,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         "text_width",
         |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_width(&text, &font, size))
+                .new_float(host::measure_text_width(&text, &font, size))
                 .into()
         },
     );
@@ -722,7 +770,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         "text_height",
         |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_height(&text, &font, size))
+                .new_float(host::measure_text_height(&text, &font, size))
                 .into()
         },
     );
@@ -731,7 +779,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         "text_x_offset",
         |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_x_offset(&text, &font, size))
+                .new_float(host::measure_text_x_offset(&text, &font, size))
                 .into()
         },
     );
@@ -740,7 +788,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         "text_y_offset",
         |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
             vm.ctx
-                .new_float(wasm_ffi::measure_text_y_offset(&text, &font, size))
+                .new_float(host::measure_text_y_offset(&text, &font, size))
                 .into()
         },
     );
@@ -751,6 +799,18 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
             Err(vm.new_runtime_error("load_bitmap is not available in native mode".to_owned()))
         },
     );
+    let enter_animation_fn = vm.new_function(
+        "enter_animation",
+        |vm: &vm::VirtualMachine| -> PyObjectRef {
+            host::enter_animation();
+            vm.ctx.none()
+        },
+    );
+    let exit_animation_fn =
+        vm.new_function("exit_animation", |vm: &vm::VirtualMachine| -> PyObjectRef {
+            host::exit_animation();
+            vm.ctx.none()
+        });
     #[cfg(test)]
     let test_mark_atexit_ran_fn = vm.new_function(
         "__test_mark_atexit_ran",
@@ -762,6 +822,12 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
 
     let dict = vm.ctx.new_dict();
     dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
+    dict.set_item("kitty_supported", kitty_supported_fn.into(), vm)
+        .unwrap();
+    dict.set_item("sixel_supported", sixel_supported_fn.into(), vm)
+        .unwrap();
+    dict.set_item("text_blocks_supported", text_blocks_supported_fn.into(), vm)
+        .unwrap();
     dict.set_item("get_key_event", get_key_event_fn.into(), vm)
         .unwrap();
     dict.set_item("text_width", text_width_fn.into(), vm)
@@ -773,6 +839,10 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     dict.set_item("text_y_offset", text_y_offset_fn.into(), vm)
         .unwrap();
     dict.set_item("load_bitmap", load_bitmap_fn.into(), vm)
+        .unwrap();
+    dict.set_item("enter_animation", enter_animation_fn.into(), vm)
+        .unwrap();
+    dict.set_item("exit_animation", exit_animation_fn.into(), vm)
         .unwrap();
     #[cfg(test)]
     dict.set_item("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into(), vm)

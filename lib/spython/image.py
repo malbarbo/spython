@@ -3,7 +3,7 @@ from collections.abc import Callable as _Callable
 from enum import Enum as _Enum
 
 from spython import font as _font
-from spython.font import Font, FontStyle, FontWeight
+from spython.font import Font, FontStyle, FontWeight  # noqa: F401 — re-export
 from spython.color import Color as _Color
 from spython.color import *  # noqa: F401,F403 — re-export all colors
 from spython.style import (
@@ -110,10 +110,16 @@ class _MoveTo:
     def __init__(self, p: Point) -> None:
         self.p: Point = p
 
+    def _emit_cmd(self, dl: "_system.DrawList") -> None:
+        dl.move_to(self.p.x, self.p.y)
+
 
 class _LineTo:
     def __init__(self, p: Point) -> None:
         self.p: Point = p
+
+    def _emit_cmd(self, dl: "_system.DrawList") -> None:
+        dl.line_to(self.p.x, self.p.y)
 
 
 class _QuadTo:
@@ -121,12 +127,18 @@ class _QuadTo:
         self.control: Point = control
         self.end: Point = end
 
+    def _emit_cmd(self, dl: "_system.DrawList") -> None:
+        dl.quad_to(self.control.x, self.control.y, self.end.x, self.end.y)
+
 
 class _CubicTo:
     def __init__(self, c1: Point, c2: Point, end: Point) -> None:
         self.c1: Point = c1
         self.c2: Point = c2
         self.end: Point = end
+
+    def _emit_cmd(self, dl: "_system.DrawList") -> None:
+        dl.cubic_to(self.c1.x, self.c1.y, self.c2.x, self.c2.y, self.end.x, self.end.y)
 
 
 class _ArcTo:
@@ -145,6 +157,17 @@ class _ArcTo:
         self.large_arc: bool = large_arc
         self.sweep: bool = sweep
         self.end: Point = end
+
+    def _emit_cmd(self, dl: "_system.DrawList") -> None:
+        dl.arc_to(
+            self.rx,
+            self.ry,
+            self.rotation,
+            1 if self.large_arc else 0,
+            1 if self.sweep else 0,
+            self.end.x,
+            self.end.y,
+        )
 
 
 _PathCmd = _MoveTo | _LineTo | _QuadTo | _CubicTo | _ArcTo
@@ -190,7 +213,8 @@ def path(commands: list[_PathCmd], closed: bool, *style_args: Style) -> "Image":
 
 
 class Image:
-    pass
+    def _emit_dl(self, dl: "_system.DrawList") -> None:
+        return None
 
 
 class _Box:
@@ -236,17 +260,50 @@ class _Path(Image):
         self.commands: list[_PathCmd] = commands
         self.closed: bool = closed
 
+    def _emit_dl(self, dl: "_system.DrawList") -> None:
+        s: Style = self.style
+        fill_rgba: tuple[int, int, int, float] = _resolve_fill_rgba(s)
+        stroke_rgba: tuple[int, int, int, float] = _resolve_stroke_rgba(s)
+        dl.path_begin(
+            fill_rgba[0],
+            fill_rgba[1],
+            fill_rgba[2],
+            fill_rgba[3],
+            stroke_rgba[0],
+            stroke_rgba[1],
+            stroke_rgba[2],
+            stroke_rgba[3],
+            _resolve_stroke_width(s),
+            _resolve_line_cap(s),
+            _resolve_line_join(s),
+            _resolve_fill_rule(s),
+            1 if self.closed else 0,
+        )
+        for cmd in self.commands:
+            cmd._emit_cmd(dl)
+        dl.path_end()
+
 
 class _Combination(Image):
     def __init__(self, a: Image, b: Image) -> None:
         self.a: Image = a
         self.b: Image = b
 
+    def _emit_dl(self, dl: "_system.DrawList") -> None:
+        self.a._emit_dl(dl)
+        self.b._emit_dl(dl)
+
 
 class _Crop(Image):
     def __init__(self, box: _Box, image: Image) -> None:
         self.box: _Box = box
         self.image: Image = image
+
+    def _emit_dl(self, dl: "_system.DrawList") -> None:
+        b: _Box = self.box
+        dl.clip_push(b.center.x, b.center.y, b.width, b.height, b.angle)
+        self.image._emit_dl(dl)
+        dl.clip_pop()
 
 
 class _Text(Image):
@@ -266,11 +323,51 @@ class _Text(Image):
         self.flip_horizontal: bool = flip_horizontal
         self.font: Font = font
 
+    def _emit_dl(self, dl: "_system.DrawList") -> None:
+        s: Style = self.style
+        fill_rgba: tuple[int, int, int, float] = _resolve_fill_rgba(s)
+        stroke_rgba: tuple[int, int, int, float] = _resolve_stroke_rgba(s)
+        b: _Box = self.box
+        f: Font = self.font
+        if f.style == FontStyle.ITALIC:
+            italic: int = 1
+        elif f.style == FontStyle.SLANT:
+            italic = 2
+        else:
+            italic = 0
+        dl.text(
+            fill_rgba[0],
+            fill_rgba[1],
+            fill_rgba[2],
+            fill_rgba[3],
+            stroke_rgba[0],
+            stroke_rgba[1],
+            stroke_rgba[2],
+            stroke_rgba[3],
+            _resolve_stroke_width(s),
+            _resolve_line_cap(s),
+            _resolve_line_join(s),
+            b.center.x,
+            b.center.y,
+            b.width,
+            b.height,
+            b.angle,
+            1 if self.flip_horizontal else 0,
+            1 if self.flip_vertical else 0,
+            f.size,
+            italic,
+            1 if f.underline else 0,
+            self.text,
+        )
+
 
 class _Bitmap(Image):
     def __init__(self, box: _Box, data_uri: str) -> None:
         self.box: _Box = box
         self.data_uri: str = data_uri
+
+    def _emit_dl(self, dl: "_system.DrawList") -> None:
+        dl.bitmap()
 
 
 empty: Image = _Path(_style_none, [], True)
@@ -1721,6 +1818,30 @@ def to_svg(img: Image) -> str:
     )
 
 
+def to_pdf(img: Image) -> bytes:
+    """Render `img` to a single-page PDF as raw bytes.
+
+    Text is emitted as filled glyph paths using the same embedded font that
+    drives the on-screen renderer, so the PDF matches the canvas layout
+    exactly. Trade-off: text in the PDF is not selectable. Native-only;
+    raises `RuntimeError` on WASM.
+    """
+    return to_drawlist(img).to_pdf()
+
+
+def to_drawlist(img: Image) -> "_system.DrawList":
+    """Build a typed `DrawList` for `img`.
+
+    The returned object exposes `.show()` and `.to_pdf()` for the terminal
+    and PDF renderers. Native-only; raises `RuntimeError` on WASM.
+    """
+    w: float = float(_math.ceil(round(width(img), 6)))
+    h: float = float(_math.ceil(round(height(img), 6)))
+    dl: _system.DrawList = _system.DrawList(w, h)
+    img._emit_dl(dl)
+    return dl
+
+
 def _next_clip_id() -> int:
     global _clip_counter
     result: int = _clip_counter
@@ -1831,6 +1952,111 @@ def _to_svg(img: Image, level: int) -> str:
             result = result + _attribs("transform", _rotate_str(b.angle, b.center))
         return result + "/>\n"
     return ""
+
+
+# **************************
+# * Style resolvers (shared by DrawList emitters)
+# **************************
+
+
+def _resolve_fill_rgba(style: Style) -> tuple[int, int, int, float]:
+    from spython.style import _Fill, _FillOpacity, _Stroke
+
+    fill_color: _Color | None = None
+    fill_opacity: float = 1.0
+    has_stroke: bool = False
+    for a in style.attrs:
+        if isinstance(a, _Fill):
+            fill_color = a.color
+        elif isinstance(a, _FillOpacity):
+            fill_opacity = a.value
+        elif isinstance(a, _Stroke):
+            has_stroke = True
+    if fill_color is None:
+        # Match SVG semantics: stroke-only paths have no fill; otherwise
+        # default to opaque black.
+        if has_stroke:
+            return (0, 0, 0, 0.0)
+        return (0, 0, 0, 1.0 * fill_opacity)
+    if fill_color._none:
+        return (0, 0, 0, 0.0)
+    return (fill_color.r, fill_color.g, fill_color.b, fill_color.a * fill_opacity)
+
+
+def _resolve_stroke_rgba(style: Style) -> tuple[int, int, int, float]:
+    from spython.style import _Stroke, _StrokeOpacity
+
+    stroke_color: _Color | None = None
+    stroke_opacity: float = 1.0
+    for a in style.attrs:
+        if isinstance(a, _Stroke):
+            stroke_color = a.color
+        elif isinstance(a, _StrokeOpacity):
+            stroke_opacity = a.value
+    if stroke_color is None or stroke_color._none:
+        return (0, 0, 0, 0.0)
+    return (
+        stroke_color.r,
+        stroke_color.g,
+        stroke_color.b,
+        stroke_color.a * stroke_opacity,
+    )
+
+
+def _resolve_stroke_width(style: Style) -> float:
+    from spython.style import _StrokeWidth
+
+    for a in style.attrs:
+        if isinstance(a, _StrokeWidth):
+            return a.value
+    return 1.0
+
+
+def _resolve_line_cap(style: Style) -> int:
+    from spython.style import _StrokeLineCap
+
+    for a in style.attrs:
+        if isinstance(a, _StrokeLineCap):
+            if a.value == LineCap.ROUND:
+                return 1
+            if a.value == LineCap.SQUARE:
+                return 2
+            return 0
+    # Match svg.py: outlined paths default to round caps.
+    if _has_outline_simple(style):
+        return 1
+    return 0
+
+
+def _resolve_line_join(style: Style) -> int:
+    from spython.style import _StrokeLineJoin
+
+    for a in style.attrs:
+        if isinstance(a, _StrokeLineJoin):
+            if a.value == LineJoin.ROUND:
+                return 1
+            if a.value == LineJoin.BEVEL:
+                return 2
+            return 0
+    return 0
+
+
+def _resolve_fill_rule(style: Style) -> int:
+    from spython.style import _FillRule
+
+    for a in style.attrs:
+        if isinstance(a, _FillRule):
+            return 1 if a.value == FillRule.EVENODD else 0
+    return 0
+
+
+def _has_outline_simple(style: Style) -> bool:
+    from spython.style import _Stroke
+
+    for a in style.attrs:
+        if isinstance(a, _Stroke):
+            return True
+    return False
 
 
 def _commands_to_d(commands: list[_PathCmd], aligned: bool) -> str:

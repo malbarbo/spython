@@ -247,6 +247,7 @@ from spython.image import (
     add_solid_curve,
     add_wedge,
     to_svg,
+    to_pdf,
     move_to,
     line_to,
     quad_to,
