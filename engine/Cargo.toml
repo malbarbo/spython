@@ -21,7 +21,7 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 capture = []
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-simage = { path = "../../simage" }
+simage = { git = "https://github.com/malbarbo/simage.git", rev = "a39262571e9ebf22a63f94a9b4c9cc84ef2e0c59" }
 
 [dependencies]
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.1" }

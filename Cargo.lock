@@ -3469,6 +3469,7 @@ dependencies = [
 [[package]]
 name = "simage"
 version = "0.1.0"
+source = "git+https://github.com/malbarbo/simage.git?rev=a39262571e9ebf22a63f94a9b4c9cc84ef2e0c59#a39262571e9ebf22a63f94a9b4c9cc84ef2e0c59"
 dependencies = [
  "base64",
  "crossterm",
