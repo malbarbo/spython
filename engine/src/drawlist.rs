@@ -286,7 +286,7 @@ mod _drawlist {
         /// Render to the active terminal backend (Kitty / Sixel / half-blocks).
         #[pymethod]
         fn show(&self) {
-            simage::world_term::show_image_dl(&self.inner.lock());
+            crate::host::show_image_dl(&self.inner.lock());
         }
 
         /// Render to PDF bytes.

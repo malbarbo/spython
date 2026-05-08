@@ -6,6 +6,9 @@ resolver = "3"
 [patch.crates-io]
 rustyline = { git = "https://github.com/malbarbo/rustyline.git" }
 
+[patch."https://github.com/malbarbo/simage.git"]
+simage = { path = "../simage" }
+
 [profile.release]
 opt-level = 2
 lto = true

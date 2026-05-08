@@ -23,7 +23,7 @@ pub mod spython_lib;
 /// no terminal state to restore. Call once at process startup.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn install_panic_hook() {
-    simage::install_panic_hook();
+    host::install_panic_hook();
 }
 
 use std::collections::HashSet;
