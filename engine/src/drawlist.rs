@@ -19,7 +19,8 @@ pub(crate) use _drawlist::module_def;
 mod _drawlist {
     use rustpython_vm::common::lock::PyMutex;
     use rustpython_vm::{
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine, builtins::PyType, types::Constructor,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine, builtins::PyType,
+        function::OptionalArg, types::Constructor,
     };
     use simage::ir::{
         BitmapNode, ClipBox, DrawList, FillRule, FontStyle, LineCap, LineJoin, PathStyle, Rgba,
@@ -138,6 +139,14 @@ mod _drawlist {
         underline: i32,
         #[pyarg(positional)]
         text: String,
+        // Trailing optional positional args. Older Python callers that
+        // pre-date the multi-family work omit them and get the historic
+        // defaults: empty family (renderer falls back to Sans) and weight
+        // 400 (CSS Regular).
+        #[pyarg(positional, optional)]
+        family: OptionalArg<String>,
+        #[pyarg(positional, optional)]
+        weight: OptionalArg<i32>,
     }
 
     /// Args for [`PyDrawList::cubic_to`]. Six floats — over the auto-impl
@@ -268,10 +277,8 @@ mod _drawlist {
                 flip_h: a.flip_h != 0,
                 flip_v: a.flip_v != 0,
                 size: a.size,
-                // family/weight default to "" / 400 until the Python builder
-                // exposes them — see simage PLAN.md, fase 5.
-                family: String::new(),
-                weight: 400,
+                family: a.family.unwrap_or_default(),
+                weight: a.weight.unwrap_or(400).clamp(0, u16::MAX as i32) as u16,
                 style: FontStyle::from_u8(a.italic.clamp(0, 255) as u8),
                 underline: a.underline != 0,
                 text: a.text,
