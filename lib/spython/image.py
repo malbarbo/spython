@@ -3,7 +3,7 @@ from collections.abc import Callable as _Callable
 from enum import Enum as _Enum
 
 from spython import font as _font
-from spython.font import Font, FontStyle, FontWeight  # noqa: F401 — re-export
+from spython.font import Font, FontStyle  # noqa: F401 — re-export
 from spython.color import Color as _Color
 from spython.color import *  # noqa: F401,F403 — re-export all colors
 from spython.style import (
@@ -357,6 +357,8 @@ class _Text(Image):
             italic,
             1 if f.underline else 0,
             self.text,
+            f.family,
+            f.weight,
         )
 
 

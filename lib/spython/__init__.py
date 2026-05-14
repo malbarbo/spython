@@ -155,7 +155,6 @@ from spython.color import (
 from spython.font import (
     Font,
     FontStyle,
-    FontWeight,
     NORMAL,
     ITALIC,
     OBLIQUE,
