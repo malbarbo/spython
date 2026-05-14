@@ -22,7 +22,8 @@ mod _drawlist {
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine, builtins::PyType, types::Constructor,
     };
     use simage::ir::{
-        ClipBox, DrawList, FillRule, FontItalic, LineCap, LineJoin, PathStyle, Rgba, TextNode,
+        BitmapNode, ClipBox, DrawList, FillRule, FontStyle, LineCap, LineJoin, PathStyle, Rgba,
+        TextNode,
     };
 
     #[pyattr]
@@ -236,11 +237,6 @@ mod _drawlist {
         }
 
         #[pymethod]
-        fn path_end(&self) {
-            self.inner.lock().path_end();
-        }
-
-        #[pymethod]
         fn clip_push(&self, cx: f32, cy: f32, w: f32, h: f32, angle: f32) {
             self.inner.lock().clip_push(ClipBox {
                 cx,
@@ -272,7 +268,11 @@ mod _drawlist {
                 flip_h: a.flip_h != 0,
                 flip_v: a.flip_v != 0,
                 size: a.size,
-                italic: FontItalic::from_u8(a.italic.clamp(0, 255) as u8),
+                // family/weight default to "" / 400 until the Python builder
+                // exposes them — see simage PLAN.md, fase 5.
+                family: String::new(),
+                weight: 400,
+                style: FontStyle::from_u8(a.italic.clamp(0, 255) as u8),
                 underline: a.underline != 0,
                 text: a.text,
             });
@@ -280,7 +280,10 @@ mod _drawlist {
 
         #[pymethod]
         fn bitmap(&self) {
-            self.inner.lock().bitmap();
+            // Python `_Bitmap._emit_dl` still calls this with no args.
+            // Geometry / asset id wiring lands with the asset registry —
+            // see simage PLAN.md, fase 5.
+            self.inner.lock().bitmap(BitmapNode::default());
         }
 
         /// Render to the active terminal backend (Kitty / Sixel / half-blocks).

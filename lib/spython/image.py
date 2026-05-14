@@ -281,7 +281,6 @@ class _Path(Image):
         )
         for cmd in self.commands:
             cmd._emit_cmd(dl)
-        dl.path_end()
 
 
 class _Combination(Image):
