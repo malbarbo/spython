@@ -705,9 +705,11 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
     })
 }
 
-/// Register the `_spython_ffi` module with native `show_svg` and `get_key_event` functions.
+/// Register the `_spython_ffi` module with native `show_svg`, `wait_event`,
+/// and text-measurement functions.
 fn register_ffi_module(vm: &vm::VirtualMachine) {
     use rustpython::vm::PyObjectRef;
+    use rustpython::vm::function::OptionalArg;
 
     let show_svg_fn = vm.new_function(
         "show_svg",
@@ -738,13 +740,18 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
-    let get_key_event_fn =
-        vm.new_function("get_key_event", |vm: &vm::VirtualMachine| -> PyObjectRef {
-            match host::poll_key_event() {
+    let wait_event_fn = vm.new_function(
+        "wait_event",
+        |deadline_ms: OptionalArg<i64>, vm: &vm::VirtualMachine| -> PyObjectRef {
+            let deadline = match deadline_ms {
+                OptionalArg::Present(ms) => Some(ms),
+                OptionalArg::Missing => None,
+            };
+            match host::wait_event(deadline) {
                 None => vm.ctx.none(),
-                Some((event_type, key, mods)) => {
+                Some((kind, key, mods)) => {
                     let elements = vec![
-                        vm.ctx.new_int(event_type).into(),
+                        vm.ctx.new_int(kind).into(),
                         vm.ctx.new_str(key).into(),
                         vm.ctx.new_bool(mods[0]).into(), // alt
                         vm.ctx.new_bool(mods[1]).into(), // ctrl
@@ -755,7 +762,8 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
                     vm.ctx.new_tuple(elements).into()
                 }
             }
-        });
+        },
+    );
 
     let text_width_fn = vm.new_function(
         "text_width",
@@ -828,7 +836,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         .unwrap();
     dict.set_item("text_blocks_supported", text_blocks_supported_fn.into(), vm)
         .unwrap();
-    dict.set_item("get_key_event", get_key_event_fn.into(), vm)
+    dict.set_item("wait_event", wait_event_fn.into(), vm)
         .unwrap();
     dict.set_item("text_width", text_width_fn.into(), vm)
         .unwrap();

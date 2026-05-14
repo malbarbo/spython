@@ -83,7 +83,8 @@ pub fn measure_text_y_offset(text: &str, font: &str, size: i32) -> f64 {
 }
 
 /// Poll for a keyboard event via the JS `get_key_event` env import.
-pub fn poll_key_event() -> Option<(i32, String, [bool; 5])> {
+/// Internal helper for [`wait_event`].
+fn poll_key_event() -> Option<(i32, String, [bool; 5])> {
     let mut key_buf = [0u8; 48];
     let mut mods = [0u8; 5];
     let event_type =
@@ -104,4 +105,17 @@ pub fn poll_key_event() -> Option<(i32, String, [bool; 5])> {
         mods[4] != 0,
     ];
     Some((event_type, key, mods_bool))
+}
+
+/// Wait for the next input event. The browser embedding is responsible for
+/// driving real timing (rAF + SharedArrayBuffer in Phase 6 of the simage
+/// plan). For now this is a minimal stub: if a key event is pending it is
+/// returned, otherwise a Vsync is synthesized. The `deadline_ms` argument is
+/// ignored — the embedding throttles via the JS event loop.
+pub fn wait_event(_deadline_ms: Option<i64>) -> Option<(i32, String, [bool; 5])> {
+    if let Some(ev) = poll_key_event() {
+        return Some(ev);
+    }
+    // 3 == Vsync (matches native::wait_event encoding).
+    Some((3, String::new(), [false; 5]))
 }

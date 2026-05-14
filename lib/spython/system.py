@@ -1,14 +1,5 @@
 import sys
 import builtins
-import time as _time
-
-
-def sleep(ms: int) -> None:
-    _time.sleep(ms / 1000.0)
-
-
-def now_ms() -> int:
-    return int(_time.time() * 1000)
 
 
 try:
@@ -17,7 +8,7 @@ try:
         kitty_supported,
         sixel_supported,
         text_blocks_supported,
-        get_key_event,
+        wait_event,
         text_width,
         text_height,
         text_x_offset,
@@ -40,7 +31,9 @@ except ImportError:
     def text_blocks_supported() -> bool:
         return False
 
-    def get_key_event() -> tuple[int, str, bool, bool, bool, bool, bool] | None:
+    def wait_event(
+        deadline_ms: int | None = None,
+    ) -> tuple[int, str, bool, bool, bool, bool, bool] | None:
         return None
 
     def text_width(text: str, font_css: str, size: int) -> float:
