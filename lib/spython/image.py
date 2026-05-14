@@ -330,7 +330,7 @@ class _Text(Image):
         f: Font = self.font
         if f.style == FontStyle.ITALIC:
             italic: int = 1
-        elif f.style == FontStyle.SLANT:
+        elif f.style == FontStyle.OBLIQUE:
             italic = 2
         else:
             italic = 0

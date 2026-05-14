@@ -4,7 +4,7 @@ from enum import Enum
 class FontStyle(Enum):
     NORMAL = "normal"
     ITALIC = "italic"
-    SLANT = "oblique"
+    OBLIQUE = "oblique"
 
 
 class FontWeight(Enum):
@@ -17,7 +17,7 @@ class FontWeight(Enum):
 # `style=FontStyle.ITALIC`.
 NORMAL: FontStyle = FontStyle.NORMAL
 ITALIC: FontStyle = FontStyle.ITALIC
-SLANT: FontStyle = FontStyle.SLANT
+OBLIQUE: FontStyle = FontStyle.OBLIQUE
 LIGHT: FontWeight = FontWeight.LIGHT
 REGULAR: FontWeight = FontWeight.REGULAR
 BOLD: FontWeight = FontWeight.BOLD
@@ -44,7 +44,7 @@ def _to_css(font: Font) -> str:
     s: str = ""
     if font.style == FontStyle.ITALIC:
         s = "italic "
-    elif font.style == FontStyle.SLANT:
+    elif font.style == FontStyle.OBLIQUE:
         s = "oblique "
     w: str = ""
     if font.weight == FontWeight.BOLD:

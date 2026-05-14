@@ -158,7 +158,7 @@ from spython.font import (
     FontWeight,
     NORMAL,
     ITALIC,
-    SLANT,
+    OBLIQUE,
     LIGHT,
     REGULAR,
     BOLD,
