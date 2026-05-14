@@ -13,6 +13,8 @@ pub mod completion;
 pub mod doctests;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod drawlist;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod frontend;
 pub mod host;
 pub mod lints;
 pub mod panic;
@@ -119,8 +121,9 @@ pub fn new_interpreter() -> vm::Interpreter {
     let builder = InterpreterBuilder::new().settings(settings).init_stdlib();
     #[cfg(not(target_arch = "wasm32"))]
     let builder = {
-        let def = drawlist::module_def(&builder.ctx);
-        builder.add_native_module(def)
+        let dl_def = drawlist::module_def(&builder.ctx);
+        let fr_def = frontend::module_def(&builder.ctx);
+        builder.add_native_module(dl_def).add_native_module(fr_def)
     };
     builder.interpreter()
 }
@@ -705,12 +708,16 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
     })
 }
 
-/// Register the `_spython_ffi` module with native `show_svg`, `wait_event`,
-/// and text-measurement functions.
+/// Register the `_spython_ffi` module with text-measurement and
+/// `load_bitmap` helpers. On wasm this module also carries flat
+/// `show_svg` / `kitty_supported` / ... functions; on native those live
+/// as methods on the `_frontend.Frontend` pyclass.
 fn register_ffi_module(vm: &vm::VirtualMachine) {
     use rustpython::vm::PyObjectRef;
+    #[cfg(target_arch = "wasm32")]
     use rustpython::vm::function::OptionalArg;
 
+    #[cfg(target_arch = "wasm32")]
     let show_svg_fn = vm.new_function(
         "show_svg",
         |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
@@ -719,6 +726,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
+    #[cfg(target_arch = "wasm32")]
     let kitty_supported_fn = vm.new_function(
         "kitty_supported",
         |vm: &vm::VirtualMachine| -> PyObjectRef {
@@ -726,6 +734,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
+    #[cfg(target_arch = "wasm32")]
     let sixel_supported_fn = vm.new_function(
         "sixel_supported",
         |vm: &vm::VirtualMachine| -> PyObjectRef {
@@ -733,6 +742,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
+    #[cfg(target_arch = "wasm32")]
     let text_blocks_supported_fn = vm.new_function(
         "text_blocks_supported",
         |vm: &vm::VirtualMachine| -> PyObjectRef {
@@ -740,6 +750,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
+    #[cfg(target_arch = "wasm32")]
     let wait_event_fn = vm.new_function(
         "wait_event",
         |deadline_ms: OptionalArg<i64>, vm: &vm::VirtualMachine| -> PyObjectRef {
@@ -807,6 +818,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
             Err(vm.new_runtime_error("load_bitmap is not available in native mode".to_owned()))
         },
     );
+    #[cfg(target_arch = "wasm32")]
     let enter_animation_fn = vm.new_function(
         "enter_animation",
         |vm: &vm::VirtualMachine| -> PyObjectRef {
@@ -814,6 +826,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
             vm.ctx.none()
         },
     );
+    #[cfg(target_arch = "wasm32")]
     let exit_animation_fn =
         vm.new_function("exit_animation", |vm: &vm::VirtualMachine| -> PyObjectRef {
             host::exit_animation();
@@ -829,15 +842,22 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     );
 
     let dict = vm.ctx.new_dict();
-    dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
-    dict.set_item("kitty_supported", kitty_supported_fn.into(), vm)
-        .unwrap();
-    dict.set_item("sixel_supported", sixel_supported_fn.into(), vm)
-        .unwrap();
-    dict.set_item("text_blocks_supported", text_blocks_supported_fn.into(), vm)
-        .unwrap();
-    dict.set_item("wait_event", wait_event_fn.into(), vm)
-        .unwrap();
+    #[cfg(target_arch = "wasm32")]
+    {
+        dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
+        dict.set_item("kitty_supported", kitty_supported_fn.into(), vm)
+            .unwrap();
+        dict.set_item("sixel_supported", sixel_supported_fn.into(), vm)
+            .unwrap();
+        dict.set_item("text_blocks_supported", text_blocks_supported_fn.into(), vm)
+            .unwrap();
+        dict.set_item("wait_event", wait_event_fn.into(), vm)
+            .unwrap();
+        dict.set_item("enter_animation", enter_animation_fn.into(), vm)
+            .unwrap();
+        dict.set_item("exit_animation", exit_animation_fn.into(), vm)
+            .unwrap();
+    }
     dict.set_item("text_width", text_width_fn.into(), vm)
         .unwrap();
     dict.set_item("text_height", text_height_fn.into(), vm)
@@ -847,10 +867,6 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     dict.set_item("text_y_offset", text_y_offset_fn.into(), vm)
         .unwrap();
     dict.set_item("load_bitmap", load_bitmap_fn.into(), vm)
-        .unwrap();
-    dict.set_item("enter_animation", enter_animation_fn.into(), vm)
-        .unwrap();
-    dict.set_item("exit_animation", exit_animation_fn.into(), vm)
         .unwrap();
     #[cfg(test)]
     dict.set_item("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into(), vm)

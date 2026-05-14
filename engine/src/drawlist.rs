@@ -13,7 +13,7 @@
 //! isn't compiled in.
 #![cfg(not(target_arch = "wasm32"))]
 
-pub(crate) use _drawlist::module_def;
+pub(crate) use _drawlist::{module_def, PyDrawList};
 
 #[pymodule(name = "_drawlist")]
 mod _drawlist {
@@ -31,7 +31,7 @@ mod _drawlist {
     #[pyclass(name = "DrawList")]
     #[derive(PyPayload, Default)]
     pub struct PyDrawList {
-        inner: PyMutex<DrawList>,
+        pub(crate) inner: PyMutex<DrawList>,
     }
 
     impl std::fmt::Debug for PyDrawList {
@@ -291,12 +291,6 @@ mod _drawlist {
             // Geometry / asset id wiring lands with the asset registry —
             // see simage PLAN.md, fase 5.
             self.inner.lock().bitmap(BitmapNode::default());
-        }
-
-        /// Render to the active terminal backend (Kitty / Sixel / half-blocks).
-        #[pymethod]
-        fn show(&self) {
-            crate::host::show_image_dl(&self.inner.lock());
         }
 
         /// Render to PDF bytes.

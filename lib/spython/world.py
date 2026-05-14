@@ -2,15 +2,10 @@ import time
 from collections.abc import Callable
 
 from spython.image import Image
-from spython.system import (
-    enter_animation,
-    exit_animation,
-    show,
-    wait_event,
-)
+from spython.system import Frontend, frontend, render
 
-# Event kinds returned by `wait_event` (matches the encoding in
-# `engine/src/host/native.rs::input_event_to_tuple`).
+# Event kinds returned by `Frontend.wait_event` (matches the encoding in
+# `engine/src/frontend.rs::input_event_to_tuple`).
 KEYPRESS: int = 0
 KEYDOWN: int = 1
 KEYUP: int = 2
@@ -62,24 +57,23 @@ class World[S]:
 
     def run(self) -> None:
         if self.on_tick_fn is not None and self.on_tick_time_fn is not None:
-            raise ValueError(
-                "define on_tick OR on_tick_time, not both"
-            )
-        enter_animation()
+            raise ValueError("define on_tick OR on_tick_time, not both")
+        fr: Frontend = frontend()
+        fr.enter()
         try:
-            self._run_loop()
+            self._run_loop(fr)
         finally:
-            exit_animation()
+            fr.exit()
 
-    def _run_loop(self) -> None:
-        self._show()  # initial frame
+    def _run_loop(self, fr: Frontend) -> None:
+        self._show(fr)  # initial frame
 
         step: float = 1.0 / self.rate
         accumulator: float = 0.0
         last_time: float = time.time()
 
         while True:
-            ev = wait_event()
+            ev = fr.wait_event()
             if ev is None:
                 return
             kind, key, _alt, _ctrl, _shift, _meta, _repeat = ev
@@ -114,28 +108,29 @@ class World[S]:
 
             if new_state is not self.state:
                 self.state = new_state
-                self._show()
+                self._show(fr)
 
             if self.stop_when_fn is not None and self.stop_when_fn(self.state):
                 return
 
-    def _show(self) -> None:
-        show(self.to_image(self.state))
+    def _show(self, fr: Frontend) -> None:
+        render(fr, self.to_image(self.state))
 
 
 def animate(create_image: Callable[[int], Image]) -> None:
-    enter_animation()
+    fr: Frontend = frontend()
+    fr.enter()
     try:
         frame: int = 0
         while True:
-            ev = wait_event()
+            ev = fr.wait_event()
             if ev is None:
                 return
             kind = ev[0]
             if kind == VSYNC:
-                show(create_image(frame))
+                render(fr, create_image(frame))
                 frame += 1
             elif kind == CLOSE:
                 return
     finally:
-        exit_animation()
+        fr.exit()
