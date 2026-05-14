@@ -1923,7 +1923,7 @@ def _to_svg(img: Image, level: int) -> str:
             + _attribs("font-family", img.font.family)
             + _attrib("font-size", img.font.size)
             + _attribs("font-style", img.font.style.value)
-            + _attribs("font-weight", img.font.weight.value)
+            + _attribs("font-weight", str(img.font.weight))
             + (_attribs("text-decoration", "underline") if img.font.underline else "")
             + _attribs(
                 "transform",

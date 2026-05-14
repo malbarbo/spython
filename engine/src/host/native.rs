@@ -90,26 +90,63 @@ pub fn install_panic_hook() {
     }
 }
 
-/// Measure text width in the embedded Liberation Sans font.
-pub fn measure_text_width(text: &str, _font: &str, size: i32) -> f64 {
-    simage::text::measure_width(text, size)
+/// Decode a CSS font string (as built by `spython.font._to_css`) into
+/// `(family, weight, style)`. Inputs look like `"italic bold serif"` or
+/// `"Liberation Mono"` — keywords come first, then the family name (which
+/// may contain spaces). Unknown tokens are treated as part of the family,
+/// numeric tokens override the weight (matches CSS).
+fn parse_css_font(css: &str) -> (String, u16, simage::ir::FontStyle) {
+    let mut style = simage::ir::FontStyle::Normal;
+    let mut weight: u16 = 400;
+    let mut family_parts: Vec<&str> = Vec::new();
+    for token in css.split_whitespace() {
+        let lower = token.to_ascii_lowercase();
+        match lower.as_str() {
+            "italic" => style = simage::ir::FontStyle::Italic,
+            "oblique" => style = simage::ir::FontStyle::Oblique,
+            "normal" => {}
+            "bold" | "bolder" => weight = 700,
+            "lighter" => weight = 300,
+            _ => {
+                if let Ok(n) = token.parse::<u16>() {
+                    weight = n;
+                } else {
+                    family_parts.push(token);
+                }
+            }
+        }
+    }
+    (family_parts.join(" "), weight, style)
 }
 
-/// Measure text height in the embedded Liberation Sans font.
-pub fn measure_text_height(text: &str, _font: &str, size: i32) -> f64 {
-    simage::text::measure_height(text, size)
+fn resolved_face(font_css: &str) -> simage::text::ResolvedFont {
+    let (family, weight, style) = parse_css_font(font_css);
+    simage::text::resolve(&family, weight, style)
+}
+
+/// Measure text width, honoring the requested family / weight / style
+/// (CSS-formatted by `spython.font._to_css`). Falls back to Liberation Sans
+/// when the family doesn't match an embedded face or a system one.
+pub fn measure_text_width(text: &str, font: &str, size: i32) -> f64 {
+    simage::text::measure_width_with(resolved_face(font).face(), text, size)
+}
+
+/// Measure text height — driven by font metrics, so the chosen face's
+/// ascender/descender determine the box.
+pub fn measure_text_height(text: &str, font: &str, size: i32) -> f64 {
+    simage::text::measure_height_with(resolved_face(font).face(), text, size)
 }
 
 /// Measure text x-offset (`-width / 2`, so `text-anchor=start` renders
 /// centered in the bounding box).
-pub fn measure_text_x_offset(text: &str, _font: &str, size: i32) -> f64 {
-    simage::text::measure_x_offset(text, size)
+pub fn measure_text_x_offset(text: &str, font: &str, size: i32) -> f64 {
+    simage::text::measure_x_offset_with(resolved_face(font).face(), text, size)
 }
 
 /// Measure text y-offset — the alphabetic baseline position relative to
 /// the box center.
-pub fn measure_text_y_offset(text: &str, _font: &str, size: i32) -> f64 {
-    simage::text::measure_y_offset(text, size)
+pub fn measure_text_y_offset(text: &str, font: &str, size: i32) -> f64 {
+    simage::text::measure_y_offset_with(resolved_face(font).face(), text, size)
 }
 
 /// Poll for a keyboard event. Returns `None` if no event is pending.
