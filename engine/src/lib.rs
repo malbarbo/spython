@@ -154,8 +154,13 @@ pub fn type_check_source(
 pub use checker::Level;
 
 pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Vec<Diagnostic> {
+    // `Project::files` is backed by an `FxHashSet`, whose iteration order is
+    // not deterministic across platforms. Sort by path so the diagnostic
+    // stream — and the snapshot tests that consume it — are stable.
+    let mut files: Vec<_> = db.project().files(db).into_iter().collect();
+    files.sort_by_key(|f| f.path(db).as_str().to_owned());
     let mut diagnostics = Vec::new();
-    for file in &db.project().files(db) {
+    for file in files {
         // Skip the embedded spython library — only check student files.
         let is_spython_library = file
             .path(db)

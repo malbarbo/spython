@@ -269,7 +269,11 @@ fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
     let mut diagnostics = annotation_check(&db, level, false);
     diagnostics.extend(db.check());
     // Validate and type-check doctests inside each user file's docstrings.
-    for f in &files {
+    // Sort to stabilize diagnostic order across platforms — `files` is a
+    // `HashSet`, whose iteration order varies.
+    let mut sorted_files: Vec<_> = files.iter().copied().collect();
+    sorted_files.sort_by_key(|f| f.path(&db).as_str().to_owned());
+    for f in &sorted_files {
         let is_spython_library = f
             .path(&db)
             .as_system_path()
