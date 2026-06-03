@@ -1,11 +1,19 @@
 ---
-source: tests/cli.rs
-assertion_line: 45
+source: cli/tests/cli.rs
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
-input_file: tests/inputs/err_annotation_in_deep_import.py
+input_file: cli/tests/inputs/err_annotation_in_deep_import.py
 ---
 STDOUT
 STDERR
+error[local-unknown-type]: Local variable `result` has Unknown type; add a type annotation
+ --> err_annotation_in_deep_import.py:7:5
+  |
+6 | def main() -> None:
+7 |     result = missing_annotations(5, 10)
+  |     ^^^^^^
+8 |     print(f"Result: {result}")
+  |
+
 error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
   --> test_package/subpackage/nested/deep_module.py:21:25
    |
@@ -33,4 +41,4 @@ error[missing-return-annotation]: Function `missing_annotations` is missing a re
 23 |     return x + y
    |
 
-Found 3 errors.
+Found 4 errors.

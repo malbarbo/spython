@@ -6,7 +6,7 @@
 use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span};
 use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
 use ruff_python_ast::{
@@ -26,10 +26,11 @@ use crate::lints::{
     FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT, FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA,
     FORBIDDEN_LOOP, FORBIDDEN_MATCH, FORBIDDEN_SELECTION, INVALID_ARGUMENT_NAME,
     INVALID_CLASS_NAME, INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD, INVALID_FUNCTION_NAME,
-    MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION,
-    NEEDLESS_BOOL, NON_BOOLEAN_CONDITION, NON_LOWERCASE_VARIABLE_IN_FUNCTION,
-    NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST, NOT_IS_TEST, TRUE_FALSE_COMPARISON,
-    UNNECESSARY_PASS, UNUSED_VARIABLE,
+    LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
+    MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
+    NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
+    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, TRUE_FALSE_COMPARISON, UNNECESSARY_PASS,
+    UNUSED_VARIABLE,
 };
 
 /// Teaching level that controls which Python constructs are allowed.
@@ -246,28 +247,70 @@ impl Checker<'_> {
             }
         }
 
-        if func.returns.is_none() {
-            self.push(
+        match &func.returns {
+            None => self.push(
                 &MISSING_RETURN_ANNOTATION,
                 func.name.range(),
                 format!(
                     "Function `{}` is missing a return type annotation",
                     func.name.as_str()
                 ),
-            );
+            ),
+            Some(ret) => self.check_annotation(ret),
         }
     }
 
     fn check_param_annotation(&mut self, param: &Parameter, prefix: &str) {
-        if param.annotation.is_none() {
-            self.push(
+        match &param.annotation {
+            None => self.push(
                 &MISSING_PARAMETER_ANNOTATION,
                 param.range(),
                 format!(
                     "Parameter `{prefix}{}` is missing a type annotation",
                     param.name.as_str()
                 ),
-            );
+            ),
+            Some(ann) => self.check_annotation(ann),
+        }
+    }
+
+    /// Walk a type annotation expression and flag bare generic types (only
+    /// `list` for now) that appear without a type parameter. Recurses into
+    /// `Subscript` slices, union (`BinOp`), tuple, and starred expressions so
+    /// nested annotations like `dict[str, list]` and `int | list` are
+    /// checked. Does NOT call `visit_expr` — annotations are type
+    /// expressions, not runtime expressions, so the expression-level lints
+    /// shouldn't fire here.
+    fn check_annotation(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Name(n) if n.id.as_str() == "list" => {
+                self.push(
+                    &MISSING_TYPE_PARAMETER,
+                    n.range(),
+                    "Type `list` requires a parameter, e.g. `list[int]`".to_owned(),
+                );
+            }
+            Expr::Subscript(sub) => {
+                // `list[...]` is fine — don't flag the bare `list` here.
+                // Other generic bases (e.g. `dict`) recurse normally so a
+                // nested bare `list` still fires. The slice is always
+                // recursed into.
+                if !matches!(sub.value.as_ref(), Expr::Name(n) if n.id.as_str() == "list") {
+                    self.check_annotation(&sub.value);
+                }
+                self.check_annotation(&sub.slice);
+            }
+            Expr::BinOp(b) => {
+                self.check_annotation(&b.left);
+                self.check_annotation(&b.right);
+            }
+            Expr::Tuple(t) => {
+                for e in &t.elts {
+                    self.check_annotation(e);
+                }
+            }
+            Expr::Starred(s) => self.check_annotation(&s.value),
+            _ => {}
         }
     }
 
@@ -506,6 +549,80 @@ impl Checker<'_> {
         }
     }
 
+    /// Flag every `Name` target in `assign` (recursing through tuple / list /
+    /// starred unpacking) with `LOCAL_UNKNOWN_TYPE` when the RHS type is
+    /// `Unknown`. Skipped inside synthetic doctest functions because the
+    /// generated wrappers don't carry meaningful types.
+    fn check_unknown_local(&mut self, assign: &ruff_python_ast::StmtAssign) {
+        if self.in_doctest {
+            return;
+        }
+        let Some(ty) = assign.value.inferred_type(self.model) else {
+            return;
+        };
+        if !ty.is_unknown() {
+            return;
+        }
+        for target in &assign.targets {
+            self.flag_unknown_local_target(target);
+        }
+    }
+
+    fn flag_unknown_local_target(&mut self, target: &Expr) {
+        match target {
+            Expr::Name(n) => self.push(
+                &LOCAL_UNKNOWN_TYPE,
+                n.range(),
+                format!(
+                    "Local variable `{}` has Unknown type; add a type annotation",
+                    n.id.as_str()
+                ),
+            ),
+            Expr::Tuple(t) => t
+                .elts
+                .iter()
+                .for_each(|e| self.flag_unknown_local_target(e)),
+            Expr::List(l) => l
+                .elts
+                .iter()
+                .for_each(|e| self.flag_unknown_local_target(e)),
+            Expr::Starred(s) => self.flag_unknown_local_target(&s.value),
+            _ => {}
+        }
+    }
+
+    /// Flag function/class definitions whose name was already defined by an
+    /// earlier function/class in the same body. `@overload` stubs and
+    /// synthetic doctest functions are ignored. Caller decides when this
+    /// runs — currently only at teaching levels 0–3.
+    fn check_redefinitions(&mut self, body: &[Stmt]) {
+        let mut defined: HashMap<&str, &'static str> = HashMap::new();
+        for stmt in body {
+            let (name, range, kind) = match stmt {
+                Stmt::FunctionDef(f) => {
+                    if has_decorator_named(&f.decorator_list, &["overload"])
+                        || crate::doctests::is_synthetic_fn_name(f.name.as_str())
+                    {
+                        continue;
+                    }
+                    (f.name.as_str(), f.name.range(), "Function")
+                }
+                Stmt::ClassDef(c) => (c.name.as_str(), c.name.range(), "Class"),
+                _ => continue,
+            };
+            if let Some(prev_kind) = defined.insert(name, kind) {
+                self.push(
+                    &REDEFINED_FUNCTION_OR_CLASS,
+                    range,
+                    format!(
+                        "{kind} `{name}` is redefined; previous {} definition is shadowed",
+                        prev_kind.to_lowercase()
+                    ),
+                );
+            }
+        }
+    }
+
     /// SIM103: `if cond: return True else: return False` (or the inverse) —
     /// just `return cond` or `return not cond`.
     fn check_needless_bool(&mut self, if_stmt: &ruff_python_ast::StmtIf) {
@@ -546,6 +663,13 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     );
                 }
             }
+        }
+        // Flag function/class definitions whose name was already defined by
+        // an earlier function/class in the same block. Only at teaching
+        // levels 0–3: at level 4+ shadowing is a legitimate technique.
+        // `@overload` stubs and synthetic doctest functions are ignored.
+        if self.level < Level::Classes {
+            self.check_redefinitions(body);
         }
         for stmt in body {
             self.visit_stmt(stmt);
@@ -747,6 +871,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     for target in &assign.targets {
                         self.check_assign_target_names(target);
                     }
+                    self.check_unknown_local(assign);
                 }
                 for target in &assign.targets {
                     self.visit_assign_target_subexprs(target);
@@ -758,6 +883,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     self.check_assign_target_names(&ann.target);
                 }
                 self.visit_assign_target_subexprs(&ann.target);
+                self.check_annotation(&ann.annotation);
                 if let Some(value) = &ann.value {
                     self.visit_expr(value);
                 }
@@ -1337,5 +1463,238 @@ mod tests {
         // Sanity check: a local that's never read is still flagged.
         let diags = check("def f() -> None:\n    a: int = 1\n", Level::Functions);
         assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    // -- redefined-function-or-class -----------------------------------------
+
+    #[test]
+    fn function_redefined_at_module_level_is_flagged() {
+        let diags = check(
+            "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n",
+            Level::Functions,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn class_redefined_at_module_level_is_flagged() {
+        let diags = check(
+            "class Foo:\n    x: int = 0\n\nclass Foo:\n    x: int = 0\n",
+            Level::UserTypes,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn function_then_class_with_same_name_is_flagged() {
+        let diags = check(
+            "def Foo() -> int:\n    return 1\n\nclass Foo:\n    x: int = 0\n",
+            Level::UserTypes,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn methods_with_same_name_in_class_body_is_flagged() {
+        // Use Repetition (3) — methods in a class are forbidden there
+        // (FORBIDDEN_CLASS_METHOD also fires) but the redefinition check
+        // still applies because we walk the class body regardless. At
+        // level 4+ redefinition is intentionally allowed.
+        let diags = check(
+            "class Foo:\n    def m(self) -> int:\n        return 1\n    def m(self) -> int:\n        return 2\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn redefinition_is_not_flagged_at_classes_level() {
+        let diags = check(
+            "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n",
+            Level::Classes,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn redefinition_is_not_flagged_at_full_level() {
+        let diags = check(
+            "class Foo:\n    x: int = 0\n\nclass Foo:\n    x: int = 0\n",
+            Level::Full,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 0, "{diags:?}");
+    }
+
+    // -- missing-type-parameter (bare `list` annotation) ---------------------
+
+    #[test]
+    fn bare_list_in_param_annotation_is_flagged() {
+        let diags = check(
+            "def f(x: list) -> None:\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "missing-type-parameter"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn parameterized_list_in_param_annotation_is_not_flagged() {
+        let diags = check(
+            "def f(x: list[int]) -> None:\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "missing-type-parameter"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn bare_list_in_return_annotation_is_flagged() {
+        let diags = check("def f() -> list:\n    return [1]\n", Level::Repetition);
+        assert_eq!(count(&diags, "missing-type-parameter"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn bare_list_in_ann_assign_is_flagged() {
+        let diags = check(
+            "def f() -> None:\n    x: list = [1]\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "missing-type-parameter"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn bare_list_in_class_attribute_is_flagged() {
+        let diags = check("class Foo:\n    items: list = [1]\n", Level::Repetition);
+        assert_eq!(count(&diags, "missing-type-parameter"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn bare_list_nested_in_dict_param_is_flagged() {
+        let diags = check(
+            "def f(x: dict[str, list]) -> None:\n    return None\n",
+            Level::Full,
+        );
+        assert_eq!(count(&diags, "missing-type-parameter"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn bare_list_in_union_is_flagged() {
+        let diags = check(
+            "def f(x: int | list) -> None:\n    return None\n",
+            Level::Full,
+        );
+        assert_eq!(count(&diags, "missing-type-parameter"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn nested_parameterized_list_is_not_flagged() {
+        let diags = check(
+            "def f(x: list[list[int]]) -> None:\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "missing-type-parameter"), 0, "{diags:?}");
+    }
+
+    // -- local-unknown-type --------------------------------------------------
+
+    #[test]
+    fn bare_assign_with_unknown_rhs_is_flagged() {
+        // `undefined_name` is unresolved, so the RHS — and therefore `x` —
+        // has type `Unknown`.
+        let diags = check(
+            "def f() -> None:\n    x = undefined_name\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "local-unknown-type"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn annotated_assign_with_unknown_rhs_is_not_flagged() {
+        // The annotation provides the type even if the RHS is Unknown.
+        let diags = check(
+            "def f() -> None:\n    x: int = undefined_name\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn bare_assign_with_known_rhs_is_not_flagged() {
+        let diags = check(
+            "def f() -> None:\n    x = 5\n    return None\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn module_level_assign_with_unknown_rhs_is_not_flagged() {
+        // "em locais" — only function-scoped assignments are flagged.
+        let diags = check("x = undefined_name\n", Level::Repetition);
+        assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn tuple_unpack_with_unknown_rhs_is_flagged() {
+        let diags = check(
+            "def f() -> None:\n    a, b = undefined_name\n    return None\n",
+            Level::Full,
+        );
+        assert!(count(&diags, "local-unknown-type") >= 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unrelated_name_called_list_is_not_flagged_outside_annotation() {
+        // `list = ...` is a regular assignment, not a type annotation. We
+        // only check annotation positions, so this should not fire.
+        let diags = check("def f() -> int:\n    return 1\n", Level::Repetition);
+        assert_eq!(count(&diags, "missing-type-parameter"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn nested_function_redefined_is_flagged() {
+        let diags = check(
+            "def outer() -> int:\n    def inner() -> int:\n        return 1\n    def inner() -> int:\n        return 2\n    return inner()\n",
+            Level::Functions,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn overload_decorated_functions_are_not_flagged() {
+        // Lowest level where the redefinition check runs — exercises the
+        // @overload exemption rather than the level guard.
+        let diags = check(
+            "from typing import overload\n\n@overload\ndef f(x: int) -> int: ...\n@overload\ndef f(x: str) -> str: ...\ndef f(x: object) -> object:\n    return x\n",
+            Level::Functions,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn same_name_in_disjoint_if_branches_is_not_flagged() {
+        let diags = check(
+            "def cond() -> bool:\n    return True\n\nif cond():\n    def f() -> int:\n        return 1\nelse:\n    def f() -> int:\n        return 2\n",
+            Level::Selection,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn same_name_in_different_scopes_is_not_flagged() {
+        // Module-level `helper` and an inner `helper` inside `outer` are in
+        // different scopes and must not be flagged.
+        let diags = check(
+            "def helper() -> int:\n    return 1\n\ndef outer() -> int:\n    def helper() -> int:\n        return 2\n    return helper()\n",
+            Level::Functions,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn triple_redefinition_emits_two_diagnostics() {
+        let diags = check(
+            "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n\ndef f() -> int:\n    return 3\n",
+            Level::Functions,
+        );
+        assert_eq!(count(&diags, "redefined-function-or-class"), 2, "{diags:?}");
     }
 }

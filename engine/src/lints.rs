@@ -637,6 +637,102 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Rejects unannotated local variable assignments inside a function when
+    /// the inferred right-hand-side type is `Unknown`. Add an explicit type
+    /// annotation so the variable has a known type.
+    ///
+    /// ## Why is this bad?
+    /// If the type checker can't figure out the type, the variable is
+    /// effectively untyped and any later use slips through unchecked. An
+    /// explicit annotation forces a decision and lets the type checker
+    /// catch bugs at the use sites.
+    ///
+    /// Variables that already carry an annotation (`x: int = ...`) are
+    /// exempt — the annotation supplies the type.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f() -> None:
+    ///     x = some_untyped_thing()    # error: x has Unknown type
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def f() -> None:
+    ///     x: int = some_untyped_thing()
+    /// ```
+    pub(crate) static LOCAL_UNKNOWN_TYPE = {
+        summary: "local variable has Unknown type; specify it with an annotation",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects `list` used as a type annotation without a parameter. Write
+    /// `list[int]` (or whatever element type you mean) instead of bare `list`.
+    ///
+    /// ## Why is this bad?
+    /// `list` by itself doesn't say what element type the list holds, which
+    /// defeats the point of having type annotations. The type checker can't
+    /// tell you whether `xs[0] + 1` is valid if `xs: list`. Always
+    /// parameterize the generic.
+    ///
+    /// The check fires anywhere a type appears: function parameters, return
+    /// types, variable annotations, class attributes, and nested generic
+    /// arguments (e.g. `dict[str, list]` flags the inner `list`).
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(xs: list) -> None:        # error: bare `list`
+    ///     return None
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def f(xs: list[int]) -> None:
+    ///     return None
+    /// ```
+    pub(crate) static MISSING_TYPE_PARAMETER = {
+        summary: "generic type used without a type parameter",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Detects a function or class definition whose name was already defined
+    /// by an earlier function or class in the same block.
+    ///
+    /// ## Why is this bad?
+    /// Redefining a function or class in the same scope silently replaces the
+    /// earlier one. It almost always indicates a copy-paste mistake or a
+    /// leftover from an earlier version of the code, and the unreachable
+    /// definition makes the code confusing to read.
+    ///
+    /// Functions decorated with `@overload` are exempt: the pattern is to
+    /// declare several overload stubs and one implementation under the same
+    /// name.
+    ///
+    /// ## Example
+    /// ```python
+    /// def area(side: int) -> int:
+    ///     return side * side
+    ///
+    /// def area(side: int) -> int:   # error: redefines `area`
+    ///     return side * 4
+    /// ```
+    pub(crate) static REDEFINED_FUNCTION_OR_CLASS = {
+        summary: "function or class is redefined",
+        status: LintStatus::preview("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects docstring lines that start with `>>>` or `...` but are not
     /// followed by a single space (e.g. `>>>foo`). The doctest runner and
     /// the stdlib `doctest` module silently ignore such lines, so the test
