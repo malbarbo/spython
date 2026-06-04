@@ -30,9 +30,23 @@ cargo build --release
 # Run a Python script (with type checking)
 cargo run -p cli -- run file.py
 
+# Run a Python script — shorthand (a bare FILE implies `run`)
+cargo run -p cli -- file.py
+cargo run -p cli -- file.py --level 2
+
 # Start REPL (no type checking)
 cargo run -p cli
 ```
+
+When invoked with no subcommand, a leading positional `FILE` is dispatched to
+`run` (so `spython file.py` == `spython run file.py`); with no file the REPL
+starts, and any options are routed to it (so `spython -l 2` == `spython repl
+--level 2`). The dispatch is a thin argv rewrite in `cli/main.rs`
+(`effective_args`) that injects `run` before a bare file or `repl` before
+bare options, leaving explicit subcommands, `--help`, and `--version`
+untouched. A file literally named after a subcommand (e.g. `run` with no
+extension) is still read as that subcommand unless escaped with `--`
+(`spython -- run`).
 
 **After every modification**, run these commands and fix any failures before
 considering the task done:

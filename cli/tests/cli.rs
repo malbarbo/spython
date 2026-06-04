@@ -152,6 +152,68 @@ fn run_files() {
 }
 
 #[test]
+fn bare_file_shorthand_runs() {
+    // `spython FILE` (no subcommand) runs the file like `spython run FILE`.
+    let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/inputs"));
+    let (out, err, success) = run_spython_native(&["ok_simple.py"], dir);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(err, "");
+    assert_eq!(out, "3\n");
+}
+
+#[test]
+fn bare_file_shorthand_passes_level() {
+    // `--level` flows to the injected `run`, so a level-1 `if` is accepted.
+    let dir = std::env::temp_dir();
+    let file = dir.join("_spython_bare_level.py");
+    std::fs::write(&file, "x: int = 3\nif x > 0:\n    print('ok')\n").unwrap();
+    let (out, _err, ok_lvl1) =
+        run_spython_native(&["_spython_bare_level.py", "--level", "1"], &dir);
+    let (_o0, err0, ok_lvl0) = run_spython_native(&["_spython_bare_level.py"], &dir);
+    let _ = std::fs::remove_file(&file);
+    assert!(ok_lvl1, "level 1 should allow `if`: {out}");
+    assert_eq!(out, "ok\n");
+    assert!(!ok_lvl0, "level 0 (default) should reject `if`");
+    assert!(err0.contains("forbidden-selection"), "stderr: {err0}");
+}
+
+#[test]
+fn bare_file_shorthand_after_dashdash() {
+    // `--` forces the next token to be a file, even if it matches a
+    // subcommand name, so it is dispatched to `run`.
+    let dir = std::env::temp_dir();
+    let file = dir.join("run");
+    std::fs::write(&file, "print(2)\n").unwrap();
+    let (out, err, success) = run_spython_native(&["--", "run"], &dir);
+    let _ = std::fs::remove_file(&file);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(out, "2\n");
+}
+
+#[test]
+fn bare_level_starts_repl() {
+    // `spython -l N` with no file or subcommand starts the REPL at level N
+    // (the level flag is routed into an injected `repl`).
+    use std::io::Write;
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .args(["-l", "2"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child.stdin.take().unwrap().write_all(b":quit\n")?;
+            child.wait_with_output()
+        })
+        .expect("failed to run spython -l 2");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("level 2 - User types"),
+        "banner should report level 2, got: {stdout}"
+    );
+}
+
+#[test]
 fn ok_simple() {
     let path = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
