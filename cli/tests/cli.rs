@@ -1089,6 +1089,25 @@ fn level0_allows_unary_minus_int() {
 }
 
 #[test]
+fn level0_allows_any_typed_operand_in_arithmetic() {
+    // `(-1) ** i` is inferred as `Any` by ty. `Any` is assignable to every
+    // type (including `bool`), so the bool-in-arithmetic lint must not treat
+    // it as a `bool` operand.
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(n: int) -> float:
+            r: float = 0.0
+            r = (-1) ** n / (2 * n + 1)
+            return r
+        print(f(0))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1.0\n");
+}
+
+#[test]
 fn level4_allows_bool_arithmetic() {
     let (out, err, success) = run_level(
         4,

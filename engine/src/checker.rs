@@ -176,14 +176,23 @@ impl Checker<'_> {
         let Some(ty) = expr.inferred_type(self.model) else {
             return;
         };
-        let bool_ty = KnownClass::Bool.to_instance(self.model.db());
-        if ty.is_assignable_to(self.model.db(), bool_ty) {
+        let db = self.model.db();
+        let bool_ty = KnownClass::Bool.to_instance(db);
+        // `Any`/`Unknown` are gradual types and are assignable to *every*
+        // type — including `bool` — so `is_assignable_to(bool)` alone would
+        // misfire on operands ty cannot infer (e.g. `(-1) ** i`, which ty
+        // types as `Any`). A genuine `bool`/`Literal[bool]` is assignable to
+        // `bool` but never to a disjoint type like `str`, whereas a gradual
+        // type is assignable to both. Requiring "assignable to `bool`, not to
+        // `str`" thus excludes gradual types while still catching real bools.
+        let str_ty = KnownClass::Str.to_instance(db);
+        if ty.is_assignable_to(db, bool_ty) && !ty.is_assignable_to(db, str_ty) {
             self.push(
                 &BOOL_IN_ARITHMETIC,
                 expr.range(),
                 format!(
                     "Operand has type `{}`; `bool` is not allowed in arithmetic expressions",
-                    ty.display(self.model.db())
+                    ty.display(db)
                 ),
             );
         }
