@@ -169,7 +169,7 @@ fn check_ok() {
     assert_eq!(out, "");
     assert_eq!(
         err,
-        "Running tests...\n2 tests, 2 successes, 0 failures and 0 errors.\n"
+        "Running tests...\n  add\n2 tests, 2 successes, 0 failures and 0 errors.\n"
     );
 }
 
@@ -183,6 +183,21 @@ fn check_fail() {
     }, {
         assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
     });
+}
+
+#[test]
+fn check_banner_and_function_name_come_first() {
+    // The "Running tests..." banner and the name of each function must be
+    // written (and flushed) *before* its examples run, so a student whose test
+    // hangs sees that testing started and which function is to blame instead
+    // of a blank screen.
+    let (out, err, success) = run_check(&["doctest_progress.py"], &[]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(out, "");
+    assert_eq!(
+        err,
+        "Running tests...\n  noisy\nduring example\n1 test, 1 success, 0 failures and 0 errors.\n"
+    );
 }
 
 #[test]
@@ -328,7 +343,7 @@ fn check_doctest_bare_name_allowed() {
     assert_eq!(out, "");
     assert_eq!(
         err,
-        "Running tests...\n2 tests, 2 successes, 0 failures and 0 errors.\n"
+        "Running tests...\n  f\n2 tests, 2 successes, 0 failures and 0 errors.\n"
     );
 }
 

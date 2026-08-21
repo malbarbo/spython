@@ -363,7 +363,7 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
         let path = file.to_string_lossy();
         let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
         if print_names {
-            script.push_str(&format!("print(\"{escaped}\")\n"));
+            script.push_str(&format!("print(\"{escaped}\", flush=True)\n"));
         }
         script.push_str(&format!("total += _run(\"{escaped}\")\n"));
     }

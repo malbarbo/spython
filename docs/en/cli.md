@@ -264,6 +264,7 @@ def double(x: int) -> int:
 ```sh
 $ spython check --level 5 test.py
 Running tests...
+  double
 2 tests, 2 successes, 0 failures and 0 errors.
 ```
 
