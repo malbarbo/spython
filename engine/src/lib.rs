@@ -5,6 +5,7 @@ pub mod completion;
 pub mod doctests;
 pub mod lints;
 pub mod panic;
+pub mod parser;
 pub mod spython_lib;
 pub mod wasm_ffi;
 

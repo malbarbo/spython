@@ -2227,6 +2227,29 @@ fn repl_syntax_error() {
 }
 
 #[test]
+fn repl_reads_on_after_a_decorator() {
+    let input = "from dataclasses import dataclass\n@dataclass\nclass P:\n    x: int\n\nP(1).x\n";
+    let (out, err, success) = run_repl_level(input, 2);
+    assert!(success);
+    assert!(!err.contains("invalid-syntax"), "stderr: {err}");
+    assert_eq!(out, "1\n");
+}
+
+#[test]
+fn repl_reads_on_inside_a_command() {
+    let (out, _, success) = run_repl_level(":time [1,\n2]\n", 3);
+    assert!(success);
+    assert!(out.contains("[1, 2]"), "stdout: {out}");
+}
+
+#[test]
+fn repl_runs_the_input_the_file_ended_in_the_middle_of() {
+    let (_, err, success) = run_repl("def f() -> int:\n    return 1");
+    assert!(success);
+    assert!(err.is_empty(), "stderr: {err}");
+}
+
+#[test]
 fn repl_name_error() {
     let (_, err, success) = run_repl("undefined_var\n");
     assert!(success);

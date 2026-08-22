@@ -1,8 +1,10 @@
+use std::cell::RefCell;
 use std::io::IsTerminal;
 use std::time::Instant;
 
 use engine::Level;
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
+use engine::parser::INDENT;
 use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyDictRef},
@@ -83,9 +85,18 @@ impl SmartKeys {
     }
 }
 
-fn is_dedent_keyword(trimmed: &str) -> bool {
-    let word = trimmed.split_whitespace().next().unwrap_or("");
-    matches!(word, "return" | "pass" | "break" | "continue" | "raise")
+/// What Enter does with the input as it stands: `None` accepts it, and
+/// `Some(indent)` opens a line that far in.
+///
+/// With text after the cursor Enter never runs anything: it opens a line for
+/// the block the cursor is in, not for the one the input ends in.
+fn enter_action(line: &str, pos: usize) -> Option<usize> {
+    let above = line[pos..].contains('\n');
+    let input = if above { &line[..pos] } else { line };
+    match engine::parser::ready_state(input) {
+        -1 if !above => None,
+        indent => Some(usize::try_from(indent).unwrap_or(0)),
+    }
 }
 
 impl rustyline::ConditionalEventHandler for SmartKeys {
@@ -96,39 +107,18 @@ impl rustyline::ConditionalEventHandler for SmartKeys {
         _positive: bool,
         ctx: &rustyline::EventContext<'_>,
     ) -> Option<Cmd> {
-        let line = ctx.line();
-        let pos = ctx.pos();
-        let before = &line[..pos];
-        let line_start = before.rfind('\n').map_or(0, |i| i + 1);
-        let current_line = &before[line_start..];
-
         match Self::key_kind(evt) {
-            KeyKind::Enter => {
-                let trimmed = current_line.trim_end();
-                let indent: String = current_line.chars().take_while(|c| *c == ' ').collect();
-
-                if trimmed.ends_with(':') {
-                    return Some(Cmd::Insert(1, format!("\n{indent}    ")));
-                }
-
-                if indent.len() >= 4 && is_dedent_keyword(trimmed) {
-                    let dedented = &indent[4..];
-                    return Some(Cmd::Insert(1, format!("\n{dedented}")));
-                }
-
-                if line.contains('\n') && !trimmed.is_empty() {
-                    return Some(Cmd::Insert(1, format!("\n{indent}")));
-                }
-
-                None
-            }
+            KeyKind::Enter => enter_action(ctx.line(), ctx.pos())
+                .map(|indent| Cmd::Insert(1, format!("\n{:indent$}", ""))),
             KeyKind::Backspace => {
+                let before = &ctx.line()[..ctx.pos()];
+                let current_line = &before[before.rfind('\n').map_or(0, |i| i + 1)..];
                 if current_line.len() > 1 && current_line.bytes().all(|b| b == b' ') {
                     let spaces = current_line.len();
-                    let remove = if spaces.is_multiple_of(4) {
-                        4
+                    let remove = if spaces.is_multiple_of(INDENT) {
+                        INDENT
                     } else {
-                        spaces % 4
+                        spaces % INDENT
                     };
                     Some(Cmd::Kill(rustyline::Movement::BackwardChar(remove as u16)))
                 } else {
@@ -145,11 +135,19 @@ impl rustyline::ConditionalEventHandler for SmartKeys {
 struct ReplHelper<'vm> {
     vm: &'vm VirtualMachine,
     globals: PyDictRef,
+    /// The unfinished input the editor is still reading for. Ctrl-C abandons
+    /// it; an input that runs out is run anyway, so the user is shown what is
+    /// wrong with it instead of nothing at all.
+    pending: RefCell<String>,
 }
 
 impl<'vm> ReplHelper<'vm> {
-    const fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
-        ReplHelper { vm, globals }
+    fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+        ReplHelper {
+            vm,
+            globals,
+            pending: RefCell::new(String::new()),
+        }
     }
 }
 
@@ -206,71 +204,22 @@ impl Highlighter for ReplHelper<'_> {
 
 impl Validator for ReplHelper<'_> {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        let input = ctx.input();
-
-        if input.trim().is_empty() {
-            return Ok(ValidationResult::Valid(None));
-        }
-
-        if input.ends_with('\n') && ctx.cursor_at_end() {
-            return Ok(ValidationResult::Valid(None));
-        }
-
-        let source = format!("{input}\n");
-        match self
-            .vm
-            .compile(&source, compiler::Mode::Single, "<stdin>".to_owned())
-        {
-            Ok(_) => {
-                if input_has_block(input) {
-                    Ok(ValidationResult::Incomplete)
-                } else {
-                    Ok(ValidationResult::Valid(None))
-                }
-            }
-            Err(err) => {
-                if is_incomplete_error(&err) {
-                    Ok(ValidationResult::Incomplete)
-                } else {
-                    Ok(ValidationResult::Valid(None))
-                }
-            }
+        if engine::parser::ready_state(ctx.input()) < 0 {
+            self.pending.borrow_mut().clear();
+            Ok(ValidationResult::Valid(None))
+        } else {
+            *self.pending.borrow_mut() = ctx.input().to_owned();
+            Ok(ValidationResult::Incomplete)
         }
     }
+}
+
+fn take_pending(repl: &Editor<ReplHelper<'_>, rustyline::history::DefaultHistory>) -> String {
+    repl.helper()
+        .map_or_else(String::new, |helper| helper.pending.take())
 }
 
 impl rustyline::Helper for ReplHelper<'_> {}
-
-fn input_has_block(input: &str) -> bool {
-    input
-        .lines()
-        .any(|line| line.trim().ends_with(':') && !line.trim().starts_with('#'))
-}
-
-fn is_incomplete_error(err: &rustpython_compiler::CompileError) -> bool {
-    use rustpython_compiler::{
-        CompileError, ParseError,
-        parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErrorType},
-    };
-    match err {
-        CompileError::Parse(ParseError {
-            error:
-                ParseErrorType::Lexical(
-                    LexicalErrorType::Eof
-                    | LexicalErrorType::UnclosedStringError
-                    | LexicalErrorType::FStringError(
-                        InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-                    ),
-                ),
-            ..
-        }) => true,
-        CompileError::Parse(ParseError {
-            error: ParseErrorType::OtherError(msg),
-            ..
-        }) => msg.starts_with("Expected an indented block"),
-        _ => false,
-    }
-}
 
 fn format_elapsed(elapsed: std::time::Duration) -> String {
     if elapsed.as_secs() > 0 {
@@ -711,153 +660,155 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
         let mut accumulated_source = String::new();
 
         loop {
-            match repl.readline(&prompt) {
-                Ok(line) => {
-                    let _ = repl.add_history_entry(line.trim_end());
-                    let trimmed = line.trim();
-
-                    // REPL commands.
-                    if trimmed == ":help" {
-                        println!(
-                            ":type <expr>    Show the type of an expression\n\
-                             :time <expr>    Evaluate and show execution time\n\
-                             :level [n]      Show or change the teaching level (0-5)\n\
-                             :theme [name]   Show or change theme (light, dark)\n\
-                             :quit           Exit the REPL"
-                        );
-                        continue;
-                    }
-                    if trimmed == ":quit" {
-                        break;
-                    }
-                    if trimmed == ":level" {
-                        println!("level {level}");
-                        continue;
-                    }
-                    if let Some(n) = trimmed.strip_prefix(":level ") {
-                        match n.trim().parse::<u8>().ok().and_then(Level::from_u8) {
-                            Some(new_level) => {
-                                // Re-check accumulated source at the new level.
-                                if !accumulated_source.is_empty()
-                                    && !engine::type_check_repl_input(
-                                        "",
-                                        &accumulated_source,
-                                        new_level,
-                                        std::io::stderr().is_terminal(),
-                                    )
-                                {
-                                    eprintln!(
-                                        "Cannot change to level {new_level}: \
-                                         accumulated source has errors at that level."
-                                    );
-                                } else {
-                                    level = new_level;
-                                    println!("level {level}");
-                                    crate::config::save(level, current_theme_name());
-                                }
-                            }
-                            None => {
-                                eprintln!("Invalid level: must be 0-5");
-                            }
-                        }
-                        continue;
-                    }
-                    if trimmed == ":theme" {
-                        let name = if USE_LIGHT_THEME.load(Ordering::Relaxed) {
-                            "light"
-                        } else {
-                            "dark"
-                        };
-                        println!("{name}");
-                        continue;
-                    }
-                    if let Some(name) = trimmed.strip_prefix(":theme ") {
-                        match name.trim() {
-                            "light" => {
-                                set_theme(true);
-                                println!("light");
-                                crate::config::save(level, "light");
-                            }
-                            "dark" => {
-                                set_theme(false);
-                                println!("dark");
-                                crate::config::save(level, "dark");
-                            }
-                            _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
-                        }
-                        continue;
-                    }
-                    // :type is handled here and in engine::repl_run (for WASM).
-                    if trimmed == ":type" {
-                        eprintln!("Usage: :type <expression>");
-                        continue;
-                    }
-                    if let Some(expr) = trimmed.strip_prefix(":type ") {
-                        match engine::infer_expression_type(&accumulated_source, expr) {
-                            Some(ty) => println!("{ty}"),
-                            None => eprintln!("Could not infer type"),
-                        }
-                        continue;
-                    }
-                    // :time is handled here and in engine::repl_run (for WASM).
-                    if trimmed == ":time" {
-                        eprintln!("Usage: :time <expression>");
-                        continue;
-                    }
-
-                    let (source, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
-                        if expr.trim().is_empty() {
-                            eprintln!("Usage: :time <expression>");
-                            continue;
-                        }
-                        (format!("{expr}\n"), true)
-                    } else {
-                        (format!("{line}\n"), false)
-                    };
-
-                    // Type-check with accumulated context.
-                    let use_color = std::io::stderr().is_terminal();
-                    if !engine::type_check_repl_input(
-                        &accumulated_source,
-                        &source,
-                        level,
-                        use_color,
-                    ) {
-                        continue;
-                    }
-
-                    // Execute.
-                    let start = timed.then(Instant::now);
-                    match repl_exec(vm, &source, scope.clone()) {
-                        Ok(_) => {
-                            if !accumulated_source.is_empty() {
-                                accumulated_source.push('\n');
-                            }
-                            accumulated_source.push_str(&source);
-                            if let Some(start) = start {
-                                println!("Time: {}", format_elapsed(start.elapsed()));
-                            }
-                        }
-                        Err(exc) => {
-                            if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                                let _ = repl.save_history(&repl_history_path);
-                                return Err(exc);
-                            }
-                            vm.print_exception(exc);
-                        }
-                    }
-                }
+            let line = match repl.readline(&prompt) {
+                Ok(line) => line,
                 Err(rustyline::error::ReadlineError::Interrupted) => {
+                    let _ = take_pending(&repl);
                     let exc =
                         vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned());
                     vm.print_exception(exc);
+                    continue;
                 }
                 Err(rustyline::error::ReadlineError::Eof) => {
-                    break;
+                    // An input the file ended in the middle of is still an
+                    // input: run it and let the error speak.
+                    let pending = take_pending(&repl);
+                    if pending.trim().is_empty() {
+                        break;
+                    }
+                    pending
                 }
                 Err(err) => {
                     eprintln!("Readline error: {err:?}");
                     break;
+                }
+            };
+            let _ = repl.add_history_entry(line.trim_end());
+            let trimmed = line.trim();
+
+            // REPL commands.
+            if trimmed == ":help" {
+                println!(
+                    ":type <expr>    Show the type of an expression\n\
+                     :time <expr>    Evaluate and show execution time\n\
+                     :level [n]      Show or change the teaching level (0-5)\n\
+                     :theme [name]   Show or change theme (light, dark)\n\
+                     :quit           Exit the REPL"
+                );
+                continue;
+            }
+            if trimmed == ":quit" {
+                break;
+            }
+            if trimmed == ":level" {
+                println!("level {level}");
+                continue;
+            }
+            if let Some(n) = trimmed.strip_prefix(":level ") {
+                match n.trim().parse::<u8>().ok().and_then(Level::from_u8) {
+                    Some(new_level) => {
+                        // Re-check accumulated source at the new level.
+                        if !accumulated_source.is_empty()
+                            && !engine::type_check_repl_input(
+                                "",
+                                &accumulated_source,
+                                new_level,
+                                std::io::stderr().is_terminal(),
+                            )
+                        {
+                            eprintln!(
+                                "Cannot change to level {new_level}: \
+                                 accumulated source has errors at that level."
+                            );
+                        } else {
+                            level = new_level;
+                            println!("level {level}");
+                            crate::config::save(level, current_theme_name());
+                        }
+                    }
+                    None => {
+                        eprintln!("Invalid level: must be 0-5");
+                    }
+                }
+                continue;
+            }
+            if trimmed == ":theme" {
+                let name = if USE_LIGHT_THEME.load(Ordering::Relaxed) {
+                    "light"
+                } else {
+                    "dark"
+                };
+                println!("{name}");
+                continue;
+            }
+            if let Some(name) = trimmed.strip_prefix(":theme ") {
+                match name.trim() {
+                    "light" => {
+                        set_theme(true);
+                        println!("light");
+                        crate::config::save(level, "light");
+                    }
+                    "dark" => {
+                        set_theme(false);
+                        println!("dark");
+                        crate::config::save(level, "dark");
+                    }
+                    _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
+                }
+                continue;
+            }
+            // :type is handled here and in engine::repl_run (for WASM).
+            if trimmed == ":type" {
+                eprintln!("Usage: :type <expression>");
+                continue;
+            }
+            if let Some(expr) = trimmed.strip_prefix(":type ") {
+                match engine::infer_expression_type(&accumulated_source, expr) {
+                    Some(ty) => println!("{ty}"),
+                    None => eprintln!("Could not infer type"),
+                }
+                continue;
+            }
+            // :time is handled here and in engine::repl_run (for WASM).
+            if trimmed == ":time" {
+                eprintln!("Usage: :time <expression>");
+                continue;
+            }
+
+            let (source, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
+                if expr.trim().is_empty() {
+                    eprintln!("Usage: :time <expression>");
+                    continue;
+                }
+                (format!("{expr}\n"), true)
+            } else {
+                (format!("{line}\n"), false)
+            };
+
+            // Type-check with accumulated context.
+            let use_color = std::io::stderr().is_terminal();
+            if !engine::type_check_repl_input(&accumulated_source, &source, level, use_color) {
+                continue;
+            }
+
+            // Execute.
+            let start = timed.then(Instant::now);
+            match repl_exec(vm, &source, scope.clone()) {
+                Ok(_) => {
+                    if !accumulated_source.is_empty() {
+                        accumulated_source.push('\n');
+                    }
+                    accumulated_source.push_str(&source);
+                    if let Some(start) = start {
+                        println!("Time: {}", format_elapsed(start.elapsed()));
+                    }
+                }
+                Err(exc) => {
+                    if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                        let _ = repl.save_history(&repl_history_path);
+                        return Err(exc);
+                    }
+                    vm.print_exception(exc);
                 }
             }
         }
@@ -905,5 +856,26 @@ mod tests {
     fn complete_repl_command_non_colon_is_skipped() {
         assert!(complete_repl_command("pri", 3).is_none());
         assert!(complete_repl_command("", 0).is_none());
+    }
+
+    #[test]
+    fn enter_at_the_end_of_the_input_runs_it_or_reads_on() {
+        assert_eq!(enter_action("x = 1", 5), None);
+        assert_eq!(enter_action("def f() -> int:", 15), Some(4));
+        // Wherever on the last line the cursor is: Enter runs the input, as
+        // it does in every other line editor.
+        assert_eq!(enter_action("print(1)", 6), None);
+        assert_eq!(enter_action("print(1)", 0), None);
+    }
+
+    #[test]
+    fn enter_above_the_last_line_opens_a_line_there() {
+        let input = "def f() -> None:\n    print(";
+        // At the end of the header, where the block it opens starts.
+        assert_eq!(enter_action(input, 16), Some(4));
+        // And at the end, where the call left a bracket open.
+        assert_eq!(enter_action(input, input.len()), Some(8));
+        // A finished line above the last one opens a line and runs nothing.
+        assert_eq!(enter_action("x = 1\ny = 2", 5), Some(0));
     }
 }

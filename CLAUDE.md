@@ -186,6 +186,9 @@ Current fork customizations (ruff, 1 commit on `spython-0.1`):
   and multi-line editing (uses rustyline). Delegates completion to `engine`.
 - `engine/src/completion.rs` — Tab completion logic shared by CLI and WASM:
   identifier/attribute/keyword completion and indent-vs-complete decision.
+- `engine/src/parser.rs` — What the prompt does with the input as it stands
+  (`ready_state`): whether it is finished, read from the ruff parser's errors
+  and tokens, and how far in the next line starts (`continuation_indent`).
 - `engine/src/checker.rs` — AST walker: annotation checks + construct
   restrictions
 - `engine/src/lints.rs` — Lint rule declarations using `declare_lint!`

@@ -445,7 +445,6 @@ dependencies = [
  "ruff_db",
  "ruff_notebook",
  "ruff_python_ast",
- "rustpython-compiler",
  "rustpython-vm",
  "rustyline 18.0.0",
  "ty_project",
