@@ -76,7 +76,8 @@ make test-wasm              # build + run Deno tests
 ```
 
 WASM tests use Deno (`wasm/tests/`) and test the WASM binary directly via
-`repl_new`, `repl_run`, `repl_complete`, `format`, and `version` exports.
+`repl_new`, `repl_run`, `repl_complete`, `repl_ready`, `format`, and `version`
+exports.
 The test WASI polyfill (`wasm/tests/wasi.ts`) and env mock provide the
 required WASM imports.
 
@@ -88,12 +89,20 @@ The `wasm` crate implements the slangs engine WASM protocol
 - `repl_new(code, len, config, config_len)` → `*mut ReplState`
 - `repl_run(repl, code, len)` → `u32` (OK/ERROR/QUIT)
 - `repl_complete(repl, text, len, cursor_pos)` → `*mut c_char` or null
+- `repl_ready(repl, code, len)` → `i32` (-1 to run the input, otherwise the
+  indentation the next line starts with)
 - `repl_destroy(repl)`
 - `format(source, len)` → `*mut c_char`
 - `version()` → `*mut c_char`
 
 `repl_complete` returns a space-separated string: `"c <startpos> <candidates...>"`
 for completions, `"i <spaces>"` for indentation, or null for no action.
+
+`repl_ready` reads the input text only — the session pointer is ignored — and
+answers `-1` for input no further line could finish as well, so the user gets
+the error instead of a prompt that will not let go. It and the terminal REPL
+both call `engine::parser::ready_state`, so the two prompts read a line the
+same way.
 
 `repl_new` config is a space-separated `key=value` string (compatible with the
 slangs engine protocol). Currently supported: `level=<0-5>`. Unknown keys are

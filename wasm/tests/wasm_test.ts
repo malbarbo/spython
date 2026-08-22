@@ -19,6 +19,7 @@ interface WasmExports {
     len: number,
     cursor_pos: number,
   ): number;
+  repl_ready(repl: number, ptr: number, len: number): number;
   string_allocate(size: number): number;
   string_deallocate(ptr: number, size: number): void;
   format(ptr: number, len: number): number;
@@ -418,6 +419,30 @@ Deno.test("repl_complete indents under-indented line", async () => {
   const result = readCstr(ctx.exports, resultPtr);
   ctx.exports.cstr_deallocate(resultPtr);
   assertEquals(result, "i     ", "should indent by 4 spaces");
+  destroy(ctx);
+});
+
+// --- Ready ---
+
+Deno.test("repl_ready says what the input still needs", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  // What the answers are is tested in engine/src/parser.rs; what this crosses
+  // is the export: text in, an i32 out, with no session asked.
+  const cases: [string, number][] = [
+    // Finished: run it.
+    ["1 + 2", -1],
+    // A block asks for a body, one level in, and a bracket for a level of
+    // its own.
+    ["def f() -> None:\n    print(", 8],
+    // A command is asked about what it carries.
+    [":time [1,", 4],
+  ];
+  for (const [input, expected] of cases) {
+    const [ptr, len] = encodeString(ctx.exports, input);
+    const result = ctx.exports.repl_ready(ctx.repl, ptr, len);
+    ctx.exports.string_deallocate(ptr, len);
+    assertEquals(result, expected, JSON.stringify(input));
+  }
   destroy(ctx);
 });
 
