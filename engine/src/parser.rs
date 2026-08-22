@@ -27,6 +27,13 @@ pub fn ready_state(input: &str) -> i32 {
     }
 }
 
+/// How far in the line after `src` starts, in spaces, for a caller with no
+/// parse in hand: Tab, through `completion`.
+pub(crate) fn continuation_indent(src: &str) -> usize {
+    let parsed = parse_unchecked_source(src, PySourceType::Python);
+    indent_after(parsed.tokens(), src)
+}
+
 /// Whether the reader has to go on reading before this input can run.
 ///
 /// Where the input ends is not where it stops, and the text alone does not
@@ -266,12 +273,6 @@ mod tests {
     /// The tests ask about a string; only `ready_state` has a parse in hand.
     fn is_incomplete(src: &str) -> bool {
         super::is_incomplete(&parse_unchecked_source(src, PySourceType::Python), src)
-    }
-
-    /// The tests ask about a string; only `ready_state` has a parse in hand.
-    fn continuation_indent(src: &str) -> usize {
-        let parsed = parse_unchecked_source(src, PySourceType::Python);
-        indent_after(parsed.tokens(), src)
     }
 
     #[test]

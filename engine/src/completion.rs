@@ -39,7 +39,7 @@ pub fn tab_action(
 
     if current_line.bytes().all(|b| b == b' ') {
         let current_indent = current_line.len();
-        let expected = expected_indent(&before[..current_line_start]);
+        let expected = crate::parser::continuation_indent(&before[..current_line_start]);
         if current_indent < expected {
             return TabAction::Indent(" ".repeat(expected - current_indent));
         }
@@ -115,22 +115,6 @@ pub fn complete(
     result.sort();
 
     Some((startpos, result))
-}
-
-/// Compute the expected indentation level based on previous lines.
-fn expected_indent(lines_before: &str) -> usize {
-    let prev_line = lines_before.lines().rev().find(|l| !l.trim().is_empty());
-    match prev_line {
-        None => 0,
-        Some(line) => {
-            let indent = line.len() - line.trim_start().len();
-            if line.trim_end().ends_with(':') {
-                indent + 4
-            } else {
-                indent
-            }
-        }
-    }
 }
 
 fn get_available_completions<'a>(
