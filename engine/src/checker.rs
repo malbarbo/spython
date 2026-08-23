@@ -89,9 +89,10 @@ pub fn check_file_annotations(
     level: Level,
     in_repl: bool,
 ) -> Vec<Diagnostic> {
-    let parsed = parsed_module(db, file);
+    let program_file = db.program_file(file);
+    let parsed = parsed_module(db, program_file.python_file(db));
     let module = parsed.load(db);
-    let model = SemanticModel::new(db, file);
+    let model = SemanticModel::new(db, program_file);
     let mut checker = Checker {
         file,
         model: &model,
@@ -154,14 +155,15 @@ impl Checker<'_> {
         let Some(ty) = expr.inferred_type(self.model) else {
             return;
         };
-        let bool_ty = KnownClass::Bool.to_instance(self.model.db());
-        if !ty.is_assignable_to(self.model.db(), bool_ty) {
+        let env = self.model.program_environment();
+        let bool_ty = KnownClass::Bool.to_instance(self.model.db(), &env);
+        if !ty.is_assignable_to(self.model.db(), &env, bool_ty) {
             self.push(
                 &NON_BOOLEAN_CONDITION,
                 expr.range(),
                 format!(
                     "Condition has type `{}`, expected `bool`",
-                    ty.display(self.model.db())
+                    ty.display(self.model.db(), &env)
                 ),
             );
         }
@@ -177,7 +179,8 @@ impl Checker<'_> {
             return;
         };
         let db = self.model.db();
-        let bool_ty = KnownClass::Bool.to_instance(db);
+        let env = self.model.program_environment();
+        let bool_ty = KnownClass::Bool.to_instance(db, &env);
         // `Any`/`Unknown` are gradual types and are assignable to *every*
         // type — including `bool` — so `is_assignable_to(bool)` alone would
         // misfire on operands ty cannot infer (e.g. `(-1) ** i`, which ty
@@ -185,14 +188,14 @@ impl Checker<'_> {
         // `bool` but never to a disjoint type like `str`, whereas a gradual
         // type is assignable to both. Requiring "assignable to `bool`, not to
         // `str`" thus excludes gradual types while still catching real bools.
-        let str_ty = KnownClass::Str.to_instance(db);
-        if ty.is_assignable_to(db, bool_ty) && !ty.is_assignable_to(db, str_ty) {
+        let str_ty = KnownClass::Str.to_instance(db, &env);
+        if ty.is_assignable_to(db, &env, bool_ty) && !ty.is_assignable_to(db, &env, str_ty) {
             self.push(
                 &BOOL_IN_ARITHMETIC,
                 expr.range(),
                 format!(
                     "Operand has type `{}`; `bool` is not allowed in arithmetic expressions",
-                    ty.display(db)
+                    ty.display(db, &env)
                 ),
             );
         }
@@ -1277,20 +1280,22 @@ pub(crate) fn make_lint_diagnostic(
 mod tests {
     use super::*;
     use ruff_db::files::system_path_to_file;
-    use ruff_db::system::{InMemorySystem, SystemPath, SystemPathBuf, WritableSystem};
+    use ruff_db::system::{
+        InMemorySystem, MemoryFileSystem, SystemPath, SystemPathBuf, WritableSystem,
+    };
     use ty_project::ProjectDatabase;
 
     /// Run the annotation checker on `source` and return the diagnostic IDs
     /// in the order they were emitted.
     fn check(source: &str, level: Level) -> Vec<String> {
         let cwd = SystemPathBuf::from("/");
-        let system = InMemorySystem::new(cwd.clone());
+        let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
         let path = SystemPathBuf::from("/test.py");
         system
             .write_file(SystemPath::new("/test.py"), source)
             .expect("write");
         let metadata = crate::make_project_metadata(cwd, vec![]);
-        let mut db = ProjectDatabase::new(metadata, system).expect("db");
+        let mut db = ProjectDatabase::fallible(metadata, system).expect("db");
         let file = system_path_to_file(&db, &path).expect("file");
         db.project().set_included_paths(&mut db, vec![path]);
         check_file_annotations(&db, file, level, false)

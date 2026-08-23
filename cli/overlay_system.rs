@@ -11,8 +11,8 @@
 
 use ruff_db::system::walk_directory::WalkDirectoryBuilder;
 use ruff_db::system::{
-    CaseSensitivity, DirectoryEntry, GlobError, MemoryFileSystem, Metadata, OsSystem, PatternError,
-    Result, System, SystemPath, SystemPathBuf, SystemVirtualPath, WhichResult, WritableSystem,
+    DirectoryEntry, MemoryFileSystem, Metadata, OsSystem, Result, System, SystemPath,
+    SystemPathBuf, SystemVirtualPath, WhichResult, WritableSystem,
 };
 use ruff_notebook::{Notebook, NotebookError};
 use std::any::Any;
@@ -118,17 +118,14 @@ impl System for OverlaySystem {
         self.inner.os.read_virtual_path_to_notebook(path)
     }
 
-    fn path_exists_case_sensitive(&self, path: &SystemPath, prefix: &SystemPath) -> bool {
-        if self.is_lib(path) {
-            // The in-memory lib is case-sensitive and we control the casing.
-            self.inner.mem.exists(path)
+    fn is_same_file(&self, first: &SystemPath, second: &SystemPath) -> Result<bool> {
+        // Lib paths are synthetic, so identity is plain path equality; anything
+        // that touches disk goes to the OS impl.
+        if self.is_lib(first) || self.is_lib(second) {
+            Ok(first == second)
         } else {
-            self.inner.os.path_exists_case_sensitive(path, prefix)
+            self.inner.os.is_same_file(first, second)
         }
-    }
-
-    fn case_sensitivity(&self) -> CaseSensitivity {
-        self.inner.os.case_sensitivity()
     }
 
     fn which(&self, name: &str) -> WhichResult {
@@ -164,18 +161,6 @@ impl System for OverlaySystem {
         } else {
             self.inner.os.walk_directory(path)
         }
-    }
-
-    fn glob(
-        &self,
-        pattern: &str,
-    ) -> std::result::Result<
-        Box<dyn Iterator<Item = std::result::Result<SystemPathBuf, GlobError>> + '_>,
-        PatternError,
-    > {
-        // Globs aren't used to resolve the lib (ty walks it directly via
-        // search paths), so route everything through the OS impl.
-        self.inner.os.glob(pattern)
     }
 
     fn env_var(&self, name: &str) -> std::result::Result<String, std::env::VarError> {

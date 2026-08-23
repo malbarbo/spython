@@ -16,18 +16,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics};
 use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
-use ruff_db::system::{InMemorySystem, SystemPath, SystemPathBuf, WritableSystem};
+use ruff_db::system::{
+    InMemorySystem, MemoryFileSystem, SystemPath, SystemPathBuf, WritableSystem,
+};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{ExprRef, Stmt};
 use ruff_python_formatter::{DocstringCode, PyFormatOptions, QuoteStyle, format_module_source};
+use ruff_ranged_value::RangedValue;
 use rustpython::vm::AsObject;
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
-use ty_module_resolver::{ModuleName, resolve_module};
+use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 pub use ty_project::ProjectDatabase;
 use ty_project::metadata::Options;
 use ty_project::metadata::options::{EnvironmentOptions, Rules};
-use ty_project::metadata::value::{RangedValue, RelativePathBuf};
+use ty_project::metadata::value::RelativePathBuf;
 use ty_project::{Db, ProjectMetadata};
+use ty_python_semantic::Db as _;
 use ty_python_semantic::lint::Level as TyLevel;
 use ty_python_semantic::{HasType, SemanticModel};
 
@@ -87,7 +91,7 @@ pub fn make_project_metadata(
         ),
         ..EnvironmentOptions::default()
     });
-    metadata.apply_options(Options {
+    metadata.apply_override_options(Options {
         rules: Some(rules),
         environment,
         ..Options::default()
@@ -115,14 +119,14 @@ pub fn type_check_source(
     in_repl: bool,
 ) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
-    let system = InMemorySystem::new(cwd.clone());
+    let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
     system
         .write_file(SystemPath::new(USER_FILE), source)
         .expect("writing to in-memory filesystem should never fail");
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
     let metadata = make_project_metadata(cwd, vec![lib_root]);
-    let mut db = ProjectDatabase::new(metadata, system)
+    let mut db = ProjectDatabase::fallible(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
     let file_path = SystemPathBuf::from(USER_FILE);
@@ -204,7 +208,7 @@ fn virtualize_path(path: &SystemPath) -> SystemPathBuf {
 /// Doctest diagnostics complement the ordinary file-level check; callers
 /// should append this to their existing diagnostic list.
 pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Vec<Diagnostic> {
-    let parsed = parsed_module(db, file);
+    let parsed = parsed_module(db, db.program_file(file).python_file(db));
     let module = parsed.load(db);
     let source = ruff_db::source::source_text(db, file);
     let source_str = source.as_str();
@@ -232,7 +236,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
         .parent()
         .map(SystemPath::to_path_buf)
         .unwrap_or_else(|| SystemPathBuf::from(PROJECT_ROOT));
-    let system = InMemorySystem::new(cwd.clone());
+    let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
     let mut transitive: HashSet<File> = HashSet::new();
@@ -254,7 +258,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
         .expect("writing to in-memory filesystem should never fail");
 
     let metadata = make_project_metadata(cwd, vec![lib_root]);
-    let mut scratch = ProjectDatabase::new(metadata, system)
+    let mut scratch = ProjectDatabase::fallible(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
     let syn_file = system_path_to_file(&scratch, &original_virtual)
         .expect("synthetic file should be resolvable after writing it");
@@ -279,7 +283,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
 
 /// Recursively collect first-party files transitively imported by `file`.
 pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet<File>) {
-    let parsed = parsed_module(db, file);
+    let parsed = parsed_module(db, db.program_file(file).python_file(db));
     let module = parsed.load(db);
 
     for stmt in module.suite() {
@@ -301,9 +305,12 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
                 if module_str.is_some_and(|m| m.starts_with("spython")) {
                     continue;
                 }
-                if let Ok(name) =
-                    ModuleName::from_identifier_parts(db, file, module_str, import_from.level)
-                {
+                if let Ok(name) = ModuleName::from_identifier_parts(
+                    db,
+                    importing_file(db, file),
+                    module_str,
+                    import_from.level,
+                ) {
                     visit_module(db, file, &name, seen);
                 }
             }
@@ -312,13 +319,18 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
     }
 }
 
+/// Build the module-resolution key ty now requires for the importing file.
+fn importing_file<'db>(db: &'db ProjectDatabase, file: File) -> ImportingFile<'db> {
+    ImportingFile::ResolverFile(db.program_file(file).resolver_file(db))
+}
+
 fn visit_module(
     db: &ProjectDatabase,
-    importing_file: File,
+    importing: File,
     name: &ModuleName,
     seen: &mut HashSet<File>,
 ) {
-    if let Some(module) = resolve_module(db, importing_file, name)
+    if let Some(module) = resolve_module(db, importing_file(db, importing), name)
         && module.search_path(db).is_some_and(|sp| sp.is_first_party())
         && let Some(mod_file) = module.file(db)
         && seen.insert(mod_file)
@@ -348,7 +360,7 @@ pub fn execute_source(source: &str, filename: &str, parent_dir: &str) -> bool {
         let scope = vm.new_scope_with_main()?;
         register_ffi_module(vm);
         vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
-        vm.run_string(scope, &source, filename).map(drop)
+        vm.run_string(scope, &source, &filename).map(drop)
     });
     code == 0
 }
@@ -429,21 +441,22 @@ pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
     };
 
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
-    let system = InMemorySystem::new(cwd.clone());
+    let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
     system
         .write_file(SystemPath::new(USER_FILE), &source)
         .ok()?;
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
     let metadata = make_project_metadata(cwd, vec![lib_root]);
-    let mut db = ProjectDatabase::new(metadata, system).ok()?;
+    let mut db = ProjectDatabase::fallible(metadata, system).ok()?;
 
     let file_path = SystemPathBuf::from(USER_FILE);
     let file = system_path_to_file(&db, &file_path).ok()?;
     db.project().set_included_paths(&mut db, vec![file_path]);
 
     // Parse and find the last expression statement.
-    let parsed = parsed_module(&db, file);
+    let program_file = db.program_file(file);
+    let parsed = parsed_module(&db, program_file.python_file(&db));
     let module = parsed.load(&db);
     let stmts = module.suite();
     let last_stmt = stmts.last()?;
@@ -454,9 +467,9 @@ pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
         _ => return None,
     };
 
-    let model = SemanticModel::new(&db, file);
+    let model = SemanticModel::new(&db, program_file);
     let ty = ExprRef::from(expr_node).inferred_type(&model)?;
-    let type_str = ty.display(&db).to_string();
+    let type_str = ty.display(&db, &model.program_environment()).to_string();
     Some(simplify_type_display(&type_str))
 }
 
@@ -500,7 +513,7 @@ fn print_repl_diagnostics(
 
         // Get the line number from the primary span's byte offset into combined source.
         let (line, col, span_len) = diag
-            .primary_span_ref()
+            .primary_span()
             .and_then(|span| span.range())
             .map(|range| {
                 let offset = usize::from(range.start()).min(combined_source.len());
@@ -524,7 +537,7 @@ fn print_repl_diagnostics(
         };
 
         let id = diag.id();
-        let msg = diag.primary_message();
+        let msg = diag.headline_message();
         let reset = if use_color { "\x1b[0m" } else { "" };
         let bold = if use_color { "\x1b[1m" } else { "" };
 
@@ -649,12 +662,12 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
         if let Err(exc) = vm.run_string(
             scope.clone(),
             "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
-            "<init>".to_owned(),
+            "<init>",
         ) {
             vm.print_exception(exc);
         }
         if has_source {
-            if let Err(exc) = vm.run_string(scope.clone(), source, "user.py".to_owned()) {
+            if let Err(exc) = vm.run_string(scope.clone(), source, "user.py") {
                 vm.print_exception(exc);
             } else {
                 // Run doctests using the custom runner (avoids stdlib doctest
@@ -663,7 +676,7 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
                     include_str!("doctest_runner.py"),
                     "\nimport __main__; run_doctests(__main__); del __main__\n"
                 );
-                if let Err(exc) = vm.run_string(scope.clone(), doctest_code, "<doctest>".to_owned())
+                if let Err(exc) = vm.run_string(scope.clone(), doctest_code, "<doctest>")
                 {
                     vm.print_exception(exc);
                 }
@@ -884,8 +897,8 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
         .expect("interpreter is live")
         .enter(|vm| {
             match vm
-                .compile(&code, vm::compiler::Mode::Single, "<stdin>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err, Some(&code)))
+                .compile(&code, vm::compiler::Mode::Single, "<stdin>")
+                .map_err(|err| err.into_pyexception(vm, Some(&code)))
                 .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
             {
                 Ok(_) => REPL_OK,

@@ -28,7 +28,7 @@ declare_lint! {
     /// ```
     pub(crate) static MISSING_PARAMETER_ANNOTATION = {
         summary: "missing type annotation for a function parameter",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -54,7 +54,7 @@ declare_lint! {
     /// ```
     pub(crate) static MISSING_RETURN_ANNOTATION = {
         summary: "missing return type annotation for a function",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -84,7 +84,7 @@ declare_lint! {
     /// ```
     pub(crate) static MISSING_ATTRIBUTE_ANNOTATION = {
         summary: "missing type annotation for a class-body variable assignment",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -95,7 +95,7 @@ declare_lint! {
     /// Forbids `if`/`elif`/`else` before level 1 (Selection).
     pub(crate) static FORBIDDEN_SELECTION = {
         summary: "`if` not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -104,7 +104,7 @@ declare_lint! {
     /// Forbids `for` and `while` loops before level 3.
     pub(crate) static FORBIDDEN_LOOP = {
         summary: "loop not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -113,7 +113,7 @@ declare_lint! {
     /// Forbids list/tuple/dict/set literals before the appropriate level.
     pub(crate) static FORBIDDEN_COLLECTION_LITERAL = {
         summary: "collection literal not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -122,7 +122,7 @@ declare_lint! {
     /// Forbids `class` definitions before level 2.
     pub(crate) static FORBIDDEN_CLASS = {
         summary: "`class` not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -131,7 +131,7 @@ declare_lint! {
     /// Forbids methods inside classes before level 4.
     pub(crate) static FORBIDDEN_CLASS_METHOD = {
         summary: "method in class not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -140,7 +140,7 @@ declare_lint! {
     /// Forbids list/set/dict comprehensions and generator expressions before level 4.
     pub(crate) static FORBIDDEN_COMPREHENSION = {
         summary: "comprehension not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -149,7 +149,7 @@ declare_lint! {
     /// Forbids `lambda` expressions before level 4.
     pub(crate) static FORBIDDEN_LAMBDA = {
         summary: "`lambda` not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -158,7 +158,7 @@ declare_lint! {
     /// Forbids augmented assignment (`+=`, `-=`, etc.) before level 3.
     pub(crate) static FORBIDDEN_AUG_ASSIGN = {
         summary: "augmented assignment not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -168,7 +168,7 @@ declare_lint! {
     /// `yield`, `del` at all teaching levels.
     pub(crate) static FORBIDDEN_CONSTRUCT = {
         summary: "construct not allowed",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -177,7 +177,7 @@ declare_lint! {
     /// Forbids `match` statements before level 2.
     pub(crate) static FORBIDDEN_MATCH = {
         summary: "`match` not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -209,7 +209,7 @@ declare_lint! {
     /// ```
     pub(crate) static NON_BOOLEAN_CONDITION = {
         summary: "condition is not a boolean value",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -232,7 +232,7 @@ declare_lint! {
     /// ```
     pub(crate) static BOOL_IN_ARITHMETIC = {
         summary: "bool operand in arithmetic expression",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -260,7 +260,7 @@ declare_lint! {
     /// ```
     pub(crate) static CHAINED_COMPARISON = {
         summary: "chained comparison",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -284,7 +284,7 @@ declare_lint! {
     /// ```
     pub(crate) static BARE_EXPRESSION = {
         summary: "bare expression statement has no effect",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -306,7 +306,7 @@ declare_lint! {
     /// ```
     pub(crate) static FORBIDDEN_DEFAULT_ARG = {
         summary: "default argument value is not allowed at this level",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -336,7 +336,7 @@ declare_lint! {
     /// ```
     pub(crate) static INVALID_FUNCTION_NAME = {
         summary: "function name should be lowercase",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -364,7 +364,7 @@ declare_lint! {
     /// ```
     pub(crate) static INVALID_CLASS_NAME = {
         summary: "class name should use CapWords convention",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -392,7 +392,7 @@ declare_lint! {
     /// ```
     pub(crate) static INVALID_ARGUMENT_NAME = {
         summary: "argument name should be lowercase",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -423,7 +423,7 @@ declare_lint! {
     /// ```
     pub(crate) static NON_LOWERCASE_VARIABLE_IN_FUNCTION = {
         summary: "variable in function should be lowercase",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -457,7 +457,7 @@ declare_lint! {
     /// ```
     pub(crate) static NON_UPPERCASE_ENUM_MEMBER = {
         summary: "enum member should be uppercase",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -472,7 +472,7 @@ declare_lint! {
     /// (custom `__eq__` can lie), and `is None` is the idiomatic Python.
     pub(crate) static NONE_COMPARISON = {
         summary: "comparison to `None` should use `is` / `is not`",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -487,7 +487,7 @@ declare_lint! {
     /// `x == True`, and `not x` instead of `x == False`.
     pub(crate) static TRUE_FALSE_COMPARISON = {
         summary: "comparison to `True` / `False` is redundant",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -502,7 +502,7 @@ declare_lint! {
     /// reader.
     pub(crate) static NOT_IN_TEST = {
         summary: "test for membership should use `not in`",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -516,7 +516,7 @@ declare_lint! {
     /// PEP 8 recommends.
     pub(crate) static NOT_IS_TEST = {
         summary: "test for object identity should use `is not`",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -540,7 +540,7 @@ declare_lint! {
     /// ```
     pub(crate) static INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD = {
         summary: "first argument of an instance method should be `self`",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -571,7 +571,7 @@ declare_lint! {
     /// ```
     pub(crate) static NEEDLESS_BOOL = {
         summary: "return the condition directly instead of `if cond: return True else: return False`",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -588,7 +588,7 @@ declare_lint! {
     /// the `{...}` they meant to.
     pub(crate) static F_STRING_MISSING_PLACEHOLDERS = {
         summary: "f-string has no placeholders; use a regular string",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -611,7 +611,7 @@ declare_lint! {
     /// ```
     pub(crate) static UNUSED_VARIABLE = {
         summary: "local variable is assigned but never used",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -630,7 +630,7 @@ declare_lint! {
     /// ```
     pub(crate) static UNNECESSARY_PASS = {
         summary: "unnecessary `pass` statement",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -663,7 +663,7 @@ declare_lint! {
     /// ```
     pub(crate) static LOCAL_UNKNOWN_TYPE = {
         summary: "local variable has Unknown type; specify it with an annotation",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -696,7 +696,7 @@ declare_lint! {
     /// ```
     pub(crate) static MISSING_TYPE_PARAMETER = {
         summary: "generic type used without a type parameter",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -726,7 +726,7 @@ declare_lint! {
     /// ```
     pub(crate) static REDEFINED_FUNCTION_OR_CLASS = {
         summary: "function or class is redefined",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }
@@ -759,7 +759,7 @@ declare_lint! {
     /// ```
     pub(crate) static DOCTEST_MALFORMED_PROMPT = {
         summary: "malformed doctest prompt",
-        status: LintStatus::preview("0.0.0"),
+        status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }
 }

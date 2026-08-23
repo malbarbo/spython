@@ -19,7 +19,7 @@ fn main() {
         format!("{y:04}-{m:02}-{d:02}")
     };
 
-    let libs_version = "rustpython 0.5.0, ty/ruff 0.15.6";
+    let libs_version = "rustpython 0.5.0, ty/ruff 0.16.4";
     let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap();
     let long_version = format!("{pkg_version} ({libs_version}, {build_date}, {git_hash})");
 

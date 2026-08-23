@@ -112,8 +112,12 @@ ignored.
 
 Local clones for development:
 
-- RustPython: `~/projetos/RustPython` (branch `spython-0.1`)
-- ruff: `~/projetos/ruff` (branch `spython-0.1`)
+- RustPython: `~/projetos/RustPython` (branch `spython-0.3`)
+- ruff: `~/projetos/ruff` (branch `spython-0.3`)
+
+The branch name tracks the spython version it was rebased for; `spython-0.1`
+is the previous generation (RustPython 0.5.0 / ruff 0.15.6) and is kept for
+reference.
 
 After pushing changes to a fork, run `cargo update -p <crate>` in this repo
 to pick up the new commit.
@@ -152,30 +156,44 @@ The workspace has three crates:
 
 External dependencies (via git):
 
-- `malbarbo/RustPython` (branch `spython-0.1`) — the Python interpreter
-- `malbarbo/ruff` (branch `spython-0.1`) — provides the `ty` type checker and
-  the `ruff_python_*` AST/parser crates
+- `malbarbo/RustPython` (branch `spython-0.3`, on upstream `cc1e55e3e4`) —
+  the Python interpreter
+- `malbarbo/ruff` (branch `spython-0.3`, on tag `0.16.4`) — provides the `ty`
+  type checker and the `ruff_python_*` AST/parser crates
+
+RustPython itself depends on a *different* ruff (`RustPython/ruff`, tag
+`0.15.19-rustpython`, packages renamed `rustpython-ruff_*`), so two ruff
+parser/AST trees are compiled. That is deliberate: porting RustPython's AST
+patch into our fork was measured and shrinks the WASM binary by only 109 KB
+(0.6%) while costing 65 patched files to carry across every upstream update.
 
 **Fork policy**: Minimize changes to the RustPython and ruff forks. Prefer
 hooking into their public APIs from `engine` or `cli`. Changes to forks are
 harder to track and complicate upstream updates.
 
-Current fork customizations (RustPython, 6 commits on `spython-0.1`):
+Current fork customizations (RustPython, 9 commits on `spython-0.3`):
 
 1. Fix WASM imports and interrupt — `FileIO`/`inspect` optional, `check_interrupt`
    FFI, `OsError` type fix
 2. Allowlist-based freeze filtering and extra-modules feature — `FREEZE_SEEDS`
    env var for stdlib freeze filtering, `extra-modules` feature flag
-3. Use ruff git dependency from `malbarbo/ruff` fork
+3. Add `host_env_extras` feature for fine-grained stdlib module control
 4. Support `FREEZE_EXTRA_DIR` for out-of-tree Python modules
 5. Gate `msvcrt` usage in `_io.rs` behind `host_env_extras` feature — fixes
    Windows build when `host_env_extras` is not enabled
-6. Fix stack bounds detection for musl libc — `pthread_getattr_np` reports
-   128KB for the main thread on musl; falls back to `getrlimit(RLIMIT_STACK)`
+6. Check interrupt in `eval_breaker_tripped` on WASM
+7. Gate `winreg` `import_builtin` behind `host_env_extras`
+8. Replace malachite with num-bigint/num-rational directly
+9. Fix `compile_dir_filtered` to take parent as `&str` (upstream signature
+   change)
 
-Current fork customizations (ruff, 1 commit on `spython-0.1`):
+The musl stack-bounds patch is gone: upstream now handles musl itself
+(`NATIVE_RECURSION_LIMIT_UNMEASURED`).
+
+Current fork customizations (ruff, 2 commits on `spython-0.3`):
 
 1. Support `TYPESHED_ALLOWLIST` env var to trim typeshed stubs in zip
+2. Remove zstd compression, use deflate with max level
 
 **Execution pipeline** (see `cli/main.rs:run_checked`; level defaults to 0):
 

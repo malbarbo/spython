@@ -12,6 +12,5 @@ error[unresolved-reference]: Name `not_a_real_spython_export` used when not defi
   |           ^^^^^^^^^^^^^^^^^^^^^^^^^
 6 |     return 0
   |
-info: rule `unresolved-reference` is enabled by default
 
 Found 1 error.

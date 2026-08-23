@@ -297,8 +297,7 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
         vm.sys_module.set_attr("ps2", vm.ctx.new_str("... "), vm)?;
         if let Some((source, file_str, parent_dir)) = &preload {
             vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
-            vm.run_string(scope.clone(), source, file_str.clone())
-                .map(drop)?;
+            vm.run_string(scope.clone(), source, file_str).map(drop)?;
         }
         repl::run_repl(vm, scope, level)
     });
@@ -463,5 +462,5 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
     let (system, lib_root) = OverlaySystem::new(&cwd_sys);
     let metadata = make_project_metadata(cwd_sys, vec![lib_root]);
 
-    ProjectDatabase::new(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
+    ProjectDatabase::fallible(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
 }

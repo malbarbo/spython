@@ -10,7 +10,6 @@ error[invalid-argument-type]: Argument to function `square` is incorrect
 4 | def make() -> Image:
 5 |     return square(50.0, red)
   |                         ^^^ Expected `Style`, found `Color`
-  |
 info: Function defined here
    --> <lib>/image.py:798:5
     |
@@ -18,6 +17,5 @@ info: Function defined here
     |     ^^^^^^              ------------------ Parameter declared here
 799 |     return rectangle(side, side, *style_args)
     |
-info: rule `invalid-argument-type` is enabled by default
 
 Found 1 error.

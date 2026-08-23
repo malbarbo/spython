@@ -566,7 +566,7 @@ pub fn remap_diagnostics(
 
         let id = diag.id();
         let severity = diag.severity();
-        let old_msg = diag.primary_message().to_string();
+        let old_msg = diag.headline_message().to_string();
         let new_msg = format!("in doctest of {}: {old_msg}", snippet.owner);
         let mut rebuilt = Diagnostic::new(id, severity, new_msg);
         rebuilt.annotate(Annotation::primary(

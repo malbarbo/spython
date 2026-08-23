@@ -177,6 +177,9 @@ export function makeWasi(options: WasiOptions) {
       }
     },
     fd_close: (): number => 0,
+    // Newly imported after the RustPython/ruff update; nothing in the
+    // tests reads a directory or seeks, so refusing is enough.
+    fd_readdir: (): number => WASI_ENOSYS,
     fd_fdstat_get: (fd: number, statPtr: number): number => {
       if (fd !== 0 && fd !== STDOUT && fd !== STDERR) {
         return WASI_EBADF;

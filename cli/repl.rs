@@ -613,9 +613,9 @@ fn is_python_builtin(word: &str) -> bool {
 // ── REPL entry point ────────────────────────────────────────────────
 
 fn repl_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), PyBaseExceptionRef> {
-    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
+    match vm.compile(source, compiler::Mode::Single, "<stdin>") {
         Ok(code) => vm.run_code_obj(code, scope).map(|_| ()),
-        Err(err) => Err(vm.new_syntax_error(&err, Some(source))),
+        Err(err) => Err(err.into_pyexception(vm, Some(source))),
     }
 }
 
