@@ -74,10 +74,18 @@ async function loadWasm(args: string[]): Promise<WasmExports> {
     check_interrupt: (): number => 0,
     draw_svg: (): void => {},
     get_key_event: (): number => 3,
-    text_width: (): number => 10,
-    text_height: (): number => 16,
-    text_x_offset: (): number => 0,
-    text_y_offset: (): number => 0,
+    text_metrics: (
+      _text: number,
+      _textLen: number,
+      _font: number,
+      _fontLen: number,
+      out: number,
+    ): void => {
+      const view = new DataView(exports.memory.buffer);
+      for (const [i, v] of [10, 16, -5, 4].entries()) {
+        view.setFloat64(out + i * 8, v, true);
+      }
+    },
   };
 
   const instance = await WebAssembly.instantiate(module, {

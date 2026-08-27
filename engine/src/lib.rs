@@ -728,39 +728,17 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
             }
         });
 
-    let text_width_fn = vm.new_function(
-        "text_width",
-        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
-            vm.ctx
-                .new_float(wasm_ffi::measure_text_width(&text, &font, size))
-                .into()
-        },
-    );
-
-    let text_height_fn = vm.new_function(
-        "text_height",
-        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
-            vm.ctx
-                .new_float(wasm_ffi::measure_text_height(&text, &font, size))
-                .into()
-        },
-    );
-
-    let text_x_offset_fn = vm.new_function(
-        "text_x_offset",
-        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
-            vm.ctx
-                .new_float(wasm_ffi::measure_text_x_offset(&text, &font, size))
-                .into()
-        },
-    );
-
-    let text_y_offset_fn = vm.new_function(
-        "text_y_offset",
-        |text: String, font: String, size: i32, vm: &vm::VirtualMachine| -> PyObjectRef {
-            vm.ctx
-                .new_float(wasm_ffi::measure_text_y_offset(&text, &font, size))
-                .into()
+    let text_metrics_fn = vm.new_function(
+        "text_metrics",
+        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
+            let (width, height, x_offset, y_offset) = wasm_ffi::measure_text(&text, &font_css);
+            let elements = vec![
+                vm.ctx.new_float(width).into(),
+                vm.ctx.new_float(height).into(),
+                vm.ctx.new_float(x_offset).into(),
+                vm.ctx.new_float(y_offset).into(),
+            ];
+            vm.ctx.new_tuple(elements).into()
         },
     );
 
@@ -783,13 +761,7 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
     dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
     dict.set_item("get_key_event", get_key_event_fn.into(), vm)
         .unwrap();
-    dict.set_item("text_width", text_width_fn.into(), vm)
-        .unwrap();
-    dict.set_item("text_height", text_height_fn.into(), vm)
-        .unwrap();
-    dict.set_item("text_x_offset", text_x_offset_fn.into(), vm)
-        .unwrap();
-    dict.set_item("text_y_offset", text_y_offset_fn.into(), vm)
+    dict.set_item("text_metrics", text_metrics_fn.into(), vm)
         .unwrap();
     dict.set_item("load_bitmap", load_bitmap_fn.into(), vm)
         .unwrap();

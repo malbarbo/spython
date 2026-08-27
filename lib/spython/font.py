@@ -40,6 +40,9 @@ class Font:
         self.underline: bool = underline
 
 
+# The whole css shorthand, size and all, which the host hands to the canvas as
+# it comes. Css fixes this order, and a size in front of the weight turns the
+# rest into a family name.
 def _to_css(font: Font) -> str:
     s: str = ""
     if font.style == FontStyle.ITALIC:
@@ -51,4 +54,11 @@ def _to_css(font: Font) -> str:
         w = "bold "
     elif font.weight == FontWeight.LIGHT:
         w = "lighter "
-    return s + w + font.family
+    return s + w + _f(font.size) + "px " + font.family
+
+
+def _f(v: float) -> str:
+    r: str = f"{v:.6f}".rstrip("0").rstrip(".")
+    if r == "-0":
+        return "0"
+    return r
