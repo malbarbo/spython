@@ -1,4 +1,8 @@
-import { assertEquals, assertMatch } from "jsr:@std/assert";
+import {
+  assertEquals,
+  assertMatch,
+  assertStringIncludes,
+} from "jsr:@std/assert";
 import { makeWasi } from "./wasi.ts";
 
 // --- WASM exports interface ---
@@ -192,6 +196,7 @@ function destroy(ctx: ReplContext): void {
 
 const REPL_OK = 0;
 const REPL_ERROR = 1;
+const REPL_QUIT = 2;
 
 // --- Tests ---
 
@@ -332,6 +337,31 @@ Deno.test(":type command returns type", async () => {
   const r = run(ctx, ":type x");
   assertEquals(r.result, REPL_OK);
   assertEquals(r.stdout.trim(), "int");
+  destroy(ctx);
+});
+
+Deno.test(":help lists the commands, on the page too", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  const r = run(ctx, ":help");
+  assertEquals(r.result, REPL_OK);
+  assertStringIncludes(r.stdout, ":type <expression>");
+  assertStringIncludes(r.stdout, ":quit");
+  // :level and :theme are the terminal's, and are not registered here.
+  assertEquals(r.stdout.includes(":theme"), false);
+  destroy(ctx);
+});
+
+Deno.test(":quit asks the page to end the session", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  assertEquals(run(ctx, ":quit").result, REPL_QUIT);
+  destroy(ctx);
+});
+
+Deno.test("an unknown command is refused, not run as Python", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  const r = run(ctx, ":nope");
+  assertEquals(r.result, REPL_ERROR);
+  assertStringIncludes(r.stderr, "Unknown command :nope");
   destroy(ctx);
 });
 

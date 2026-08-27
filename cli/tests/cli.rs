@@ -2311,6 +2311,23 @@ fn repl_time_command_evaluates_and_shows_elapsed() {
 }
 
 #[test]
+fn repl_help_lists_the_commands_of_both_the_engine_and_the_terminal() {
+    let (out, _, success) = run_repl(":help\n");
+    assert!(success);
+    for command in [":help", ":quit", ":type", ":time", ":level", ":theme"] {
+        assert!(out.contains(command), "{command} missing from :help: {out}");
+    }
+}
+
+#[test]
+fn repl_unknown_command_is_refused() {
+    let (_, err, success) = run_repl(":nope\n");
+    assert!(success);
+    assert!(err.contains("Unknown command :nope"), "stderr: {err}");
+    assert!(!err.contains("invalid-syntax"), "stderr: {err}");
+}
+
+#[test]
 fn repl_time_command_without_expression_shows_usage() {
     let (_, err, success) = run_repl(":time\n");
     assert!(success);

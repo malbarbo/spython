@@ -31,29 +31,6 @@ impl rustyline::Prompt for ReplPrompt {
     }
 }
 
-/// The commands the prompt answers. The ones that take an argument carry the
-/// space that opens it.
-const REPL_COMMANDS: &[&str] = &[":help", ":level ", ":quit", ":theme ", ":time ", ":type "];
-
-/// Complete REPL commands when the current line starts with `:` and has no
-/// arguments yet. Returns `(startpos, candidates)` or `None` if not applicable.
-fn complete_repl_command(line: &str, pos: usize) -> Option<(usize, Vec<String>)> {
-    let before = line.get(..pos)?;
-    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
-    let current_line = &before[line_start..];
-    let leading_ws = current_line.len() - current_line.trim_start().len();
-    let prefix = &current_line[leading_ws..];
-    if !prefix.starts_with(':') || prefix.contains(char::is_whitespace) {
-        return None;
-    }
-    let candidates = REPL_COMMANDS
-        .iter()
-        .filter(|c| c.starts_with(prefix))
-        .map(|c| (*c).to_owned())
-        .collect();
-    Some((line_start + leading_ws, candidates))
-}
-
 // ── Smart keys (auto-indent / smart backspace) ──────────────────────
 
 struct SmartKeys;
@@ -131,6 +108,8 @@ impl rustyline::ConditionalEventHandler for SmartKeys {
 struct ReplHelper<'vm> {
     vm: &'vm VirtualMachine,
     globals: PyDictRef,
+    /// The session's commands, each with the space that opens what it takes.
+    commands: Vec<String>,
     /// The unfinished input the editor is still reading for. Ctrl-C abandons
     /// it; an input that runs out is run anyway, so the user is shown what is
     /// wrong with it instead of nothing at all.
@@ -138,10 +117,11 @@ struct ReplHelper<'vm> {
 }
 
 impl<'vm> ReplHelper<'vm> {
-    fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+    fn new(vm: &'vm VirtualMachine, globals: PyDictRef, commands: Vec<String>) -> Self {
         ReplHelper {
             vm,
             globals,
+            commands,
             pending: RefCell::new(String::new()),
         }
     }
@@ -156,10 +136,7 @@ impl Completer for ReplHelper<'_> {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
-        if let Some((startpos, candidates)) = complete_repl_command(line, pos) {
-            return Ok((startpos, candidates));
-        }
-        match completion::tab_action(self.vm, &self.globals, line, pos) {
+        match completion::tab_action(self.vm, &self.globals, line, pos, &self.commands) {
             TabAction::Indent(spaces) => Ok((pos, vec![spaces])),
             TabAction::Complete(startpos, candidates) => Ok((startpos, candidates)),
             TabAction::Nothing => Ok((pos, vec![])),
@@ -176,7 +153,7 @@ impl Highlighter for ReplHelper<'_> {
         if line.is_empty() {
             return std::borrow::Cow::Borrowed(line);
         }
-        std::borrow::Cow::Owned(highlight_python(line))
+        std::borrow::Cow::Owned(highlight_python(line, &self.commands))
     }
 
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
@@ -281,7 +258,7 @@ fn current_theme_name() -> &'static str {
     }
 }
 
-fn highlight_python(line: &str) -> String {
+fn highlight_python(line: &str, commands: &[String]) -> String {
     let t = current_theme();
     let b = line.as_bytes();
     let len = b.len();
@@ -289,8 +266,10 @@ fn highlight_python(line: &str) -> String {
     let mut i = 0;
 
     // REPL commands: color the command keyword, highlight the argument normally.
+    // The names come with the space that opens what they take, which is not
+    // part of the name itself.
     let trimmed = line.trim();
-    for cmd in REPL_COMMANDS {
+    for cmd in commands.iter().map(|c| c.trim_end()) {
         if trimmed
             .strip_prefix(cmd)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
@@ -302,7 +281,7 @@ fn highlight_python(line: &str) -> String {
             out.push_str(RESET);
             let rest = &line[cmd_start + cmd.len()..];
             if !rest.is_empty() {
-                out.push_str(&highlight_python(rest));
+                out.push_str(&highlight_python(rest, commands));
             }
             return out;
         }
@@ -596,7 +575,63 @@ fn is_python_builtin(word: &str) -> bool {
 
 // ── REPL entry point ────────────────────────────────────────────────
 
+/// The commands only a terminal has. The session checks and completes them
+/// like its own, and hands them back for `run_repl` to answer.
+const LEVEL: &str = ":level";
+const THEME: &str = ":theme";
+
+/// `:level` on its own says which level the REPL is on; with a number it moves
+/// to that level, which everything that has already run has to survive.
+fn level_command(session: &mut ReplSession, arg: &str) {
+    if arg.is_empty() {
+        println!("level {}", session.level());
+        return;
+    }
+    let Some(new_level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
+        eprintln!("Invalid level: must be 0-5");
+        return;
+    };
+    // Re-check accumulated source at the new level.
+    if !session.accumulated_source().is_empty()
+        && !engine::type_check_repl_input(
+            "",
+            session.accumulated_source(),
+            new_level,
+            std::io::stderr().is_terminal(),
+        )
+    {
+        eprintln!(
+            "Cannot change to level {new_level}: \
+             accumulated source has errors at that level."
+        );
+        return;
+    }
+    session.set_level(new_level);
+    println!("level {new_level}");
+    crate::config::save(new_level, current_theme_name());
+}
+
+/// `:theme` on its own says which theme is on; with a name it switches to it.
+fn theme_command(session: &ReplSession, arg: &str) {
+    match arg {
+        "" => println!("{}", current_theme_name()),
+        "light" | "dark" => {
+            set_theme(arg == "light");
+            println!("{arg}");
+            crate::config::save(session.level(), arg);
+        }
+        _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
+    }
+}
+
 pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) -> PyResult<()> {
+    session.add(
+        LEVEL,
+        Some("[n]"),
+        "Show or change the teaching level (0-5)",
+    );
+    session.add(THEME, Some("[name]"), "Show or change theme (light, dark)");
+
     let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
             path.push("spython");
@@ -617,7 +652,11 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) ->
         )
         .expect("failed to initialize line editor");
 
-        repl.set_helper(Some(ReplHelper::new(vm, scope.globals.clone())));
+        repl.set_helper(Some(ReplHelper::new(
+            vm,
+            scope.globals.clone(),
+            session.command_completions(),
+        )));
         repl.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
         let _ = repl.load_history(&repl_history_path);
 
@@ -660,84 +699,17 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) ->
                 }
             };
             let _ = repl.add_history_entry(line.trim_end());
-            let trimmed = line.trim();
 
-            // REPL commands the terminal answers by itself. The rest --
-            // :type and :time -- are the engine's, and the page has them too.
-            if trimmed == ":help" {
-                println!(
-                    ":type <expr>    Show the type of an expression\n\
-                     :time <expr>    Evaluate and show execution time\n\
-                     :level [n]      Show or change the teaching level (0-5)\n\
-                     :theme [name]   Show or change theme (light, dark)\n\
-                     :quit           Exit the REPL"
-                );
-                continue;
-            }
-            if trimmed == ":quit" {
-                break;
-            }
-            if trimmed == ":level" {
-                println!("level {}", session.level());
-                continue;
-            }
-            if let Some(n) = trimmed.strip_prefix(":level ") {
-                match n.trim().parse::<u8>().ok().and_then(Level::from_u8) {
-                    Some(new_level) => {
-                        // Re-check accumulated source at the new level.
-                        if !session.accumulated_source().is_empty()
-                            && !engine::type_check_repl_input(
-                                "",
-                                session.accumulated_source(),
-                                new_level,
-                                std::io::stderr().is_terminal(),
-                            )
-                        {
-                            eprintln!(
-                                "Cannot change to level {new_level}: \
-                                 accumulated source has errors at that level."
-                            );
-                        } else {
-                            session.set_level(new_level);
-                            println!("level {new_level}");
-                            crate::config::save(new_level, current_theme_name());
-                        }
-                    }
-                    None => {
-                        eprintln!("Invalid level: must be 0-5");
-                    }
+            match session.run(vm, scope.clone(), &line) {
+                ReplOutcome::Quit(None) => break,
+                ReplOutcome::Quit(Some(exc)) => {
+                    let _ = repl.save_history(&repl_history_path);
+                    return Err(exc);
                 }
-                continue;
-            }
-            if trimmed == ":theme" {
-                let name = if USE_LIGHT_THEME.load(Ordering::Relaxed) {
-                    "light"
-                } else {
-                    "dark"
-                };
-                println!("{name}");
-                continue;
-            }
-            if let Some(name) = trimmed.strip_prefix(":theme ") {
-                match name.trim() {
-                    "light" => {
-                        set_theme(true);
-                        println!("light");
-                        crate::config::save(session.level(), "light");
-                    }
-                    "dark" => {
-                        set_theme(false);
-                        println!("dark");
-                        crate::config::save(session.level(), "dark");
-                    }
-                    _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
-                }
-                continue;
-            }
-
-            if let ReplOutcome::Quit(exc) = session.run(vm, scope.clone(), &line) {
-                let _ = repl.save_history(&repl_history_path);
-                return Err(exc);
+                ReplOutcome::Host(LEVEL, arg) => level_command(session, &arg),
+                ReplOutcome::Host(THEME, arg) => theme_command(session, &arg),
+                ReplOutcome::Host(name, _) => unreachable!("no one answers {name}"),
+                ReplOutcome::Ok | ReplOutcome::Error => {}
             }
         }
         let _ = repl.save_history(&repl_history_path);
@@ -749,42 +721,6 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn complete_repl_command_colon_alone_lists_all() {
-        let (start, candidates) = complete_repl_command(":", 1).unwrap();
-        assert_eq!(start, 0);
-        assert_eq!(candidates.len(), REPL_COMMANDS.len());
-        for cmd in REPL_COMMANDS {
-            assert!(candidates.iter().any(|c| c == *cmd));
-        }
-    }
-
-    #[test]
-    fn complete_repl_command_prefix_filters() {
-        let (start, candidates) = complete_repl_command(":t", 2).unwrap();
-        assert_eq!(start, 0);
-        assert_eq!(candidates, vec![":theme ", ":time ", ":type "]);
-    }
-
-    #[test]
-    fn complete_repl_command_with_leading_whitespace() {
-        let (start, candidates) = complete_repl_command("  :h", 4).unwrap();
-        assert_eq!(start, 2);
-        assert_eq!(candidates, vec![":help"]);
-    }
-
-    #[test]
-    fn complete_repl_command_after_space_is_skipped() {
-        assert!(complete_repl_command(":help ", 6).is_none());
-        assert!(complete_repl_command(":type pri", 9).is_none());
-    }
-
-    #[test]
-    fn complete_repl_command_non_colon_is_skipped() {
-        assert!(complete_repl_command("pri", 3).is_none());
-        assert!(complete_repl_command("", 0).is_none());
-    }
 
     #[test]
     fn enter_at_the_end_of_the_input_runs_it_or_reads_on() {

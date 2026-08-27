@@ -13,6 +13,87 @@ use rustpython::vm::AsObject;
 #[cfg(test)]
 use std::sync::atomic::Ordering;
 
+/// A `:` command the REPL answers.
+struct Command {
+    name: &'static str,
+    arg: Arg,
+    help: &'static str,
+    action: Action,
+}
+
+/// What a command takes after its name.
+#[derive(Clone, Copy)]
+enum Arg {
+    /// Nothing.
+    None,
+    /// Python, which is also what says whether the input is finished, so
+    /// `:time [1,` waits for the rest of the list.
+    Expr,
+    /// An optional word, which the help shows exactly as it stands here.
+    Word(&'static str),
+}
+
+/// Who answers a command: the REPL itself, or the frontend that registered it.
+#[derive(Clone, Copy)]
+enum Action {
+    Builtin(Builtin),
+    Host,
+}
+
+#[derive(Clone, Copy)]
+enum Builtin {
+    Help,
+    Quit,
+    Type,
+    Time,
+}
+
+/// The commands every frontend has. A terminal adds its own with
+/// [`ReplSession::add`].
+const BUILTINS: &[(&str, Arg, &str, Builtin)] = &[
+    (":help", Arg::None, "Show this help", Builtin::Help),
+    (":quit", Arg::None, "Exit the REPL", Builtin::Quit),
+    (
+        ":type",
+        Arg::Expr,
+        "Show the type of an expression",
+        Builtin::Type,
+    ),
+    (
+        ":time",
+        Arg::Expr,
+        "Evaluate and show execution time",
+        Builtin::Time,
+    ),
+];
+
+impl Command {
+    fn usage(&self) -> String {
+        usage(self.name, self.arg)
+    }
+}
+
+/// How the help and the usage errors write a command.
+fn usage(name: &str, arg: Arg) -> String {
+    match arg {
+        Arg::None => name.to_owned(),
+        Arg::Expr => format!("{name} <expression>"),
+        Arg::Word(word) => format!("{name} {word}"),
+    }
+}
+
+/// The name of the command at the head of the input and what follows it, or
+/// none for Python, which never starts with `:`.
+fn split(input: &str) -> Option<(&str, &str)> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with(':') {
+        return None;
+    }
+    let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+    let (name, arg) = trimmed.split_at(end);
+    Some((name, arg.trim_start()))
+}
+
 /// The REPL state that does not need the interpreter: what has run so far,
 /// the level it is checked at, and whether its errors are coloured.
 ///
@@ -26,6 +107,8 @@ pub struct ReplSession {
     /// Whether diagnostics carry ANSI colour. True on the page, which renders
     /// the codes; a terminal only wants them when stderr is one.
     use_color: bool,
+    /// The `:` commands, the builtins plus whatever the frontend added.
+    commands: Vec<Command>,
 }
 
 /// What running one input did.
@@ -34,9 +117,12 @@ pub enum ReplOutcome {
     Ok,
     /// The input did not type-check, or it raised.
     Error,
-    /// The input called `exit()` or `quit()`. The exception says with which
-    /// status the process should leave.
-    Quit(vm::builtins::PyBaseExceptionRef),
+    /// The session is over: `:quit`, or `exit()` / `quit()`, which raise a
+    /// SystemExit saying with which status the process should leave.
+    Quit(Option<vm::builtins::PyBaseExceptionRef>),
+    /// A command the frontend registered, and what followed its name. Only
+    /// the frontend knows what to do with it.
+    Host(&'static str, String),
 }
 
 impl ReplSession {
@@ -46,7 +132,45 @@ impl ReplSession {
             accumulated_source,
             level,
             use_color,
+            commands: BUILTINS
+                .iter()
+                .map(|&(name, arg, help, builtin)| Command {
+                    name,
+                    arg,
+                    help,
+                    action: Action::Builtin(builtin),
+                })
+                .collect(),
         }
+    }
+
+    /// Declare a command of the frontend's own. `word` is what the help shows
+    /// after the name, for one that takes a word. The session checks it and
+    /// completes it like any other, and hands it back as
+    /// [`ReplOutcome::Host`] for the frontend to answer.
+    pub fn add(&mut self, name: &'static str, word: Option<&'static str>, help: &'static str) {
+        debug_assert!(self.commands.iter().all(|c| c.name != name));
+        self.commands.push(Command {
+            name,
+            arg: word.map_or(Arg::None, Arg::Word),
+            help,
+            action: Action::Host,
+        });
+    }
+
+    /// The commands, each with the space that opens what it takes. What the
+    /// page and the terminal offer when the line so far is a colon.
+    pub fn command_completions(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .commands
+            .iter()
+            .map(|c| match c.arg {
+                Arg::None => c.name.to_owned(),
+                Arg::Expr | Arg::Word(_) => format!("{} ", c.name),
+            })
+            .collect();
+        names.sort();
+        names
     }
 
     /// The accumulated source of all successfully type-checked and executed inputs.
@@ -72,44 +196,71 @@ impl ReplSession {
         self.accumulated_source.push_str(source);
     }
 
-    /// Execute one REPL expression, statement or command in `scope`.
+    /// Execute one REPL input in `scope`: a command, or Python.
     ///
-    /// The input is type-checked against everything that ran before it, and
-    /// only joins the accumulated source once it has run.
+    /// Python is type-checked against everything that ran before it, and only
+    /// joins the accumulated source once it has run.
     pub fn run(
         &mut self,
         vm: &vm::VirtualMachine,
         scope: vm::scope::Scope,
         code: &str,
     ) -> ReplOutcome {
-        let trimmed = code.trim();
-        if let Some(expr) = trimmed.strip_prefix(":type ") {
-            match infer_expression_type(&self.accumulated_source, expr) {
-                Some(ty) => println!("{ty}"),
-                None => eprintln!("Could not infer type"),
+        let Some((name, arg)) = split(code) else {
+            return self.eval(vm, scope, code, false);
+        };
+        // Copied out of the table so the command can be answered with the
+        // session, which the table lives in, borrowed again.
+        let Some((command_name, command_arg, action)) = self
+            .commands
+            .iter()
+            .find(|c| c.name == name)
+            .map(|c| (c.name, c.arg, c.action))
+        else {
+            eprintln!("Unknown command {name}. Type :help to see the commands.");
+            return ReplOutcome::Error;
+        };
+        match (command_arg, arg.is_empty()) {
+            (Arg::None, false) | (Arg::Expr, true) => {
+                eprintln!("Usage: {}", usage(command_name, command_arg));
+                return ReplOutcome::Error;
             }
-            return ReplOutcome::Ok;
+            _ => {}
         }
-        if trimmed == ":type" {
-            eprintln!("Usage: :type <expression>");
-            return ReplOutcome::Ok;
+        match action {
+            Action::Host => ReplOutcome::Host(command_name, arg.to_owned()),
+            Action::Builtin(Builtin::Help) => {
+                self.print_help();
+                ReplOutcome::Ok
+            }
+            Action::Builtin(Builtin::Quit) => ReplOutcome::Quit(None),
+            Action::Builtin(Builtin::Type) => {
+                match infer_expression_type(&self.accumulated_source, arg) {
+                    Some(ty) => println!("{ty}"),
+                    None => eprintln!("Could not infer type"),
+                }
+                ReplOutcome::Ok
+            }
+            Action::Builtin(Builtin::Time) => {
+                let expr = arg.to_owned();
+                self.eval(vm, scope, &expr, true)
+            }
         }
-        if trimmed == ":time" {
-            eprintln!("Usage: :time <expression>");
-            return ReplOutcome::Ok;
-        }
+    }
 
-        let (code, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
-            if expr.trim().is_empty() {
-                eprintln!("Usage: :time <expression>");
-                return ReplOutcome::Ok;
-            }
-            (format!("{expr}\n"), true)
-        } else if code.ends_with('\n') {
-            (code.to_owned(), false)
+    /// Type-check, run and remember one piece of Python.
+    fn eval(
+        &mut self,
+        vm: &vm::VirtualMachine,
+        scope: vm::scope::Scope,
+        code: &str,
+        timed: bool,
+    ) -> ReplOutcome {
+        // `Mode::Single` wants the line the input ends on to be closed.
+        let code = if code.ends_with('\n') {
+            code.to_owned()
         } else {
-            // `Mode::Single` wants the line the input ends on to be closed.
-            (format!("{code}\n"), false)
+            format!("{code}\n")
         };
 
         if !type_check_repl_input(&self.accumulated_source, &code, self.level, self.use_color) {
@@ -125,7 +276,7 @@ impl ReplSession {
             Ok(_) => ReplOutcome::Ok,
             Err(exc) => {
                 if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                    ReplOutcome::Quit(exc)
+                    ReplOutcome::Quit(Some(exc))
                 } else {
                     vm.print_exception(exc);
                     ReplOutcome::Error
@@ -141,6 +292,20 @@ impl ReplSession {
         }
 
         outcome
+    }
+
+    /// The commands, as the table has them.
+    fn print_help(&self) {
+        let width = self
+            .commands
+            .iter()
+            .map(|c| c.usage().len())
+            .max()
+            .unwrap_or(0);
+        println!("Commands:");
+        for c in &self.commands {
+            println!("  {:<width$}  {}", c.usage(), c.help);
+        }
     }
 }
 
@@ -167,6 +332,15 @@ impl ReplState {
             .as_ref()
             .expect("interpreter is live")
             .enter(|vm| f(vm, globals))
+    }
+
+    /// What the Tab key should do at `cursor_pos`, over this session's names
+    /// and its commands.
+    pub fn tab_action(&self, text: &str, cursor_pos: usize) -> crate::completion::TabAction {
+        let commands = self.session.command_completions();
+        self.with_vm(|vm, globals| {
+            crate::completion::tab_action(vm, globals, text, cursor_pos, &commands)
+        })
     }
 }
 
@@ -267,7 +441,8 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
     let session = &mut state.session;
     match interp.enter(|vm| session.run(vm, scope, code)) {
         ReplOutcome::Ok => REPL_OK,
-        ReplOutcome::Error => REPL_ERROR,
+        // The page registers no commands of its own, so `Host` cannot happen.
+        ReplOutcome::Error | ReplOutcome::Host(..) => REPL_ERROR,
         ReplOutcome::Quit(_) => REPL_QUIT,
     }
 }

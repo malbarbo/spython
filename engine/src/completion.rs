@@ -23,10 +23,6 @@ pub const PYTHON_KEYWORDS_OPEN: &[&str] = &[
     "with",
 ];
 
-/// The commands the engine answers, each with the space that opens the
-/// expression it takes.
-const COMMANDS: &[&str] = &[":time ", ":type "];
-
 /// Result of pressing Tab in the REPL.
 pub enum TabAction {
     /// Insert indentation spaces.
@@ -45,6 +41,7 @@ pub fn tab_action(
     globals: &PyDictRef,
     text: &str,
     cursor_pos: usize,
+    commands: &[String],
 ) -> TabAction {
     let before = &text[..cursor_pos];
     let current_line_start = before.rfind('\n').map_or(0, |i| i + 1);
@@ -63,7 +60,7 @@ pub fn tab_action(
         };
     }
 
-    if let Some(candidates) = complete_command(current_line) {
+    if let Some(candidates) = complete_command(current_line, commands) {
         let indent = current_line.len() - current_line.trim_start().len();
         return TabAction::Complete(current_line_start + indent, candidates);
     }
@@ -76,16 +73,16 @@ pub fn tab_action(
 
 /// The commands a line starting with a colon can still become. `None` where a
 /// command cannot go, and once one is typed and what it takes is being written.
-fn complete_command(line: &str) -> Option<Vec<String>> {
+fn complete_command(line: &str, commands: &[String]) -> Option<Vec<String>> {
     let prefix = line.trim_start();
     if !prefix.starts_with(':') || prefix.contains(char::is_whitespace) {
         return None;
     }
     Some(
-        COMMANDS
+        commands
             .iter()
             .filter(|c| c.starts_with(prefix))
-            .map(|c| (*c).to_owned())
+            .cloned()
             .collect(),
     )
 }
@@ -238,6 +235,13 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
 mod tests {
     use super::*;
 
+    /// The commands as a session hands them over, so the tests complete the
+    /// same list the frontends do.
+    fn commands() -> Vec<String> {
+        crate::repl::ReplSession::new(String::new(), crate::Level::Full, false)
+            .command_completions()
+    }
+
     fn with_vm(f: impl FnOnce(&VirtualMachine, &PyDictRef)) {
         let interp = crate::new_interpreter();
         interp.enter(|vm| {
@@ -317,7 +321,7 @@ mod tests {
     #[test]
     fn tab_action_empty_line_completes() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "", 0);
+            let action = tab_action(vm, globals, "", 0, &commands());
             assert!(
                 matches!(action, TabAction::Complete(0, ref c) if c.contains(&"print".to_owned()))
             );
@@ -327,7 +331,7 @@ mod tests {
     #[test]
     fn tab_action_multiline_under_indented_indents() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "def f():\n", 9);
+            let action = tab_action(vm, globals, "def f():\n", 9, &commands());
             assert!(matches!(action, TabAction::Indent(ref s) if s == "    "));
         });
     }
@@ -335,7 +339,7 @@ mod tests {
     #[test]
     fn tab_action_multiline_partially_indented() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "def f():\n  ", 11);
+            let action = tab_action(vm, globals, "def f():\n  ", 11, &commands());
             assert!(matches!(action, TabAction::Indent(ref s) if s == "  "));
         });
     }
@@ -343,7 +347,7 @@ mod tests {
     #[test]
     fn tab_action_multiline_correctly_indented_completes() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "def f():\n    ", 13);
+            let action = tab_action(vm, globals, "def f():\n    ", 13, &commands());
             assert!(
                 matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
             );
@@ -353,7 +357,7 @@ mod tests {
     #[test]
     fn tab_action_continuation_under_indented_indents() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "def f():\n    x = 1\n", 19);
+            let action = tab_action(vm, globals, "def f():\n    x = 1\n", 19, &commands());
             assert!(matches!(action, TabAction::Indent(ref s) if s == "    "));
         });
     }
@@ -361,7 +365,7 @@ mod tests {
     #[test]
     fn tab_action_continuation_correctly_indented_completes() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "def f():\n    x = 1\n    ", 23);
+            let action = tab_action(vm, globals, "def f():\n    x = 1\n    ", 23, &commands());
             assert!(
                 matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
             );
@@ -371,7 +375,7 @@ mod tests {
     #[test]
     fn tab_action_completes_a_command() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, ":ti", 3);
+            let action = tab_action(vm, globals, ":ti", 3, &commands());
             assert!(matches!(action, TabAction::Complete(0, ref c) if c == &[":time "]));
         });
     }
@@ -381,15 +385,31 @@ mod tests {
         with_vm(|vm, globals| {
             // `type` is a builtin, and after a colon it is not what is being
             // asked for.
-            let action = tab_action(vm, globals, ":ty", 3);
+            let action = tab_action(vm, globals, ":ty", 3, &commands());
             assert!(matches!(action, TabAction::Complete(0, ref c) if c == &[":type "]));
+        });
+    }
+
+    #[test]
+    fn tab_action_lists_every_command_after_a_bare_colon() {
+        with_vm(|vm, globals| {
+            let action = tab_action(vm, globals, ":", 1, &commands());
+            assert!(matches!(action, TabAction::Complete(0, ref c) if *c == commands()));
+        });
+    }
+
+    #[test]
+    fn tab_action_completes_a_command_that_is_indented() {
+        with_vm(|vm, globals| {
+            let action = tab_action(vm, globals, "  :h", 4, &commands());
+            assert!(matches!(action, TabAction::Complete(2, ref c) if c == &[":help"]));
         });
     }
 
     #[test]
     fn tab_action_completes_what_a_command_takes() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, ":type pri", 9);
+            let action = tab_action(vm, globals, ":type pri", 9, &commands());
             assert!(
                 matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
             );
@@ -399,7 +419,7 @@ mod tests {
     #[test]
     fn tab_action_single_line_whitespace_completes() {
         with_vm(|vm, globals| {
-            let action = tab_action(vm, globals, "    ", 4);
+            let action = tab_action(vm, globals, "    ", 4, &commands());
             assert!(
                 matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
             );

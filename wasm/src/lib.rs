@@ -173,8 +173,7 @@ pub unsafe extern "C" fn repl_complete(
     let state = unsafe { &*repl };
     let text = new_string(text_ptr, text_len);
 
-    let result =
-        state.with_vm(|vm, globals| engine::completion::tab_action(vm, globals, &text, cursor_pos));
+    let result = state.tab_action(&text, cursor_pos);
 
     let output = match result {
         engine::completion::TabAction::Indent(spaces) => format!("i {spaces}"),
