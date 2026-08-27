@@ -13,15 +13,147 @@ use rustpython::vm::AsObject;
 #[cfg(test)]
 use std::sync::atomic::Ordering;
 
+/// The REPL state that does not need the interpreter: what has run so far,
+/// the level it is checked at, and whether its errors are coloured.
+///
+/// A frontend that already owns a VM -- the CLI, whose line editor borrows it
+/// -- keeps one of these and calls [`ReplSession::run`] for every input.
+pub struct ReplSession {
+    /// Accumulated source of all successfully type-checked and executed inputs.
+    accumulated_source: String,
+    /// Teaching level for annotation/construct checking.
+    level: Level,
+    /// Whether diagnostics carry ANSI colour. True on the page, which renders
+    /// the codes; a terminal only wants them when stderr is one.
+    use_color: bool,
+}
+
+/// What running one input did.
+pub enum ReplOutcome {
+    /// The input ran.
+    Ok,
+    /// The input did not type-check, or it raised.
+    Error,
+    /// The input called `exit()` or `quit()`. The exception says with which
+    /// status the process should leave.
+    Quit(vm::builtins::PyBaseExceptionRef),
+}
+
+impl ReplSession {
+    /// A session that starts as if `accumulated_source` had already run.
+    pub fn new(accumulated_source: String, level: Level, use_color: bool) -> Self {
+        ReplSession {
+            accumulated_source,
+            level,
+            use_color,
+        }
+    }
+
+    /// The accumulated source of all successfully type-checked and executed inputs.
+    pub fn accumulated_source(&self) -> &str {
+        &self.accumulated_source
+    }
+
+    /// The teaching level.
+    pub fn level(&self) -> Level {
+        self.level
+    }
+
+    /// Check the inputs that follow at `level`.
+    pub fn set_level(&mut self, level: Level) {
+        self.level = level;
+    }
+
+    /// Append successfully executed source to the accumulator.
+    fn append_source(&mut self, source: &str) {
+        if !self.accumulated_source.is_empty() {
+            self.accumulated_source.push('\n');
+        }
+        self.accumulated_source.push_str(source);
+    }
+
+    /// Execute one REPL expression, statement or command in `scope`.
+    ///
+    /// The input is type-checked against everything that ran before it, and
+    /// only joins the accumulated source once it has run.
+    pub fn run(
+        &mut self,
+        vm: &vm::VirtualMachine,
+        scope: vm::scope::Scope,
+        code: &str,
+    ) -> ReplOutcome {
+        let trimmed = code.trim();
+        if let Some(expr) = trimmed.strip_prefix(":type ") {
+            match infer_expression_type(&self.accumulated_source, expr) {
+                Some(ty) => println!("{ty}"),
+                None => eprintln!("Could not infer type"),
+            }
+            return ReplOutcome::Ok;
+        }
+        if trimmed == ":type" {
+            eprintln!("Usage: :type <expression>");
+            return ReplOutcome::Ok;
+        }
+        if trimmed == ":time" {
+            eprintln!("Usage: :time <expression>");
+            return ReplOutcome::Ok;
+        }
+
+        let (code, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
+            if expr.trim().is_empty() {
+                eprintln!("Usage: :time <expression>");
+                return ReplOutcome::Ok;
+            }
+            (format!("{expr}\n"), true)
+        } else if code.ends_with('\n') {
+            (code.to_owned(), false)
+        } else {
+            // `Mode::Single` wants the line the input ends on to be closed.
+            (format!("{code}\n"), false)
+        };
+
+        if !type_check_repl_input(&self.accumulated_source, &code, self.level, self.use_color) {
+            return ReplOutcome::Error;
+        }
+
+        let start = timed.then(std::time::Instant::now);
+        let outcome = match vm
+            .compile(&code, vm::compiler::Mode::Single, "<stdin>")
+            .map_err(|err| err.into_pyexception(vm, Some(&code)))
+            .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
+        {
+            Ok(_) => ReplOutcome::Ok,
+            Err(exc) => {
+                if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                    ReplOutcome::Quit(exc)
+                } else {
+                    vm.print_exception(exc);
+                    ReplOutcome::Error
+                }
+            }
+        };
+
+        if matches!(outcome, ReplOutcome::Ok) {
+            self.append_source(&code);
+            if let Some(start) = start {
+                println!("Time: {}", format_elapsed(start.elapsed()));
+            }
+        }
+
+        outcome
+    }
+}
+
+/// A REPL session and the interpreter it runs in.
+///
+/// The page has no VM of its own, so this owns one and hands the session an
+/// input at a time through [`repl_run`].
 pub struct ReplState {
     // `scope` is wrapped in `Option` so the `Drop` impl can take it and
     // drop it inside the VM context (see below).
     scope: Option<vm::scope::Scope>,
     interp: Option<vm::Interpreter>,
-    /// Accumulated source of all successfully type-checked and executed inputs.
-    accumulated_source: String,
-    /// Teaching level for annotation/construct checking.
-    level: Level,
+    session: ReplSession,
 }
 
 impl ReplState {
@@ -35,37 +167,6 @@ impl ReplState {
             .as_ref()
             .expect("interpreter is live")
             .enter(|vm| f(vm, globals))
-    }
-
-    /// The accumulated source of all successfully type-checked and executed inputs.
-    pub fn accumulated_source(&self) -> &str {
-        &self.accumulated_source
-    }
-
-    /// The teaching level.
-    pub fn level(&self) -> Level {
-        self.level
-    }
-
-    /// Append successfully executed source to the accumulator.
-    pub fn append_source(&mut self, source: &str) {
-        if !self.accumulated_source.is_empty() {
-            self.accumulated_source.push('\n');
-        }
-        self.accumulated_source.push_str(source);
-    }
-
-    /// Run the REPL loop inside the VM context.
-    ///
-    /// The closure receives the VM and the scope. This is needed by the CLI
-    /// REPL to create the rustyline `Editor` with a `ReplHelper` that borrows
-    /// the VM.
-    pub fn enter<R>(&self, f: impl FnOnce(&vm::VirtualMachine, vm::scope::Scope) -> R) -> R {
-        let scope = self.scope.as_ref().expect("scope is live").clone();
-        self.interp
-            .as_ref()
-            .expect("interpreter is live")
-            .enter(|vm| f(vm, scope))
     }
 }
 
@@ -132,8 +233,8 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
     Box::new(ReplState {
         scope: Some(scope),
         interp: Some(interp),
-        accumulated_source,
-        level,
+        // The page renders the ANSI codes, so its diagnostics keep them.
+        session: ReplSession::new(accumulated_source, level, true),
     })
 }
 
@@ -154,76 +255,21 @@ fn format_elapsed(elapsed: std::time::Duration) -> String {
     }
 }
 
-/// Execute one REPL expression/statement in the session's scope.
+/// Execute one REPL input in the page's session.
 ///
 /// Returns `REPL_OK` on success, `REPL_ERROR` on type/runtime error, or
 /// `REPL_QUIT` if the user called `exit()` / `quit()` (SystemExit raised).
 pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
-    // Handle :type / :time commands (works in both CLI and WASM).
-    let trimmed = code.trim();
-    if let Some(expr) = trimmed.strip_prefix(":type ") {
-        match infer_expression_type(&state.accumulated_source, expr) {
-            Some(ty) => println!("{ty}"),
-            None => eprintln!("Could not infer type"),
-        }
-        return REPL_OK;
+    // Borrowing the fields apart lets the session be mutable while the
+    // interpreter it runs in is only read.
+    let interp = state.interp.as_ref().expect("interpreter is live");
+    let scope = state.scope.as_ref().expect("scope is live").clone();
+    let session = &mut state.session;
+    match interp.enter(|vm| session.run(vm, scope, code)) {
+        ReplOutcome::Ok => REPL_OK,
+        ReplOutcome::Error => REPL_ERROR,
+        ReplOutcome::Quit(_) => REPL_QUIT,
     }
-    if trimmed == ":type" {
-        eprintln!("Usage: :type <expression>");
-        return REPL_OK;
-    }
-
-    if trimmed == ":time" {
-        eprintln!("Usage: :time <expression>");
-        return REPL_OK;
-    }
-
-    let (code, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
-        if expr.trim().is_empty() {
-            eprintln!("Usage: :time <expression>");
-            return REPL_OK;
-        }
-        (format!("{expr}\n"), true)
-    } else {
-        (code.to_owned(), false)
-    };
-
-    if !type_check_repl_input(&state.accumulated_source, &code, state.level, true) {
-        return REPL_ERROR;
-    }
-
-    let scope = state.scope.as_ref().unwrap().clone();
-    let start = timed.then(std::time::Instant::now);
-    let result = state
-        .interp
-        .as_ref()
-        .expect("interpreter is live")
-        .enter(|vm| {
-            match vm
-                .compile(&code, vm::compiler::Mode::Single, "<stdin>")
-                .map_err(|err| err.into_pyexception(vm, Some(&code)))
-                .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
-            {
-                Ok(_) => REPL_OK,
-                Err(exc) => {
-                    if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                        REPL_QUIT
-                    } else {
-                        vm.print_exception(exc);
-                        REPL_ERROR
-                    }
-                }
-            }
-        });
-
-    if result == REPL_OK {
-        state.append_source(&code);
-        if let Some(start) = start {
-            println!("Time: {}", format_elapsed(start.elapsed()));
-        }
-    }
-
-    result
 }
 
 #[cfg(test)]

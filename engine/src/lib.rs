@@ -10,7 +10,9 @@ pub mod repl;
 pub mod spython_lib;
 pub mod wasm_ffi;
 
-pub use repl::{REPL_ERROR, REPL_OK, REPL_QUIT, ReplState, repl_new, repl_run};
+pub use repl::{
+    REPL_ERROR, REPL_OK, REPL_QUIT, ReplOutcome, ReplSession, ReplState, repl_new, repl_run,
+};
 
 use std::collections::HashSet;
 #[cfg(test)]
