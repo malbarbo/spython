@@ -95,8 +95,10 @@ The `wasm` crate implements the slangs engine WASM protocol
 - `format(source, len)` → `*mut c_char`
 - `version()` → `*mut c_char`
 
-`repl_complete` returns a space-separated string: `"c <startpos> <candidates...>"`
-for completions, `"i <spaces>"` for indentation, or null for no action.
+`repl_complete` returns `"c <startpos>"` followed by one candidate per line
+for completions, `"i <spaces>"` for indentation, or null for no action. The
+candidates are separated by newlines, not spaces, because a candidate can end
+in a space -- the way `import ` opens the next word.
 
 `repl_ready` reads the input text only — the session pointer is ignored — and
 answers `-1` for input no further line could finish as well, so the user gets
