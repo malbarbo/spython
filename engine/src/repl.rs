@@ -107,6 +107,11 @@ pub struct ReplSession {
     /// Whether diagnostics carry ANSI colour. True on the page, which renders
     /// the codes; a terminal only wants them when stderr is one.
     use_color: bool,
+    /// The first-party files the accumulated source imports, each a path
+    /// relative to the directory it came from and its text. The checker runs
+    /// on an in-memory filesystem, so an input that names one of them only
+    /// resolves if it is here. Empty on the page, which has a single file.
+    modules: Vec<(String, String)>,
     /// The `:` commands, the builtins plus whatever the frontend added.
     commands: Vec<Command>,
 }
@@ -126,12 +131,19 @@ pub enum ReplOutcome {
 }
 
 impl ReplSession {
-    /// A session that starts as if `accumulated_source` had already run.
-    pub fn new(accumulated_source: String, level: Level, use_color: bool) -> Self {
+    /// A session that starts as if `accumulated_source` had already run, with
+    /// `modules` the first-party files it imports.
+    pub fn new(
+        accumulated_source: String,
+        level: Level,
+        use_color: bool,
+        modules: Vec<(String, String)>,
+    ) -> Self {
         ReplSession {
             accumulated_source,
             level,
             use_color,
+            modules,
             commands: BUILTINS
                 .iter()
                 .map(|&(name, arg, help, builtin)| Command {
@@ -176,6 +188,11 @@ impl ReplSession {
     /// The accumulated source of all successfully type-checked and executed inputs.
     pub fn accumulated_source(&self) -> &str {
         &self.accumulated_source
+    }
+
+    /// The first-party files the accumulated source imports.
+    pub fn modules(&self) -> &[(String, String)] {
+        &self.modules
     }
 
     /// The teaching level.
@@ -235,7 +252,7 @@ impl ReplSession {
             }
             Action::Builtin(Builtin::Quit) => ReplOutcome::Quit(None),
             Action::Builtin(Builtin::Type) => {
-                match infer_expression_type(&self.accumulated_source, arg) {
+                match infer_expression_type(&self.accumulated_source, arg, &self.modules) {
                     Some(ty) => println!("{ty}"),
                     None => eprintln!("Could not infer type"),
                 }
@@ -263,7 +280,13 @@ impl ReplSession {
             format!("{code}\n")
         };
 
-        if !type_check_repl_input(&self.accumulated_source, &code, self.level, self.use_color) {
+        if !type_check_repl_input(
+            &self.accumulated_source,
+            &code,
+            self.level,
+            self.use_color,
+            &self.modules,
+        ) {
             return ReplOutcome::Error;
         }
 
@@ -407,8 +430,9 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
     Box::new(ReplState {
         scope: Some(scope),
         interp: Some(interp),
-        // The page renders the ANSI codes, so its diagnostics keep them.
-        session: ReplSession::new(accumulated_source, level, true),
+        // The page renders the ANSI codes, so its diagnostics keep them,
+        // and it has one file, so there is nothing to import.
+        session: ReplSession::new(accumulated_source, level, true, Vec::new()),
     })
 }
 

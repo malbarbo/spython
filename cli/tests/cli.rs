@@ -2174,26 +2174,43 @@ fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
 
 /// A REPL that starts with `source` already executed, as `spython repl FILE` does.
 fn run_repl_after_file(input: &str, level: u8, source: &str) -> (String, String, bool) {
+    run_repl_after_files(input, level, &[("main.py", source)])
+}
+
+/// Write `files` into a directory of their own and start the REPL on the
+/// first of them, so a file that imports its neighbours can be tested.
+fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (String, String, bool) {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let file = std::env::temp_dir().join(format!("_spython_repl_preload_{n}.py"));
-    std::fs::write(&file, source).unwrap();
-    let result = run_repl_args(
+    let dir = std::env::temp_dir().join(format!("_spython_repl_preload_{n}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, source) in files {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, source).unwrap();
+    }
+    // From the directory the files are in, which is where ty looks for the
+    // ones a file imports.
+    let result = run_repl_in(
         input,
-        &[
-            "repl",
-            "--level",
-            &level.to_string(),
-            &file.to_string_lossy(),
-        ],
+        &["repl", "--level", &level.to_string(), files[0].0],
+        Some(&dir),
     );
-    let _ = std::fs::remove_file(&file);
+    let _ = std::fs::remove_dir_all(&dir);
     result
 }
 
 fn run_repl_args(input: &str, args: &[&str]) -> (String, String, bool) {
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    run_repl_in(input, args, None)
+}
+
+fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, String, bool) {
+    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = command
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2290,6 +2307,49 @@ fn repl_after_a_file_sees_what_it_defined() {
     assert!(success);
     assert!(!err.contains("unresolved-reference"), "stderr: {err}");
     assert_eq!(out, "6\n");
+}
+
+#[test]
+fn repl_after_a_file_sees_what_it_imported() {
+    let (out, err, success) = run_repl_after_files(
+        "g(1)\nhelpers.helper(5)\n",
+        0,
+        &[
+            (
+                "main.py",
+                "import helpers\n\n\ndef g(x: int) -> int:\n    return helpers.helper(x)\n",
+            ),
+            (
+                "helpers.py",
+                "def helper(x: int) -> int:\n    return x * 2\n",
+            ),
+        ],
+    );
+    assert!(success);
+    assert!(!err.contains("unresolved-import"), "stderr: {err}");
+    assert_eq!(out, "2\n10\n");
+}
+
+#[test]
+fn repl_after_a_file_sees_a_module_under_a_package() {
+    let (out, err, success) = run_repl_after_files(
+        "h(4)\n",
+        0,
+        &[
+            (
+                "main.py",
+                "from pkg.util import twice\n\n\ndef h(x: int) -> int:\n    return twice(x)\n",
+            ),
+            ("pkg/__init__.py", ""),
+            (
+                "pkg/util.py",
+                "def twice(x: int) -> int:\n    return x * 2\n",
+            ),
+        ],
+    );
+    assert!(success);
+    assert!(!err.contains("unresolved-import"), "stderr: {err}");
+    assert_eq!(out, "8\n");
 }
 
 #[test]

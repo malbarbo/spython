@@ -3,7 +3,7 @@ compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm inst
 
 use bpaf::{Bpaf, Parser};
 use ruff_db::diagnostic::Diagnostic;
-use ruff_db::files::system_path_to_file;
+use ruff_db::files::{File, system_path_to_file};
 use ruff_db::system::SystemPathBuf;
 mod config;
 mod overlay_system;
@@ -268,9 +268,10 @@ fn display_error(error: Error) {
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
 fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
-    if let Some(path) = file {
-        type_check_file(path, level)?;
-    }
+    let modules = match file {
+        Some(path) => type_check_file(path, level)?,
+        None => Vec::new(),
+    };
 
     let preload = file
         .map(|path| -> Result<_, Error> {
@@ -299,13 +300,15 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
             vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
             vm.run_string(scope.clone(), source, file_str).map(drop)?;
         }
-        // The file that ran is the context the next inputs are checked in.
+        // The file that ran is the context the next inputs are checked in,
+        // together with whatever it imports.
         let mut session = ReplSession::new(
             preload
                 .as_ref()
                 .map_or_else(String::new, |(source, ..)| source.clone()),
             level,
             std::io::stderr().is_terminal(),
+            modules.clone(),
         );
         repl::run_repl(vm, scope, &mut session)
     });
@@ -318,7 +321,10 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
 
 /// Type-check a Python file: validates the path, builds the ty database,
 /// runs the annotation checker, then runs ty's type checker.
-fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
+///
+/// Returns the first-party files it imports, each a path relative to its own
+/// directory and its text, for a REPL that has to keep checking against them.
+fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Error> {
     let abs_file = dunce::canonicalize(file).map_err(|e| {
         Error::FileResolution(format!(
             "cannot resolve '{}' to an absolute path: {e}",
@@ -371,7 +377,37 @@ fn type_check_file(file: &Path, level: Level) -> Result<(), Error> {
         return Err(Error::TypeChecking(Box::new(db), diagnostics));
     }
 
-    Ok(())
+    Ok(imported_modules(&db, main_file, &sorted_files))
+}
+
+/// The first-party files among `files`, keyed by their path relative to the
+/// directory `main_file` sits in.
+///
+/// The REPL checks its inputs on an in-memory filesystem, which is why these
+/// have to travel as text: `import helpers` cannot reach the real directory
+/// from there. A file outside that directory has no relative name to give,
+/// and is left out.
+fn imported_modules(
+    db: &ProjectDatabase,
+    main_file: File,
+    files: &[File],
+) -> Vec<(String, String)> {
+    let Some(root) = main_file.path(db).as_system_path().and_then(|p| p.parent()) else {
+        return Vec::new();
+    };
+    files
+        .iter()
+        .filter(|f| **f != main_file)
+        .filter_map(|f| {
+            let path = f.path(db).as_system_path()?;
+            if spython_lib::is_lib_path(path) {
+                return None;
+            }
+            let relative = path.strip_prefix(root).ok()?;
+            let source = std::fs::read_to_string(path.as_std_path()).ok()?;
+            Some((relative.as_str().to_owned(), source))
+        })
+        .collect()
 }
 
 /// Run a Python script with type checking enabled.

@@ -10,6 +10,7 @@ pub mod repl;
 pub mod spython_lib;
 pub mod wasm_ffi;
 
+pub use checker::Level;
 pub use repl::{
     REPL_ERROR, REPL_OK, REPL_QUIT, ReplOutcome, ReplSession, ReplState, repl_new, repl_run,
 };
@@ -113,20 +114,31 @@ pub fn new_interpreter() -> vm::Interpreter {
         .interpreter()
 }
 
-/// Type-check `source` entirely in memory (no OS filesystem access).
+/// A project over an in-memory filesystem holding `source` as `/user.py`, the
+/// spython library, and `modules`.
 ///
-/// Used by the WASM shim. The source is written to an in-memory filesystem
-/// under the path `/user.py`, then annotation-checked and ty-checked.
-pub fn type_check_source(
-    source: &str,
-    level: Level,
-    in_repl: bool,
-) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
+/// `modules` are the first-party files the source imports, each a path
+/// relative to the directory the source came from and its text. Nothing on
+/// the real filesystem is reachable from here, so a `import helpers` only
+/// resolves if `helpers.py` is among them. They are written but not included:
+/// the checker reads them to resolve names, and reports nothing about them.
+fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectDatabase, File) {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
     let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
     system
         .write_file(SystemPath::new(USER_FILE), source)
         .expect("writing to in-memory filesystem should never fail");
+    for (path, module_source) in modules {
+        // `write_file_all`, not `write_file`: a module under a package needs
+        // its directory to exist first.
+        system
+            .fs()
+            .write_file_all(
+                SystemPathBuf::from(format!("{PROJECT_ROOT}{path}")),
+                module_source,
+            )
+            .expect("writing to in-memory filesystem should never fail");
+    }
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
     let metadata = make_project_metadata(cwd, vec![lib_root]);
@@ -138,6 +150,28 @@ pub fn type_check_source(
         .expect("user.py should be resolvable after writing it to the in-memory filesystem");
 
     db.project().set_included_paths(&mut db, vec![file_path]);
+    (db, user_file)
+}
+
+/// Type-check `source` entirely in memory (no OS filesystem access).
+///
+/// Used by the WASM shim, which has one file and nothing to import.
+pub fn type_check_source(
+    source: &str,
+    level: Level,
+    in_repl: bool,
+) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
+    type_check_in_memory(source, level, in_repl, &[])
+}
+
+/// Type-check `source` against `modules`, the first-party files it imports.
+fn type_check_in_memory(
+    source: &str,
+    level: Level,
+    in_repl: bool,
+    modules: &[(String, String)],
+) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
+    let (db, user_file) = in_memory_project(source, modules);
 
     let mut diagnostics = annotation_check(&db, level, in_repl);
     diagnostics.extend(db.check());
@@ -160,8 +194,6 @@ pub fn type_check_source(
 }
 
 /// Run the annotation checker on all files registered in `db`.
-pub use checker::Level;
-
 pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Vec<Diagnostic> {
     // `Project::files` is backed by an `FxHashSet`, whose iteration order is
     // not deterministic across platforms. Sort by path so the diagnostic
@@ -389,9 +421,11 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
 
 /// Type-check a REPL input in the context of previously accumulated source.
 ///
-/// Checks `accumulated + "\n" + new_input` for cross-reference correctness.
-/// If errors are found, prints them with line numbers adjusted to be relative
-/// to `new_input` (not the accumulated history).
+/// Checks `accumulated + "\n" + new_input` for cross-reference correctness,
+/// resolving imports against `modules` -- the first-party files the session
+/// started from, which are not on any filesystem the checker can see.
+/// Diagnostics about the input are printed with their line numbers relative
+/// to it; diagnostics about the accumulated source are dropped.
 ///
 /// Returns `true` if the input passed type checking, `false` if errors were found.
 pub fn type_check_repl_input(
@@ -399,6 +433,7 @@ pub fn type_check_repl_input(
     new_input: &str,
     level: Level,
     use_color: bool,
+    modules: &[(String, String)],
 ) -> bool {
     let accumulated = accumulated.trim_end_matches('\n');
     let new_input = new_input.trim_end_matches('\n');
@@ -408,7 +443,7 @@ pub fn type_check_repl_input(
         format!("{accumulated}\n{new_input}")
     };
 
-    let te = match type_check_source(&combined, level, true) {
+    let te = match type_check_in_memory(&combined, level, true, modules) {
         Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };
@@ -420,9 +455,24 @@ pub fn type_check_repl_input(
         accumulated.lines().count()
     };
 
+    // What lands before the input is about code the user cannot reach from
+    // the prompt. Printing it would clamp its line onto the first line of the
+    // input and blame what was just typed for it.
+    let in_input: Vec<&Diagnostic> = te
+        .diagnostics
+        .iter()
+        .filter(|d| diagnostic_position(d, &combined).0 >= line_offset)
+        .collect();
+    if !in_input
+        .iter()
+        .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error)
+    {
+        return true;
+    }
+
     let new_input_lines: Vec<&str> = new_input.lines().collect();
     print_repl_diagnostics(
-        &te.diagnostics,
+        &in_input,
         &combined,
         line_offset,
         &new_input_lines,
@@ -434,9 +484,14 @@ pub fn type_check_repl_input(
 
 /// Infer the static type of a Python expression in the REPL context.
 ///
-/// Builds a source with `accumulated + "\n" + expr`, type-checks it, and
-/// returns the display string of the inferred type for the expression.
-pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
+/// Builds a source with `accumulated + "\n" + expr`, type-checks it against
+/// `modules` the way [`type_check_repl_input`] does, and returns the display
+/// string of the inferred type for the expression.
+pub fn infer_expression_type(
+    accumulated: &str,
+    expr: &str,
+    modules: &[(String, String)],
+) -> Option<String> {
     // Wrap the expression as the last statement so we can find it in the AST.
     let source = if accumulated.is_empty() {
         expr.to_owned()
@@ -444,19 +499,7 @@ pub fn infer_expression_type(accumulated: &str, expr: &str) -> Option<String> {
         format!("{}\n{}", accumulated.trim_end_matches('\n'), expr)
     };
 
-    let cwd = SystemPathBuf::from(PROJECT_ROOT);
-    let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
-    system
-        .write_file(SystemPath::new(USER_FILE), &source)
-        .ok()?;
-    let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
-
-    let metadata = make_project_metadata(cwd, vec![lib_root]);
-    let mut db = ProjectDatabase::fallible(metadata, system).ok()?;
-
-    let file_path = SystemPathBuf::from(USER_FILE);
-    let file = system_path_to_file(&db, &file_path).ok()?;
-    db.project().set_included_paths(&mut db, vec![file_path]);
+    let (db, file) = in_memory_project(&source, modules);
 
     // Parse and find the last expression statement.
     let program_file = db.program_file(file);
@@ -498,9 +541,25 @@ fn simplify_type_display(s: &str) -> String {
     s.to_owned()
 }
 
+/// Where a diagnostic points into `source`: the 0-based line, the 0-based
+/// column, and how many bytes it underlines.
+fn diagnostic_position(diag: &Diagnostic, source: &str) -> (usize, usize, usize) {
+    diag.primary_span()
+        .and_then(|span| span.range())
+        .map(|range| {
+            let offset = usize::from(range.start()).min(source.len());
+            let line = source[..offset].matches('\n').count();
+            let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
+            let col = offset - line_start;
+            let len = usize::from(range.end()) - usize::from(range.start());
+            (line, col, len)
+        })
+        .unwrap_or((0, 0, 1))
+}
+
 /// Print diagnostics with line numbers adjusted for REPL context.
 fn print_repl_diagnostics(
-    diagnostics: &[Diagnostic],
+    diagnostics: &[&Diagnostic],
     combined_source: &str,
     line_offset: usize,
     new_input_lines: &[&str],
@@ -515,22 +574,10 @@ fn print_repl_diagnostics(
             error_count += 1;
         }
 
-        // Get the line number from the primary span's byte offset into combined source.
-        let (line, col, span_len) = diag
-            .primary_span()
-            .and_then(|span| span.range())
-            .map(|range| {
-                let offset = usize::from(range.start()).min(combined_source.len());
-                let line = combined_source[..offset].matches('\n').count();
-                let line_start = combined_source[..offset].rfind('\n').map_or(0, |i| i + 1);
-                let col = offset - line_start;
-                let len = usize::from(range.end()) - usize::from(range.start());
-                (line, col, len)
-            })
-            .unwrap_or((0, 0, 1));
-
-        // Adjust line number relative to new input.
-        let adjusted_line = line.saturating_sub(line_offset);
+        let (line, col, span_len) = diagnostic_position(diag, combined_source);
+        // The caller has already dropped what lands before the input, so this
+        // subtraction is the offset of a line the user can see.
+        let adjusted_line = line - line_offset;
         let display_line = adjusted_line + 1; // 1-indexed
 
         let severity = match (is_error, use_color) {
@@ -684,4 +731,85 @@ fn install_capture_writers(vm: &vm::VirtualMachine) {
     vm.sys_module
         .set_attr("stderr", stderr, vm)
         .expect("set sys.stderr");
+}
+
+#[cfg(test)]
+mod repl_check_tests {
+    use super::*;
+
+    fn helpers() -> Vec<(String, String)> {
+        vec![(
+            "helpers.py".to_owned(),
+            "def helper(x: int) -> int:\n    return x * 2\n".to_owned(),
+        )]
+    }
+
+    #[test]
+    fn input_resolves_a_module_the_session_started_from() {
+        assert!(type_check_repl_input(
+            "import helpers",
+            "helpers.helper(1)",
+            Level::Full,
+            false,
+            &helpers(),
+        ));
+    }
+
+    #[test]
+    fn input_resolves_a_module_under_a_package() {
+        let modules = vec![(
+            "pkg/util.py".to_owned(),
+            "def twice(x: int) -> int:\n    return x * 2\n".to_owned(),
+        )];
+        assert!(type_check_repl_input(
+            "from pkg.util import twice",
+            "twice(1)",
+            Level::Full,
+            false,
+            &modules,
+        ));
+    }
+
+    #[test]
+    fn a_module_the_session_never_saw_is_still_an_error() {
+        assert!(!type_check_repl_input(
+            "",
+            "import helpers",
+            Level::Full,
+            false,
+            &[],
+        ));
+    }
+
+    #[test]
+    fn input_is_not_blamed_for_an_error_in_what_ran_before() {
+        // The error is on line 1, which belongs to the accumulated source; the
+        // input itself is fine, and is what the user can still fix.
+        assert!(type_check_repl_input(
+            "undefined_name",
+            "1 + 1",
+            Level::Full,
+            false,
+            &[],
+        ));
+    }
+
+    #[test]
+    fn an_error_in_the_input_is_still_reported() {
+        assert!(!type_check_repl_input(
+            "x: int = 1",
+            "undefined_name",
+            Level::Full,
+            false,
+            &[],
+        ));
+    }
+
+    #[test]
+    fn a_type_is_inferred_through_a_module_the_session_started_from() {
+        assert_eq!(
+            infer_expression_type("import helpers", "helpers.helper(1)", &helpers()),
+            Some("int".to_owned())
+        );
+    }
 }

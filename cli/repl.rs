@@ -598,6 +598,7 @@ fn level_command(session: &mut ReplSession, arg: &str) {
             session.accumulated_source(),
             new_level,
             std::io::stderr().is_terminal(),
+            session.modules(),
         )
     {
         eprintln!(
