@@ -14,6 +14,19 @@ pub const PYTHON_KEYWORDS: &[&str] = &[
     "yield",
 ];
 
+/// The keywords that ask for a word after them, which the completion offers
+/// with the space that opens it. The rest end the line, like `return`, or take
+/// a colon next, like `else`.
+pub const PYTHON_KEYWORDS_OPEN: &[&str] = &[
+    "and", "as", "assert", "async", "await", "case", "class", "def", "del", "elif", "for", "from",
+    "global", "if", "import", "in", "is", "lambda", "match", "nonlocal", "not", "or", "while",
+    "with",
+];
+
+/// The commands the engine answers, each with the space that opens the
+/// expression it takes.
+const COMMANDS: &[&str] = &[":time ", ":type "];
+
 /// Result of pressing Tab in the REPL.
 pub enum TabAction {
     /// Insert indentation spaces.
@@ -50,10 +63,31 @@ pub fn tab_action(
         };
     }
 
+    if let Some(candidates) = complete_command(current_line) {
+        let indent = current_line.len() - current_line.trim_start().len();
+        return TabAction::Complete(current_line_start + indent, candidates);
+    }
+
     match complete(vm, globals, before) {
         Some((startpos, candidates)) => TabAction::Complete(startpos, candidates),
         None => TabAction::Nothing,
     }
+}
+
+/// The commands a line starting with a colon can still become. `None` where a
+/// command cannot go, and once one is typed and what it takes is being written.
+fn complete_command(line: &str) -> Option<Vec<String>> {
+    let prefix = line.trim_start();
+    if !prefix.starts_with(':') || prefix.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(
+        COMMANDS
+            .iter()
+            .filter(|c| c.starts_with(prefix))
+            .map(|c| (*c).to_owned())
+            .collect(),
+    )
 }
 
 /// Complete identifiers at the end of `line`.
@@ -107,7 +141,11 @@ pub fn complete(
             .chain(PYTHON_CONSTANTS.iter())
         {
             if kw.starts_with(word_start) && !result.iter().any(|s| s == kw) {
-                result.push((*kw).to_owned());
+                result.push(if PYTHON_KEYWORDS_OPEN.contains(kw) {
+                    format!("{kw} ")
+                } else {
+                    (*kw).to_owned()
+                });
             }
         }
     }
@@ -220,9 +258,10 @@ mod tests {
     #[test]
     fn complete_keyword() {
         with_vm(|vm, globals| {
+            // A name follows `def`, so the space that opens it comes along.
             let (start, candidates) = complete(vm, globals, "de").unwrap();
             assert_eq!(start, 0);
-            assert!(candidates.contains(&"def".to_owned()));
+            assert!(candidates.contains(&"def ".to_owned()));
         });
     }
 
@@ -231,8 +270,29 @@ mod tests {
         with_vm(|vm, globals| {
             let (start, candidates) = complete(vm, globals, "fo").unwrap();
             assert_eq!(start, 0);
-            assert!(candidates.contains(&"for".to_owned()));
+            assert!(candidates.contains(&"for ".to_owned()));
         });
+    }
+
+    #[test]
+    fn complete_keyword_that_ends_the_line() {
+        with_vm(|vm, globals| {
+            // `return` and `pass` can be the whole line, and `else` takes a
+            // colon, which no space goes in front of.
+            let (_, candidates) = complete(vm, globals, "ret").unwrap();
+            assert!(candidates.contains(&"return".to_owned()));
+            let (_, candidates) = complete(vm, globals, "pas").unwrap();
+            assert!(candidates.contains(&"pass".to_owned()));
+            let (_, candidates) = complete(vm, globals, "els").unwrap();
+            assert!(candidates.contains(&"else".to_owned()));
+        });
+    }
+
+    #[test]
+    fn every_open_keyword_is_a_keyword() {
+        for kw in PYTHON_KEYWORDS_OPEN {
+            assert!(PYTHON_KEYWORDS.contains(kw), "{kw} is not a keyword");
+        }
     }
 
     #[test]
@@ -302,6 +362,34 @@ mod tests {
     fn tab_action_continuation_correctly_indented_completes() {
         with_vm(|vm, globals| {
             let action = tab_action(vm, globals, "def f():\n    x = 1\n    ", 23);
+            assert!(
+                matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
+            );
+        });
+    }
+
+    #[test]
+    fn tab_action_completes_a_command() {
+        with_vm(|vm, globals| {
+            let action = tab_action(vm, globals, ":ti", 3);
+            assert!(matches!(action, TabAction::Complete(0, ref c) if c == &[":time "]));
+        });
+    }
+
+    #[test]
+    fn tab_action_offers_no_name_where_a_command_goes() {
+        with_vm(|vm, globals| {
+            // `type` is a builtin, and after a colon it is not what is being
+            // asked for.
+            let action = tab_action(vm, globals, ":ty", 3);
+            assert!(matches!(action, TabAction::Complete(0, ref c) if c == &[":type "]));
+        });
+    }
+
+    #[test]
+    fn tab_action_completes_what_a_command_takes() {
+        with_vm(|vm, globals| {
+            let action = tab_action(vm, globals, ":type pri", 9);
             assert!(
                 matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
             );

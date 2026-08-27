@@ -37,7 +37,9 @@ impl rustyline::Prompt for ReplPrompt {
     }
 }
 
-const REPL_COMMANDS: &[&str] = &[":help", ":level", ":quit", ":theme", ":time", ":type"];
+/// The commands the prompt answers. The ones that take an argument carry the
+/// space that opens it.
+const REPL_COMMANDS: &[&str] = &[":help", ":level ", ":quit", ":theme ", ":time ", ":type "];
 
 /// Complete REPL commands when the current line starts with `:` and has no
 /// arguments yet. Returns `(startpos, candidates)` or `None` if not applicable.
@@ -836,7 +838,7 @@ mod tests {
     fn complete_repl_command_prefix_filters() {
         let (start, candidates) = complete_repl_command(":t", 2).unwrap();
         assert_eq!(start, 0);
-        assert_eq!(candidates, vec![":theme", ":time", ":type"]);
+        assert_eq!(candidates, vec![":theme ", ":time ", ":type "]);
     }
 
     #[test]
