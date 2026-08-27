@@ -10,15 +10,16 @@ use crate::Level;
 use crate::{infer_expression_type, new_interpreter, register_ffi_module, type_check_repl_input};
 use rustpython::vm;
 use rustpython::vm::AsObject;
+use std::convert::Infallible;
 #[cfg(test)]
 use std::sync::atomic::Ordering;
 
 /// A `:` command the REPL answers.
-struct Command {
+struct Command<H> {
     name: &'static str,
     arg: Arg,
     help: &'static str,
-    action: Action,
+    action: Action<H>,
 }
 
 /// What a command takes after its name.
@@ -33,11 +34,12 @@ enum Arg {
     Word(&'static str),
 }
 
-/// Who answers a command: the REPL itself, or the frontend that registered it.
+/// Who answers a command: the REPL itself, or the frontend that registered
+/// it, which names it with a value of its own `H`.
 #[derive(Clone, Copy)]
-enum Action {
+enum Action<H> {
     Builtin(Builtin),
-    Host,
+    Host(H),
 }
 
 #[derive(Clone, Copy)]
@@ -67,7 +69,7 @@ const BUILTINS: &[(&str, Arg, &str, Builtin)] = &[
     ),
 ];
 
-impl Command {
+impl<H> Command<H> {
     fn usage(&self) -> String {
         usage(self.name, self.arg)
     }
@@ -99,7 +101,7 @@ fn split(input: &str) -> Option<(&str, &str)> {
 ///
 /// A frontend that already owns a VM -- the CLI, whose line editor borrows it
 /// -- keeps one of these and calls [`ReplSession::run`] for every input.
-pub struct ReplSession {
+pub struct ReplSession<H = Infallible> {
     /// Accumulated source of all successfully type-checked and executed inputs.
     accumulated_source: String,
     /// Teaching level for annotation/construct checking.
@@ -113,11 +115,11 @@ pub struct ReplSession {
     /// resolves if it is here. Empty on the page, which has a single file.
     modules: Vec<(String, String)>,
     /// The `:` commands, the builtins plus whatever the frontend added.
-    commands: Vec<Command>,
+    commands: Vec<Command<H>>,
 }
 
 /// What running one input did.
-pub enum ReplOutcome {
+pub enum ReplOutcome<H = Infallible> {
     /// The input ran.
     Ok,
     /// The input did not type-check, or it raised.
@@ -126,11 +128,12 @@ pub enum ReplOutcome {
     /// SystemExit saying with which status the process should leave.
     Quit(Option<vm::builtins::PyBaseExceptionRef>),
     /// A command the frontend registered, and what followed its name. Only
-    /// the frontend knows what to do with it.
-    Host(&'static str, String),
+    /// the frontend knows what to do with it. The frontend names its commands
+    /// with an enum, so leaving one unanswered is a compile error.
+    Host(H, String),
 }
 
-impl ReplSession {
+impl<H: Copy> ReplSession<H> {
     /// A session that starts as if `accumulated_source` had already run, with
     /// `modules` the first-party files it imports.
     pub fn new(
@@ -156,17 +159,23 @@ impl ReplSession {
         }
     }
 
-    /// Declare a command of the frontend's own. `word` is what the help shows
-    /// after the name, for one that takes a word. The session checks it and
-    /// completes it like any other, and hands it back as
-    /// [`ReplOutcome::Host`] for the frontend to answer.
-    pub fn add(&mut self, name: &'static str, word: Option<&'static str>, help: &'static str) {
+    /// Declare a command of the frontend's own, under the name `host` it
+    /// knows it by. `word` is what the help shows after the name, for one
+    /// that takes a word. The session checks it and completes it like any
+    /// other, and hands it back as [`ReplOutcome::Host`] to be answered.
+    pub fn add(
+        &mut self,
+        name: &'static str,
+        word: Option<&'static str>,
+        help: &'static str,
+        host: H,
+    ) {
         debug_assert!(self.commands.iter().all(|c| c.name != name));
         self.commands.push(Command {
             name,
             arg: word.map_or(Arg::None, Arg::Word),
             help,
-            action: Action::Host,
+            action: Action::Host(host),
         });
     }
 
@@ -222,7 +231,7 @@ impl ReplSession {
         vm: &vm::VirtualMachine,
         scope: vm::scope::Scope,
         code: &str,
-    ) -> ReplOutcome {
+    ) -> ReplOutcome<H> {
         let Some((name, arg)) = split(code) else {
             return self.eval(vm, scope, code, false);
         };
@@ -245,7 +254,7 @@ impl ReplSession {
             _ => {}
         }
         match action {
-            Action::Host => ReplOutcome::Host(command_name, arg.to_owned()),
+            Action::Host(host) => ReplOutcome::Host(host, arg.to_owned()),
             Action::Builtin(Builtin::Help) => {
                 self.print_help();
                 ReplOutcome::Ok
@@ -272,7 +281,7 @@ impl ReplSession {
         scope: vm::scope::Scope,
         code: &str,
         timed: bool,
-    ) -> ReplOutcome {
+    ) -> ReplOutcome<H> {
         // `Mode::Single` wants the line the input ends on to be closed.
         let code = if code.ends_with('\n') {
             code.to_owned()
@@ -465,9 +474,11 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
     let session = &mut state.session;
     match interp.enter(|vm| session.run(vm, scope, code)) {
         ReplOutcome::Ok => REPL_OK,
-        // The page registers no commands of its own, so `Host` cannot happen.
-        ReplOutcome::Error | ReplOutcome::Host(..) => REPL_ERROR,
+        ReplOutcome::Error => REPL_ERROR,
         ReplOutcome::Quit(_) => REPL_QUIT,
+        // The page registers no commands of its own, and an `Infallible`
+        // cannot be built, so there is nothing here to answer.
+        ReplOutcome::Host(host, _) => match host {},
     }
 }
 

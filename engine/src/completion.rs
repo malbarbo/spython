@@ -238,8 +238,13 @@ mod tests {
     /// The commands as a session hands them over, so the tests complete the
     /// same list the frontends do.
     fn commands() -> Vec<String> {
-        crate::repl::ReplSession::new(String::new(), crate::Level::Full, false, Vec::new())
-            .command_completions()
+        crate::repl::ReplSession::<std::convert::Infallible>::new(
+            String::new(),
+            crate::Level::Full,
+            false,
+            Vec::new(),
+        )
+        .command_completions()
     }
 
     fn with_vm(f: impl FnOnce(&VirtualMachine, &PyDictRef)) {

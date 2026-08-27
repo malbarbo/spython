@@ -577,12 +577,18 @@ fn is_python_builtin(word: &str) -> bool {
 
 /// The commands only a terminal has. The session checks and completes them
 /// like its own, and hands them back for `run_repl` to answer.
-const LEVEL: &str = ":level";
-const THEME: &str = ":theme";
+/// The commands the terminal answers itself, as opposed to the ones the
+/// engine answers for every frontend. Adding one here without answering it
+/// below does not compile.
+#[derive(Clone, Copy)]
+pub enum Host {
+    Level,
+    Theme,
+}
 
 /// `:level` on its own says which level the REPL is on; with a number it moves
 /// to that level, which everything that has already run has to survive.
-fn level_command(session: &mut ReplSession, arg: &str) {
+fn level_command(session: &mut ReplSession<Host>, arg: &str) {
     if arg.is_empty() {
         println!("level {}", session.level());
         return;
@@ -613,7 +619,7 @@ fn level_command(session: &mut ReplSession, arg: &str) {
 }
 
 /// `:theme` on its own says which theme is on; with a name it switches to it.
-fn theme_command(session: &ReplSession, arg: &str) {
+fn theme_command(session: &ReplSession<Host>, arg: &str) {
     match arg {
         "" => println!("{}", current_theme_name()),
         "light" | "dark" => {
@@ -625,13 +631,23 @@ fn theme_command(session: &ReplSession, arg: &str) {
     }
 }
 
-pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) -> PyResult<()> {
+pub fn run_repl(
+    vm: &VirtualMachine,
+    scope: Scope,
+    session: &mut ReplSession<Host>,
+) -> PyResult<()> {
     session.add(
-        LEVEL,
+        ":level",
         Some("[n]"),
         "Show or change the teaching level (0-5)",
+        Host::Level,
     );
-    session.add(THEME, Some("[name]"), "Show or change theme (light, dark)");
+    session.add(
+        ":theme",
+        Some("[name]"),
+        "Show or change theme (light, dark)",
+        Host::Theme,
+    );
 
     let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
@@ -707,9 +723,8 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) ->
                     let _ = repl.save_history(&repl_history_path);
                     return Err(exc);
                 }
-                ReplOutcome::Host(LEVEL, arg) => level_command(session, &arg),
-                ReplOutcome::Host(THEME, arg) => theme_command(session, &arg),
-                ReplOutcome::Host(name, _) => unreachable!("no one answers {name}"),
+                ReplOutcome::Host(Host::Level, arg) => level_command(session, &arg),
+                ReplOutcome::Host(Host::Theme, arg) => theme_command(session, &arg),
                 ReplOutcome::Ok | ReplOutcome::Error => {}
             }
         }
