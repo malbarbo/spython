@@ -178,10 +178,12 @@ pub unsafe extern "C" fn repl_complete(
 
     let output = match result {
         engine::completion::TabAction::Indent(spaces) => format!("i {spaces}"),
+        // The offset, then one candidate per line, so that a candidate can
+        // carry the space that follows it.
         engine::completion::TabAction::Complete(startpos, candidates) => {
             let mut s = format!("c {startpos}");
             for c in &candidates {
-                s.push(' ');
+                s.push('\n');
                 s.push_str(c);
             }
             s
