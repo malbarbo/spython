@@ -2169,8 +2169,32 @@ fn run_repl(input: &str) -> (String, String, bool) {
 }
 
 fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
+    run_repl_args(input, &["repl", "--level", &level.to_string()])
+}
+
+/// A REPL that starts with `source` already executed, as `spython repl FILE` does.
+fn run_repl_after_file(input: &str, level: u8, source: &str) -> (String, String, bool) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file = std::env::temp_dir().join(format!("_spython_repl_preload_{n}.py"));
+    std::fs::write(&file, source).unwrap();
+    let result = run_repl_args(
+        input,
+        &[
+            "repl",
+            "--level",
+            &level.to_string(),
+            &file.to_string_lossy(),
+        ],
+    );
+    let _ = std::fs::remove_file(&file);
+    result
+}
+
+fn run_repl_args(input: &str, args: &[&str]) -> (String, String, bool) {
     let output = Command::new(cargo::cargo_bin!("spython"))
-        .args(["repl", "--level", &level.to_string()])
+        .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -2257,6 +2281,15 @@ fn repl_name_error() {
         err.contains("unresolved-reference"),
         "expected unresolved-reference in stderr: {err}"
     );
+}
+
+#[test]
+fn repl_after_a_file_sees_what_it_defined() {
+    let (out, err, success) =
+        run_repl_after_file("f(3)\n", 0, "def f(x: int) -> int:\n    return x * 2\n");
+    assert!(success);
+    assert!(!err.contains("unresolved-reference"), "stderr: {err}");
+    assert_eq!(out, "6\n");
 }
 
 #[test]

@@ -1,16 +1,10 @@
 use std::cell::RefCell;
 use std::io::IsTerminal;
-use std::time::Instant;
 
-use engine::Level;
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use engine::parser::INDENT;
-use rustpython_vm::{
-    AsObject, PyResult, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyDictRef},
-    compiler,
-    scope::Scope,
-};
+use engine::{Level, ReplOutcome, ReplSession};
+use rustpython_vm::{PyResult, VirtualMachine, builtins::PyDictRef, scope::Scope};
 use rustyline::{
     Cmd, CompletionType, Config, Context, Editor, Event, EventHandler, KeyCode, KeyEvent,
     Modifiers,
@@ -222,18 +216,6 @@ fn take_pending(repl: &Editor<ReplHelper<'_>, rustyline::history::DefaultHistory
 }
 
 impl rustyline::Helper for ReplHelper<'_> {}
-
-fn format_elapsed(elapsed: std::time::Duration) -> String {
-    if elapsed.as_secs() > 0 {
-        format!("{:.2} s", elapsed.as_secs_f64())
-    } else if elapsed.as_millis() > 0 {
-        format!("{} ms", elapsed.as_millis())
-    } else if elapsed.as_micros() > 0 {
-        format!("{} us", elapsed.as_micros())
-    } else {
-        format!("{} ns", elapsed.as_nanos())
-    }
-}
 
 // ── Syntax highlighting ─────────────────────────────────────────────
 
@@ -614,14 +596,7 @@ fn is_python_builtin(word: &str) -> bool {
 
 // ── REPL entry point ────────────────────────────────────────────────
 
-fn repl_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), PyBaseExceptionRef> {
-    match vm.compile(source, compiler::Mode::Single, "<stdin>") {
-        Ok(code) => vm.run_code_obj(code, scope).map(|_| ()),
-        Err(err) => Err(err.into_pyexception(vm, Some(source))),
-    }
-}
-
-pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult<()> {
+pub fn run_repl(vm: &VirtualMachine, scope: Scope, session: &mut ReplSession) -> PyResult<()> {
     let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
             path.push("spython");
@@ -659,7 +634,6 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
             .map(|s| s.expect_str().to_owned())
             .unwrap_or_default();
         let prompt = ReplPrompt { ps1, ps2 };
-        let mut accumulated_source = String::new();
 
         loop {
             let line = match repl.readline(&prompt) {
@@ -688,7 +662,8 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
             let _ = repl.add_history_entry(line.trim_end());
             let trimmed = line.trim();
 
-            // REPL commands.
+            // REPL commands the terminal answers by itself. The rest --
+            // :type and :time -- are the engine's, and the page has them too.
             if trimmed == ":help" {
                 println!(
                     ":type <expr>    Show the type of an expression\n\
@@ -703,17 +678,17 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                 break;
             }
             if trimmed == ":level" {
-                println!("level {level}");
+                println!("level {}", session.level());
                 continue;
             }
             if let Some(n) = trimmed.strip_prefix(":level ") {
                 match n.trim().parse::<u8>().ok().and_then(Level::from_u8) {
                     Some(new_level) => {
                         // Re-check accumulated source at the new level.
-                        if !accumulated_source.is_empty()
+                        if !session.accumulated_source().is_empty()
                             && !engine::type_check_repl_input(
                                 "",
-                                &accumulated_source,
+                                session.accumulated_source(),
                                 new_level,
                                 std::io::stderr().is_terminal(),
                             )
@@ -723,9 +698,9 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                                  accumulated source has errors at that level."
                             );
                         } else {
-                            level = new_level;
-                            println!("level {level}");
-                            crate::config::save(level, current_theme_name());
+                            session.set_level(new_level);
+                            println!("level {new_level}");
+                            crate::config::save(new_level, current_theme_name());
                         }
                     }
                     None => {
@@ -748,70 +723,21 @@ pub fn run_repl(vm: &VirtualMachine, scope: Scope, mut level: Level) -> PyResult
                     "light" => {
                         set_theme(true);
                         println!("light");
-                        crate::config::save(level, "light");
+                        crate::config::save(session.level(), "light");
                     }
                     "dark" => {
                         set_theme(false);
                         println!("dark");
-                        crate::config::save(level, "dark");
+                        crate::config::save(session.level(), "dark");
                     }
                     _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
                 }
                 continue;
             }
-            // :type is handled here and in engine::repl_run (for WASM).
-            if trimmed == ":type" {
-                eprintln!("Usage: :type <expression>");
-                continue;
-            }
-            if let Some(expr) = trimmed.strip_prefix(":type ") {
-                match engine::infer_expression_type(&accumulated_source, expr) {
-                    Some(ty) => println!("{ty}"),
-                    None => eprintln!("Could not infer type"),
-                }
-                continue;
-            }
-            // :time is handled here and in engine::repl_run (for WASM).
-            if trimmed == ":time" {
-                eprintln!("Usage: :time <expression>");
-                continue;
-            }
 
-            let (source, timed) = if let Some(expr) = trimmed.strip_prefix(":time ") {
-                if expr.trim().is_empty() {
-                    eprintln!("Usage: :time <expression>");
-                    continue;
-                }
-                (format!("{expr}\n"), true)
-            } else {
-                (format!("{line}\n"), false)
-            };
-
-            // Type-check with accumulated context.
-            let use_color = std::io::stderr().is_terminal();
-            if !engine::type_check_repl_input(&accumulated_source, &source, level, use_color) {
-                continue;
-            }
-
-            // Execute.
-            let start = timed.then(Instant::now);
-            match repl_exec(vm, &source, scope.clone()) {
-                Ok(_) => {
-                    if !accumulated_source.is_empty() {
-                        accumulated_source.push('\n');
-                    }
-                    accumulated_source.push_str(&source);
-                    if let Some(start) = start {
-                        println!("Time: {}", format_elapsed(start.elapsed()));
-                    }
-                }
-                Err(exc) => {
-                    if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                        let _ = repl.save_history(&repl_history_path);
-                        return Err(exc);
-                    }
-                    vm.print_exception(exc);
-                }
+            if let ReplOutcome::Quit(exc) = session.run(vm, scope.clone(), &line) {
+                let _ = repl.save_history(&repl_history_path);
+                return Err(exc);
             }
         }
         let _ = repl.save_history(&repl_history_path);

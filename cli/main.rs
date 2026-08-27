@@ -12,9 +12,9 @@ mod repl;
 use overlay_system::OverlaySystem;
 
 use engine::{
-    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
-    collect_import_files, execute_source, format_source, make_project_metadata, new_interpreter,
-    print_type_errors, spython_lib,
+    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, ReplSession, VERSION,
+    annotation_check, collect_import_files, execute_source, format_source, make_project_metadata,
+    new_interpreter, print_type_errors, spython_lib,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -299,7 +299,15 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
             vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
             vm.run_string(scope.clone(), source, file_str).map(drop)?;
         }
-        repl::run_repl(vm, scope, level)
+        // The file that ran is the context the next inputs are checked in.
+        let mut session = ReplSession::new(
+            preload
+                .as_ref()
+                .map_or_else(String::new, |(source, ..)| source.clone()),
+            level,
+            std::io::stderr().is_terminal(),
+        );
+        repl::run_repl(vm, scope, &mut session)
     });
     if code == 0 {
         Ok(())
