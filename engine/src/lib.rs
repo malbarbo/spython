@@ -224,24 +224,35 @@ pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Ve
     diagnostics
 }
 
-/// Convert an absolute filesystem path (Unix `/foo/bar` or Windows
-/// `C:\foo\bar`) into a POSIX-style path rooted at `/` that `InMemorySystem`
-/// will accept as its current directory. MemoryFileSystem asserts `cwd`
-/// starts with `/`, which a Windows drive-letter absolute path does not.
-/// Applying the same transform to every sibling preserves relative layout,
-/// so imports still resolve.
-fn virtualize_path(path: &SystemPath) -> SystemPathBuf {
-    let normalized = path.as_str().replace('\\', "/");
-    let stripped = match normalized.as_bytes() {
-        [b, b':', ..] if b.is_ascii_alphabetic() => &normalized[2..],
-        _ => normalized.as_str(),
+/// The files among `files` that `main_file` can name, keyed by their path
+/// relative to the directory it sits in -- the form [`in_memory_project`]
+/// takes its modules in.
+///
+/// An in-memory check cannot reach the real directory, so what the source
+/// imports has to travel as text. `main_file` itself is left out, and so is
+/// a file outside its directory: there is no relative name that would reach
+/// it, so writing it would not help the resolver either. Sorted, because
+/// `files` often comes from a `HashSet`.
+pub fn modules_beside(
+    db: &ProjectDatabase,
+    main_file: File,
+    files: impl IntoIterator<Item = File>,
+) -> Vec<(String, String)> {
+    let Some(root) = main_file.path(db).as_system_path().and_then(|p| p.parent()) else {
+        return Vec::new();
     };
-    let mut out = String::with_capacity(stripped.len() + 1);
-    if !stripped.starts_with('/') {
-        out.push('/');
-    }
-    out.push_str(stripped);
-    SystemPathBuf::from(out)
+    let mut modules: Vec<(String, String)> = files
+        .into_iter()
+        .filter(|f| *f != main_file)
+        .filter_map(|f| {
+            let path = f.path(db).as_system_path()?;
+            let relative = path.strip_prefix(root).ok()?;
+            let source = ruff_db::source::source_text(db, f);
+            Some((relative.as_str().to_owned(), source.to_string()))
+        })
+        .collect();
+    modules.sort();
+    modules
 }
 
 /// Type-check and format-check doctests inside a file's docstrings.
@@ -269,48 +280,14 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
 
     let (syn_source, syn_map) = doctests::build_synthetic_source(source_str, &extraction.snippets);
 
-    // Mirror the original file (and its transitive first-party imports) into
-    // an in-memory filesystem under POSIX-virtual paths so ty's resolver can
-    // follow `from helper import …` references from inside doctests. We
-    // virtualize because `InMemorySystem`'s MemoryFileSystem asserts that its
-    // cwd starts with `/`, which a Windows absolute path like `C:/…` does not.
-    let Some(original_path) = file.path(db).as_system_path() else {
-        return diagnostics;
-    };
-    let original_virtual = virtualize_path(original_path);
-    let cwd = original_virtual
-        .parent()
-        .map(SystemPath::to_path_buf)
-        .unwrap_or_else(|| SystemPathBuf::from(PROJECT_ROOT));
-    let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
-    let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
-
+    // A doctest can name what the file around it imports, so the check gets
+    // the file's first-party imports as the modules to resolve against --
+    // the same in-memory project the REPL checks its inputs in.
     let mut transitive: HashSet<File> = HashSet::new();
     collect_import_files(db, file, &mut transitive);
-    for dep in &transitive {
-        if *dep == file {
-            continue;
-        }
-        let Some(dep_path) = dep.path(db).as_system_path() else {
-            continue;
-        };
-        let dep_src = ruff_db::source::source_text(db, *dep);
-        let _ = system.write_file(&virtualize_path(dep_path), dep_src.as_str());
-    }
+    let modules = modules_beside(db, file, transitive);
 
-    // Write the synthetic source at the virtualized original file path.
-    system
-        .write_file(&original_virtual, &syn_source)
-        .expect("writing to in-memory filesystem should never fail");
-
-    let metadata = make_project_metadata(cwd, vec![lib_root]);
-    let mut scratch = ProjectDatabase::fallible(metadata, system)
-        .expect("building ProjectDatabase with in-memory system should never fail");
-    let syn_file = system_path_to_file(&scratch, &original_virtual)
-        .expect("synthetic file should be resolvable after writing it");
-    scratch
-        .project()
-        .set_included_paths(&mut scratch, vec![original_virtual]);
+    let (scratch, syn_file) = in_memory_project(&syn_source, &modules);
 
     let mut raw = annotation_check(&scratch, level, false);
     raw.extend(scratch.check());

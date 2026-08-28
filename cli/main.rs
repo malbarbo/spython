@@ -3,7 +3,7 @@ compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm inst
 
 use bpaf::{Bpaf, Parser};
 use ruff_db::diagnostic::Diagnostic;
-use ruff_db::files::{File, system_path_to_file};
+use ruff_db::files::system_path_to_file;
 use ruff_db::system::SystemPathBuf;
 mod config;
 mod overlay_system;
@@ -374,34 +374,7 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
         return Err(Error::TypeChecking(Box::new(db), diagnostics));
     }
 
-    Ok(imported_modules(&db, main_file, &user_files))
-}
-
-/// The first-party files among `files`, keyed by their path relative to the
-/// directory `main_file` sits in.
-///
-/// The REPL checks its inputs on an in-memory filesystem, which is why these
-/// have to travel as text: `import helpers` cannot reach the real directory
-/// from there. A file outside that directory has no relative name to give,
-/// and is left out.
-fn imported_modules(
-    db: &ProjectDatabase,
-    main_file: File,
-    files: &[File],
-) -> Vec<(String, String)> {
-    let Some(root) = main_file.path(db).as_system_path().and_then(|p| p.parent()) else {
-        return Vec::new();
-    };
-    files
-        .iter()
-        .filter(|f| **f != main_file)
-        .filter_map(|f| {
-            let path = f.path(db).as_system_path()?;
-            let relative = path.strip_prefix(root).ok()?;
-            let source = ruff_db::source::source_text(db, *f);
-            Some((relative.as_str().to_owned(), source.to_string()))
-        })
-        .collect()
+    Ok(engine::modules_beside(&db, main_file, user_files))
 }
 
 /// Run a Python script with type checking enabled.

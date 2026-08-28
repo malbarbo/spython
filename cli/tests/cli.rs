@@ -461,6 +461,33 @@ fn check_doctest_cross_module() {
 }
 
 #[test]
+fn check_doctest_under_a_package() {
+    // Same as above, one directory down: the imported file lives in a package
+    // (`from pkg.helper import square`). The doctest check writes the file's
+    // imports into a filesystem of its own, so a name that only resolves
+    // through a directory has to survive the trip.
+    let subdir = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/check_inputs/doctest_package"
+    ));
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .current_dir(subdir)
+        .args(["check", "--level", "4", "main.py"])
+        .output()
+        .expect("failed to run spython");
+    let err = normalize_output(&String::from_utf8_lossy(&output.stderr));
+    assert!(
+        !output.status.success(),
+        "expected failure but succeeded; stderr={err}"
+    );
+    assert!(
+        err.contains("in doctest of use")
+            && err.contains("Argument to function `square` is incorrect"),
+        "expected doctest error through the package, got: {err}"
+    );
+}
+
+#[test]
 fn run_rejects_doctest_type_error() {
     // `spython run` should reject doctest type errors even though it never
     // executes the doctests themselves — they are part of the file and must
