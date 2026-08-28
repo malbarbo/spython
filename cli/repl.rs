@@ -635,13 +635,13 @@ pub fn run_repl(
         &mut ReplSession::new(accumulated, level, std::io::stderr().is_terminal(), modules);
     session.add(
         ":level",
-        Some("[n]"),
+        Some("n"),
         "Show or change the teaching level (0-5)",
         Host::Level,
     );
     session.add(
         ":theme",
-        Some("[name]"),
+        Some("name"),
         "Show or change theme (light, dark)",
         Host::Theme,
     );

@@ -22,16 +22,17 @@ struct Command<H> {
     action: Action<H>,
 }
 
-/// What a command takes after its name.
+/// What a command takes after its name, and whether it has to be there.
 #[derive(Clone, Copy)]
 enum Arg {
     /// Nothing.
     None,
-    /// Python, which is also what says whether the input is finished, so
-    /// `:time [1,` waits for the rest of the list.
+    /// Python, required. It is also what says whether the input is finished,
+    /// so `:time [1,` waits for the rest of the list.
     Expr,
-    /// An optional word, which the help shows exactly as it stands here.
-    Word(&'static str),
+    /// A word, optional: a bare `:level` shows the level rather than being a
+    /// usage error. The `&str` is what the help calls it.
+    Optional(&'static str),
 }
 
 /// Who answers a command: the REPL itself, or the frontend that registered
@@ -80,7 +81,9 @@ fn usage(name: &str, arg: Arg) -> String {
     match arg {
         Arg::None => name.to_owned(),
         Arg::Expr => format!("{name} <expression>"),
-        Arg::Word(word) => format!("{name} {word}"),
+        // The brackets are the help's way of saying optional, so they are
+        // written here and not by whoever declared the command.
+        Arg::Optional(word) => format!("{name} [{word}]"),
     }
 }
 
@@ -161,9 +164,10 @@ impl<H: Copy> ReplSession<H> {
     }
 
     /// Declare a command of the frontend's own, under the name `host` it
-    /// knows it by. `word` is what the help shows after the name, for one
-    /// that takes a word. The session checks it and completes it like any
-    /// other, and hands it back as [`ReplOutcome::Host`] to be answered.
+    /// knows it by. `word` names the optional word the command takes, for one
+    /// that takes a word; the help puts it in brackets. The session checks it
+    /// and completes it like any other, and hands it back as
+    /// [`ReplOutcome::Host`] to be answered.
     pub fn add(
         &mut self,
         name: &'static str,
@@ -174,7 +178,7 @@ impl<H: Copy> ReplSession<H> {
         debug_assert!(self.commands.iter().all(|c| c.name != name));
         self.commands.push(Command {
             name,
-            arg: word.map_or(Arg::None, Arg::Word),
+            arg: word.map_or(Arg::None, Arg::Optional),
             help,
             action: Action::Host(host),
         });
