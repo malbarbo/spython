@@ -49,7 +49,9 @@ pub fn tab_action(
 
     if current_line.bytes().all(|b| b == b' ') {
         let current_indent = current_line.len();
-        let expected = crate::parser::continuation_indent(&before[..current_line_start]);
+        // The same question Enter asks, so the two keys put the line in the
+        // same place: the whole text and where the caret is in it.
+        let expected = crate::parser::indent_at(text, cursor_pos);
         if current_indent < expected {
             return TabAction::Indent(" ".repeat(expected - current_indent));
         }

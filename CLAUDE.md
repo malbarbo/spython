@@ -100,11 +100,13 @@ for completions, `"i <spaces>"` for indentation, or null for no action. The
 candidates are separated by newlines, not spaces, because a candidate can end
 in a space -- the way `import ` opens the next word.
 
-`repl_ready` reads the input text only — the session pointer is ignored — and
-answers `-1` for input no further line could finish as well, so the user gets
-the error instead of a prompt that will not let go. It and the terminal REPL
-both call `engine::parser::ready_state`, so the two prompts read a line the
-same way.
+`repl_ready` reads the input text and the cursor in it — the session pointer is
+ignored — and answers `-1` for input no further line could finish as well, so
+the user gets the error instead of a prompt that will not let go. An input of
+one line runs from anywhere in it; one of several runs from the end only,
+because with the cursor back in the text Enter is opening a line inside a
+block still being written. It and the terminal REPL both call
+`engine::parser::ready_state`, so the two prompts read a line the same way.
 
 `repl_new` config is a space-separated `key=value` string (compatible with the
 slangs engine protocol). Currently supported: `level=<0-5>`. Unknown keys are
@@ -227,9 +229,12 @@ Current fork customizations (ruff, 2 commits on `spython-0.3`):
   identifier/attribute/keyword completion and the indent-vs-complete decision
   (how far to indent comes from `parser.rs`).
 - `engine/src/parser.rs` — What the prompt does with the input as it stands
-  (`ready_state`): whether it is finished, read from the ruff parser's errors
-  and tokens, and how far in the next line starts (`continuation_indent`,
-  which Tab reaches through `completion.rs`).
+  and where the cursor is in it (`ready_state`): whether it runs, read from the
+  ruff parser's errors and tokens, and how far in the line it opens starts
+  (`indent_at`, which Tab reaches through `completion.rs`). The line goes as
+  deep as the block open above the cursor and as the code written below it,
+  whichever is deeper — either floor, crossed, would put the line outside a
+  block that needs it.
 - `engine/src/checker.rs` — AST walker: annotation checks + construct
   restrictions
 - `engine/src/lints.rs` — Lint rule declarations using `declare_lint!`

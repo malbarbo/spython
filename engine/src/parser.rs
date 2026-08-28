@@ -13,25 +13,88 @@ use ruff_text_size::{Ranged, TextSize};
 pub const INDENT: usize = 4;
 
 /// What the prompt does with the input as it stands: `-1` runs it, and
-/// anything else is how far in the next line starts, in spaces.
+/// anything else is how far in the line the cursor opens starts, in spaces.
+///
+/// `cursor` is a byte offset into `input`, as `repl_complete` already takes
+/// one. One that falls inside a character -- which is what a host counting in
+/// another unit sends -- moves back to the boundary before it: slicing at it
+/// panics instead, and a panic is the end of the session.
 ///
 /// Input that no line could finish is run, so that the user is given the
 /// error instead of a prompt that will not let go of them.
-pub fn ready_state(input: &str) -> i32 {
-    let src = python_part(input);
-    let parsed = parse_unchecked_source(src, PySourceType::Python);
-    if is_incomplete(&parsed, src) {
-        i32::try_from(indent_after(parsed.tokens(), src)).unwrap_or(0)
-    } else {
-        -1
+pub fn ready_state(input: &str, cursor: usize) -> i32 {
+    let start = python_start(input);
+    let src = &input[start..];
+    // A cursor before the Python is not in it at all -- Enter pressed inside
+    // `:time` opens the line the code asks for, the way it would from the
+    // end. Clamping to 0 instead answers for a cursor at its start.
+    let cursor = char_boundary(src, cursor.checked_sub(start).unwrap_or(src.len()));
+    // Nothing but whitespace is left after the cursor: the line it opens is
+    // the line after the input, which the input alone already answers.
+    let at_end = src[cursor..].trim().is_empty();
+    // One line runs from anywhere in it, the way a prompt always has. Several
+    // run from the end only: with the cursor back in the text, Enter is
+    // opening a line inside a block still being written, and running the
+    // block because it happens to be finished is not what the key was
+    // pressed for.
+    if (at_end || !src.contains('\n')) && !incomplete(src) {
+        return -1;
     }
+    let indent = indent_at(src, if at_end { src.len() } else { cursor });
+    i32::try_from(indent).unwrap_or(0)
 }
 
-/// How far in the line after `src` starts, in spaces, for a caller with no
-/// parse in hand: Tab, through `completion`.
-pub(crate) fn continuation_indent(src: &str) -> usize {
-    let parsed = parse_unchecked_source(src, PySourceType::Python);
-    indent_after(parsed.tokens(), src)
+/// How far in the line opened at `cursor` starts, in spaces: as far in as the
+/// block open above it puts the line, and at least as far as the code under
+/// it is written.
+///
+/// The two halves answer different things. Above the cursor the tokens say
+/// which block is open, which is a floor: a line out of it is not in the
+/// block at all. Below it only the indentation as written counts, and it is
+/// a floor too -- a line shallower than the code under it closes a block that
+/// code still needs open. So the answer is the deeper of the two, and where
+/// they disagree it is the one that closes nothing.
+///
+/// Also what Tab indents by, through `completion`.
+pub(crate) fn indent_at(src: &str, cursor: usize) -> usize {
+    let cursor = char_boundary(src, cursor);
+    let above = &src[..cursor];
+    let parsed = parse_unchecked_source(above, PySourceType::Python);
+    indent_after(parsed.tokens(), above).max(indent_below(src, cursor))
+}
+
+/// Whether the reader has to go on reading, for a caller with no parse in
+/// hand.
+fn incomplete(src: &str) -> bool {
+    is_incomplete(&parse_unchecked_source(src, PySourceType::Python), src)
+}
+
+/// `cursor` brought inside `src` and onto a character boundary.
+fn char_boundary(src: &str, cursor: usize) -> usize {
+    let mut cursor = cursor.min(src.len());
+    while !src.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
+    cursor
+}
+
+/// How far in the code under the cursor is written, in spaces: the first line
+/// below the cursor's own that says something and can be measured. A blank
+/// line and a comment say nothing about where the block is written, and a line
+/// indented with anything but spaces cannot be measured in them: all three are
+/// passed over.
+fn indent_below(src: &str, cursor: usize) -> usize {
+    let Some((_, below)) = src[cursor..].split_once('\n') else {
+        return 0;
+    };
+    below
+        .lines()
+        .find_map(|line| {
+            let text = line.trim_start_matches(' ');
+            (!text.is_empty() && !text.starts_with('#') && !text.starts_with(char::is_whitespace))
+                .then(|| indent_of(line))
+        })
+        .unwrap_or(0)
 }
 
 /// Whether the reader has to go on reading before this input can run.
@@ -91,17 +154,21 @@ fn is_incomplete(parsed: &Parsed<ModModule>, src: &str) -> bool {
     }
 }
 
-/// The Python of an input, with the REPL command taken off. What a command
-/// carries is read as Python, so `:time [1,` waits for the rest of the list,
-/// and one that carries nothing has nothing to go on reading for.
-fn python_part(input: &str) -> &str {
-    let trimmed = input.trim_start();
+/// Where the Python of an input begins: past the REPL command, if it is one.
+/// What a command carries is read as Python, so `:time [1,` waits for the
+/// rest of the list, and one that carries nothing has nothing to go on
+/// reading for. An offset and not the text itself, because the cursor is
+/// given in the input's own coordinates.
+fn python_start(input: &str) -> usize {
+    let spaces = input.len() - input.trim_start().len();
+    let trimmed = &input[spaces..];
     if !trimmed.starts_with(':') {
-        return input;
+        return 0;
     }
     trimmed
-        .split_once(char::is_whitespace)
-        .map_or("", |(_, argument)| argument)
+        .char_indices()
+        .find(|(_, c)| c.is_whitespace())
+        .map_or(input.len(), |(i, c)| spaces + i + c.len_utf8())
 }
 
 /// How far in the next line starts, in spaces: one level deeper than the line
@@ -273,6 +340,23 @@ mod tests {
     /// The tests ask about a string; only `ready_state` has a parse in hand.
     fn is_incomplete(src: &str) -> bool {
         super::is_incomplete(&parse_unchecked_source(src, PySourceType::Python), src)
+    }
+
+    /// The cursor at the end of the input, which is where the tests written
+    /// before there was a cursor put it.
+    fn ready_state(src: &str) -> i32 {
+        super::ready_state(src, src.len())
+    }
+
+    /// Likewise: how far in the line after the whole input starts.
+    fn continuation_indent(src: &str) -> usize {
+        indent_at(src, src.len())
+    }
+
+    /// The `|` in `marked` is where the cursor is.
+    fn at_cursor(marked: &str) -> i32 {
+        let (above, below) = marked.split_once('|').expect("the cursor is a `|`");
+        super::ready_state(&format!("{above}{below}"), above.len())
     }
 
     #[test]
@@ -527,5 +611,70 @@ def main() -> None:
             }
         }
         assert!(rejected > 10, "{rejected} prefixos e pouco para dizer algo");
+    }
+
+    #[test]
+    fn one_line_runs_from_anywhere_in_it_and_several_from_the_end() {
+        assert_eq!(at_cursor("x = |1"), -1);
+        assert_eq!(at_cursor("x = 1  # nota:|"), -1);
+        // Several lines with the cursor back in them: the key opens a line,
+        // finished or not.
+        assert_eq!(at_cursor("x = 1\ny = |2"), 0);
+        // The `:` is inside the comment, so it opens no block to go into.
+        assert_eq!(at_cursor("x = 1  # nota:|\ny = 2"), 0);
+    }
+
+    #[test]
+    fn the_line_goes_as_deep_as_the_block_above_and_the_code_below() {
+        // Nothing below: the answer is the one the input alone gives.
+        assert_eq!(at_cursor("def f() -> int:|"), 4);
+        assert_eq!(at_cursor("x = 1\ny = 2|"), -1);
+        // The block goes on below, so the line goes into it.
+        assert_eq!(at_cursor("def f() -> int:\n    a = 1|\n    b = 2"), 4);
+        // What is written below outweighs the dedent `return` asks for: a
+        // line out at 0 would leave `b = 2` indented under nothing.
+        assert_eq!(at_cursor("def f() -> int:\n    return a|\n    b = 2"), 4);
+        assert_eq!(
+            at_cursor("def f() -> int:\n    return a|\ndef g() -> int:"),
+            0
+        );
+        // A blank line and a comment say nothing about where the block is.
+        assert_eq!(
+            at_cursor("def f() -> int:\n    return a|\n\n    # nota\n    b = 2"),
+            4
+        );
+        // The other way round, the block just opened is the floor: 4 is not
+        // a place the body of the `if` could go.
+        assert_eq!(at_cursor("def f() -> int:\n    if x:|\n    return 1"), 8);
+        assert_eq!(at_cursor("d = {\n    'a': 1,|\n}"), 4);
+        // And the line the cursor is on is a floor too: Enter here goes on
+        // writing the body of `f`, it does not leave it.
+        assert_eq!(at_cursor("def f() -> int:\n    x = 1|\ny = 2"), 4);
+        // A line indented with a tab cannot be measured in spaces, so it is
+        // passed over instead of counted as a line written at the margin.
+        assert_eq!(
+            at_cursor("def f() -> int:\n    return a|\n\tb = 2\n    c = 3"),
+            4
+        );
+    }
+
+    #[test]
+    fn a_cursor_inside_a_command_is_a_cursor_at_the_end_of_what_it_carries() {
+        // The cursor is in `:time`, not in the Python, so there is no line
+        // being opened inside the code: it answers the way it does from the
+        // end.
+        assert_eq!(at_cursor(":ti|me [1,"), 4);
+        assert_eq!(at_cursor("|:time 1 + 1"), -1);
+    }
+
+    #[test]
+    fn a_cursor_off_a_character_boundary_moves_back_instead_of_panicking() {
+        let input = "x = 'a'\ny = 2";
+        assert_eq!(super::ready_state(input, 6), 0);
+        // The same input with a character the cursor can land inside of.
+        let accented = "x = 'ao'\ny = 2".replace('o', "\u{e3}o");
+        assert_eq!(super::ready_state(&accented, 6), 0);
+        // And past the end, which is where a stale cursor lands.
+        assert_eq!(super::ready_state(input, 999), -1);
     }
 }

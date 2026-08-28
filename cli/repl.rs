@@ -61,13 +61,12 @@ impl SmartKeys {
 /// What Enter does with the input as it stands: `None` accepts it, and
 /// `Some(indent)` opens a line that far in.
 ///
-/// With text after the cursor Enter never runs anything: it opens a line for
-/// the block the cursor is in, not for the one the input ends in.
+/// Where the cursor is is part of the question, and the engine answers all of
+/// it: the prompt in the browser asks the same thing through `repl_ready`, so
+/// the two read the key the same way.
 fn enter_action(line: &str, pos: usize) -> Option<usize> {
-    let above = line[pos..].contains('\n');
-    let input = if above { &line[..pos] } else { line };
-    match engine::parser::ready_state(input) {
-        -1 if !above => None,
+    match engine::parser::ready_state(line, pos) {
+        -1 => None,
         indent => Some(usize::try_from(indent).unwrap_or(0)),
     }
 }
@@ -181,7 +180,7 @@ impl Highlighter for ReplHelper<'_> {
 
 impl Validator for ReplHelper<'_> {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        if engine::parser::ready_state(ctx.input()) < 0 {
+        if engine::parser::ready_state(ctx.input(), ctx.input().len()) < 0 {
             self.pending.borrow_mut().clear();
             Ok(ValidationResult::Valid(None))
         } else {
@@ -754,5 +753,8 @@ mod tests {
         assert_eq!(enter_action(input, input.len()), Some(8));
         // A finished line above the last one opens a line and runs nothing.
         assert_eq!(enter_action("x = 1\ny = 2", 5), Some(0));
+        // And so does the last line itself with the cursor back in it: the
+        // key is being pressed to correct `y`, not to run the two lines.
+        assert_eq!(enter_action("x = 1\ny = 2", 10), Some(0));
     }
 }
