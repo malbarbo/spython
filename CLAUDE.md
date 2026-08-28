@@ -199,9 +199,12 @@ Current fork customizations (ruff, 2 commits on `spython-0.3`):
 
 **Execution pipeline** (see `cli/main.rs:run_checked`; level defaults to 0):
 
-1. Resolve the given `.py` file to an absolute path and collect all transitively
-   imported local Python files (`collect_import_files`).
-2. Build a `ty` `ProjectDatabase` from those files (`build_db`).
+1. Resolve the given `.py` file to an absolute path and build a `ty`
+   `ProjectDatabase` rooted at the file's **own directory** (`build_db`) --
+   not the process's, so that `import helper` resolves beside the file, which
+   is also where the interpreter looks (`sys.path[0]`).
+2. From there, collect all transitively imported local Python files
+   (`collect_import_files`), and restrict what gets reported to them.
 3. Run spython's custom checker (`engine/src/checker.rs`) — checks
    annotations and forbidden constructs based on the teaching level.
 4. If the checker passes, run ty's type checker (`db.check()`).
@@ -211,8 +214,15 @@ Current fork customizations (ruff, 2 commits on `spython-0.3`):
 
 - `engine/build.rs` — Captures build date and git hash at compile time
 - `cli/main.rs` — CLI, pipeline orchestration, import resolution
-- `cli/repl.rs` — Interactive REPL with syntax highlighting, auto-indent,
-  and multi-line editing (uses rustyline). Delegates completion to `engine`.
+- `cli/repl.rs` — The terminal's line editor: syntax highlighting,
+  auto-indent, and multi-line editing (uses rustyline), plus the commands
+  only a terminal answers (`:level`, `:theme`). Everything else about an
+  input it hands to `engine/src/repl.rs`.
+- `engine/src/repl.rs` — One REPL input at a time, in the state the previous
+  ones left. `ReplSession` holds what does not need an interpreter (the
+  accumulated source, the level, the modules the session started from) and
+  owns the one table of `:` commands both frontends answer from; `ReplState`
+  adds the interpreter, for the page, which has no line editor of its own.
 - `engine/src/completion.rs` — Tab completion logic shared by CLI and WASM:
   identifier/attribute/keyword completion and the indent-vs-complete decision
   (how far to indent comes from `parser.rs`).
@@ -223,6 +233,16 @@ Current fork customizations (ruff, 2 commits on `spython-0.3`):
 - `engine/src/checker.rs` — AST walker: annotation checks + construct
   restrictions
 - `engine/src/lints.rs` — Lint rule declarations using `declare_lint!`
+- `engine/src/lib.rs` — The checking entry points, over `in_memory_project`:
+  one in-memory filesystem holding the source as `/user.py`, the spython
+  library, and the first-party modules it may import under `/modules`. The
+  REPL checks its inputs there, and so does the doctest check, which writes
+  a synthetic source through the same door.
+- `engine/src/doctests.rs` — Finds doctests in docstrings, reports malformed
+  `>>>` / `...` prompts, and builds the synthetic source that lets the
+  snippets be type-checked and the diagnostics mapped back to the docstring.
+- `engine/src/spython_lib.rs` — The embedded copy of `lib/spython/*.py` that
+  ty resolves against (runtime uses the frozen bytecode instead)
 - `engine/src/doctest_runner.py` — Minimal doctest runner (avoids stdlib
   `doctest` which needs `_io.FileIO`, unavailable on WASM)
 - `scripts/find_stdlib_deps.py` — Traces transitive stdlib imports at file
