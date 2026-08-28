@@ -42,6 +42,12 @@ use ty_python_semantic::{HasType, SemanticModel};
 
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
+/// Where a REPL input goes, instead of [`USER_FILE`]: a file the session
+/// started from can have a neighbour named `user.py`, and writing that
+/// neighbour over the input would take the session's whole type checking with
+/// it, silently. The REPL labels its diagnostics `user.py` itself, so this
+/// name never reaches anyone.
+const REPL_FILE: &str = "/__repl__.py";
 
 /// Package version from Cargo.toml.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -122,12 +128,13 @@ pub fn new_interpreter() -> vm::Interpreter {
 /// the real filesystem is reachable from here, so a `import helpers` only
 /// resolves if `helpers.py` is among them. They are written but not included:
 /// the checker reads them to resolve names, and reports nothing about them.
-fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectDatabase, File) {
+fn in_memory_project(
+    source: &str,
+    source_path: &str,
+    modules: &[(String, String)],
+) -> (ProjectDatabase, File) {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
     let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
-    system
-        .write_file(SystemPath::new(USER_FILE), source)
-        .expect("writing to in-memory filesystem should never fail");
     for (path, module_source) in modules {
         // `write_file_all`, not `write_file`: a module under a package needs
         // its directory to exist first.
@@ -139,15 +146,19 @@ fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectData
             )
             .expect("writing to in-memory filesystem should never fail");
     }
+    // Last, so the source is the one file no module can write over.
+    system
+        .write_file(SystemPath::new(source_path), source)
+        .expect("writing to in-memory filesystem should never fail");
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
     let metadata = make_project_metadata(cwd, vec![lib_root]);
     let mut db = ProjectDatabase::fallible(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
-    let file_path = SystemPathBuf::from(USER_FILE);
+    let file_path = SystemPathBuf::from(source_path);
     let user_file = system_path_to_file(&db, &file_path)
-        .expect("user.py should be resolvable after writing it to the in-memory filesystem");
+        .expect("the source should be resolvable after writing it to the in-memory filesystem");
 
     db.project().set_included_paths(&mut db, vec![file_path]);
     (db, user_file)
@@ -161,17 +172,19 @@ pub fn type_check_source(
     level: Level,
     in_repl: bool,
 ) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
-    type_check_in_memory(source, level, in_repl, &[])
+    type_check_in_memory(source, USER_FILE, level, in_repl, &[])
 }
 
-/// Type-check `source` against `modules`, the first-party files it imports.
+/// Type-check `source`, written at `source_path`, against `modules` -- the
+/// first-party files it imports.
 fn type_check_in_memory(
     source: &str,
+    source_path: &str,
     level: Level,
     in_repl: bool,
     modules: &[(String, String)],
 ) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
-    let (db, user_file) = in_memory_project(source, modules);
+    let (db, user_file) = in_memory_project(source, source_path, modules);
 
     let mut diagnostics = annotation_check(&db, level, in_repl);
     diagnostics.extend(db.check());
@@ -443,7 +456,7 @@ pub fn type_check_repl_input(
         format!("{accumulated}\n{new_input}")
     };
 
-    let te = match type_check_in_memory(&combined, level, true, modules) {
+    let te = match type_check_in_memory(&combined, REPL_FILE, level, true, modules) {
         Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };
@@ -458,10 +471,12 @@ pub fn type_check_repl_input(
     // What lands before the input is about code the user cannot reach from
     // the prompt. Printing it would clamp its line onto the first line of the
     // input and blame what was just typed for it.
+    // One with no position at all is about the whole check, not about a line
+    // of history, so it stays.
     let in_input: Vec<&Diagnostic> = te
         .diagnostics
         .iter()
-        .filter(|d| diagnostic_position(d, &combined).0 >= line_offset)
+        .filter(|d| diagnostic_position(d, &combined).is_none_or(|(line, ..)| line >= line_offset))
         .collect();
     if !in_input
         .iter()
@@ -499,7 +514,7 @@ pub fn infer_expression_type(
         format!("{}\n{}", accumulated.trim_end_matches('\n'), expr)
     };
 
-    let (db, file) = in_memory_project(&source, modules);
+    let (db, file) = in_memory_project(&source, REPL_FILE, modules);
 
     // Parse and find the last expression statement.
     let program_file = db.program_file(file);
@@ -543,7 +558,11 @@ fn simplify_type_display(s: &str) -> String {
 
 /// Where a diagnostic points into `source`: the 0-based line, the 0-based
 /// column, and how many bytes it underlines.
-fn diagnostic_position(diag: &Diagnostic, source: &str) -> (usize, usize, usize) {
+///
+/// `None` for a diagnostic that carries no range -- ty reports an unreadable
+/// file that way. It is nowhere in particular, which is not the same as being
+/// on the first line, and the caller has to keep the two apart.
+fn diagnostic_position(diag: &Diagnostic, source: &str) -> Option<(usize, usize, usize)> {
     diag.primary_span()
         .and_then(|span| span.range())
         .map(|range| {
@@ -554,7 +573,6 @@ fn diagnostic_position(diag: &Diagnostic, source: &str) -> (usize, usize, usize)
             let len = usize::from(range.end()) - usize::from(range.start());
             (line, col, len)
         })
-        .unwrap_or((0, 0, 1))
 }
 
 /// Print diagnostics with line numbers adjusted for REPL context.
@@ -574,10 +592,11 @@ fn print_repl_diagnostics(
             error_count += 1;
         }
 
-        let (line, col, span_len) = diagnostic_position(diag, combined_source);
-        // The caller has already dropped what lands before the input, so this
-        // subtraction is the offset of a line the user can see.
-        let adjusted_line = line - line_offset;
+        // The caller has already dropped what lands before the input, so the
+        // subtraction is the offset of a line the user can see. One with no
+        // position is shown against the first line, for want of a better one.
+        let (adjusted_line, col, span_len) = diagnostic_position(diag, combined_source)
+            .map_or((0, 0, 1), |(line, col, len)| (line - line_offset, col, len));
         let display_line = adjusted_line + 1; // 1-indexed
 
         let severity = match (is_error, use_color) {
@@ -764,6 +783,30 @@ mod repl_check_tests {
         assert!(type_check_repl_input(
             "from pkg.util import twice",
             "twice(1)",
+            Level::Full,
+            false,
+            &modules,
+        ));
+    }
+
+    #[test]
+    fn a_module_named_like_the_repl_file_does_not_replace_the_input() {
+        let modules = vec![(
+            "user.py".to_owned(),
+            "def helper(x: int) -> int:\n    return x * 2\n".to_owned(),
+        )];
+        // The input is still what gets checked...
+        assert!(!type_check_repl_input(
+            "import user",
+            "undefined_name",
+            Level::Full,
+            false,
+            &modules,
+        ));
+        // ...and the module is still what `user` names.
+        assert!(type_check_repl_input(
+            "import user",
+            "user.helper(1)",
             Level::Full,
             false,
             &modules,
