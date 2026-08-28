@@ -42,12 +42,10 @@ use ty_python_semantic::{HasType, SemanticModel};
 
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
-/// Where a REPL input goes, instead of [`USER_FILE`]: a file the session
-/// started from can have a neighbour named `user.py`, and writing that
-/// neighbour over the input would take the session's whole type checking with
-/// it, silently. The REPL labels its diagnostics `user.py` itself, so this
-/// name never reaches anyone.
-const REPL_FILE: &str = "/__repl__.py";
+/// Where the modules a session started from go. A root of their own, on the
+/// search path rather than beside the source, so no file the student wrote
+/// can land on [`USER_FILE`] and quietly replace the code being checked.
+const MODULE_ROOT: &str = "/modules";
 
 /// Package version from Cargo.toml.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -125,40 +123,41 @@ pub fn new_interpreter() -> vm::Interpreter {
 ///
 /// `modules` are the first-party files the source imports, each a path
 /// relative to the directory the source came from and its text. Nothing on
-/// the real filesystem is reachable from here, so a `import helpers` only
-/// resolves if `helpers.py` is among them. They are written but not included:
-/// the checker reads them to resolve names, and reports nothing about them.
-fn in_memory_project(
-    source: &str,
-    source_path: &str,
-    modules: &[(String, String)],
-) -> (ProjectDatabase, File) {
+/// the real filesystem is reachable from here, so `import helpers` only
+/// resolves if `helpers.py` is among them. They go under a search path of
+/// their own, next to the library's: reachable by name, out of reach of the
+/// source's own path, and not included, so the checker reads them to resolve
+/// names and reports nothing about them.
+fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectDatabase, File) {
     let cwd = SystemPathBuf::from(PROJECT_ROOT);
     let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
+    system
+        .write_file(SystemPath::new(USER_FILE), source)
+        .expect("writing to in-memory filesystem should never fail");
     for (path, module_source) in modules {
         // `write_file_all`, not `write_file`: a module under a package needs
         // its directory to exist first.
         system
             .fs()
             .write_file_all(
-                SystemPathBuf::from(format!("{PROJECT_ROOT}{path}")),
+                SystemPathBuf::from(format!("{MODULE_ROOT}/{path}")),
                 module_source,
             )
             .expect("writing to in-memory filesystem should never fail");
     }
-    // Last, so the source is the one file no module can write over.
-    system
-        .write_file(SystemPath::new(source_path), source)
-        .expect("writing to in-memory filesystem should never fail");
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
-    let metadata = make_project_metadata(cwd, vec![lib_root]);
+    let mut search_paths = vec![lib_root];
+    if !modules.is_empty() {
+        search_paths.push(SystemPathBuf::from(MODULE_ROOT));
+    }
+    let metadata = make_project_metadata(cwd, search_paths);
     let mut db = ProjectDatabase::fallible(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
-    let file_path = SystemPathBuf::from(source_path);
+    let file_path = SystemPathBuf::from(USER_FILE);
     let user_file = system_path_to_file(&db, &file_path)
-        .expect("the source should be resolvable after writing it to the in-memory filesystem");
+        .expect("user.py should be resolvable after writing it to the in-memory filesystem");
 
     db.project().set_included_paths(&mut db, vec![file_path]);
     (db, user_file)
@@ -172,19 +171,17 @@ pub fn type_check_source(
     level: Level,
     in_repl: bool,
 ) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
-    type_check_in_memory(source, USER_FILE, level, in_repl, &[])
+    type_check_in_memory(source, level, in_repl, &[])
 }
 
-/// Type-check `source`, written at `source_path`, against `modules` -- the
-/// first-party files it imports.
+/// Type-check `source` against `modules` -- the first-party files it imports.
 fn type_check_in_memory(
     source: &str,
-    source_path: &str,
     level: Level,
     in_repl: bool,
     modules: &[(String, String)],
 ) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
-    let (db, user_file) = in_memory_project(source, source_path, modules);
+    let (db, user_file) = in_memory_project(source, modules);
 
     let mut diagnostics = annotation_check(&db, level, in_repl);
     diagnostics.extend(db.check());
@@ -456,43 +453,41 @@ pub fn type_check_repl_input(
         format!("{accumulated}\n{new_input}")
     };
 
-    let te = match type_check_in_memory(&combined, REPL_FILE, level, true, modules) {
+    let te = match type_check_in_memory(&combined, level, true, modules) {
         Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };
 
-    // Calculate the line offset: number of lines in accumulated source.
-    let line_offset = if accumulated.is_empty() {
-        0
-    } else {
-        accumulated.lines().count()
-    };
-
-    // What lands before the input is about code the user cannot reach from
-    // the prompt. Printing it would clamp its line onto the first line of the
-    // input and blame what was just typed for it.
-    // One with no position at all is about the whole check, not about a line
-    // of history, so it stays.
-    let in_input: Vec<&Diagnostic> = te
+    // Where the input starts in `combined`. What lands before it is about the
+    // accumulated source, which no prompt can reach: printing it would blame
+    // what the user just typed for code they cannot fix from here.
+    let input_offset = combined.len() - new_input.len();
+    let in_input: Vec<Placed> = te
         .diagnostics
         .iter()
-        .filter(|d| diagnostic_position(d, &combined).is_none_or(|(line, ..)| line >= line_offset))
+        .filter_map(|diag| match diagnostic_range(diag) {
+            // No range means the diagnostic is about the check as a whole,
+            // not about a line of history, so it stays.
+            None => Some(Placed { diag, at: None }),
+            Some((start, end)) if start >= input_offset => {
+                let (line, col) = line_and_column(new_input, start - input_offset);
+                Some(Placed {
+                    diag,
+                    at: Some((line, col, end - start)),
+                })
+            }
+            Some(_) => None,
+        })
         .collect();
     if !in_input
         .iter()
-        .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error)
+        .any(|p| p.diag.severity() == ruff_db::diagnostic::Severity::Error)
     {
         return true;
     }
 
     let new_input_lines: Vec<&str> = new_input.lines().collect();
-    print_repl_diagnostics(
-        &in_input,
-        &combined,
-        line_offset,
-        &new_input_lines,
-        use_color,
-    );
+    print_repl_diagnostics(&in_input, &new_input_lines, use_color);
 
     false
 }
@@ -514,7 +509,7 @@ pub fn infer_expression_type(
         format!("{}\n{}", accumulated.trim_end_matches('\n'), expr)
     };
 
-    let (db, file) = in_memory_project(&source, REPL_FILE, modules);
+    let (db, file) = in_memory_project(&source, modules);
 
     // Parse and find the last expression statement.
     let program_file = db.program_file(file);
@@ -556,47 +551,46 @@ fn simplify_type_display(s: &str) -> String {
     s.to_owned()
 }
 
-/// Where a diagnostic points into `source`: the 0-based line, the 0-based
-/// column, and how many bytes it underlines.
+/// The byte range a diagnostic points at.
 ///
-/// `None` for a diagnostic that carries no range -- ty reports an unreadable
-/// file that way. It is nowhere in particular, which is not the same as being
-/// on the first line, and the caller has to keep the two apart.
-fn diagnostic_position(diag: &Diagnostic, source: &str) -> Option<(usize, usize, usize)> {
+/// `None` for one that carries no range -- ty reports an unreadable file that
+/// way. It is nowhere in particular, which is not the same as being at the
+/// start, and the caller has to keep the two apart.
+fn diagnostic_range(diag: &Diagnostic) -> Option<(usize, usize)> {
     diag.primary_span()
         .and_then(|span| span.range())
-        .map(|range| {
-            let offset = usize::from(range.start()).min(source.len());
-            let line = source[..offset].matches('\n').count();
-            let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
-            let col = offset - line_start;
-            let len = usize::from(range.end()) - usize::from(range.start());
-            (line, col, len)
-        })
+        .map(|range| (usize::from(range.start()), usize::from(range.end())))
 }
 
-/// Print diagnostics with line numbers adjusted for REPL context.
-fn print_repl_diagnostics(
-    diagnostics: &[&Diagnostic],
-    combined_source: &str,
-    line_offset: usize,
-    new_input_lines: &[&str],
-    use_color: bool,
-) {
+/// Where `offset` falls in `source`: the 0-based line and 0-based column.
+fn line_and_column(source: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(source.len());
+    let line = source[..offset].matches('\n').count();
+    let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
+    (line, offset - line_start)
+}
+
+/// A diagnostic and where it falls inside the REPL input: 0-based line,
+/// 0-based column, and how many bytes it underlines. `None` for one that
+/// carries no range, which is shown against the first line for want of a
+/// better place.
+struct Placed<'a> {
+    diag: &'a Diagnostic,
+    at: Option<(usize, usize, usize)>,
+}
+
+/// Print diagnostics already placed inside the REPL input.
+fn print_repl_diagnostics(diagnostics: &[Placed], new_input_lines: &[&str], use_color: bool) {
     use ruff_db::diagnostic::Severity;
     let mut error_count = 0;
 
-    for diag in diagnostics {
+    for Placed { diag, at } in diagnostics {
         let is_error = diag.severity() == Severity::Error;
         if is_error {
             error_count += 1;
         }
 
-        // The caller has already dropped what lands before the input, so the
-        // subtraction is the offset of a line the user can see. One with no
-        // position is shown against the first line, for want of a better one.
-        let (adjusted_line, col, span_len) = diagnostic_position(diag, combined_source)
-            .map_or((0, 0, 1), |(line, col, len)| (line - line_offset, col, len));
+        let (adjusted_line, col, span_len) = at.unwrap_or((0, 0, 1));
         let display_line = adjusted_line + 1; // 1-indexed
 
         let severity = match (is_error, use_color) {
@@ -790,7 +784,7 @@ mod repl_check_tests {
     }
 
     #[test]
-    fn a_module_named_like_the_repl_file_does_not_replace_the_input() {
+    fn a_module_named_like_the_checked_file_does_not_replace_it() {
         let modules = vec![(
             "user.py".to_owned(),
             "def helper(x: int) -> int:\n    return x * 2\n".to_owned(),
