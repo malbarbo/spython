@@ -2183,7 +2183,11 @@ fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (Stri
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("_spython_repl_preload_{n}"));
+    // The pid keeps two concurrent runs apart, and the removal keeps a
+    // directory a panicking test left behind from seeding this one.
+    let dir =
+        std::env::temp_dir().join(format!("_spython_repl_preload_{}_{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     for (name, source) in files {
         let path = dir.join(name);
