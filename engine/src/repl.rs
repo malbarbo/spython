@@ -404,7 +404,7 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
             .expect("creating the main scope should not fail");
         register_ffi_module(vm);
         #[cfg(feature = "capture")]
-        install_capture_writers(vm);
+        crate::install_capture_writers(vm);
         #[cfg(target_arch = "wasm32")]
         if let Err(exc) = vm.run_string(
             scope.clone(),
