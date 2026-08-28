@@ -460,6 +460,60 @@ fn check_doctest_cross_module() {
     );
 }
 
+/// Run spython from `dir` -- somewhere other than where the file being
+/// checked lives, which is the whole point of the two tests below.
+fn run_spython_from(dir: &Path, args: &[&str]) -> (String, String, bool) {
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .expect("failed to run spython");
+    (
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
+        output.status.success(),
+    )
+}
+
+#[test]
+fn check_resolves_a_sibling_from_another_directory() {
+    // `spython check dir/main.py` from outside `dir`. Both halves of the
+    // check look beside the file: the static one resolves `from helper
+    // import square`, and the doctests, which run for real, import it again.
+    let check_inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs"));
+    let (out, err, success) = run_spython_from(
+        check_inputs,
+        &["check", "--level", "4", "imports_a_sibling/main.py"],
+    );
+    assert!(success, "expected success; stdout={out} stderr={err}");
+    assert!(
+        err.contains("1 test, 1 success"),
+        "expected the doctest to run, got: {err}"
+    );
+}
+
+#[test]
+fn check_refuses_what_run_cannot_import() {
+    // `sub/main.py` imports `toplevel`, which sits beside `sub`, not inside
+    // it. The interpreter puts the file's own directory on `sys.path`, so it
+    // cannot reach it -- and the check, rooted the same way, says so instead
+    // of passing the file on to fail at runtime.
+    let root = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/check_inputs/subdir_import"
+    ));
+    let (_, checked, check_ok) = run_spython_from(root, &["check", "--level", "4", "sub/main.py"]);
+    let (_, ran, run_ok) = run_spython_from(root, &["run", "--level", "4", "sub/main.py"]);
+    assert!(!check_ok, "check should have refused, got: {checked}");
+    assert!(!run_ok, "run should have refused, got: {ran}");
+    for (what, err) in [("check", &checked), ("run", &ran)] {
+        assert!(
+            err.contains("Cannot resolve imported module `toplevel`"),
+            "expected {what} to report the unresolved import, got: {err}"
+        );
+    }
+}
+
 #[test]
 fn check_doctest_under_a_package() {
     // Same as above, one directory down: the imported file lives in a package

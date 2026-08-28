@@ -333,12 +333,16 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
         )));
     }
 
-    let cwd = std::env::current_dir().map_err(|e| Error::DatabaseBuild(e.to_string()))?;
-    let mut db = build_db(&cwd)?;
-
     let abs_sys = SystemPathBuf::from_path_buf(abs_file).map_err(|p| {
         Error::FileResolution(format!("'{}' contains non-Unicode characters", p.display()))
     })?;
+    // The file's own directory, not the process's: `import helpers` looks
+    // beside the file that wrote it, which is also where the interpreter
+    // looks when it runs (`sys.path[0]`). Rooting the check anywhere else
+    // makes `spython check dir/main.py` disagree with `cd dir` for no reason
+    // the student can see.
+    let root = abs_sys.parent().unwrap_or(&abs_sys).to_path_buf();
+    let mut db = build_db(root.as_std_path())?;
     let main_file =
         system_path_to_file(&db, &abs_sys).map_err(|e| Error::FileResolution(e.to_string()))?;
 
@@ -421,6 +425,11 @@ fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
     Ok(())
 }
 
+/// A path as a Python string literal's body.
+fn escape(path: &str) -> String {
+    path.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Run doctests for the given files, ignoring paths that are not files.
 fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
     let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
@@ -438,7 +447,8 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     let mut script = format!(
         "{doctest_runner}\n\
          import types, sys\n\
-         def _run(path):\n\
+         def _run(path, root):\n\
+         \x20   sys.path.insert(0, root)\n\
          \x20   mod = types.ModuleType('__doctest__')\n\
          \x20   mod.__file__ = path\n\
          \x20   with open(path) as f:\n\
@@ -449,11 +459,20 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     let print_names = valid_files.len() > 1;
     for file in &valid_files {
         let path = file.to_string_lossy();
-        let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped = escape(&path);
+        // The doctests import the way the file they came from does, so they
+        // run with its own directory on the path -- the same directory the
+        // static check resolved them against.
+        let root = escape(&file.parent().unwrap_or(Path::new(".")).to_string_lossy());
+        let root = if root.is_empty() {
+            ".".to_owned()
+        } else {
+            root
+        };
         if print_names {
             script.push_str(&format!("print(\"{escaped}\", flush=True)\n"));
         }
-        script.push_str(&format!("total += _run(\"{escaped}\")\n"));
+        script.push_str(&format!("total += _run(\"{escaped}\", \"{root}\")\n"));
     }
     script.push_str("sys.exit(total)\n");
 
