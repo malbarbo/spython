@@ -2169,7 +2169,7 @@ fn run_repl(input: &str) -> (String, String, bool) {
 }
 
 fn run_repl_level(input: &str, level: u8) -> (String, String, bool) {
-    run_repl_args(input, &["repl", "--level", &level.to_string()])
+    run_repl_in(input, &["repl", "--level", &level.to_string()], None)
 }
 
 /// A REPL that starts with `source` already executed, as `spython repl FILE` does.
@@ -2203,10 +2203,6 @@ fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (Stri
     );
     let _ = std::fs::remove_dir_all(&dir);
     result
-}
-
-fn run_repl_args(input: &str, args: &[&str]) -> (String, String, bool) {
-    run_repl_in(input, args, None)
 }
 
 fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, String, bool) {

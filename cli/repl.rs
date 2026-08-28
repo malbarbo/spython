@@ -108,8 +108,8 @@ impl rustyline::ConditionalEventHandler for SmartKeys {
 struct ReplHelper<'vm> {
     vm: &'vm VirtualMachine,
     globals: PyDictRef,
-    /// The session's commands, each with the space that opens what it takes.
-    commands: Vec<String>,
+    /// The session's commands: every name, and whether it takes an argument.
+    commands: Vec<(&'static str, bool)>,
     /// The unfinished input the editor is still reading for. Ctrl-C abandons
     /// it; an input that runs out is run anyway, so the user is shown what is
     /// wrong with it instead of nothing at all.
@@ -117,7 +117,11 @@ struct ReplHelper<'vm> {
 }
 
 impl<'vm> ReplHelper<'vm> {
-    fn new(vm: &'vm VirtualMachine, globals: PyDictRef, commands: Vec<String>) -> Self {
+    fn new(
+        vm: &'vm VirtualMachine,
+        globals: PyDictRef,
+        commands: Vec<(&'static str, bool)>,
+    ) -> Self {
         ReplHelper {
             vm,
             globals,
@@ -258,33 +262,30 @@ fn current_theme_name() -> &'static str {
     }
 }
 
-fn highlight_python(line: &str, commands: &[String]) -> String {
+fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
     let t = current_theme();
     let b = line.as_bytes();
     let len = b.len();
     let mut out = String::with_capacity(len + 64);
     let mut i = 0;
 
-    // REPL commands: color the command keyword, highlight the argument normally.
-    // The names come with the space that opens what they take, which is not
-    // part of the name itself.
-    let trimmed = line.trim();
-    for cmd in commands.iter().map(|c| c.trim_end()) {
-        if trimmed
-            .strip_prefix(cmd)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-        {
-            let cmd_start = line.find(cmd).unwrap();
-            out.push_str(&line[..cmd_start]);
-            out.push_str(t.keyword);
-            out.push_str(cmd);
-            out.push_str(RESET);
-            let rest = &line[cmd_start + cmd.len()..];
-            if !rest.is_empty() {
-                out.push_str(&highlight_python(rest, commands));
-            }
-            return out;
+    // A `:` command is coloured as a keyword and what follows it as Python.
+    // Reading the head with the engine's own `split` keeps the highlighter
+    // agreeing with the dispatch about where a command name ends.
+    if let Some(name) = engine::repl::split(line)
+        .map(|(name, _)| name)
+        .filter(|name| commands.iter().any(|(c, _)| c == name))
+    {
+        let cmd_start = line.find(name).unwrap();
+        out.push_str(&line[..cmd_start]);
+        out.push_str(t.keyword);
+        out.push_str(name);
+        out.push_str(RESET);
+        let rest = &line[cmd_start + name.len()..];
+        if !rest.is_empty() {
+            out.push_str(&highlight_python(rest, commands));
         }
+        return out;
     }
 
     while i < len {
@@ -575,11 +576,9 @@ fn is_python_builtin(word: &str) -> bool {
 
 // ── REPL entry point ────────────────────────────────────────────────
 
-/// The commands only a terminal has. The session checks and completes them
-/// like its own, and hands them back for `run_repl` to answer.
-/// The commands the terminal answers itself, as opposed to the ones the
-/// engine answers for every frontend. Adding one here without answering it
-/// below does not compile.
+/// The commands only a terminal has, as opposed to the ones the engine
+/// answers for every frontend. The session checks and completes them like its
+/// own; adding one here without answering it below does not compile.
 #[derive(Clone, Copy)]
 pub enum Host {
     Level,
@@ -597,23 +596,14 @@ fn level_command(session: &mut ReplSession<Host>, arg: &str) {
         eprintln!("Invalid level: must be 0-5");
         return;
     };
-    // Re-check accumulated source at the new level.
-    if !session.accumulated_source().is_empty()
-        && !engine::type_check_repl_input(
-            "",
-            session.accumulated_source(),
-            new_level,
-            std::io::stderr().is_terminal(),
-            session.modules(),
-        )
-    {
+    // Everything that has already run has to survive the new level.
+    if !session.set_level(new_level) {
         eprintln!(
             "Cannot change to level {new_level}: \
              accumulated source has errors at that level."
         );
         return;
     }
-    session.set_level(new_level);
     println!("level {new_level}");
     crate::config::save(new_level, current_theme_name());
 }
@@ -631,11 +621,18 @@ fn theme_command(session: &ReplSession<Host>, arg: &str) {
     }
 }
 
+/// Run the terminal REPL until the user leaves it, checking every input
+/// against `accumulated` -- what the file the session started from ran -- and
+/// the `modules` that file imports.
 pub fn run_repl(
     vm: &VirtualMachine,
     scope: Scope,
-    session: &mut ReplSession<Host>,
+    accumulated: String,
+    level: Level,
+    modules: Vec<(String, String)>,
 ) -> PyResult<()> {
+    let session =
+        &mut ReplSession::new(accumulated, level, std::io::stderr().is_terminal(), modules);
     session.add(
         ":level",
         Some("[n]"),
@@ -672,7 +669,7 @@ pub fn run_repl(
         repl.set_helper(Some(ReplHelper::new(
             vm,
             scope.globals.clone(),
-            session.command_completions(),
+            session.command_names(),
         )));
         repl.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
         let _ = repl.load_history(&repl_history_path);

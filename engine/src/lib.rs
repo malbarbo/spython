@@ -438,7 +438,7 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
 /// to it; diagnostics about the accumulated source are dropped.
 ///
 /// Returns `true` if the input passed type checking, `false` if errors were found.
-pub fn type_check_repl_input(
+fn type_check_repl_input(
     accumulated: &str,
     new_input: &str,
     level: Level,
@@ -497,7 +497,7 @@ pub fn type_check_repl_input(
 /// Builds a source with `accumulated + "\n" + expr`, type-checks it against
 /// `modules` the way [`type_check_repl_input`] does, and returns the display
 /// string of the inferred type for the expression.
-pub fn infer_expression_type(
+fn infer_expression_type(
     accumulated: &str,
     expr: &str,
     modules: &[(String, String)],

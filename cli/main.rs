@@ -12,9 +12,9 @@ mod repl;
 use overlay_system::OverlaySystem;
 
 use engine::{
-    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, ReplSession, VERSION,
-    annotation_check, collect_import_files, execute_source, format_source, make_project_metadata,
-    new_interpreter, print_type_errors, spython_lib,
+    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
+    collect_import_files, execute_source, format_source, make_project_metadata, new_interpreter,
+    print_type_errors, spython_lib,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -302,15 +302,10 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
         }
         // The file that ran is the context the next inputs are checked in,
         // together with whatever it imports.
-        let mut session = ReplSession::new(
-            preload
-                .as_ref()
-                .map_or_else(String::new, |(source, ..)| source.clone()),
-            level,
-            std::io::stderr().is_terminal(),
-            modules.clone(),
-        );
-        repl::run_repl(vm, scope, &mut session)
+        let accumulated = preload
+            .as_ref()
+            .map_or_else(String::new, |(source, ..)| source.clone());
+        repl::run_repl(vm, scope, accumulated, level, modules)
     });
     if code == 0 {
         Ok(())
@@ -362,22 +357,24 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
     // Validate and type-check doctests inside each user file's docstrings.
     // Sort to stabilize diagnostic order across platforms — `files` is a
     // `HashSet`, whose iteration order varies.
-    let mut sorted_files: Vec<_> = files.iter().copied().collect();
-    sorted_files.sort_by_key(|f| f.path(&db).as_str().to_owned());
-    for f in &sorted_files {
-        let is_spython_library = f
-            .path(&db)
-            .as_system_path()
-            .is_some_and(spython_lib::is_lib_path);
-        if !is_spython_library {
-            diagnostics.extend(engine::check_file_doctests(&db, *f, level));
-        }
+    let mut user_files: Vec<_> = files
+        .iter()
+        .copied()
+        .filter(|f| {
+            !f.path(&db)
+                .as_system_path()
+                .is_some_and(spython_lib::is_lib_path)
+        })
+        .collect();
+    user_files.sort_by_key(|f| f.path(&db).as_str().to_owned());
+    for f in &user_files {
+        diagnostics.extend(engine::check_file_doctests(&db, *f, level));
     }
     if !diagnostics.is_empty() {
         return Err(Error::TypeChecking(Box::new(db), diagnostics));
     }
 
-    Ok(imported_modules(&db, main_file, &sorted_files))
+    Ok(imported_modules(&db, main_file, &user_files))
 }
 
 /// The first-party files among `files`, keyed by their path relative to the
@@ -400,12 +397,9 @@ fn imported_modules(
         .filter(|f| **f != main_file)
         .filter_map(|f| {
             let path = f.path(db).as_system_path()?;
-            if spython_lib::is_lib_path(path) {
-                return None;
-            }
             let relative = path.strip_prefix(root).ok()?;
-            let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-            Some((relative.as_str().to_owned(), source))
+            let source = ruff_db::source::source_text(db, *f);
+            Some((relative.as_str().to_owned(), source.to_string()))
         })
         .collect()
 }

@@ -41,7 +41,7 @@ pub fn tab_action(
     globals: &PyDictRef,
     text: &str,
     cursor_pos: usize,
-    commands: &[String],
+    commands: &[(&str, bool)],
 ) -> TabAction {
     let before = &text[..cursor_pos];
     let current_line_start = before.rfind('\n').map_or(0, |i| i + 1);
@@ -73,7 +73,7 @@ pub fn tab_action(
 
 /// The commands a line starting with a colon can still become. `None` where a
 /// command cannot go, and once one is typed and what it takes is being written.
-fn complete_command(line: &str, commands: &[String]) -> Option<Vec<String>> {
+fn complete_command(line: &str, commands: &[(&str, bool)]) -> Option<Vec<String>> {
     let prefix = line.trim_start();
     if !prefix.starts_with(':') || prefix.contains(char::is_whitespace) {
         return None;
@@ -81,8 +81,16 @@ fn complete_command(line: &str, commands: &[String]) -> Option<Vec<String>> {
     Some(
         commands
             .iter()
-            .filter(|c| c.starts_with(prefix))
-            .cloned()
+            .filter(|(name, _)| name.starts_with(prefix))
+            // A command that takes something is offered with the space that
+            // opens it, the way `import ` is.
+            .map(|(name, takes_arg)| {
+                if *takes_arg {
+                    format!("{name} ")
+                } else {
+                    (*name).to_owned()
+                }
+            })
             .collect(),
     )
 }
@@ -237,14 +245,14 @@ mod tests {
 
     /// The commands as a session hands them over, so the tests complete the
     /// same list the frontends do.
-    fn commands() -> Vec<String> {
+    fn commands() -> Vec<(&'static str, bool)> {
         crate::repl::ReplSession::<std::convert::Infallible>::new(
             String::new(),
             crate::Level::Full,
             false,
             Vec::new(),
         )
-        .command_completions()
+        .command_names()
     }
 
     fn with_vm(f: impl FnOnce(&VirtualMachine, &PyDictRef)) {
@@ -399,7 +407,13 @@ mod tests {
     fn tab_action_lists_every_command_after_a_bare_colon() {
         with_vm(|vm, globals| {
             let action = tab_action(vm, globals, ":", 1, &commands());
-            assert!(matches!(action, TabAction::Complete(0, ref c) if *c == commands()));
+            let TabAction::Complete(0, candidates) = action else {
+                panic!("a bare colon should offer the commands");
+            };
+            assert_eq!(candidates.len(), commands().len());
+            // One that takes something is offered with the space that opens it.
+            assert!(candidates.contains(&":help".to_owned()));
+            assert!(candidates.contains(&":type ".to_owned()));
         });
     }
 

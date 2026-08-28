@@ -85,8 +85,9 @@ fn usage(name: &str, arg: Arg) -> String {
 }
 
 /// The name of the command at the head of the input and what follows it, or
-/// none for Python, which never starts with `:`.
-fn split(input: &str) -> Option<(&str, &str)> {
+/// none for Python, which never starts with `:`. Public so a frontend reads
+/// the head of a line exactly the way the dispatch does.
+pub fn split(input: &str) -> Option<(&str, &str)> {
     let trimmed = input.trim();
     if !trimmed.starts_with(':') {
         return None;
@@ -179,29 +180,17 @@ impl<H: Copy> ReplSession<H> {
         });
     }
 
-    /// The commands, each with the space that opens what it takes. What the
-    /// page and the terminal offer when the line so far is a colon.
-    pub fn command_completions(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
+    /// Every command's name, sorted, and whether it takes anything after it.
+    /// What a completer offers when the line so far is a colon, and what the
+    /// terminal's highlighter matches a line against.
+    pub fn command_names(&self) -> Vec<(&'static str, bool)> {
+        let mut names: Vec<(&'static str, bool)> = self
             .commands
             .iter()
-            .map(|c| match c.arg {
-                Arg::None => c.name.to_owned(),
-                Arg::Expr | Arg::Word(_) => format!("{} ", c.name),
-            })
+            .map(|c| (c.name, !matches!(c.arg, Arg::None)))
             .collect();
         names.sort();
         names
-    }
-
-    /// The accumulated source of all successfully type-checked and executed inputs.
-    pub fn accumulated_source(&self) -> &str {
-        &self.accumulated_source
-    }
-
-    /// The first-party files the accumulated source imports.
-    pub fn modules(&self) -> &[(String, String)] {
-        &self.modules
     }
 
     /// The teaching level.
@@ -209,9 +198,23 @@ impl<H: Copy> ReplSession<H> {
         self.level
     }
 
-    /// Check the inputs that follow at `level`.
-    pub fn set_level(&mut self, level: Level) {
+    /// Check the inputs that follow at `level`, if everything that has
+    /// already run survives it. Says whether it did; on `false` the level has
+    /// not moved and the diagnostics have been printed.
+    pub fn set_level(&mut self, level: Level) -> bool {
+        if !self.accumulated_source.is_empty()
+            && !type_check_repl_input(
+                "",
+                &self.accumulated_source,
+                level,
+                self.use_color,
+                &self.modules,
+            )
+        {
+            return false;
+        }
         self.level = level;
+        true
     }
 
     /// Append successfully executed source to the accumulator.
@@ -237,18 +240,18 @@ impl<H: Copy> ReplSession<H> {
         };
         // Copied out of the table so the command can be answered with the
         // session, which the table lives in, borrowed again.
-        let Some((command_name, command_arg, action)) = self
+        let Some((command_arg, action)) = self
             .commands
             .iter()
             .find(|c| c.name == name)
-            .map(|c| (c.name, c.arg, c.action))
+            .map(|c| (c.arg, c.action))
         else {
             eprintln!("Unknown command {name}. Type :help to see the commands.");
             return ReplOutcome::Error;
         };
         match (command_arg, arg.is_empty()) {
             (Arg::None, false) | (Arg::Expr, true) => {
-                eprintln!("Usage: {}", usage(command_name, command_arg));
+                eprintln!("Usage: {}", usage(name, command_arg));
                 return ReplOutcome::Error;
             }
             _ => {}
@@ -267,10 +270,7 @@ impl<H: Copy> ReplSession<H> {
                 }
                 ReplOutcome::Ok
             }
-            Action::Builtin(Builtin::Time) => {
-                let expr = arg.to_owned();
-                self.eval(vm, scope, &expr, true)
-            }
+            Action::Builtin(Builtin::Time) => self.eval(vm, scope, arg, true),
         }
     }
 
@@ -355,10 +355,7 @@ pub struct ReplState {
 
 impl ReplState {
     /// Run a closure with access to the VM and the session's globals.
-    pub fn with_vm<R>(
-        &self,
-        f: impl FnOnce(&vm::VirtualMachine, &vm::builtins::PyDictRef) -> R,
-    ) -> R {
+    fn with_vm<R>(&self, f: impl FnOnce(&vm::VirtualMachine, &vm::builtins::PyDictRef) -> R) -> R {
         let globals = &self.scope.as_ref().expect("scope is live").globals;
         self.interp
             .as_ref()
@@ -369,7 +366,7 @@ impl ReplState {
     /// What the Tab key should do at `cursor_pos`, over this session's names
     /// and its commands.
     pub fn tab_action(&self, text: &str, cursor_pos: usize) -> crate::completion::TabAction {
-        let commands = self.session.command_completions();
+        let commands = self.session.command_names();
         self.with_vm(|vm, globals| {
             crate::completion::tab_action(vm, globals, text, cursor_pos, &commands)
         })
@@ -491,14 +488,12 @@ mod tests {
     fn repl_drop_runs_atexit_handlers() {
         REPL_ATEXIT_RAN.store(false, Ordering::SeqCst);
 
-        let source = format!(
-            "import atexit\n\
+        let source = "import atexit\n\
 from _spython_ffi import __test_mark_atexit_ran\n\
-atexit.register(__test_mark_atexit_ran)\n"
-        );
+atexit.register(__test_mark_atexit_ran)\n";
 
         {
-            let _repl = repl_new(&source, Level::Full);
+            let _repl = repl_new(source, Level::Full);
         }
 
         assert!(
