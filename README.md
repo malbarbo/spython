@@ -1,29 +1,19 @@
 # spython
 
-A teaching-oriented Python interpreter that requires complete type annotations
-and progressively unlocks language features through six teaching levels.
+spython is a version of [Python](https://www.python.org/) for students. It
+checks types before running anything, so every function has to be annotated,
+and it hides parts of the language until the course gets to them. It has a
+REPL and comes with libraries for drawing images and writing interactive
+programs, in the spirit of [HtDP](https://htdp.org/).
 
-spython is built on [RustPython](https://github.com/RustPython/RustPython) for
-execution and [ty](https://github.com/astral-sh/ty) (from ruff) for type
-checking. A similar project for Gleam is
+You can try it in the browser at <https://malbarbo.pro.br/spython/>. The web
+version has an editor, the REPL, and shows images and interactive programs
+inline.
+
+spython runs the code on [RustPython](https://github.com/RustPython/RustPython)
+and checks it with [ty](https://github.com/astral-sh/ty), the type checker
+from the ruff project. There is a similar project for Gleam,
 [sgleam](https://github.com/malbarbo/sgleam).
-
-## Features
-
-- **Type checking before execution** — all code is type-checked before it runs
-- **Doctest support** — doctests are type-checked and executed
-- **Teaching levels** — progressively unlock Python constructs (functions →
-  selection → types → repetition → classes → full)
-- **Annotation enforcement** — every function parameter, return type, and
-  class variable must be annotated
-- **Image library** — built-in SVG-based graphics library for teaching,
-  inspired by [HtDP](https://htdp.org/) image teachpacks
-- **Interactive REPL** — syntax highlighting, auto-indent, tab completion, and
-  built-in commands (`:type`, `:time`, `:level`, `:theme`)
-- **WASM support** — runs in the browser via a WASM build
-
-
-## Samples
 
 <p align="center">
   <picture>
@@ -33,37 +23,59 @@ checking. A similar project for Gleam is
   </picture>
 </p>
 
-## Build
+## Install
 
-Requires Rust (stable). Dependencies are fetched automatically.
+Download the archive for your system from the
+[releases page](https://github.com/malbarbo/spython/releases), extract it, and
+put the `spython` binary somewhere on your `PATH`. That is all. The
+interpreter, the type checker, and the library ship inside the binary.
 
-```bash
-cargo build                # debug build
-cargo build --release      # optimized build
+To build from source you need stable Rust:
+
+```sh
+cargo build --release
 ```
 
-## Usage
+## Use
 
-```bash
-# Run a script (type-checked)
-spython run file.py
+`spython` with no arguments starts the REPL. It highlights the code as you
+type, completes names with tab, and checks the types of each input before
+running it.
 
-# Run with a specific teaching level (0-5)
-spython run --level 3 file.py
+To run a program, give it the file:
 
-# Type-check and run doctests (no main execution)
-spython check file.py
-
-# Format Python files (powered by ruff)
-spython format file.py
-
-# Start the REPL
-spython
+```sh
+spython run hello.py
 ```
 
-## Teaching Levels
+spython checks the file first. A function without annotations, or a
+construct the current level does not allow, is an error, and the program does
+not run.
 
-| Level | Name       | Allows                                                            |
+Tests are doctests. They state what a function returns for a few inputs, and
+`spython check` runs them after checking their types too:
+
+```python
+def double(x: int) -> int:
+    """
+    >>> double(0)
+    0
+    >>> double(3)
+    6
+    """
+    return x * 2
+```
+
+`spython format` formats a file, and `spython repl file.py` loads the
+definitions of a file into the REPL. `spython --help` lists the rest.
+
+### Levels
+
+A course introduces Python a piece at a time, and spython follows along. The
+`--level` option says how much of the language a program can use. The default
+is 0.
+
+| Level | Name       | Adds                                                              |
 | ----- | ---------- | ----------------------------------------------------------------- |
 | 0     | Functions  | `def`, `return`, scalars, string indexing                         |
 | 1     | Selection  | `if`/`elif`/`else`                                                |
@@ -72,70 +84,60 @@ spython
 | 4     | Classes    | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
 | 5     | Full       | unrestricted (only annotations still required)                    |
 
-Levels 0 through 3 also apply extra restrictions aimed at common beginner
-mistakes (all lifted at level 4): conditions must be boolean, `bool` is
-not allowed in arithmetic, chained comparisons are rejected, expression
-statements whose result is discarded are rejected, and function parameters
-cannot have default values.
+Up to level 3, spython also refuses a few things that are legal Python but
+usually a mistake for a beginner. A condition has to be a `bool`, a `bool`
+cannot take part in arithmetic, comparisons cannot be chained, an expression
+whose value is thrown away is an error, and a parameter cannot have a default
+value. Level 4 lifts all of these.
 
-## Standard Library
+### Standard library
 
-spython ships with a minimal subset of the Python standard library. The goal is
-for students to focus on fundamentals — algorithms, types, and problem-solving —
-without relying on ready-made solutions from large libraries.
+Only `dataclasses`, `enum`, `typing`, and `math` are available, together with
+the `spython` package for images and interactive programs. Importing anything
+else, such as `random`, `re`, or `os`, is an error. The point is that a
+student writes the algorithm instead of finding it in a library.
 
-Available modules: `dataclasses`, `enum`, `typing` and `math`.
+## Images and interactive programs
 
-The built-in `spython.image` and `spython.world` modules are also available
-(see below).
-
-Most other standard library modules (`os`, `re`, `json`, `random`, etc.) are
-**not** available: importing them will produce an error.
-
-## Image Library
-
-spython includes a built-in image library for teaching graphics programming,
-inspired by the [HtDP](https://htdp.org/) image teachpacks. Images are
-rendered as SVG.
-
-Everything is imported from `spython.image` (colors, styles, shapes, and
-functions) and `spython.world` (animations):
+The `spython` package builds a picture out of shapes, places pictures over,
+beside, and above each other, and rotates, scales, and crops them. A picture
+is an SVG.
 
 ```python
-from spython.image import circle, overlay, rectangle, fill, stroke, to_svg, red, blue
+from spython import blue, circle, fill, overlay, rectangle, red, stroke
 
 image = overlay(circle(30, stroke(red)), rectangle(80, 50, fill(blue)))
 ```
 
-The library provides:
+The `World` class is for animations and games. A program is a state, a
+function that draws the state, and functions that update the state on each
+tick of the clock or key press:
 
-- **Shapes** — rectangles, circles, ellipses, triangles (7 constructors),
-  polygons, stars, lines, wedges, bezier curves
-- **Transformations** — rotate, scale, flip, crop
-- **Composition** — overlay, underlay, beside, above (with alignment options)
-- **Scenes** — place images at coordinates, draw lines/polygons/curves
-- **Text and fonts** — text rendering with customizable fonts
-- **Styles** — fill and stroke with color, opacity, width, dash patterns
-- **Colors** — 140+ CSS named colors, `rgb()`, `rgba()`
-- **Animation** — `World` class for interactive programs, `animate` for
-  frame-based animation
+```python
+World(initial_state, draw).on_tick(tick).on_key_press(key).run()
+```
 
-## Architecture
+Both work best in the web version, which shows the picture as you go. The
+[examples](examples/) directory has a complete program.
 
-The workspace has three crates:
+## Documentation
 
-- `engine` — shared library (checker, completion, FFI)
-- `cli` — CLI binary with REPL
-- `wasm` — WASM target for browser use
+The guides are in [English](docs/en/) and in
+[Portuguese](docs/pt-br/). There is one for the command line and one for the
+web version.
 
 ## Development
 
-```bash
-make check              # clippy + fmt + ruff format
-cargo test --workspace  # all tests
-make wasm               # build WASM binary
+The workspace has three crates. `engine` has the checker, the completion,
+and the FFI. `cli` is the binary, and `wasm` is the build for the browser.
+
+```sh
+make check               # clippy, cargo fmt, ruff format, deno fmt
+cargo test --workspace   # the tests
+make test                # the tests, plus the WASM and image tests
+make wasm                # the WASM binary
 ```
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
