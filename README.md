@@ -2,9 +2,9 @@
 
 spython is a version of [Python](https://www.python.org/) for students. It
 checks types before running anything, so every function has to be annotated,
-and it hides parts of the language until the course gets to them. It has a
-REPL and comes with libraries for drawing images and writing interactive
-programs, in the spirit of [HtDP](https://htdp.org/).
+and restricts the language by level. It has a REPL and comes with libraries
+for drawing images and writing interactive programs, in the spirit of
+[HtDP](https://htdp.org/).
 
 You can try it in the browser at <https://malbarbo.pro.br/spython/>. The web
 version has an editor, the REPL, and shows images and interactive programs
