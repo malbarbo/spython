@@ -24,6 +24,9 @@ const HISTORY_FILE: &str = "history";
 
 pub struct ReplReader {
     editor: Editor<InputHelper, FileHistory>,
+    /// Where the history is read from and written back to, for as long as the
+    /// session lasts.
+    history: Option<PathBuf>,
     /// Whether the read that ends the session has already happened, as a
     /// reader that answered `None` is not asked to read again.
     done: bool,
@@ -71,12 +74,14 @@ impl ReplReader {
             editor.bind_sequence(key, EventHandler::Conditional(Box::new(SmartBackspace)));
         }
 
-        if let Some(history) = &history_path() {
+        let history = history_path();
+        if let Some(history) = &history {
             let _ = editor.load_history(history);
         }
 
         Ok(ReplReader {
             editor,
+            history,
             done: false,
         })
     }
@@ -132,7 +137,7 @@ impl Drop for ReplReader {
     /// The history outlives the session, whatever ended it: the end of the
     /// input, `:quit`, or an `exit()` inside an input.
     fn drop(&mut self) {
-        if let Some(history) = &history_path() {
+        if let Some(history) = &self.history {
             let _ = self.editor.save_history(history);
         }
     }
