@@ -8,6 +8,7 @@
 
 use crate::Level;
 use crate::ffi::register_ffi_module;
+use crate::shell::{Arg, BUILTINS, Builtin, split};
 use crate::{infer_expression_type, new_interpreter, type_check_repl_input};
 use rustpython::vm;
 use rustpython::vm::AsObject;
@@ -23,19 +24,6 @@ struct Command<H> {
     action: Action<H>,
 }
 
-/// What a command takes after its name, and whether it has to be there.
-#[derive(Clone, Copy)]
-enum Arg {
-    /// Nothing.
-    None,
-    /// Python, required. It is also what says whether the input is finished,
-    /// so `:time [1,` waits for the rest of the list.
-    Expr,
-    /// A word, optional: a bare `:level` shows the level rather than being a
-    /// usage error. The `&str` is what the help calls it.
-    Optional(&'static str),
-}
-
 /// Who answers a command: the REPL itself, or the frontend that registered
 /// it, which names it with a value of its own `H`.
 #[derive(Clone, Copy)]
@@ -43,33 +31,6 @@ enum Action<H> {
     Builtin(Builtin),
     Host(H),
 }
-
-#[derive(Clone, Copy)]
-enum Builtin {
-    Help,
-    Quit,
-    Type,
-    Time,
-}
-
-/// The commands every frontend has. A terminal adds its own with
-/// [`ReplSession::add`].
-const BUILTINS: &[(&str, Arg, &str, Builtin)] = &[
-    (":help", Arg::None, "Show this help", Builtin::Help),
-    (":quit", Arg::None, "Exit the REPL", Builtin::Quit),
-    (
-        ":type",
-        Arg::Expr,
-        "Show the type of an expression",
-        Builtin::Type,
-    ),
-    (
-        ":time",
-        Arg::Expr,
-        "Evaluate and show execution time",
-        Builtin::Time,
-    ),
-];
 
 impl<H> Command<H> {
     fn usage(&self) -> String {
@@ -82,23 +43,8 @@ fn usage(name: &str, arg: Arg) -> String {
     match arg {
         Arg::None => name.to_owned(),
         Arg::Expr => format!("{name} <expression>"),
-        // The brackets are the help's way of saying optional, so they are
-        // written here and not by whoever declared the command.
-        Arg::Optional(word) => format!("{name} [{word}]"),
+        Arg::Word(word) => format!("{name} {word}"),
     }
-}
-
-/// The name of the command at the head of the input and what follows it, or
-/// none for Python, which never starts with `:`. Public so a frontend reads
-/// the head of a line exactly the way the dispatch does.
-pub fn split(input: &str) -> Option<(&str, &str)> {
-    let trimmed = input.trim();
-    if !trimmed.starts_with(':') {
-        return None;
-    }
-    let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-    let (name, arg) = trimmed.split_at(end);
-    Some((name, arg.trim_start()))
 }
 
 /// The REPL state that does not need the interpreter: what has run so far,
@@ -165,10 +111,9 @@ impl<H: Copy> ReplSession<H> {
     }
 
     /// Declare a command of the frontend's own, under the name `host` it
-    /// knows it by. `word` names the optional word the command takes, for one
-    /// that takes a word; the help puts it in brackets. The session checks it
-    /// and completes it like any other, and hands it back as
-    /// [`ReplOutcome::Host`] to be answered.
+    /// knows it by. `word` is what the help shows after the name, for a
+    /// command that takes a word. The session checks it and completes it like
+    /// any other, and hands it back as [`ReplOutcome::Host`] to be answered.
     pub fn add(
         &mut self,
         name: &'static str,
@@ -179,7 +124,7 @@ impl<H: Copy> ReplSession<H> {
         debug_assert!(self.commands.iter().all(|c| c.name != name));
         self.commands.push(Command {
             name,
-            arg: word.map_or(Arg::None, Arg::Optional),
+            arg: word.map_or(Arg::None, Arg::Word),
             help,
             action: Action::Host(host),
         });

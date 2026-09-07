@@ -12,23 +12,20 @@ use ruff_text_size::{Ranged, TextSize};
 /// Backspace all move by it, so the three agree on where a block is written.
 pub const INDENT: usize = 4;
 
-/// What the prompt does with the input as it stands: `-1` runs it, and
+/// What the prompt does with the Python as it stands: `-1` runs it, and
 /// anything else is how far in the line the cursor opens starts, in spaces.
+/// A `:` command is `shell::ready_state`'s to read, and what it carries
+/// arrives here on its own.
 ///
-/// `cursor` is a byte offset into `input`, as `repl_complete` already takes
+/// `cursor` is a byte offset into `src`, as `repl_complete` already takes
 /// one. One that falls inside a character -- which is what a host counting in
 /// another unit sends -- moves back to the boundary before it: slicing at it
 /// panics instead, and a panic is the end of the session.
 ///
 /// Input that no line could finish is run, so that the user is given the
 /// error instead of a prompt that will not let go of them.
-pub fn ready_state(input: &str, cursor: usize) -> i32 {
-    let start = python_start(input);
-    let src = &input[start..];
-    // A cursor before the Python is not in it at all -- Enter pressed inside
-    // `:time` opens the line the code asks for, the way it would from the
-    // end. Clamping to 0 instead answers for a cursor at its start.
-    let cursor = char_boundary(src, cursor.checked_sub(start).unwrap_or(src.len()));
+pub fn ready_state(src: &str, cursor: usize) -> i32 {
+    let cursor = char_boundary(src, cursor);
     // Nothing but whitespace is left after the cursor: the line it opens is
     // the line after the input, which the input alone already answers.
     let at_end = src[cursor..].trim().is_empty();
@@ -152,23 +149,6 @@ fn is_incomplete(parsed: &Parsed<ModModule>, src: &str) -> bool {
         // A token was left to reject: the input is finished and wrong.
         _ => false,
     }
-}
-
-/// Where the Python of an input begins: past the REPL command, if it is one.
-/// What a command carries is read as Python, so `:time [1,` waits for the
-/// rest of the list, and one that carries nothing has nothing to go on
-/// reading for. An offset and not the text itself, because the cursor is
-/// given in the input's own coordinates.
-fn python_start(input: &str) -> usize {
-    let spaces = input.len() - input.trim_start().len();
-    let trimmed = &input[spaces..];
-    if !trimmed.starts_with(':') {
-        return 0;
-    }
-    trimmed
-        .char_indices()
-        .find(|(_, c)| c.is_whitespace())
-        .map_or(input.len(), |(i, c)| spaces + i + c.len_utf8())
 }
 
 /// How far in the next line starts, in spaces: one level deeper than the line
@@ -542,11 +522,6 @@ mod tests {
         // A bracket is worth a level.
         assert_eq!(ready_state("x = ["), 4);
         assert_eq!(ready_state("def f() -> None:\n    print("), 8);
-        // A command is asked about what it carries, and one that carries
-        // nothing is over where it stands.
-        assert_eq!(ready_state(":time [1,"), 4);
-        assert_eq!(ready_state(":quit"), -1);
-        assert_eq!(ready_state(":theme dark"), -1);
         // What no line could finish is run, and the error is the answer.
         assert_eq!(ready_state("x = "), -1);
         assert_eq!(ready_state("x = )"), -1);
@@ -656,15 +631,6 @@ def main() -> None:
             at_cursor("def f() -> int:\n    return a|\n\tb = 2\n    c = 3"),
             4
         );
-    }
-
-    #[test]
-    fn a_cursor_inside_a_command_is_a_cursor_at_the_end_of_what_it_carries() {
-        // The cursor is in `:time`, not in the Python, so there is no line
-        // being opened inside the code: it answers the way it does from the
-        // end.
-        assert_eq!(at_cursor(":ti|me [1,"), 4);
-        assert_eq!(at_cursor("|:time 1 + 1"), -1);
     }
 
     #[test]

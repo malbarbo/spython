@@ -66,7 +66,7 @@ impl SmartKeys {
 /// it: the prompt in the browser asks the same thing through `repl_ready`, so
 /// the two read the key the same way.
 fn enter_action(line: &str, pos: usize) -> Option<usize> {
-    match engine::input::ready_state(line, pos) {
+    match engine::shell::ready_state(line, pos) {
         -1 => None,
         indent => Some(usize::try_from(indent).unwrap_or(0)),
     }
@@ -190,7 +190,7 @@ impl Highlighter for ReplHelper<'_> {
 
 impl Validator for ReplHelper<'_> {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        if engine::input::ready_state(ctx.input(), ctx.input().len()) < 0 {
+        if engine::shell::ready_state(ctx.input(), ctx.input().len()) < 0 {
             self.pending.borrow_mut().clear();
             Ok(ValidationResult::Valid(None))
         } else {
@@ -295,7 +295,7 @@ fn highlight_python(line: &str, commands: &[(&'static str, bool)], t: &Palette) 
     // A `:` command is coloured as a keyword and what follows it as Python.
     // Reading the head with the engine's own `split` keeps the highlighter
     // agreeing with the dispatch about where a command name ends.
-    if let Some((name, cmd_start)) = engine::repl::split(line)
+    if let Some((name, cmd_start)) = engine::shell::split(line)
         .map(|(name, _)| name)
         .filter(|name| commands.iter().any(|(c, _)| c == name))
         .and_then(|name| line.find(name).map(|start| (name, start)))

@@ -14,6 +14,7 @@ pub mod lints;
 pub mod panic;
 pub mod repl;
 pub mod run;
+pub mod shell;
 pub mod spython_lib;
 
 pub use check::{
