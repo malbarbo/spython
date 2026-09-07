@@ -95,29 +95,31 @@ impl Iterator for ReplReader {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
-        if self.done {
-            return None;
-        }
-        match self.editor.readline(&ReplPrompt) {
-            Ok(input) => {
-                let _ = self.editor.add_history_entry(input.trim_end());
-                Some(input)
+        loop {
+            if self.done {
+                return None;
             }
-            Err(ReadlineError::Interrupted) => {
-                // Ctrl-C throws the input away, so nothing stays pending.
-                take_pending(&self.editor);
-                eprintln!("KeyboardInterrupt");
-                Some(String::new())
-            }
-            Err(err) => {
-                if !matches!(err, ReadlineError::Eof) {
-                    eprintln!("Readline error: {err:?}");
+            match self.editor.readline(&ReplPrompt) {
+                Ok(input) => {
+                    let _ = self.editor.add_history_entry(input.trim_end());
+                    return Some(input);
                 }
-                self.done = true;
-                // An input that the file cut off still runs, as the user
-                // wants to read what is wrong with it.
-                let pending = take_pending(&self.editor);
-                (!pending.trim().is_empty()).then_some(pending)
+                // Ctrl-C throws the input away, so nothing stays pending and
+                // nothing is run. The next read starts a fresh input.
+                Err(ReadlineError::Interrupted) => {
+                    take_pending(&self.editor);
+                    eprintln!("KeyboardInterrupt");
+                }
+                Err(err) => {
+                    if !matches!(err, ReadlineError::Eof) {
+                        eprintln!("Readline error: {err:?}");
+                    }
+                    self.done = true;
+                    // An input that the file cut off still runs, as the user
+                    // wants to read what is wrong with it.
+                    let pending = take_pending(&self.editor);
+                    return (!pending.trim().is_empty()).then_some(pending);
+                }
             }
         }
     }
