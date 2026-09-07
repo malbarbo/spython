@@ -261,37 +261,46 @@ fn current_theme_name() -> &'static str {
     }
 }
 
+/// The scanner walks `line` byte by byte and only stops on a char boundary, so
+/// every cut it asks for is one.
+fn cut<I>(line: &str, range: I) -> &str
+where
+    I: std::slice::SliceIndex<str, Output = str>,
+{
+    line.get(range)
+        .expect("the scanner cuts at a char boundary")
+}
+
 fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
     let t = current_theme();
     let b = line.as_bytes();
-    let len = b.len();
-    let mut out = String::with_capacity(len + 64);
+    let mut out = String::with_capacity(b.len() + 64);
     let mut i = 0;
 
     // A `:` command is coloured as a keyword and what follows it as Python.
     // Reading the head with the engine's own `split` keeps the highlighter
     // agreeing with the dispatch about where a command name ends.
-    if let Some(name) = engine::repl::split(line)
+    if let Some((name, cmd_start)) = engine::repl::split(line)
         .map(|(name, _)| name)
         .filter(|name| commands.iter().any(|(c, _)| c == name))
+        .and_then(|name| line.find(name).map(|start| (name, start)))
     {
-        let cmd_start = line.find(name).unwrap();
-        out.push_str(&line[..cmd_start]);
+        out.push_str(cut(line, ..cmd_start));
         out.push_str(t.keyword);
         out.push_str(name);
         out.push_str(RESET);
-        let rest = &line[cmd_start + name.len()..];
+        let rest = cut(line, cmd_start + name.len()..);
         if !rest.is_empty() {
             out.push_str(&highlight_python(rest, commands));
         }
         return out;
     }
 
-    while i < len {
-        match b[i] {
+    while let Some(&c) = b.get(i) {
+        match c {
             b'#' => {
                 out.push_str(t.comment);
-                out.push_str(&line[i..]);
+                out.push_str(cut(line, i..));
                 out.push_str(RESET);
                 return out;
             }
@@ -299,33 +308,36 @@ fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
                 let start = i;
                 i = skip_string(b, i);
                 out.push_str(t.string);
-                out.push_str(&line[start..i]);
+                out.push_str(cut(line, start..i));
                 out.push_str(RESET);
             }
             b'0'..=b'9' => {
                 let start = i;
                 i = skip_number(b, i);
                 out.push_str(t.number);
-                out.push_str(&line[start..i]);
+                out.push_str(cut(line, start..i));
                 out.push_str(RESET);
             }
-            b'.' if i + 1 < len && b[i + 1].is_ascii_digit() => {
+            b'.' if b.get(i + 1).is_some_and(u8::is_ascii_digit) => {
                 let start = i;
                 i = skip_number(b, i);
                 out.push_str(t.number);
-                out.push_str(&line[start..i]);
+                out.push_str(cut(line, start..i));
                 out.push_str(RESET);
             }
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
                 let start = i;
-                while i < len && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                while b
+                    .get(i)
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+                {
                     i += 1;
                 }
-                let word = &line[start..i];
-                if i < len && (b[i] == b'\'' || b[i] == b'"') && is_string_prefix(word) {
+                let word = cut(line, start..i);
+                if b.get(i).is_some_and(|c| *c == b'\'' || *c == b'"') && is_string_prefix(word) {
                     let str_end = skip_string(b, i);
                     out.push_str(t.string);
-                    out.push_str(&line[start..str_end]);
+                    out.push_str(cut(line, start..str_end));
                     out.push_str(RESET);
                     i = str_end;
                 } else if PYTHON_BOOLEANS.contains(&word) {
@@ -351,18 +363,23 @@ fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
             b'@' => {
                 let start = i;
                 i += 1;
-                while i < len && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'.') {
+                while b
+                    .get(i)
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'.')
+                {
                     i += 1;
                 }
                 out.push_str(t.decorator);
-                out.push_str(&line[start..i]);
+                out.push_str(cut(line, start..i));
                 out.push_str(RESET);
             }
-            _ => {
-                let ch = line[i..].chars().next().unwrap();
-                out.push(ch);
-                i += ch.len_utf8();
-            }
+            _ => match cut(line, i..).chars().next() {
+                Some(ch) => {
+                    out.push(ch);
+                    i += ch.len_utf8();
+                }
+                None => break,
+            },
         }
     }
 
@@ -371,15 +388,20 @@ fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
 
 fn skip_string(b: &[u8], mut i: usize) -> usize {
     let len = b.len();
-    let quote = b[i];
-    if i + 2 < len && b[i + 1] == quote && b[i + 2] == quote {
+    let Some(&quote) = b.get(i) else {
+        return len;
+    };
+    let triple = |b: &[u8], i: usize| {
+        b.get(i) == Some(&quote) && b.get(i + 1) == Some(&quote) && b.get(i + 2) == Some(&quote)
+    };
+    if triple(b, i) {
         i += 3;
         while i + 2 < len {
-            if b[i] == b'\\' {
+            if b.get(i) == Some(&b'\\') {
                 i += 2;
                 continue;
             }
-            if b[i] == quote && b[i + 1] == quote && b[i + 2] == quote {
+            if triple(b, i) {
                 return i + 3;
             }
             i += 1;
@@ -387,12 +409,12 @@ fn skip_string(b: &[u8], mut i: usize) -> usize {
         return len;
     }
     i += 1;
-    while i < len {
-        if b[i] == b'\\' && i + 1 < len {
+    while let Some(&c) = b.get(i) {
+        if c == b'\\' && i + 1 < len {
             i += 2;
             continue;
         }
-        if b[i] == quote {
+        if c == quote {
             return i + 1;
         }
         i += 1;
@@ -401,64 +423,50 @@ fn skip_string(b: &[u8], mut i: usize) -> usize {
 }
 
 fn skip_number(b: &[u8], mut i: usize) -> usize {
-    let len = b.len();
-    if b[i] == b'.' {
-        i += 1;
-        while i < len && (b[i].is_ascii_digit() || b[i] == b'_') {
-            i += 1;
+    let digits = |b: &[u8], i: &mut usize| {
+        while b.get(*i).is_some_and(|c| c.is_ascii_digit() || *c == b'_') {
+            *i += 1;
         }
+    };
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        digits(b, &mut i);
         return skip_exponent(b, i);
     }
-    if b[i] == b'0' && i + 1 < len {
-        match b[i + 1] {
-            b'x' | b'X' => {
-                i += 2;
-                while i < len && (b[i].is_ascii_hexdigit() || b[i] == b'_') {
-                    i += 1;
-                }
-                return i;
+    if b.get(i) == Some(&b'0') {
+        let radix: Option<fn(&u8) -> bool> = match b.get(i + 1) {
+            Some(b'x' | b'X') => Some(u8::is_ascii_hexdigit),
+            Some(b'o' | b'O') => Some(|c| (b'0'..=b'7').contains(c)),
+            Some(b'b' | b'B') => Some(|c| *c == b'0' || *c == b'1'),
+            _ => None,
+        };
+        if let Some(is_digit) = radix {
+            i += 2;
+            while b.get(i).is_some_and(|c| is_digit(c) || *c == b'_') {
+                i += 1;
             }
-            b'o' | b'O' => {
-                i += 2;
-                while i < len && ((b'0'..=b'7').contains(&b[i]) || b[i] == b'_') {
-                    i += 1;
-                }
-                return i;
-            }
-            b'b' | b'B' => {
-                i += 2;
-                while i < len && (b[i] == b'0' || b[i] == b'1' || b[i] == b'_') {
-                    i += 1;
-                }
-                return i;
-            }
-            _ => {}
+            return i;
         }
     }
-    while i < len && (b[i].is_ascii_digit() || b[i] == b'_') {
+    digits(b, &mut i);
+    if b.get(i) == Some(&b'.') {
         i += 1;
-    }
-    if i < len && b[i] == b'.' {
-        i += 1;
-        while i < len && (b[i].is_ascii_digit() || b[i] == b'_') {
-            i += 1;
-        }
+        digits(b, &mut i);
     }
     skip_exponent(b, i)
 }
 
 fn skip_exponent(b: &[u8], mut i: usize) -> usize {
-    let len = b.len();
-    if i < len && (b[i] == b'e' || b[i] == b'E') {
+    if b.get(i).is_some_and(|c| *c == b'e' || *c == b'E') {
         i += 1;
-        if i < len && (b[i] == b'+' || b[i] == b'-') {
+        if b.get(i).is_some_and(|c| *c == b'+' || *c == b'-') {
             i += 1;
         }
-        while i < len && (b[i].is_ascii_digit() || b[i] == b'_') {
+        while b.get(i).is_some_and(|c| c.is_ascii_digit() || *c == b'_') {
             i += 1;
         }
     }
-    if i < len && (b[i] == b'j' || b[i] == b'J') {
+    if b.get(i).is_some_and(|c| *c == b'j' || *c == b'J') {
         i += 1;
     }
     i
