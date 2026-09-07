@@ -35,4 +35,4 @@ test-wasm: wasm
 # WASM wrapper, asserting identical stdout/stderr after path normalization.
 # Requires the wasm32-wasip1 target and Deno on PATH.
 test-wasm-cli: wasm-test
-	cargo test -p cli --features wasm-backend --test cli
+	cargo test -p spython --features wasm-backend --test cli

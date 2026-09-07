@@ -400,27 +400,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "cli"
-version = "0.3.0"
-dependencies = [
- "assert_cmd",
- "bpaf",
- "dirs-next",
- "dunce",
- "engine",
- "indoc",
- "insta",
- "regex",
- "ruff_db",
- "ruff_notebook",
- "ruff_python_ast",
- "rustpython-vm",
- "rustyline",
- "ty_project",
- "walkdir",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3470,6 +3449,27 @@ name = "sponge-cursor"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
+
+[[package]]
+name = "spython"
+version = "0.3.0"
+dependencies = [
+ "assert_cmd",
+ "bpaf",
+ "dirs-next",
+ "dunce",
+ "engine",
+ "indoc",
+ "insta",
+ "regex",
+ "ruff_db",
+ "ruff_notebook",
+ "ruff_python_ast",
+ "rustpython-vm",
+ "rustyline",
+ "ty_project",
+ "walkdir",
+]
 
 [[package]]
 name = "stable_deref_trait"

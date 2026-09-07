@@ -1,11 +1,8 @@
 [package]
-name = "cli"
+name = "spython"
 version = "0.3.0"
 edition = "2024"
-
-[[bin]]
-name = "spython"
-path = "src/main.rs"
+default-run = "spython"
 
 [dependencies]
 engine = { path = "../engine" }
@@ -25,7 +22,7 @@ dunce = "1"
 # invocations through the WASM backend (via `wasm/spython.ts` + Deno) and
 # assert that stdout/stderr match the native binary after normalization.
 # Requires the `wasm32-wasip1` target and Deno on PATH. Enable with
-# `cargo test -p cli --features wasm-backend --test cli`.
+# `cargo test -p spython --features wasm-backend --test cli`.
 wasm-backend = []
 
 [dev-dependencies]
