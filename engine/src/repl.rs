@@ -146,15 +146,10 @@ impl Repl {
         self.exit_status
     }
 
-    /// The type `expr` would have, without running it.
-    pub fn type_of(&self, expr: &str) -> Result<String, Failed> {
-        match infer_expression_type(&self.accumulated_source, expr, &self.modules) {
-            Some(type_) => Ok(type_),
-            None => {
-                eprintln!("Could not infer type");
-                Err(Failed)
-            }
-        }
+    /// The type `expr` would have, without running it, and `None` for an
+    /// expression the checker cannot read a type off.
+    pub fn type_of(&self, expr: &str) -> Option<String> {
+        infer_expression_type(&self.accumulated_source, expr, &self.modules)
     }
 
     /// What the Tab key should do at `cursor`, over this session's names and

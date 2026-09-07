@@ -169,11 +169,14 @@ impl Shell {
             }
             Builtin::Quit => Status::Quit,
             Builtin::Type => match self.repl.type_of(arg) {
-                Ok(type_) => {
+                Some(type_) => {
                     println!("{type_}");
                     Status::Ok
                 }
-                Err(Failed) => Status::Error,
+                None => {
+                    eprintln!("Could not infer type");
+                    Status::Error
+                }
             },
             Builtin::Time => match self.repl.run_timed(arg) {
                 Ok(elapsed) => {
