@@ -76,79 +76,24 @@ enum Command {
     Help,
 }
 
+/// The parser, with the two shorthands the students use most as alternatives
+/// to a named subcommand: a leading `FILE` is a `run`, and bare options with
+/// no file are a `repl`. `None` is the bare `spython`, which is a `repl` too.
 fn cli() -> bpaf::OptionParser<Option<Command>> {
-    let command = command().optional();
+    let level = level_arg().fallback(0);
+    let file = bpaf::positional::<PathBuf>("FILE");
+    let file_as_run = bpaf::construct!(Command::Run { level, file });
+
+    let level = level_arg().map(Some);
+    let file = bpaf::pure(None);
+    let options_as_repl = bpaf::construct!(Command::Repl { level, file });
+
+    let command = bpaf::construct!([command(), file_as_run, options_as_repl]).optional();
     bpaf::construct!(command)
         .to_options()
         .version(engine::version_short().as_str())
         .descr("A student version of Python with type checking and teaching levels")
         .footer("Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
-}
-
-/// Names of the explicit subcommands. Used to decide whether a bare leading
-/// positional should be treated as a file to run.
-const COMMANDS: &[&str] = &["repl", "run", "check", "test", "format", "help"];
-
-/// Whether `a` is a top-level help or version request that must reach the
-/// normal parser (rather than being routed into an injected subcommand).
-fn is_help_or_version(a: &str) -> bool {
-    matches!(a, "-h" | "--help" | "-V" | "--version")
-}
-
-/// The first positional argument and whether it was forced positional by a
-/// `--` separator. A `--`-forced token is definitely a file (never a
-/// subcommand); a bare token may be a subcommand name. The value consumed by
-/// `-l`/`--level` is skipped so it is not mistaken for a positional.
-fn first_positional(args: &[String]) -> Option<(&str, bool)> {
-    let mut i = 0;
-    while let Some(a) = args.get(i) {
-        if a == "--" {
-            return args.get(i + 1).map(|s| (s.as_str(), true));
-        }
-        if a == "-l" || a == "--level" {
-            i += 2; // skip the option and its separate value
-            continue;
-        }
-        if a.starts_with('-') {
-            i += 1;
-            continue;
-        }
-        return Some((a, false));
-    }
-    None
-}
-
-/// Inject a default subcommand so a leading `FILE` or bare options Just Work:
-///
-/// - `spython file.py [--level N]` → `run file.py [--level N]` (a token forced
-///   positional by `--` is always a file, even if it matches a subcommand name)
-/// - `spython [--level N]` with no file → `repl [--level N]`
-/// - `spython --help`/`--version` and explicit subcommands are left untouched.
-fn effective_args() -> Vec<String> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let inject = match first_positional(&args) {
-        Some((_, true)) => Some("run"),
-        Some((tok, false)) if !COMMANDS.contains(&tok) => Some("run"),
-        Some(_) => None, // explicit subcommand
-        None => {
-            // No file or subcommand. Options other than --help/--version are
-            // meant for an interactive session (e.g. `spython -l 2`).
-            if args.is_empty() || args.iter().any(|a| is_help_or_version(a)) {
-                None
-            } else {
-                Some("repl")
-            }
-        }
-    };
-    match inject {
-        Some(cmd) => {
-            let mut with_cmd = Vec::with_capacity(args.len() + 1);
-            with_cmd.push(cmd.to_string());
-            with_cmd.extend(args);
-            with_cmd
-        }
-        None => args,
-    }
 }
 
 fn parse_level(level: u8) -> Option<Level> {
@@ -166,9 +111,7 @@ fn main() -> ExitCode {
         panic!("test panic");
     }
 
-    let args = effective_args();
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let command = match cli().run_inner(bpaf::Args::from(arg_refs.as_slice())) {
+    let command = match cli().run_inner(bpaf::Args::current_args()) {
         Ok(cmd) => cmd,
         Err(err) => {
             err.print_message(80);
