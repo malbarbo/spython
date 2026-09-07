@@ -112,6 +112,7 @@ pub unsafe extern "C" fn repl_new(
     // The page renders the ANSI codes, so its diagnostics keep them, and it
     // has one file, so there is nothing to import.
     let mut repl = Repl::new(level, true);
+    repl.install_displayhook();
     // A file that raises still opens the session, so that the student can
     // look at what the definitions above the error left behind.
     if has_source && repl.load(&source, "user.py", None, Vec::new()).is_ok() {

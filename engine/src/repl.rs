@@ -50,14 +50,6 @@ impl Repl {
                 .new_scope_with_main()
                 .expect("creating the main scope should not fail");
             register_ffi_module(vm);
-            #[cfg(target_arch = "wasm32")]
-            if let Err(exc) = vm.run_string(
-                scope.clone(),
-                "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
-                "<init>",
-            ) {
-                vm.print_exception(exc);
-            }
             scope
         });
         Repl {
@@ -69,6 +61,21 @@ impl Repl {
             modules: Vec::new(),
             exit_status: None,
         }
+    }
+
+    /// Show a value the way the page shows one, which is not the way a
+    /// terminal does. The frontend that renders what comes back asks for this.
+    pub fn install_displayhook(&self) {
+        let (interp, scope) = self.live();
+        interp.enter(|vm| {
+            if let Err(exc) = vm.run_string(
+                scope,
+                "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
+                "<init>",
+            ) {
+                vm.print_exception(exc);
+            }
+        });
     }
 
     /// Run `source` under the name `name`, with `dir` on `sys.path` and
