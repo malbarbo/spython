@@ -7,7 +7,8 @@
 use crate::Level;
 use crate::completion::TabAction;
 use crate::ffi::register_ffi_module;
-use crate::{infer_expression_type, new_interpreter, type_check_repl_input};
+use crate::run::{DOCTEST_RUNNER, new_interpreter};
+use crate::{infer_expression_type, type_check_repl_input};
 use rustpython::vm;
 use rustpython::vm::AsObject;
 #[cfg(test)]
@@ -104,12 +105,10 @@ impl Repl {
     /// ships with spython. The stdlib one needs `_io.FileIO`, which the page
     /// has not got.
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
-        let code = concat!(
-            include_str!("doctest_runner.py"),
-            "\nimport __main__; run_doctests(__main__); del __main__\n"
-        );
+        let code =
+            format!("{DOCTEST_RUNNER}\nimport __main__; run_doctests(__main__); del __main__\n");
         let (interp, scope) = self.live();
-        interp.enter(|vm| match vm.run_string(scope, code, "<doctest>") {
+        interp.enter(|vm| match vm.run_string(scope, &code, "<doctest>") {
             Ok(_) => Ok(()),
             Err(exc) => {
                 vm.print_exception(exc);

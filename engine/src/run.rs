@@ -11,8 +11,8 @@ use crate::{Level, check, error::read_file};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
-/// The doctest runner Python source. Shared between the CLI `test` command
-/// and the WASM REPL so the string is embedded only once per binary.
+/// The doctest runner Python source, which the `test` command and the REPL's
+/// own `run_doctests` both drive.
 pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");
 
 /// Create a RustPython interpreter with the standard library loaded.
@@ -111,9 +111,8 @@ pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Sp
     }
 
     let py_verbose = if verbose { "True" } else { "False" };
-    let doctest_runner = DOCTEST_RUNNER;
     let mut script = format!(
-        "{doctest_runner}\n\
+        "{DOCTEST_RUNNER}\n\
          import types, sys\n\
          def _run(path, root):\n\
          \x20   sys.path.insert(0, root)\n\
