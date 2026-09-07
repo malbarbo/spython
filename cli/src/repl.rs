@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io::IsTerminal;
 
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
-use engine::parser::INDENT;
+use engine::input::INDENT;
 use engine::{Level, ReplOutcome, ReplSession};
 use rustpython_vm::{PyResult, VirtualMachine, builtins::PyDictRef, scope::Scope};
 use rustyline::{
@@ -65,7 +65,7 @@ impl SmartKeys {
 /// it: the prompt in the browser asks the same thing through `repl_ready`, so
 /// the two read the key the same way.
 fn enter_action(line: &str, pos: usize) -> Option<usize> {
-    match engine::parser::ready_state(line, pos) {
+    match engine::input::ready_state(line, pos) {
         -1 => None,
         indent => Some(usize::try_from(indent).unwrap_or(0)),
     }
@@ -180,7 +180,7 @@ impl Highlighter for ReplHelper<'_> {
 
 impl Validator for ReplHelper<'_> {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        if engine::parser::ready_state(ctx.input(), ctx.input().len()) < 0 {
+        if engine::input::ready_state(ctx.input(), ctx.input().len()) < 0 {
             self.pending.borrow_mut().clear();
             Ok(ValidationResult::Valid(None))
         } else {

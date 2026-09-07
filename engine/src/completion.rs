@@ -51,7 +51,7 @@ pub fn tab_action(
         let current_indent = current_line.len();
         // The same question Enter asks, so the two keys put the line in the
         // same place: the whole text and where the caret is in it.
-        let expected = crate::parser::indent_at(text, cursor_pos);
+        let expected = crate::input::indent_at(text, cursor_pos);
         if current_indent < expected {
             return TabAction::Indent(" ".repeat(expected - current_indent));
         }

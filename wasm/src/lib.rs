@@ -133,7 +133,7 @@ pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize
 }
 
 /// `repl_ready` (see SimpleCode's ENGINE.md), answered by
-/// `engine::parser::ready_state`. The session is not asked: what a Python
+/// `engine::input::ready_state`. The session is not asked: what a Python
 /// input is waiting on is in its own text, which the parser reads without a
 /// running interpreter.
 ///
@@ -146,7 +146,7 @@ pub unsafe extern "C" fn repl_ready(
     cursor: usize,
 ) -> i32 {
     init();
-    engine::parser::ready_state(&new_string(ptr, len), cursor)
+    engine::input::ready_state(&new_string(ptr, len), cursor)
 }
 
 #[unsafe(no_mangle)]
