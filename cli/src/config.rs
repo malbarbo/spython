@@ -1,17 +1,18 @@
+use crate::repl::Theme;
 use engine::Level;
 use std::fs;
 use std::path::PathBuf;
 
 pub struct Config {
     pub level: Level,
-    pub theme: String,
+    pub theme: Theme,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
             level: Level::Functions,
-            theme: "dark".to_owned(),
+            theme: Theme::Dark,
         }
     }
 }
@@ -42,9 +43,8 @@ pub fn load() -> Config {
                 }
             }
             "theme" => {
-                let v = value.trim();
-                if v == "light" || v == "dark" {
-                    config.theme = v.to_owned();
+                if let Some(theme) = Theme::parse(value.trim()) {
+                    config.theme = theme;
                 }
             }
             _ => {}
@@ -53,13 +53,13 @@ pub fn load() -> Config {
     config
 }
 
-pub fn save(level: Level, theme: &str) {
+pub fn save(level: Level, theme: Theme) {
     let Some(path) = config_path() else {
         return;
     };
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let content = format!("level={}\ntheme={theme}\n", level as u8);
+    let content = format!("level={}\ntheme={}\n", level as u8, theme.name());
     let _ = fs::write(&path, content);
 }

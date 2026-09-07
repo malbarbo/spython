@@ -1,5 +1,6 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::io::IsTerminal;
+use std::rc::Rc;
 
 use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use engine::input::INDENT;
@@ -113,6 +114,9 @@ struct ReplHelper<'vm> {
     /// it; an input that runs out is run anyway, so the user is shown what is
     /// wrong with it instead of nothing at all.
     pending: RefCell<String>,
+    /// The theme the colours come from, which `:theme` writes and the next
+    /// line the editor draws reads.
+    theme: Rc<Cell<Theme>>,
 }
 
 impl<'vm> ReplHelper<'vm> {
@@ -120,12 +124,14 @@ impl<'vm> ReplHelper<'vm> {
         vm: &'vm VirtualMachine,
         globals: PyDictRef,
         commands: Vec<(&'static str, bool)>,
+        theme: Rc<Cell<Theme>>,
     ) -> Self {
         ReplHelper {
             vm,
             globals,
             commands,
             pending: RefCell::new(String::new()),
+            theme,
         }
     }
 }
@@ -156,7 +162,11 @@ impl Highlighter for ReplHelper<'_> {
         if line.is_empty() {
             return std::borrow::Cow::Borrowed(line);
         }
-        std::borrow::Cow::Owned(highlight_python(line, &self.commands))
+        std::borrow::Cow::Owned(highlight_python(
+            line,
+            &self.commands,
+            self.theme.get().palette(),
+        ))
     }
 
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
@@ -164,7 +174,7 @@ impl Highlighter for ReplHelper<'_> {
         prompt: &'p str,
         _default: bool,
     ) -> std::borrow::Cow<'b, str> {
-        let t = current_theme();
+        let t = self.theme.get().palette();
         std::borrow::Cow::Owned(format!("{}{prompt}{RESET}", t.prompt))
     }
 
@@ -201,7 +211,37 @@ impl rustyline::Helper for ReplHelper<'_> {}
 
 const RESET: &str = "\x1b[0m";
 
-struct Theme {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Theme {
+    Dark,
+    Light,
+}
+
+impl Theme {
+    pub fn parse(name: &str) -> Option<Theme> {
+        match name {
+            "dark" => Some(Theme::Dark),
+            "light" => Some(Theme::Light),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Theme::Dark => "dark",
+            Theme::Light => "light",
+        }
+    }
+
+    fn palette(self) -> &'static Palette {
+        match self {
+            Theme::Dark => &ONE_DARK,
+            Theme::Light => &ONE_LIGHT,
+        }
+    }
+}
+
+struct Palette {
     comment: &'static str,
     string: &'static str,
     number: &'static str,
@@ -213,7 +253,7 @@ struct Theme {
     prompt: &'static str,
 }
 
-const ONE_DARK: Theme = Theme {
+const ONE_DARK: Palette = Palette {
     comment: "\x1b[38;2;93;99;111m",     // #5d636f
     string: "\x1b[38;2;161;193;129m",    // #a1c181
     number: "\x1b[38;2;191;149;106m",    // #bf956a
@@ -225,7 +265,7 @@ const ONE_DARK: Theme = Theme {
     prompt: "\x1b[38;2;116;174;232m",    // blue
 };
 
-const ONE_LIGHT: Theme = Theme {
+const ONE_LIGHT: Palette = Palette {
     comment: "\x1b[38;2;162;163;167m",  // #a2a3a7
     string: "\x1b[38;2;100;159;87m",    // #649f57
     number: "\x1b[38;2;173;110;37m",    // #ad6e25
@@ -237,30 +277,6 @@ const ONE_LIGHT: Theme = Theme {
     prompt: "\x1b[38;2;91;121;227m",    // blue
 };
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static USE_LIGHT_THEME: AtomicBool = AtomicBool::new(false);
-
-fn current_theme() -> &'static Theme {
-    if USE_LIGHT_THEME.load(Ordering::Relaxed) {
-        &ONE_LIGHT
-    } else {
-        &ONE_DARK
-    }
-}
-
-pub fn set_theme(light: bool) {
-    USE_LIGHT_THEME.store(light, Ordering::Relaxed);
-}
-
-fn current_theme_name() -> &'static str {
-    if USE_LIGHT_THEME.load(Ordering::Relaxed) {
-        "light"
-    } else {
-        "dark"
-    }
-}
-
 /// The scanner walks `line` byte by byte and only stops on a char boundary, so
 /// every cut it asks for is one.
 fn cut<I>(line: &str, range: I) -> &str
@@ -271,8 +287,7 @@ where
         .expect("the scanner cuts at a char boundary")
 }
 
-fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
-    let t = current_theme();
+fn highlight_python(line: &str, commands: &[(&'static str, bool)], t: &Palette) -> String {
     let b = line.as_bytes();
     let mut out = String::with_capacity(b.len() + 64);
     let mut i = 0;
@@ -291,7 +306,7 @@ fn highlight_python(line: &str, commands: &[(&'static str, bool)]) -> String {
         out.push_str(RESET);
         let rest = cut(line, cmd_start + name.len()..);
         if !rest.is_empty() {
-            out.push_str(&highlight_python(rest, commands));
+            out.push_str(&highlight_python(rest, commands, t));
         }
         return out;
     }
@@ -594,7 +609,7 @@ pub enum Host {
 
 /// `:level` on its own says which level the REPL is on; with a number it moves
 /// to that level, which everything that has already run has to survive.
-fn level_command(session: &mut ReplSession<Host>, arg: &str) {
+fn level_command(session: &mut ReplSession<Host>, theme: Theme, arg: &str) {
     if arg.is_empty() {
         println!("level {}", session.level());
         return;
@@ -612,20 +627,22 @@ fn level_command(session: &mut ReplSession<Host>, arg: &str) {
         return;
     }
     println!("level {new_level}");
-    crate::config::save(new_level, current_theme_name());
+    crate::config::save(new_level, theme);
 }
 
 /// `:theme` on its own says which theme is on; with a name it switches to it.
-fn theme_command(session: &ReplSession<Host>, arg: &str) {
-    match arg {
-        "" => println!("{}", current_theme_name()),
-        "light" | "dark" => {
-            set_theme(arg == "light");
-            println!("{arg}");
-            crate::config::save(session.level(), arg);
-        }
-        _ => eprintln!("Invalid theme: use 'light' or 'dark'"),
+fn theme_command(session: &ReplSession<Host>, theme: &Cell<Theme>, arg: &str) {
+    if arg.is_empty() {
+        println!("{}", theme.get().name());
+        return;
     }
+    let Some(new_theme) = Theme::parse(arg) else {
+        eprintln!("Invalid theme: use 'light' or 'dark'");
+        return;
+    };
+    theme.set(new_theme);
+    println!("{}", new_theme.name());
+    crate::config::save(session.level(), new_theme);
 }
 
 /// Run the terminal REPL until the user leaves it, checking every input
@@ -636,8 +653,10 @@ pub fn run_repl(
     scope: Scope,
     accumulated: String,
     level: Level,
+    theme: Theme,
     modules: Vec<(String, String)>,
 ) -> PyResult<()> {
+    let theme = Rc::new(Cell::new(theme));
     let session =
         &mut ReplSession::new(accumulated, level, std::io::stderr().is_terminal(), modules);
     session.add(
@@ -677,6 +696,7 @@ pub fn run_repl(
             vm,
             scope.globals.clone(),
             session.command_names(),
+            Rc::clone(&theme),
         )));
         repl.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
         let _ = repl.load_history(&repl_history_path);
@@ -727,8 +747,10 @@ pub fn run_repl(
                     let _ = repl.save_history(&repl_history_path);
                     return Err(exc);
                 }
-                ReplOutcome::Host(Host::Level, arg) => level_command(session, &arg),
-                ReplOutcome::Host(Host::Theme, arg) => theme_command(session, &arg),
+                ReplOutcome::Host(Host::Level, arg) => {
+                    level_command(session, theme.get(), &arg);
+                }
+                ReplOutcome::Host(Host::Theme, arg) => theme_command(session, &theme, &arg),
                 ReplOutcome::Ok | ReplOutcome::Error => {}
             }
         }

@@ -5,6 +5,8 @@ use bpaf::{Bpaf, Parser};
 mod config;
 mod repl;
 
+use repl::Theme;
+
 use engine::{
     BUILD_DATE, GIT_HASH, LIBS_VERSION, Level, SpythonError, VERSION, check, format_source,
     new_interpreter, read_file, run, show_error,
@@ -197,8 +199,7 @@ fn main() -> ExitCode {
                 },
                 None => cfg.level,
             };
-            repl::set_theme(cfg.theme == "light");
-            start_repl(file.as_deref(), l)
+            start_repl(file.as_deref(), l, cfg.theme)
         }
         Command::Run { file, level } => match parse_level(level) {
             Some(l) => run::run_main(&file, l),
@@ -232,7 +233,7 @@ fn main() -> ExitCode {
 ///
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
-fn start_repl(file: Option<&Path>, level: Level) -> Result<(), SpythonError> {
+fn start_repl(file: Option<&Path>, level: Level, theme: Theme) -> Result<(), SpythonError> {
     let modules = match file {
         Some(path) => check::check_file(path, level)?,
         None => Vec::new(),
@@ -270,7 +271,7 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), SpythonError> {
         let accumulated = preload
             .as_ref()
             .map_or_else(String::new, |(source, ..)| source.clone());
-        repl::run_repl(vm, scope, accumulated, level, modules)
+        repl::run_repl(vm, scope, accumulated, level, theme, modules)
     });
     if code == 0 {
         Ok(())
