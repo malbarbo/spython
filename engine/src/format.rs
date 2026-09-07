@@ -3,7 +3,7 @@
 use ruff_python_formatter::{DocstringCode, PyFormatOptions, QuoteStyle, format_module_source};
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{SpythonError, error::read_file, error::show_error};
+use crate::{SpythonError, error::read_file};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
 
@@ -29,19 +29,15 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
     if paths.is_empty() {
         return run_stdin(check);
     }
+    let mut rejected = Vec::new();
     let mut unformatted = Vec::new();
-    let mut turned_down = false;
     for path in paths {
         for file in python_files(path) {
             let source = read_file(&file)?;
             let formatted = match format_source(&source) {
                 Ok(formatted) => formatted,
                 Err(message) => {
-                    show_error(&SpythonError::Format {
-                        path: file,
-                        message,
-                    });
-                    turned_down = true;
+                    rejected.push((file, message));
                     continue;
                 }
             };
@@ -56,13 +52,14 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
             }
         }
     }
-    if !unformatted.is_empty() {
-        return Err(SpythonError::NotFormatted { paths: unformatted });
+    if rejected.is_empty() && unformatted.is_empty() {
+        Ok(())
+    } else {
+        Err(SpythonError::Format {
+            rejected,
+            unformatted,
+        })
     }
-    if turned_down {
-        return Err(SpythonError::FormatFailed);
-    }
-    Ok(())
 }
 
 /// Every `.py` file under `path`, sorted, as a directory hands its entries
@@ -91,8 +88,8 @@ fn run_stdin(check: bool) -> Result<(), SpythonError> {
             err,
         })?;
     let formatted = format_source(&source).map_err(|message| SpythonError::Format {
-        path: PathBuf::from(STDIN),
-        message,
+        rejected: vec![(PathBuf::from(STDIN), message)],
+        unformatted: Vec::new(),
     })?;
     if !check {
         print!("{formatted}");
@@ -101,8 +98,9 @@ fn run_stdin(check: bool) -> Result<(), SpythonError> {
     if formatted == source {
         Ok(())
     } else {
-        Err(SpythonError::NotFormatted {
-            paths: vec![PathBuf::from(STDIN)],
+        Err(SpythonError::Format {
+            rejected: Vec::new(),
+            unformatted: vec![PathBuf::from(STDIN)],
         })
     }
 }

@@ -34,15 +34,12 @@ pub enum SpythonError {
     /// Doctests that failed, and said so as they ran.
     TestsFailed,
 
-    /// A file the formatter turned down, with what it said about it.
-    Format { path: PathBuf, message: String },
-
-    /// The files `format --check` found unformatted.
-    NotFormatted { paths: Vec<PathBuf> },
-
-    /// Files the formatter turned down, which it named one by one as the run
-    /// came to them.
-    FormatFailed,
+    /// What a format run found: the files the formatter turned down, with
+    /// what it said about each, and the files `--check` found unformatted.
+    Format {
+        rejected: Vec<(PathBuf, String)>,
+        unformatted: Vec<PathBuf>,
+    },
 
     /// A failure from outside the language, such as starting the repl reader.
     /// Shown as it came, as it already names its own subject.
@@ -68,11 +65,14 @@ pub fn show_error(err: &SpythonError) {
             );
         }
         SpythonError::Database(message) => eprintln!("spython: {message}"),
-        SpythonError::Format { path, message } => {
-            eprintln!("spython: cannot format '{}': {message}", path.display());
-        }
-        SpythonError::NotFormatted { paths } => {
-            for path in paths {
+        SpythonError::Format {
+            rejected,
+            unformatted,
+        } => {
+            for (path, message) in rejected {
+                eprintln!("spython: cannot format '{}': {message}", path.display());
+            }
+            for path in unformatted {
                 eprintln!("spython: '{}' is not formatted", path.display());
             }
         }
@@ -83,9 +83,8 @@ pub fn show_error(err: &SpythonError) {
         ),
         SpythonError::Other(err) => eprintln!("spython: {err}"),
         // Whoever failed already said so: the interpreter printed the
-        // traceback, the doctest runner printed its own count, and the
-        // formatter named each file it turned down.
-        SpythonError::ProgramFailed | SpythonError::TestsFailed | SpythonError::FormatFailed => (),
+        // traceback, and the doctest runner printed its own count.
+        SpythonError::ProgramFailed | SpythonError::TestsFailed => (),
     }
 }
 
