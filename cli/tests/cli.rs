@@ -569,6 +569,57 @@ fn run_rejects_doctest_type_error() {
     );
 }
 
+// --- Type checking tests ---
+
+fn run_check(args: &[&str]) -> (String, String, bool) {
+    let inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/inputs"));
+    run_spython_from(inputs, args)
+}
+
+#[test]
+fn check_passes_in_silence() {
+    // A file that checks says nothing. The student sees output only when
+    // something is wrong.
+    let (out, err, success) = run_check(&["check", "ok_simple.py"]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(out, "");
+    assert_eq!(err, "");
+}
+
+#[test]
+fn check_reports_a_type_error() {
+    let (out, err, success) = run_check(&["check", "err_type.py"]);
+    assert!(!success, "check should have refused, got: {out}{err}");
+    assert_eq!(out, "");
+    assert_snapshot!(err);
+}
+
+#[test]
+fn check_does_not_run_the_file() {
+    // `run` prints what the file prints; `check` prints nothing at all.
+    let (run_out, _, _) = run_check(&["run", "ok_simple.py"]);
+    assert_eq!(run_out, "3\n");
+    let (check_out, _, _) = run_check(&["check", "ok_simple.py"]);
+    assert_eq!(check_out, "");
+}
+
+#[test]
+fn check_refuses_what_run_cannot_import() {
+    // `sub/main.py` imports `toplevel`, which sits beside `sub`, not inside
+    // it. The interpreter puts the file's own directory on `sys.path`, so it
+    // cannot reach it, and `check`, rooted the same way, says so.
+    let root = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/doctests/subdir_import"
+    ));
+    let (_, err, success) = run_spython_from(root, &["check", "--level", "4", "sub/main.py"]);
+    assert!(!success, "check should have refused, got: {err}");
+    assert!(
+        err.contains("Cannot resolve imported module `toplevel`"),
+        "expected the unresolved import, got: {err}"
+    );
+}
+
 // --- Image tests ---
 
 fn run_image(path: &Path) -> (String, String) {

@@ -1,0 +1,13 @@
+---
+source: cli/tests/cli.rs
+expression: err
+---
+error[invalid-return-type]: Return type does not match returned value
+ --> err_type.py:2:12
+  |
+1 | def add(x: int, y: int) -> int:
+  |                            --- Expected `int` because of return type
+2 |     return "not an int"
+  |            ^^^^^^^^^^^^ expected `int`, found `Literal["not an int"]`
+
+Found 1 error.

@@ -67,6 +67,15 @@ enum Command {
         #[bpaf(positional("FILE"))]
         file: PathBuf,
     },
+    /// Check the types of a Python file without running it
+    #[bpaf(command)]
+    Check {
+        #[bpaf(external(level_arg), fallback(0))]
+        level: u8,
+        /// Python file to check
+        #[bpaf(positional("FILE"))]
+        file: PathBuf,
+    },
     /// Run doctests from the specified Python files
     #[bpaf(command)]
     Test {
@@ -102,7 +111,7 @@ fn cli() -> bpaf::OptionParser<Option<Command>> {
 
 /// Names of the explicit subcommands. Used to decide whether a bare leading
 /// positional should be treated as a file to run.
-const COMMANDS: &[&str] = &["repl", "run", "test", "format", "help"];
+const COMMANDS: &[&str] = &["repl", "run", "check", "test", "format", "help"];
 
 /// Whether `a` is a top-level help or version request that must reach the
 /// normal parser (rather than being routed into an injected subcommand).
@@ -219,6 +228,10 @@ fn main() -> ExitCode {
         }
         Command::Run { file, level } => match parse_level(level) {
             Some(l) => run_checked(&file, l),
+            None => return ExitCode::FAILURE,
+        },
+        Command::Check { file, level } => match parse_level(level) {
+            Some(l) => type_check_file(&file, l).map(drop),
             None => return ExitCode::FAILURE,
         },
         Command::Format { paths } => run_format(&paths),
@@ -373,8 +386,17 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
     for f in &user_files {
         diagnostics.extend(engine::check_file_doctests(&db, *f, level));
     }
-    if !diagnostics.is_empty() {
+    // An error stops the file; a warning is printed and the file goes on. The
+    // in-memory check the page runs has always drawn the line here, and this is
+    // where the one over the filesystem draws it too.
+    if diagnostics
+        .iter()
+        .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error)
+    {
         return Err(Error::TypeChecking(Box::new(db), diagnostics));
+    }
+    if !diagnostics.is_empty() {
+        print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
     }
 
     Ok(engine::modules_beside(&db, main_file, user_files))

@@ -276,6 +276,17 @@ spython test --level 5 --verbose teste.py
 ```
 
 
+# Verificação
+
+Para verificar os tipos de um arquivo sem executá-lo:
+
+```sh
+spython check arquivo.py
+```
+
+Se não houver erros, nada é impresso. Caso contrário, os erros são mostrados.
+
+
 # Formatação
 
 Para formatar arquivos Python:
@@ -298,6 +309,7 @@ spython format diretorio/
 | `spython` | Modo interativo (REPL) no nível 0 |
 | `spython repl [arquivo]` | Modo interativo (REPL) |
 | `spython run arquivo` | Executa o arquivo com verificação de tipos |
+| `spython check arquivo` | Verifica os tipos sem executar |
 | `spython test arquivos` | Executa os doctests |
 | `spython format caminhos` | Formata o código |
 | `spython help` | Exibe ajuda |

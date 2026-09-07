@@ -275,6 +275,17 @@ spython test --level 5 --verbose test.py
 ```
 
 
+# Checking
+
+To check the types of a file without running it:
+
+```sh
+spython check file.py
+```
+
+If there are no errors, no output is produced. Otherwise, the errors are displayed.
+
+
 # Formatting
 
 To format Python files:
@@ -297,6 +308,7 @@ spython format directory/
 | `spython` | Interactive mode (REPL) at level 0 |
 | `spython repl [file]` | Interactive mode (REPL) |
 | `spython run file` | Run the file with type checking |
+| `spython check file` | Check the types without running |
 | `spython test files` | Run doctests |
 | `spython format paths` | Format code |
 | `spython help` | Show help |
