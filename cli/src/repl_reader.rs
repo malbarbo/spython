@@ -185,7 +185,14 @@ impl Completer for InputHelper {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
-        match self.shell.borrow().complete(line, pos) {
+        // The shell would answer this too, but it sorts its command names
+        // afresh each time it is asked, and the helper already holds them.
+        match self
+            .shell
+            .borrow()
+            .repl()
+            .complete(line, pos, &self.commands)
+        {
             TabAction::Indent(spaces) => Ok((pos, vec![spaces])),
             TabAction::Complete(startpos, candidates) => Ok((startpos, candidates)),
             TabAction::Nothing => Ok((pos, vec![])),
