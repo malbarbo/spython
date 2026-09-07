@@ -2,10 +2,10 @@
 
 A version of Python for students: a type checker that runs before the code,
 levels that restrict the language, a REPL, and libraries for images and
-interactive programs. `engine/` has the checker, the completion, and the
-FFI. `cli/` is the binary. `wasm/` exports the engine for the browser, and
-`wasm/tests/` runs it under Deno. `lib/spython/` is the Python library that
-ships in the binary. `docs/` is the user guide.
+interactive programs. `engine/` checks a file, runs it on RustPython, and
+answers the REPL. `cli/` is the binary. `wasm/` exports the engine for the
+browser, and `wasm/tests/` runs it under Deno. `lib/spython/` is the Python
+library that ships in the binary. `docs/` is the user guide.
 
 The interpreter is a fork of RustPython and the checker is `ty`, from a fork
 of ruff. Both come from `malbarbo/` on GitHub, on the branch named after the
@@ -17,12 +17,18 @@ in `engine` or `cli` to a change in a fork. After you push to a fork, run
 ## Build and test
 
 ```sh
-make check               # clippy, cargo fmt, ruff format, deno fmt
-cargo test --workspace   # the tests
-make test                # the tests, plus the WASM and image tests
-make wasm                # the WASM binary
-make test-wasm           # the deno tests on the WASM binary
+make check        # clippy, cargo fmt, ruff format, deno fmt
+make test-rs      # cargo test --workspace
+make test         # the tests, the deno tests and the image snapshots
+make wasm         # the WASM binary
+make test-wasm    # the deno tests on the WASM binary
+cargo test -p spython --test integration   # snapshots of what the binary prints
+cargo test --workspace -- --ignored        # image snapshots, slow
 ```
+
+`cli/tests/integration.rs` has one test per file under `cli/tests/inputs`
+and `cli/tests/images`. `cli/build.rs` writes the list, so adding a file is
+enough.
 
 The `wasm` crate is outside the default workspace. `cargo build`, `cargo
 test`, and `cargo clippy` do not touch it. The WASM exports follow the slangs
@@ -30,8 +36,8 @@ engine protocol, in `ENGINE.md` of the slangs repository. `repl_new` takes
 a config of `key=value` pairs separated by spaces, and `level=<0-5>` is the
 one key today.
 
-Run `make check` and `cargo test --workspace` before you call a change done.
-Do not leave test files in the root of the repository.
+Run `make check` and `make test-rs` before you call a change done. Do not
+leave test files in the root of the repository.
 
 If the REPL fails with `ImportError: No such frozen object named
 _frozen_importlib`, the frozen stdlib cache is stale. Run `cargo clean -p
@@ -47,7 +53,7 @@ change is more than one, and it becomes more than one commit.
 ## Conventions in the code
 
 - A bare file on the command line means `run`, and bare options mean `repl`.
-  `effective_args` in `cli/src/main.rs` does the rewrite.
+  `cli()` in `cli/src/main.rs` reads the three as alternatives.
 - The CLI saves the level and the theme in `config_dir()/spython/config`,
   as `key=value` lines. `--level` wins over the file. See `cli/src/config.rs`.
 - Only `dataclasses`, `enum`, `typing`, and `math` are available to a
@@ -132,7 +138,8 @@ names, and the file list of a compile, should have been five.
 The subject says what the change does to the code, in one line:
 
 - A prefix for the part of the tree, then a lowercase sentence: `engine:`,
-  `cli:`, `wasm:`, `lib:`, `docs:`, `ci:`, and `all:` when it crosses them.
+  `cli:`, `repl:`, `wasm:`, `lib:`, `docs:`, `ci:`, and `all:` when it
+  crosses them.
 - Imperative or present, active voice. `cli: say that a directory is not a
   module`.
 - Name the concrete thing that changed and what happened to it. A function,
