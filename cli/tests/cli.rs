@@ -2479,6 +2479,40 @@ fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, Strin
     )
 }
 
+/// The history outlives a session that ends with `:quit`, the way it outlives
+/// one that ends with the end of its input. Linux only: `dirs::data_dir` is
+/// the only one that reads `XDG_DATA_HOME`, so it is the only platform the
+/// test can point somewhere of its own.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_repl_keeps_the_history_of_a_session_that_quit() {
+    let data = std::env::temp_dir().join(format!("_spython_history_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    std::fs::create_dir_all(&data).expect("create the data directory");
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .arg("repl")
+        .env("XDG_DATA_HOME", &data)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .expect("the child stdin is a pipe")
+                .write_all(b"x = 1\n:quit\n")?;
+            child.wait_with_output()
+        })
+        .expect("failed to run spython repl");
+    assert!(output.status.success());
+    let history = std::fs::read_to_string(data.join("spython").join("history"))
+        .expect("read the history the session left");
+    assert!(history.contains("x = 1"), "history: {history}");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
 #[test]
 fn repl_expression() {
     let (out, _, success) = run_repl("1 + 2\n");

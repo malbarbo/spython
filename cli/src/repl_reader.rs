@@ -23,9 +23,10 @@ const HISTORY_DIR: &str = "spython";
 const HISTORY_FILE: &str = "history";
 
 pub struct ReplReader {
-    // `next` takes the editor to read and gives it back, except on the read
-    // that ends the session, which is how the iteration stops.
-    editor: Option<Editor<InputHelper, FileHistory>>,
+    editor: Editor<InputHelper, FileHistory>,
+    /// Whether the read that ends the session has already happened, as a
+    /// reader that answered `None` is not asked to read again.
+    done: bool,
 }
 
 impl ReplReader {
@@ -72,7 +73,8 @@ impl ReplReader {
         }
 
         Ok(ReplReader {
-            editor: Some(editor),
+            editor,
+            done: false,
         })
     }
 }
@@ -93,33 +95,40 @@ impl Iterator for ReplReader {
     type Item = String;
 
     fn next(&mut self) -> Option<String> {
-        let mut editor = self.editor.take()?;
-
-        match editor.readline(&ReplPrompt) {
+        if self.done {
+            return None;
+        }
+        match self.editor.readline(&ReplPrompt) {
             Ok(input) => {
-                let _ = editor.add_history_entry(input.trim_end());
-                self.editor = Some(editor);
+                let _ = self.editor.add_history_entry(input.trim_end());
                 Some(input)
             }
             Err(ReadlineError::Interrupted) => {
                 // Ctrl-C throws the input away, so nothing stays pending.
-                take_pending(&editor);
+                take_pending(&self.editor);
                 eprintln!("KeyboardInterrupt");
-                self.editor = Some(editor);
                 Some(String::new())
             }
             Err(err) => {
                 if !matches!(err, ReadlineError::Eof) {
                     eprintln!("Readline error: {err:?}");
                 }
-                if let Some(history) = &history_path() {
-                    let _ = editor.save_history(history);
-                }
+                self.done = true;
                 // An input that the file cut off still runs, as the user
                 // wants to read what is wrong with it.
-                let pending = take_pending(&editor);
+                let pending = take_pending(&self.editor);
                 (!pending.trim().is_empty()).then_some(pending)
             }
+        }
+    }
+}
+
+impl Drop for ReplReader {
+    /// The history outlives the session, whatever ended it: the end of the
+    /// input, `:quit`, or an `exit()` inside an input.
+    fn drop(&mut self) {
+        if let Some(history) = &history_path() {
+            let _ = self.editor.save_history(history);
         }
     }
 }
