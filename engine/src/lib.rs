@@ -41,3 +41,13 @@ pub const BUILD_DATE: &str = env!("BUILD_DATE");
 pub const GIT_HASH: &str = env!("GIT_HASH");
 /// Full version string: "0.1.0 (rustpython ..., 2026-04-01, abc1234)".
 pub const LONG_VERSION: &str = env!("LONG_VERSION");
+
+/// The version line the binary prints: `spython 0.3.0 (rustpython ..., 2026-09-07, abc1234)`.
+pub fn version() -> String {
+    format!("spython {}", version_short())
+}
+
+/// The same without the name, for a caller that already said whose version it is.
+pub fn version_short() -> String {
+    format!("{VERSION} ({LIBS_VERSION}, {BUILD_DATE}, {GIT_HASH})")
+}
