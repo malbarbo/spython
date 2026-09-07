@@ -1,6 +1,6 @@
 ---
 source: cli/tests/cli.rs
-assertion_line: 248
+assertion_line: 374
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT

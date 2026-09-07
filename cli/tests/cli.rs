@@ -83,11 +83,10 @@ fn normalize_diagnostic_paths(s: &str) -> String {
     re.replace_all(s, "<file>.py").into_owned()
 }
 
-fn run_check(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
-    let check_inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs"));
+fn run_test(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
+    let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
     let mut cmd = Command::new(cargo::cargo_bin!("spython"));
-    cmd.current_dir(check_inputs)
-        .args(["check", "--level", "4"]);
+    cmd.current_dir(doctests).args(["test", "--level", "4"]);
     for arg in extra_args {
         cmd.arg(arg);
     }
@@ -229,8 +228,8 @@ fn ok_simple() {
 }
 
 #[test]
-fn check_ok() {
-    let (out, err, success) = run_check(&["ok.py"], &[]);
+fn test_ok() {
+    let (out, err, success) = run_test(&["ok.py"], &[]);
     assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(out, "");
     assert_eq!(
@@ -240,10 +239,10 @@ fn check_ok() {
 }
 
 #[test]
-fn check_fail() {
-    let (out, err, success) = run_check(&["fail.py"], &[]);
+fn test_fail() {
+    let (out, err, success) = run_test(&["fail.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -252,12 +251,12 @@ fn check_fail() {
 }
 
 #[test]
-fn check_banner_and_function_name_come_first() {
+fn test_banner_and_function_name_come_first() {
     // The "Running tests..." banner and the name of each function must be
     // written (and flushed) *before* its examples run, so a student whose test
     // hangs sees that testing started and which function is to blame instead
     // of a blank screen.
-    let (out, err, success) = run_check(&["doctest_progress.py"], &[]);
+    let (out, err, success) = run_test(&["doctest_progress.py"], &[]);
     assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(out, "");
     assert_eq!(
@@ -267,26 +266,26 @@ fn check_banner_and_function_name_come_first() {
 }
 
 #[test]
-fn check_no_doctests() {
-    let (out, err, success) = run_check(&["no_tests.py"], &[]);
+fn test_no_doctests() {
+    let (out, err, success) = run_test(&["no_tests.py"], &[]);
     assert!(success);
     assert_eq!(out, "");
     assert_eq!(err, "");
 }
 
 #[test]
-fn check_nonexistent_ignored() {
-    let (out, err, success) = run_check(&["nonexistent.py"], &[]);
+fn test_nonexistent_ignored() {
+    let (out, err, success) = run_test(&["nonexistent.py"], &[]);
     assert!(success);
     assert_eq!(out, "");
     assert_eq!(err, "");
 }
 
 #[test]
-fn check_multiple_prints_names() {
-    let (out, err, success) = run_check(&["ok.py", "fail.py"], &[]);
+fn test_multiple_prints_names() {
+    let (out, err, success) = run_test(&["ok.py", "fail.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -295,8 +294,8 @@ fn check_multiple_prints_names() {
 }
 
 #[test]
-fn check_verbose() {
-    let (out, err, success) = run_check(&["ok.py"], &["--verbose"]);
+fn test_verbose() {
+    let (out, err, success) = run_test(&["ok.py"], &["--verbose"]);
     assert!(success);
     assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
 }
@@ -304,23 +303,23 @@ fn check_verbose() {
 // --- Embedded spython library visibility ---
 
 #[test]
-fn check_spython_wildcard_ok() {
+fn test_spython_wildcard_ok() {
     // `from spython import *` must surface the lib's public names to ty's
     // resolver, so a valid call to `square` / `fill` / `red` type-checks.
-    let (out, err, success) = run_check(&["spython_wildcard_ok.py"], &[]);
+    let (out, err, success) = run_test(&["spython_wildcard_ok.py"], &[]);
     assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(out, "");
     assert_eq!(err, "");
 }
 
 #[test]
-fn check_spython_wildcard_unresolved() {
+fn test_spython_wildcard_unresolved() {
     // Names not exported by `spython` must still error after
     // `from spython import *` — we resolve real exports, not synthesize
     // arbitrary names.
-    let (out, err, success) = run_check(&["spython_wildcard_unresolved.py"], &[]);
+    let (out, err, success) = run_test(&["spython_wildcard_unresolved.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -329,12 +328,12 @@ fn check_spython_wildcard_unresolved() {
 }
 
 #[test]
-fn check_spython_lib_type_error() {
+fn test_spython_lib_type_error() {
     // ty must type-check calls into the spython lib using real signatures —
     // passing a `Color` where a `Style` is expected should fail.
-    let (out, err, success) = run_check(&["spython_lib_type_error.py"], &[]);
+    let (out, err, success) = run_test(&["spython_lib_type_error.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     // Strip the user-specific cache prefix so the snapshot is portable.
     insta::with_settings!({
         filters => vec![
@@ -349,10 +348,10 @@ fn check_spython_lib_type_error() {
 // --- Doctest validation tests ---
 
 #[test]
-fn check_doctest_type_error() {
-    let (out, err, success) = run_check(&["doctest_type_error.py"], &[]);
+fn test_doctest_type_error() {
+    let (out, err, success) = run_test(&["doctest_type_error.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -361,13 +360,13 @@ fn check_doctest_type_error() {
 }
 
 #[test]
-fn check_doctest_syntax_error() {
+fn test_doctest_syntax_error() {
     // A doctest with a parse error (unclosed paren) must be reported by the
     // static checker — not slip through to the runtime doctest runner, which
     // would surface it in a non-spython format.
-    let (out, err, success) = run_check(&["doctest_syntax_error.py"], &[]);
+    let (out, err, success) = run_test(&["doctest_syntax_error.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -376,10 +375,10 @@ fn check_doctest_syntax_error() {
 }
 
 #[test]
-fn check_doctest_no_space() {
-    let (out, err, success) = run_check(&["doctest_no_space.py"], &[]);
+fn test_doctest_no_space() {
+    let (out, err, success) = run_test(&["doctest_no_space.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -388,10 +387,10 @@ fn check_doctest_no_space() {
 }
 
 #[test]
-fn check_doctest_continuation_no_space() {
-    let (out, err, success) = run_check(&["doctest_continuation_no_space.py"], &[]);
+fn test_doctest_continuation_no_space() {
+    let (out, err, success) = run_test(&["doctest_continuation_no_space.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -400,11 +399,11 @@ fn check_doctest_continuation_no_space() {
 }
 
 #[test]
-fn check_doctest_bare_name_allowed() {
+fn test_doctest_bare_name_allowed() {
     // A bare `>>> y` line is a value-display idiom in doctests and must not
     // trigger the BARE_EXPRESSION lint — otherwise teaching examples like
     // `>>> x: int = 2` / `>>> x` / `2` would fail level-0 checks.
-    let (out, err, success) = run_check(&["doctest_bare_name.py"], &[]);
+    let (out, err, success) = run_test(&["doctest_bare_name.py"], &[]);
     assert!(success, "stdout={out} stderr={err}");
     assert_eq!(out, "");
     assert_eq!(
@@ -414,11 +413,11 @@ fn check_doctest_bare_name_allowed() {
 }
 
 #[test]
-fn check_doctest_level_restriction() {
+fn test_doctest_level_restriction() {
     // `if` inside a doctest must be rejected at level 0 like any other code.
-    let (out, err, success) = run_check(&["doctest_level_restriction.py"], &["--level", "0"]);
+    let (out, err, success) = run_test(&["doctest_level_restriction.py"], &["--level", "0"]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -427,10 +426,10 @@ fn check_doctest_level_restriction() {
 }
 
 #[test]
-fn check_doctest_module_level() {
-    let (out, err, success) = run_check(&["doctest_module_level.py"], &[]);
+fn test_doctest_module_level() {
+    let (out, err, success) = run_test(&["doctest_module_level.py"], &[]);
     assert!(!success);
-    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs/"));
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
     insta::with_settings!({
         filters => vec![(filter.as_str(), "")]
     }, {
@@ -439,17 +438,17 @@ fn check_doctest_module_level() {
 }
 
 #[test]
-fn check_doctest_cross_module() {
+fn test_doctest_cross_module() {
     // Doctest references a name imported from a sibling first-party file
     // (`from helper import square`). Type-checking the doctest must resolve
     // `square` through the import so that the wrong-type call is caught.
     let subdir = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/check_inputs/doctest_cross_module"
+        "/tests/doctests/doctest_cross_module"
     ));
     let output = Command::new(cargo::cargo_bin!("spython"))
         .current_dir(subdir)
-        .args(["check", "--level", "4", "main.py"])
+        .args(["test", "--level", "4", "main.py"])
         .output()
         .expect("failed to run spython");
     let err = normalize_output(&String::from_utf8_lossy(&output.stderr));
@@ -480,14 +479,14 @@ fn run_spython_from(dir: &Path, args: &[&str]) -> (String, String, bool) {
 }
 
 #[test]
-fn check_resolves_a_sibling_from_another_directory() {
-    // `spython check dir/main.py` from outside `dir`. Both halves of the
+fn test_resolves_a_sibling_from_another_directory() {
+    // `spython test dir/main.py` from outside `dir`. Both halves of the
     // check look beside the file: the static one resolves `from helper
     // import square`, and the doctests, which run for real, import it again.
-    let check_inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/check_inputs"));
+    let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
     let (out, err, success) = run_spython_from(
-        check_inputs,
-        &["check", "--level", "4", "imports_a_sibling/main.py"],
+        doctests,
+        &["test", "--level", "4", "imports_a_sibling/main.py"],
     );
     assert!(success, "expected success; stdout={out} stderr={err}");
     assert!(
@@ -497,20 +496,20 @@ fn check_resolves_a_sibling_from_another_directory() {
 }
 
 #[test]
-fn check_refuses_what_run_cannot_import() {
+fn test_refuses_what_run_cannot_import() {
     // `sub/main.py` imports `toplevel`, which sits beside `sub`, not inside
     // it. The interpreter puts the file's own directory on `sys.path`, so it
     // cannot reach it -- and the check, rooted the same way, says so instead
     // of passing the file on to fail at runtime.
     let root = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/check_inputs/subdir_import"
+        "/tests/doctests/subdir_import"
     ));
-    let (_, checked, check_ok) = run_spython_from(root, &["check", "--level", "4", "sub/main.py"]);
+    let (_, tested, test_ok) = run_spython_from(root, &["test", "--level", "4", "sub/main.py"]);
     let (_, ran, run_ok) = run_spython_from(root, &["run", "--level", "4", "sub/main.py"]);
-    assert!(!check_ok, "check should have refused, got: {checked}");
+    assert!(!test_ok, "test should have refused, got: {tested}");
     assert!(!run_ok, "run should have refused, got: {ran}");
-    for (what, err) in [("check", &checked), ("run", &ran)] {
+    for (what, err) in [("test", &tested), ("run", &ran)] {
         assert!(
             err.contains("Cannot resolve imported module `toplevel`"),
             "expected {what} to report the unresolved import, got: {err}"
@@ -519,18 +518,18 @@ fn check_refuses_what_run_cannot_import() {
 }
 
 #[test]
-fn check_doctest_under_a_package() {
+fn test_doctest_under_a_package() {
     // Same as above, one directory down: the imported file lives in a package
     // (`from pkg.helper import square`). The doctest check writes the file's
     // imports into a filesystem of its own, so a name that only resolves
     // through a directory has to survive the trip.
     let subdir = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/check_inputs/doctest_package"
+        "/tests/doctests/doctest_package"
     ));
     let output = Command::new(cargo::cargo_bin!("spython"))
         .current_dir(subdir)
-        .args(["check", "--level", "4", "main.py"])
+        .args(["test", "--level", "4", "main.py"])
         .output()
         .expect("failed to run spython");
     let err = normalize_output(&String::from_utf8_lossy(&output.stderr));
@@ -552,7 +551,7 @@ fn run_rejects_doctest_type_error() {
     // pass the same type checks as any other code.
     let path = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/check_inputs/doctest_type_error.py"
+        "/tests/doctests/doctest_type_error.py"
     ));
     let dir = path.parent().expect("path has parent");
     let filename = path.file_name().expect("path has filename");

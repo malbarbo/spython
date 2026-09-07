@@ -53,7 +53,7 @@ construct the current level does not allow, is an error, and the program does
 not run.
 
 Tests are doctests. They state what a function returns for a few inputs, and
-`spython check` runs them after checking their types too:
+`spython test` runs them after checking their types too:
 
 ```python
 def double(x: int) -> int:

@@ -69,7 +69,7 @@ enum Command {
     },
     /// Run doctests from the specified Python files
     #[bpaf(command)]
-    Check {
+    Test {
         /// Show all test attempts, not just failures
         #[bpaf(short, long)]
         verbose: bool,
@@ -102,7 +102,7 @@ fn cli() -> bpaf::OptionParser<Option<Command>> {
 
 /// Names of the explicit subcommands. Used to decide whether a bare leading
 /// positional should be treated as a file to run.
-const COMMANDS: &[&str] = &["repl", "run", "check", "format", "help"];
+const COMMANDS: &[&str] = &["repl", "run", "test", "format", "help"];
 
 /// Whether `a` is a top-level help or version request that must reach the
 /// normal parser (rather than being routed into an injected subcommand).
@@ -222,12 +222,12 @@ fn main() -> ExitCode {
             None => return ExitCode::FAILURE,
         },
         Command::Format { paths } => run_format(&paths),
-        Command::Check {
+        Command::Test {
             files,
             verbose,
             level,
         } => match parse_level(level) {
-            Some(l) => run_check(&files, verbose, l),
+            Some(l) => run_test(&files, verbose, l),
             None => return ExitCode::FAILURE,
         },
     };
@@ -338,7 +338,7 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
     // The file's own directory, not the process's: `import helpers` looks
     // beside the file that wrote it, which is also where the interpreter
     // looks when it runs (`sys.path[0]`). Rooting the check anywhere else
-    // makes `spython check dir/main.py` disagree with `cd dir` for no reason
+    // makes `spython test dir/main.py` disagree with `cd dir` for no reason
     // the student can see.
     let root = abs_sys.parent().unwrap_or(&abs_sys).to_path_buf();
     let mut db = build_db(root.as_std_path())?;
@@ -430,7 +430,7 @@ fn escape(path: &str) -> String {
 }
 
 /// Run doctests for the given files, ignoring paths that are not files.
-fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
+fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
     let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
 
     if valid_files.is_empty() {
@@ -475,7 +475,7 @@ fn run_check(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error
     }
     script.push_str("sys.exit(total)\n");
 
-    if execute_source(&script, "<check>", ".") {
+    if execute_source(&script, "<test>", ".") {
         Ok(())
     } else {
         Err(Error::ScriptExecution)

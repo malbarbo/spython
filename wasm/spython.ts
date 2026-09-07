@@ -3,7 +3,7 @@
 // the Rust integration tests in cli/tests/cli.rs can run both backends.
 //
 // Current scope: `run [--level N] FILE.py` and `--version`.
-// Other subcommands (repl, check, format) remain native-only for now.
+// Other subcommands (repl, test, format) remain native-only for now.
 
 import { makeWasi } from "./tests/wasi.ts";
 

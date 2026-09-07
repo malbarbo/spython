@@ -242,7 +242,7 @@ As preferências de tema e nível são salvas no diretório de configuração do
 Para executar os doctests de um arquivo:
 
 ```sh
-spython check arquivo.py
+spython test arquivo.py
 ```
 
 Os doctests são verificados quanto a tipos antes de serem executados,
@@ -263,7 +263,7 @@ def dobro(x: int) -> int:
 ```
 
 ```sh
-$ spython check --level 5 teste.py
+$ spython test --level 5 teste.py
 Running tests...
   dobro
 2 tests, 2 successes, 0 failures and 0 errors.
@@ -272,7 +272,7 @@ Running tests...
 Use `--verbose` para ver todos os testes (não apenas as falhas):
 
 ```sh
-spython check --level 5 --verbose teste.py
+spython test --level 5 --verbose teste.py
 ```
 
 
@@ -298,7 +298,7 @@ spython format diretorio/
 | `spython` | Modo interativo (REPL) no nível 0 |
 | `spython repl [arquivo]` | Modo interativo (REPL) |
 | `spython run arquivo` | Executa o arquivo com verificação de tipos |
-| `spython check arquivos` | Executa os doctests |
+| `spython test arquivos` | Executa os doctests |
 | `spython format caminhos` | Formata o código |
 | `spython help` | Exibe ajuda |
 
@@ -307,5 +307,5 @@ spython format diretorio/
 | Opção | Descrição |
 |-------|-----------|
 | `--level N` | Nível de ensino (0-5, padrão: 0) |
-| `--verbose` | Mostra todos os testes (com `check`) |
+| `--verbose` | Mostra todos os testes (com `test`) |
 | `--version` | Exibe versão |

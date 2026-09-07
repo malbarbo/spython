@@ -241,7 +241,7 @@ The theme and level preferences are saved to the user's configuration directory.
 To run the doctests of a file:
 
 ```sh
-spython check file.py
+spython test file.py
 ```
 
 Doctests are type-checked before they are run, following the same rules
@@ -262,7 +262,7 @@ def double(x: int) -> int:
 ```
 
 ```sh
-$ spython check --level 5 test.py
+$ spython test --level 5 test.py
 Running tests...
   double
 2 tests, 2 successes, 0 failures and 0 errors.
@@ -271,7 +271,7 @@ Running tests...
 Use `--verbose` to see all tests (not just failures):
 
 ```sh
-spython check --level 5 --verbose test.py
+spython test --level 5 --verbose test.py
 ```
 
 
@@ -297,7 +297,7 @@ spython format directory/
 | `spython` | Interactive mode (REPL) at level 0 |
 | `spython repl [file]` | Interactive mode (REPL) |
 | `spython run file` | Run the file with type checking |
-| `spython check files` | Run doctests |
+| `spython test files` | Run doctests |
 | `spython format paths` | Format code |
 | `spython help` | Show help |
 
@@ -306,5 +306,5 @@ spython format directory/
 | Option | Description |
 |--------|-------------|
 | `--level N` | Teaching level (0-5, default: 0) |
-| `--verbose` | Show all tests (with `check`) |
+| `--verbose` | Show all tests (with `test`) |
 | `--version` | Print version |
