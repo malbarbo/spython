@@ -2,8 +2,14 @@
 // Provides the same stdin/stdout interface as the native spython binary so
 // the Rust integration tests in cli/tests/cli.rs can run both backends.
 //
-// Current scope: `run [--level N] FILE.py` and `--version`.
-// Other subcommands (repl, test, format) remain native-only for now.
+// Current scope: `run`, `check` and `test`, each `[--level N] FILE.py`, and
+// `--version`. `repl` and `format` remain native-only for now.
+//
+// `check` and `test` both go through `repl_new`, which is what the page calls:
+// it checks the file, runs it, and runs its doctests. So the wrapper agrees
+// with the native binary only on a file whose check is the whole answer --
+// `check` on a file that prints nothing, and `test` on one whose doctests
+// pass.
 
 import { makeWasi } from "./tests/wasi.ts";
 
@@ -13,6 +19,13 @@ interface WasmExports {
   string_deallocate(ptr: number, size: number): void;
   cstr_deallocate(ptr: number): void;
   version(): number;
+  repl_new(
+    code_ptr: number,
+    code_len: number,
+    config_ptr: number,
+    config_len: number,
+  ): number;
+  repl_destroy(repl: number): void;
   run_source(
     code_ptr: number,
     code_len: number,
@@ -117,6 +130,25 @@ async function runFile(file: string, level: number): Promise<number> {
   return status === 0 ? 0 : 1;
 }
 
+// `check` and `test`: the page's own entry point. `repl_new` returns null when
+// the file does not check, and otherwise runs it and its doctests.
+async function loadFile(
+  command: string,
+  file: string,
+  level: number,
+): Promise<number> {
+  const source = await Deno.readTextFile(file);
+  const exports = await loadWasm(["spython", command, file]);
+  const [codePtr, codeLen] = encodeString(exports, source);
+  const [cfgPtr, cfgLen] = encodeString(exports, `level=${level}`);
+  const repl = exports.repl_new(codePtr, codeLen, cfgPtr, cfgLen);
+  exports.string_deallocate(codePtr, codeLen);
+  exports.string_deallocate(cfgPtr, cfgLen);
+  if (repl === 0) return 1;
+  exports.repl_destroy(repl);
+  return 0;
+}
+
 async function runVersion(): Promise<number> {
   const exports = await loadWasm(["spython", "--version"]);
   const ptr = exports.version();
@@ -126,8 +158,8 @@ async function runVersion(): Promise<number> {
   return 0;
 }
 
-interface ParsedRun {
-  kind: "run";
+interface ParsedFile {
+  kind: "run" | "check" | "test";
   file: string;
   level: number;
 }
@@ -141,7 +173,7 @@ interface ParsedError {
   message: string;
 }
 
-type Parsed = ParsedRun | ParsedVersion | ParsedError;
+type Parsed = ParsedFile | ParsedVersion | ParsedError;
 
 function parseArgs(argv: string[]): Parsed {
   if (argv.length === 0) {
@@ -151,7 +183,7 @@ function parseArgs(argv: string[]): Parsed {
   if (first === "--version" || first === "-V") {
     return { kind: "version" };
   }
-  if (first !== "run") {
+  if (first !== "run" && first !== "check" && first !== "test") {
     return {
       kind: "error",
       message: `error: unsupported subcommand: ${first}\n`,
@@ -189,9 +221,9 @@ function parseArgs(argv: string[]): Parsed {
     return { kind: "error", message: `error: unexpected argument: ${a}\n` };
   }
   if (file === null) {
-    return { kind: "error", message: "error: `run` requires a FILE\n" };
+    return { kind: "error", message: `error: \`${first}\` requires a FILE\n` };
   }
-  return { kind: "run", file, level };
+  return { kind: first, file, level };
 }
 
 async function main(): Promise<number> {
@@ -201,6 +233,9 @@ async function main(): Promise<number> {
       return await runVersion();
     case "run":
       return await runFile(parsed.file, parsed.level);
+    case "check":
+    case "test":
+      return await loadFile(parsed.kind, parsed.file, parsed.level);
     case "error":
       writeOut(2, parsed.message);
       return 1;

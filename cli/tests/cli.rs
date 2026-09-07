@@ -625,6 +625,38 @@ fn check_refuses_what_run_cannot_import() {
     );
 }
 
+/// Both backends are asked for the same file, and `run_spython_cmd` asserts
+/// they agree. The page reaches `check` and `test` through `repl_new`, which
+/// checks the file, runs it, and runs its doctests -- so the two agree on a
+/// file whose doctests pass, and, for `check`, only on one that prints nothing.
+#[test]
+fn test_output_agrees_between_backends() {
+    for (dir, file) in [
+        (
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"),
+            "ok.py",
+        ),
+        (
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"),
+            "doctest_progress.py",
+        ),
+        (
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/inputs"),
+            "ok_simple.py",
+        ),
+    ] {
+        run_spython_cmd(&["test", "--level", "4", file], Path::new(dir));
+    }
+}
+
+#[test]
+fn check_output_agrees_between_backends() {
+    // Not a file with doctests or a `print`: the wrapper reaches `check`
+    // through `repl_new`, which runs them, and native `check` says nothing.
+    let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
+    run_spython_cmd(&["check", "--level", "4", "no_tests.py"], doctests);
+}
+
 // --- Image tests ---
 
 fn run_image(path: &Path) -> (String, String) {
