@@ -475,30 +475,15 @@ fn test_doctest_cross_module() {
     );
 }
 
-/// Run spython from `dir` -- somewhere other than where the file being
-/// checked lives, which is the whole point of the two tests below.
-fn run_spython_from(dir: &Path, args: &[&str]) -> (String, String, bool) {
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .expect("failed to run spython");
-    (
-        normalize_output(&String::from_utf8_lossy(&output.stdout)),
-        normalize_output(&String::from_utf8_lossy(&output.stderr)),
-        output.status.success(),
-    )
-}
-
 #[test]
 fn test_resolves_a_sibling_from_another_directory() {
     // `spython test dir/main.py` from outside `dir`. Both halves of the
     // check look beside the file: the static one resolves `from helper
     // import square`, and the doctests, which run for real, import it again.
     let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
-    let (out, err, success) = run_spython_from(
-        doctests,
+    let (out, err, success) = run_spython_native(
         &["test", "--level", "4", "imports_a_sibling/main.py"],
+        doctests,
     );
     assert!(success, "expected success; stdout={out} stderr={err}");
     assert!(
@@ -517,8 +502,8 @@ fn test_refuses_what_run_cannot_import() {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/doctests/subdir_import"
     ));
-    let (_, tested, test_ok) = run_spython_from(root, &["test", "--level", "4", "sub/main.py"]);
-    let (_, ran, run_ok) = run_spython_from(root, &["run", "--level", "4", "sub/main.py"]);
+    let (_, tested, test_ok) = run_spython_native(&["test", "--level", "4", "sub/main.py"], root);
+    let (_, ran, run_ok) = run_spython_native(&["run", "--level", "4", "sub/main.py"], root);
     assert!(!test_ok, "test should have refused, got: {tested}");
     assert!(!run_ok, "run should have refused, got: {ran}");
     for (what, err) in [("test", &tested), ("run", &ran)] {
@@ -585,7 +570,7 @@ fn run_rejects_doctest_type_error() {
 
 fn run_check(args: &[&str]) -> (String, String, bool) {
     let inputs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/inputs"));
-    run_spython_from(inputs, args)
+    run_spython_native(args, inputs)
 }
 
 #[test]
@@ -624,7 +609,7 @@ fn check_refuses_what_run_cannot_import() {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/doctests/subdir_import"
     ));
-    let (_, err, success) = run_spython_from(root, &["check", "--level", "4", "sub/main.py"]);
+    let (_, err, success) = run_spython_native(&["check", "--level", "4", "sub/main.py"], root);
     assert!(!success, "check should have refused, got: {err}");
     assert!(
         err.contains("Cannot resolve imported module `toplevel`"),
