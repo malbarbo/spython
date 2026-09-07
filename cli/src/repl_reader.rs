@@ -698,8 +698,6 @@ fn is_python_builtin(word: &str) -> bool {
     )
 }
 
-// ── REPL entry point ────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
