@@ -47,9 +47,9 @@ change is more than one, and it becomes more than one commit.
 ## Conventions in the code
 
 - A bare file on the command line means `run`, and bare options mean `repl`.
-  `effective_args` in `cli/main.rs` does the rewrite.
+  `effective_args` in `cli/src/main.rs` does the rewrite.
 - The CLI saves the level and the theme in `config_dir()/spython/config`,
-  as `key=value` lines. `--level` wins over the file. See `cli/config.rs`.
+  as `key=value` lines. `--level` wins over the file. See `cli/src/config.rs`.
 - Only `dataclasses`, `enum`, `typing`, and `math` are available to a
   program. The list is what the freeze filter and `typeshed_allowlist.txt`
   let through.
