@@ -134,7 +134,7 @@ fn run_level_native_only(level: u8, code: &str) -> (String, String, bool) {
     let dir = std::env::temp_dir();
     let filename = format!("_spython_level_native_{n}.py");
     let file = dir.join(&filename);
-    std::fs::write(&file, code).unwrap();
+    std::fs::write(&file, code).expect("write the test file");
     let level_str = level.to_string();
     let result = run_spython_native(&["run", "--level", &level_str, &filename], &dir);
     let _ = std::fs::remove_file(&file);
@@ -166,7 +166,7 @@ fn bare_file_shorthand_passes_level() {
     // `--level` flows to the injected `run`, so a level-1 `if` is accepted.
     let dir = std::env::temp_dir();
     let file = dir.join("_spython_bare_level.py");
-    std::fs::write(&file, "x: int = 3\nif x > 0:\n    print('ok')\n").unwrap();
+    std::fs::write(&file, "x: int = 3\nif x > 0:\n    print('ok')\n").expect("write the test file");
     let (out, _err, ok_lvl1) =
         run_spython_native(&["_spython_bare_level.py", "--level", "1"], &dir);
     let (_o0, err0, ok_lvl0) = run_spython_native(&["_spython_bare_level.py"], &dir);
@@ -183,7 +183,7 @@ fn bare_file_shorthand_after_dashdash() {
     // subcommand name, so it is dispatched to `run`.
     let dir = std::env::temp_dir();
     let file = dir.join("run");
-    std::fs::write(&file, "print(2)\n").unwrap();
+    std::fs::write(&file, "print(2)\n").expect("write the test file");
     let (out, err, success) = run_spython_native(&["--", "run"], &dir);
     let _ = std::fs::remove_file(&file);
     assert!(success, "stdout: {out}\nstderr: {err}");
@@ -202,7 +202,11 @@ fn bare_level_starts_repl() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .and_then(|mut child| {
-            child.stdin.take().unwrap().write_all(b":quit\n")?;
+            child
+                .stdin
+                .take()
+                .expect("the child stdin is a pipe")
+                .write_all(b":quit\n")?;
             child.wait_with_output()
         })
         .expect("failed to run spython -l 2");
@@ -601,7 +605,7 @@ fn run_level(level: u8, code: &str) -> (String, String, bool) {
     let dir = std::env::temp_dir();
     let filename = format!("_spython_level_test_{n}.py");
     let file = dir.join(&filename);
-    std::fs::write(&file, code).unwrap();
+    std::fs::write(&file, code).expect("write the test file");
     let level_str = level.to_string();
     let result = run_spython_cmd(&["run", "--level", &level_str, &filename], &dir);
     let _ = std::fs::remove_file(&file);
@@ -2131,7 +2135,7 @@ fn level3_chained_eq_none_no_double_emit() {
     let count = err.matches("none-comparison").count();
     // Two None literals → expect at most one diagnostic per literal.
     // (Two None literals at distinct ranges → two emits is acceptable.)
-    assert!(count >= 1 && count <= 2, "unexpected count {count}: {err}");
+    assert!((1..=2).contains(&count), "unexpected count {count}: {err}");
 }
 
 #[test]
@@ -2269,17 +2273,24 @@ fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (Stri
     let dir =
         std::env::temp_dir().join(format!("_spython_repl_preload_{}_{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(&dir).expect("create the test directory");
     for (name, source) in files {
         let path = dir.join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, source).unwrap();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create the test directory");
+        }
+        std::fs::write(&path, source).expect("write the test file");
     }
     // From the directory the files are in, which is where ty looks for the
     // ones a file imports.
     let result = run_repl_in(
         input,
-        &["repl", "--level", &level.to_string(), files[0].0],
+        &[
+            "repl",
+            "--level",
+            &level.to_string(),
+            files.first().expect("at least one file").0,
+        ],
         Some(&dir),
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -2299,7 +2310,11 @@ fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, Strin
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child.stdin.take().unwrap().write_all(input.as_bytes())?;
+            child
+                .stdin
+                .take()
+                .expect("the child stdin is a pipe")
+                .write_all(input.as_bytes())?;
             child.wait_with_output()
         })
         .expect("failed to run spython repl");
