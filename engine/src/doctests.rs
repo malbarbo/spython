@@ -18,6 +18,12 @@ use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_text_size::{TextRange, TextSize};
 
 use crate::checker::make_lint_diagnostic;
+
+/// The source came in as one `String`, so it fits in the `u32` a `TextSize` holds.
+fn text_size(offset: usize) -> TextSize {
+    TextSize::try_from(offset).expect("a source under 4 GiB")
+}
+
 use crate::lints::DOCTEST_MALFORMED_PROMPT;
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
@@ -202,25 +208,21 @@ fn scan_docstring(
     let mut anchor_range: Option<TextRange> = None;
 
     let mut i = 0;
-    while i < lines.len() {
-        let (line_start, line_end, line_text) = lines[i];
+    while let Some(&(line_start, line_end, line_text)) = lines.get(i) {
         let stripped = line_text.trim_start();
         let leading = line_text.len() - stripped.len();
 
         let primary = starts_with_prompt(stripped, ">>>");
         if let Some(kind) = primary {
             let full_line_range = TextRange::new(
-                TextSize::try_from(content_start + line_start).unwrap(),
-                TextSize::try_from(content_start + line_end).unwrap(),
+                text_size(content_start + line_start),
+                text_size(content_start + line_end),
             );
             match kind {
                 PromptClass::Valid => {
-                    let content_after_prompt =
-                        TextSize::try_from(content_start + line_start + leading + 4).unwrap();
-                    let code_line_range = TextRange::new(
-                        content_after_prompt,
-                        TextSize::try_from(content_start + line_end).unwrap(),
-                    );
+                    let content_after_prompt = text_size(content_start + line_start + leading + 4);
+                    let code_line_range =
+                        TextRange::new(content_after_prompt, text_size(content_start + line_end));
                     code_lines.push(stripped[4..].to_string());
                     line_ranges.push(code_line_range);
                     if anchor_range.is_none() {
@@ -228,24 +230,19 @@ fn scan_docstring(
                     }
                     i += 1;
                     // Continuation `... ` lines.
-                    while i < lines.len() {
-                        let (cs, ce, ct) = lines[i];
+                    while let Some(&(cs, ce, ct)) = lines.get(i) {
                         let cstrip = ct.trim_start();
                         let cleading = ct.len() - cstrip.len();
                         match starts_with_prompt(cstrip, "...") {
                             Some(PromptClass::Valid) => {
-                                let after =
-                                    TextSize::try_from(content_start + cs + cleading + 4).unwrap();
+                                let after = text_size(content_start + cs + cleading + 4);
                                 code_lines.push(cstrip[4..].to_string());
-                                line_ranges.push(TextRange::new(
-                                    after,
-                                    TextSize::try_from(content_start + ce).unwrap(),
-                                ));
+                                line_ranges
+                                    .push(TextRange::new(after, text_size(content_start + ce)));
                                 i += 1;
                             }
                             Some(PromptClass::MalformedEmpty) => {
-                                let after =
-                                    TextSize::try_from(content_start + cs + cleading + 3).unwrap();
+                                let after = text_size(content_start + cs + cleading + 3);
                                 code_lines.push(String::new());
                                 line_ranges.push(TextRange::new(after, after));
                                 i += 1;
@@ -253,8 +250,8 @@ fn scan_docstring(
                             Some(PromptClass::Malformed) => {
                                 out.malformed.push(MalformedPrompt {
                                     range: TextRange::new(
-                                        TextSize::try_from(content_start + cs).unwrap(),
-                                        TextSize::try_from(content_start + ce).unwrap(),
+                                        text_size(content_start + cs),
+                                        text_size(content_start + ce),
                                     ),
                                     kind: PromptKind::Continuation,
                                 });
@@ -435,7 +432,7 @@ pub fn build_synthetic_source(
     if !syn.ends_with('\n') {
         syn.push('\n');
     }
-    let original_len = u32::try_from(syn.len()).unwrap();
+    let original_len = text_size(syn.len()).to_u32();
 
     let original_line_count = syn.lines().count();
     let mut line_map: Vec<SyntheticLine> = vec![SyntheticLine::Original; original_line_count];
@@ -497,7 +494,7 @@ pub fn remap_diagnostics(
     line_starts.push(0);
     for (i, b) in synthetic_source.bytes().enumerate() {
         if b == b'\n' {
-            line_starts.push(u32::try_from(i + 1).unwrap());
+            line_starts.push(text_size(i + 1).to_u32());
         }
     }
 
@@ -542,9 +539,11 @@ pub fn remap_diagnostics(
         // of the appended doctest body / scaffold lines for `prim_start >=
         // original_len`.
         let line_idx = byte_to_line(prim_start).min(map.lines.len().saturating_sub(1));
-        let (snippet_idx, original_range) = match map.lines.get(line_idx).copied() {
+        let (snippet, original_range) = match map.lines.get(line_idx).copied() {
             Some(SyntheticLine::SyntheticBody(idx, line)) => {
-                let snippet = &snippets[idx];
+                let Some(snippet) = snippets.get(idx) else {
+                    continue;
+                };
                 let line_range = snippet
                     .line_ranges
                     .get(line)
@@ -557,12 +556,14 @@ pub fn remap_diagnostics(
                     line_range,
                     byte_to_line,
                 );
-                (idx, range)
+                (snippet, range)
             }
-            Some(SyntheticLine::SyntheticHeader(idx)) => (idx, snippets[idx].anchor_range),
+            Some(SyntheticLine::SyntheticHeader(idx)) => match snippets.get(idx) {
+                Some(snippet) => (snippet, snippet.anchor_range),
+                None => continue,
+            },
             Some(SyntheticLine::Original) | None => continue,
         };
-        let snippet = &snippets[snippet_idx];
 
         let id = diag.id();
         let severity = diag.severity();
@@ -577,13 +578,16 @@ pub fn remap_diagnostics(
     out
 }
 
+// A test writes the source it means to read back, and asserts how many
+// snippets came out before it names one.
 #[cfg(test)]
+#[allow(clippy::indexing_slicing)]
 mod tests {
     use super::*;
     use ruff_python_parser::parse_module;
 
     fn extract(src: &str) -> DoctestExtraction {
-        let parsed = parse_module(src).unwrap();
+        let parsed = parse_module(src).expect("the test source parses");
         let module = parsed.into_syntax();
         extract_doctests(&module, src)
     }
