@@ -274,11 +274,16 @@ fn test_no_doctests() {
 }
 
 #[test]
-fn test_nonexistent_ignored() {
+fn test_refuses_a_missing_file() {
+    // A name the student mistyped is an error, the way it is for `run`, and
+    // not a run that reports no failures.
     let (out, err, success) = run_test(&["nonexistent.py"], &[]);
-    assert!(success);
+    assert!(!success, "test should have refused, got: {out}{err}");
     assert_eq!(out, "");
-    assert_eq!(err, "");
+    assert!(
+        err.contains("nonexistent.py"),
+        "expected the file name in the error, got: {err}"
+    );
 }
 
 #[test]

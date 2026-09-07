@@ -451,15 +451,16 @@ fn escape(path: &str) -> String {
     path.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Run doctests for the given files, ignoring paths that are not files.
+/// Run doctests for the given files.
 fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
-    let valid_files: Vec<&PathBuf> = files.iter().filter(|f| f.is_file()).collect();
-
-    if valid_files.is_empty() {
+    if files.is_empty() {
         return Ok(());
     }
 
-    for file in &valid_files {
+    // A file that is not there is an error, the way it is for `run`. Silently
+    // reporting no failures for a name the student mistyped is worse than
+    // saying the name is wrong.
+    for file in files {
         type_check_file(file, level)?;
     }
 
@@ -477,8 +478,8 @@ fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error>
          \x20   return run_doctests(mod, verbose={py_verbose})\n\
          total = 0\n",
     );
-    let print_names = valid_files.len() > 1;
-    for file in &valid_files {
+    let print_names = files.len() > 1;
+    for file in files {
         let path = file.to_string_lossy();
         let escaped = escape(&path);
         // The doctests import the way the file they came from does, so they
