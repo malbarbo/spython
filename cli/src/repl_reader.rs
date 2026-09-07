@@ -54,8 +54,11 @@ impl ReplReader {
 
         // Enter and Backspace move by a level of indentation, and the two
         // control characters the terminal may send instead of them do too.
+        // Alt-Enter arrives as escape and return, and opens a line as Enter
+        // does, which is what the terminal without the binding swallows.
         for key in [
             KeyEvent(KeyCode::Enter, Modifiers::NONE),
+            KeyEvent(KeyCode::Enter, Modifiers::ALT),
             KeyEvent(KeyCode::Char('M'), Modifiers::CTRL),
             KeyEvent(KeyCode::Char('J'), Modifiers::CTRL),
         ] {
