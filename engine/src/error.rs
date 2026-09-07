@@ -40,6 +40,10 @@ pub enum SpythonError {
     /// The files `format --check` found unformatted.
     NotFormatted { paths: Vec<PathBuf> },
 
+    /// Files the formatter turned down, which it named one by one as the run
+    /// came to them.
+    FormatFailed,
+
     /// A failure from outside the language, such as starting the repl reader.
     /// Shown as it came, as it already names its own subject.
     Other(Box<dyn std::error::Error>),
@@ -79,8 +83,9 @@ pub fn show_error(err: &SpythonError) {
         ),
         SpythonError::Other(err) => eprintln!("spython: {err}"),
         // Whoever failed already said so: the interpreter printed the
-        // traceback, and the doctest runner printed its own count.
-        SpythonError::ProgramFailed | SpythonError::TestsFailed => (),
+        // traceback, the doctest runner printed its own count, and the
+        // formatter named each file it turned down.
+        SpythonError::ProgramFailed | SpythonError::TestsFailed | SpythonError::FormatFailed => (),
     }
 }
 

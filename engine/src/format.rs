@@ -21,23 +21,27 @@ pub fn format_source(source: &str) -> Result<String, String> {
 /// Format the given paths, recursing into directories. With no path, format
 /// what stdin holds and write it to stdout. `check` writes nothing, and fails
 /// naming the files that are not formatted already.
+///
+/// A file the formatter turns down does not stop the others, and the run
+/// fails at the end all the same.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
     if paths.is_empty() {
         return run_stdin(check);
     }
     let mut unformatted = Vec::new();
+    let mut turned_down = false;
     for path in paths {
         for file in python_files(path) {
             let source = read_file(&file)?;
             let formatted = match format_source(&source) {
                 Ok(formatted) => formatted,
-                // One file the formatter turns down does not stop the others.
                 Err(message) => {
                     show_error(&SpythonError::Format {
                         path: file,
                         message,
                     });
+                    turned_down = true;
                     continue;
                 }
             };
@@ -52,11 +56,13 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
             }
         }
     }
-    if unformatted.is_empty() {
-        Ok(())
-    } else {
-        Err(SpythonError::NotFormatted { paths: unformatted })
+    if !unformatted.is_empty() {
+        return Err(SpythonError::NotFormatted { paths: unformatted });
     }
+    if turned_down {
+        return Err(SpythonError::FormatFailed);
+    }
+    Ok(())
 }
 
 /// Every `.py` file under `path`, sorted, as a directory hands its entries

@@ -2379,6 +2379,20 @@ fn format_check_passes_on_a_formatted_file() {
 }
 
 #[test]
+fn format_fails_on_a_file_it_cannot_parse() {
+    let dir = new_format_dir(&[("bad.py", "def f(:\n"), ("good.py", UNFORMATTED)]);
+    for args in [&["format", "."][..], &["format", "--check", "."][..]] {
+        let (_, err, success) = run_spython_native(args, &dir);
+        assert!(!success, "{args:?}: {err}");
+        assert!(err.contains("cannot format './bad.py'"), "{args:?}: {err}");
+    }
+    // The file the formatter reads is still formatted, as one file it turns
+    // down does not stop the others.
+    assert_eq!(file_in(&dir, "good.py"), FORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn format_reads_stdin_and_writes_stdout() {
     let (out, err, success) = run_format_stdin(&[], UNFORMATTED);
     assert!(success, "stderr: {err}");
