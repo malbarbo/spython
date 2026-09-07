@@ -9,6 +9,7 @@ pub mod lints;
 pub mod panic;
 pub mod parser;
 pub mod repl;
+pub mod run;
 pub mod spython_lib;
 pub mod wasm_ffi;
 
@@ -18,16 +19,17 @@ pub use check::{
 };
 pub(crate) use check::{infer_expression_type, type_check_repl_input};
 pub use checker::Level;
-pub use error::{SpythonError, show_error};
+pub use error::{SpythonError, read_file, show_error};
 pub use repl::{
     REPL_ERROR, REPL_OK, REPL_QUIT, ReplOutcome, ReplSession, ReplState, repl_new, repl_run,
 };
+pub use run::{DOCTEST_RUNNER, new_interpreter, run_source};
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ruff_python_formatter::{DocstringCode, PyFormatOptions, QuoteStyle, format_module_source};
-use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
+use rustpython::vm;
 pub use ty_project::ProjectDatabase;
 
 /// Package version from Cargo.toml.
@@ -41,20 +43,6 @@ pub const GIT_HASH: &str = env!("GIT_HASH");
 /// Full version string: "0.1.0 (rustpython ..., 2026-04-01, abc1234)".
 pub const LONG_VERSION: &str = env!("LONG_VERSION");
 
-/// The doctest runner Python source. Shared between the CLI `check` command
-/// and the WASM REPL so the string is embedded only once per binary.
-pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");
-
-/// Create a RustPython interpreter with the standard library loaded.
-pub fn new_interpreter() -> vm::Interpreter {
-    let mut settings = vm::Settings::default();
-    settings.write_bytecode = false;
-    InterpreterBuilder::new()
-        .settings(settings)
-        .init_stdlib()
-        .interpreter()
-}
-
 /// Format Python source with ruff's formatter.
 /// Returns `Err(message)` if the source cannot be parsed.
 pub fn format_source(source: &str) -> Result<String, String> {
@@ -64,21 +52,6 @@ pub fn format_source(source: &str) -> Result<String, String> {
     format_module_source(source, options)
         .map(|f| f.into_code())
         .map_err(|e| e.to_string())
-}
-
-/// Execute Python source in a fresh interpreter. Returns `true` on success.
-pub fn execute_source(source: &str, filename: &str, parent_dir: &str) -> bool {
-    let interp = new_interpreter();
-    let source = source.to_owned();
-    let filename = filename.to_owned();
-    let parent_dir = parent_dir.to_owned();
-    let code = interp.run(move |vm| {
-        let scope = vm.new_scope_with_main()?;
-        register_ffi_module(vm);
-        vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
-        vm.run_string(scope, &source, &filename).map(drop)
-    });
-    code == 0
 }
 
 /// Set by the `__test_mark_atexit_ran` function that `register_ffi_module`

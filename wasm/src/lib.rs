@@ -1,7 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 #[cfg(feature = "wasm-backend")]
-use engine::execute_source;
+use engine::run_source;
 use engine::{ReplState, check_source, format_source, print_type_errors};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -118,7 +118,7 @@ pub unsafe extern "C" fn run_source(
         }
         Ok(warnings) => warnings.show(false),
     }
-    if execute_source(&source, &filename, "/") {
+    if run_source(&source, &filename, "/").is_ok() {
         0
     } else {
         1

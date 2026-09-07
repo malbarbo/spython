@@ -1,5 +1,5 @@
 use std::io::IsTerminal as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{TypeErrors, print_type_errors};
 
@@ -74,4 +74,12 @@ pub fn show_error(err: &SpythonError) {
         // traceback, and the doctest runner printed its own count.
         SpythonError::ProgramFailed | SpythonError::TestsFailed => (),
     }
+}
+
+/// Read a file, naming it in whatever the filesystem says about the read.
+pub fn read_file(path: &Path) -> Result<String, SpythonError> {
+    std::fs::read_to_string(path).map_err(|err| SpythonError::FileRead {
+        path: path.to_path_buf(),
+        err,
+    })
 }

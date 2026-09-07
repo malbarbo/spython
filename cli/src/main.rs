@@ -7,7 +7,7 @@ mod repl;
 
 use engine::{
     BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, SpythonError, VERSION, check,
-    execute_source, format_source, new_interpreter, show_error,
+    format_source, new_interpreter, read_file, run, show_error,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -201,11 +201,11 @@ fn main() -> ExitCode {
             start_repl(file.as_deref(), l)
         }
         Command::Run { file, level } => match parse_level(level) {
-            Some(l) => run_checked(&file, l),
+            Some(l) => run::run_main(&file, l),
             None => return ExitCode::FAILURE,
         },
         Command::Check { file, level } => match parse_level(level) {
-            Some(l) => check::check_file(&file, l).map(drop),
+            Some(l) => run::run_check(&file, l),
             None => return ExitCode::FAILURE,
         },
         Command::Format { paths } => run_format(&paths),
@@ -214,7 +214,7 @@ fn main() -> ExitCode {
             verbose,
             level,
         } => match parse_level(level) {
-            Some(l) => run_test(&files, verbose, l),
+            Some(l) => run::run_test(&files, l, verbose),
             None => return ExitCode::FAILURE,
         },
     };
@@ -279,25 +279,6 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), SpythonError> {
     }
 }
 
-/// Run a Python script with type checking enabled.
-fn run_checked(file: &Path, level: Level) -> Result<(), SpythonError> {
-    check::check_file(file, level)?;
-
-    let source = read_file(file)?;
-    let file_str = file.to_string_lossy().into_owned();
-    let parent_dir = file
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or(".")
-        .to_owned();
-
-    if execute_source(&source, &file_str, &parent_dir) {
-        Ok(())
-    } else {
-        Err(SpythonError::ProgramFailed)
-    }
-}
-
 /// Format Python files in the given paths, recursing into directories.
 fn run_format(paths: &[PathBuf]) -> Result<(), SpythonError> {
     for path in paths {
@@ -328,71 +309,4 @@ fn run_format(paths: &[PathBuf]) -> Result<(), SpythonError> {
         }
     }
     Ok(())
-}
-
-/// A path as a Python string literal's body.
-fn escape(path: &str) -> String {
-    path.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Run doctests for the given files.
-fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), SpythonError> {
-    if files.is_empty() {
-        return Ok(());
-    }
-
-    // A file that is not there is an error, the way it is for `run`. Silently
-    // reporting no failures for a name the student mistyped is worse than
-    // saying the name is wrong.
-    for file in files {
-        check::check_file(file, level)?;
-    }
-
-    let py_verbose = if verbose { "True" } else { "False" };
-    let doctest_runner = engine::DOCTEST_RUNNER;
-    let mut script = format!(
-        "{doctest_runner}\n\
-         import types, sys\n\
-         def _run(path, root):\n\
-         \x20   sys.path.insert(0, root)\n\
-         \x20   mod = types.ModuleType('__doctest__')\n\
-         \x20   mod.__file__ = path\n\
-         \x20   with open(path) as f:\n\
-         \x20       exec(compile(f.read(), path, 'exec'), vars(mod))\n\
-         \x20   return run_doctests(mod, verbose={py_verbose})\n\
-         total = 0\n",
-    );
-    let print_names = files.len() > 1;
-    for file in files {
-        let path = file.to_string_lossy();
-        let escaped = escape(&path);
-        // The doctests import the way the file they came from does, so they
-        // run with its own directory on the path -- the same directory the
-        // static check resolved them against.
-        let root = escape(&file.parent().unwrap_or(Path::new(".")).to_string_lossy());
-        let root = if root.is_empty() {
-            ".".to_owned()
-        } else {
-            root
-        };
-        if print_names {
-            script.push_str(&format!("print(\"{escaped}\", flush=True)\n"));
-        }
-        script.push_str(&format!("total += _run(\"{escaped}\", \"{root}\")\n"));
-    }
-    script.push_str("sys.exit(total)\n");
-
-    if execute_source(&script, "<test>", ".") {
-        Ok(())
-    } else {
-        Err(SpythonError::TestsFailed)
-    }
-}
-
-/// Read a file, naming it in whatever the filesystem says about the read.
-fn read_file(path: &Path) -> Result<String, SpythonError> {
-    std::fs::read_to_string(path).map_err(|err| SpythonError::FileRead {
-        path: path.to_path_buf(),
-        err,
-    })
 }
