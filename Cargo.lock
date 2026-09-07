@@ -809,6 +809,7 @@ dependencies = [
  "ty_module_resolver",
  "ty_project",
  "ty_python_semantic",
+ "walkdir",
 ]
 
 [[package]]
@@ -3463,7 +3464,6 @@ dependencies = [
  "insta",
  "regex",
  "rustyline",
- "walkdir",
 ]
 
 [[package]]

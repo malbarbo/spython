@@ -37,6 +37,9 @@ pub enum SpythonError {
     /// A file the formatter turned down, with what it said about it.
     Format { path: PathBuf, message: String },
 
+    /// The files `format --check` found unformatted.
+    NotFormatted { paths: Vec<PathBuf> },
+
     /// A failure from outside the language, such as starting the repl reader.
     /// Shown as it came, as it already names its own subject.
     Other(Box<dyn std::error::Error>),
@@ -63,6 +66,11 @@ pub fn show_error(err: &SpythonError) {
         SpythonError::Database(message) => eprintln!("spython: {message}"),
         SpythonError::Format { path, message } => {
             eprintln!("spython: cannot format '{}': {message}", path.display());
+        }
+        SpythonError::NotFormatted { paths } => {
+            for path in paths {
+                eprintln!("spython: '{}' is not formatted", path.display());
+            }
         }
         SpythonError::TypeErrors(errors) => print_type_errors(
             &errors.db,

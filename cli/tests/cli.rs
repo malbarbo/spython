@@ -1,7 +1,7 @@
 use assert_cmd::cargo;
 use indoc::{formatdoc, indoc};
 use insta::assert_snapshot;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Normalize Windows output: strip \r and convert backslashes to forward slashes.
@@ -2282,6 +2282,116 @@ fn level5_allows_strenum_without_annotations() {
     "},
     );
     assert!(success);
+}
+
+// --- Format tests ---
+
+/// The spacing `format` fixes, and what it turns into.
+const UNFORMATTED: &str = "def f( x ):\n  return   x+1\n";
+const FORMATTED: &str = "def f(x):\n    return x + 1\n";
+
+/// A directory of its own, holding `files`, for a test that formats what it
+/// finds there. The pid keeps two concurrent runs apart, and the removal keeps
+/// a directory a panicking test left behind from seeding this one.
+fn new_format_dir(files: &[(&str, &str)]) -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("_spython_format_{}_{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (name, source) in files {
+        let path = dir.join(name);
+        let parent = path.parent().expect("the file is under the directory");
+        std::fs::create_dir_all(parent).expect("create the test directory");
+        std::fs::write(&path, source).expect("write the test file");
+    }
+    dir
+}
+
+fn file_in(dir: &Path, name: &str) -> String {
+    std::fs::read_to_string(dir.join(name)).expect("read the formatted file")
+}
+
+/// Run `spython format <args>` over stdin, which is where it reads from when
+/// no path names a file.
+fn run_format_stdin(args: &[&str], input: &str) -> (String, String, bool) {
+    let output = Command::new(cargo::cargo_bin!("spython"))
+        .arg("format")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .expect("the child stdin is a pipe")
+                .write_all(input.as_bytes())?;
+            child.wait_with_output()
+        })
+        .expect("failed to run spython format");
+    (
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
+        output.status.success(),
+    )
+}
+
+#[test]
+fn format_writes_the_file() {
+    let dir = new_format_dir(&[("a.py", UNFORMATTED)]);
+    let (out, err, success) = run_spython_native(&["format", "a.py"], &dir);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(file_in(&dir, "a.py"), FORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn format_recurses_into_directories() {
+    let dir = new_format_dir(&[("sub/a.py", UNFORMATTED), ("sub/b.txt", UNFORMATTED)]);
+    let (out, err, success) = run_spython_native(&["format", "."], &dir);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(file_in(&dir, "sub/a.py"), FORMATTED);
+    // Only Python is formatted; a name the formatter has no business with is
+    // left as it is.
+    assert_eq!(file_in(&dir, "sub/b.txt"), UNFORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn format_check_names_the_file_and_leaves_it_alone() {
+    let dir = new_format_dir(&[("a.py", UNFORMATTED)]);
+    let (_, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
+    assert!(!success, "stderr: {err}");
+    assert!(err.contains("'a.py' is not formatted"), "stderr: {err}");
+    assert_eq!(file_in(&dir, "a.py"), UNFORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn format_check_passes_on_a_formatted_file() {
+    let dir = new_format_dir(&[("a.py", FORMATTED)]);
+    let (out, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn format_reads_stdin_and_writes_stdout() {
+    let (out, err, success) = run_format_stdin(&[], UNFORMATTED);
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, FORMATTED);
+}
+
+#[test]
+fn format_check_turns_down_what_stdin_holds() {
+    let (out, err, success) = run_format_stdin(&["--check"], UNFORMATTED);
+    assert!(!success, "stderr: {err}");
+    // What it read is not written back, whether it is formatted or not.
+    assert_eq!(out, "");
+    assert!(err.contains("'<stdin>' is not formatted"), "stderr: {err}");
 }
 
 // --- REPL tests ---

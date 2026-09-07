@@ -8,15 +8,12 @@ mod repl_reader;
 use repl_reader::{ReplReader, Theme};
 
 use engine::shell::welcome_message;
-use engine::{
-    Level, Repl, Shell, SpythonError, Status, check, format_source, read_file, run, show_error,
-};
+use engine::{Level, Repl, Shell, SpythonError, Status, check, format, read_file, run, show_error};
 use std::cell::{Cell, RefCell};
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
-use walkdir::WalkDir;
 
 /// Teaching level (0-5)
 fn level_arg() -> impl bpaf::Parser<u8> {
@@ -67,9 +64,12 @@ enum Command {
         #[bpaf(positional("FILE"), many)]
         files: Vec<PathBuf>,
     },
-    /// Format Python files
+    /// Format Python files (reads stdin if no path is given)
     #[bpaf(command)]
     Format {
+        /// Check if the files are formatted without changing them
+        #[bpaf(long)]
+        check: bool,
         /// Files or directories to format (directories are searched recursively)
         #[bpaf(positional("PATH"), many)]
         paths: Vec<PathBuf>,
@@ -155,7 +155,7 @@ fn main() -> ExitCode {
             Some(l) => run::run_check(&file, l),
             None => return ExitCode::FAILURE,
         },
-        Command::Format { paths } => run_format(&paths),
+        Command::Format { check, paths } => format::run(check, &paths),
         Command::Test {
             files,
             verbose,
@@ -277,36 +277,4 @@ fn theme_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result
         config::save(repl.level(), chosen);
         Ok(())
     }
-}
-
-/// Format Python files in the given paths, recursing into directories.
-fn run_format(paths: &[PathBuf]) -> Result<(), SpythonError> {
-    for path in paths {
-        for entry in WalkDir::new(path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "py"))
-        {
-            let file_path = entry.path();
-            let source = read_file(file_path)?;
-            let formatted = match format_source(&source) {
-                Ok(formatted) => formatted,
-                // One file the formatter turns down does not stop the others.
-                Err(e) => {
-                    show_error(&SpythonError::Format {
-                        path: file_path.to_path_buf(),
-                        message: e.to_string(),
-                    });
-                    continue;
-                }
-            };
-            if formatted != source {
-                std::fs::write(file_path, formatted).map_err(|err| SpythonError::FileWrite {
-                    path: file_path.to_path_buf(),
-                    err,
-                })?;
-            }
-        }
-    }
-    Ok(())
 }
