@@ -1,31 +1,36 @@
-//! WASM FFI for spython — env imports for SVG display and keyboard input.
+//! What a program asks of the world around it. The page answers through its
+//! `env` imports, and a native run through a stand-in.
 //!
-//! These functions are declared as WASM env imports and called from Python
-//! via the `_spython_ffi` built-in module.
+//! Each function below carries the name of the import it wraps, and Python
+//! reaches them through the `_spython_ffi` built-in module.
 
+/// The `env` imports, under the names the page exports them by.
 #[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "env")]
-unsafe extern "C" {
-    fn draw_svg(ptr: *const u8, len: usize);
-    fn get_key_event(key_ptr: *mut u8, key_len: usize, mods_ptr: *mut u8) -> i32;
-    /// Writes the width, the height, the horizontal offset and the vertical
-    /// offset into `out`, which holds four f64. The font is the whole css
-    /// shorthand, size and all, and the page hands it to the canvas as it
-    /// comes.
-    fn text_metrics(
-        text: *const u8,
-        text_len: usize,
-        font: *const u8,
-        font_len: usize,
-        out: *mut f64,
-    );
+mod imports {
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        pub fn draw_svg(ptr: *const u8, len: usize);
+        pub fn get_key_event(key_ptr: *mut u8, key_len: usize, mods_ptr: *mut u8) -> i32;
+        /// Writes the width, the height, the horizontal offset and the vertical
+        /// offset into `out`, which holds four f64. The font is the whole css
+        /// shorthand, size and all, and the page hands it to the canvas as it
+        /// comes.
+        pub fn text_metrics(
+            text: *const u8,
+            text_len: usize,
+            font: *const u8,
+            font_len: usize,
+            out: *mut f64,
+        );
+    }
 }
 
-/// Show an SVG image. On WASM, calls the env import; on native, prints to stdout.
-pub fn show_svg(svg: &str) {
+/// Put a drawing where whoever is watching will see it: on the page under
+/// WASM, and on stdout natively.
+pub fn draw_svg(svg: &str) {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        draw_svg(svg.as_ptr(), svg.len());
+        imports::draw_svg(svg.as_ptr(), svg.len());
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -37,12 +42,12 @@ pub fn show_svg(svg: &str) {
 /// the middle of that box to the origin of an svg `<text>` element, which sits
 /// at the start of the baseline. The browser measures, and natively a guess
 /// stands in.
-pub fn measure_text(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
+pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
     #[cfg(target_arch = "wasm32")]
     {
         let mut out = [0.0f64; 4];
         unsafe {
-            text_metrics(
+            imports::text_metrics(
                 text.as_ptr(),
                 text.len(),
                 font_css.as_ptr(),
@@ -77,15 +82,17 @@ fn font_size(font_css: &str) -> f64 {
     14.0
 }
 
-/// Poll for a keyboard event. Returns None if no event is pending.
-/// On native, always returns None.
-pub fn poll_key_event() -> Option<(i32, String, [bool; 5])> {
+/// The kind of the event waiting on the page, the name of the key and the
+/// modifiers that are on, or nothing when no event waits. Only the browser
+/// reads keys, so a native run never has one.
+pub fn get_key_event() -> Option<(i32, String, [bool; 5])> {
     #[cfg(target_arch = "wasm32")]
     {
         let mut key_buf = [0u8; 48];
         let mut mods = [0u8; 5];
-        let event_type =
-            unsafe { get_key_event(key_buf.as_mut_ptr(), key_buf.len(), mods.as_mut_ptr()) };
+        let event_type = unsafe {
+            imports::get_key_event(key_buf.as_mut_ptr(), key_buf.len(), mods.as_mut_ptr())
+        };
         if event_type >= 3 {
             return None;
         }

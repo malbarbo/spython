@@ -8,13 +8,13 @@ pub mod doctests;
 pub mod error;
 pub mod ffi;
 pub mod format;
+pub mod host;
 pub mod lints;
 pub mod panic;
 pub mod parser;
 pub mod repl;
 pub mod run;
 pub mod spython_lib;
-pub mod wasm_ffi;
 
 pub use check::{
     TypeErrors, Warnings, annotation_check, check_file_doctests, check_source,

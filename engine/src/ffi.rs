@@ -5,7 +5,7 @@ use rustpython::vm;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::wasm_ffi;
+use crate::host;
 
 /// Set by the `__test_mark_atexit_ran` function that `register_ffi_module`
 /// adds under test, so [`crate::repl`] can see that dropping a session ran
@@ -20,14 +20,14 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     let show_svg_fn = vm.new_function(
         "show_svg",
         |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
-            wasm_ffi::show_svg(&svg);
+            host::draw_svg(&svg);
             Ok(vm.ctx.none())
         },
     );
 
     let get_key_event_fn =
         vm.new_function("get_key_event", |vm: &vm::VirtualMachine| -> PyObjectRef {
-            match wasm_ffi::poll_key_event() {
+            match host::get_key_event() {
                 None => vm.ctx.none(),
                 Some((event_type, key, mods)) => {
                     let elements = vec![
@@ -47,7 +47,7 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     let text_metrics_fn = vm.new_function(
         "text_metrics",
         |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
-            let (width, height, x_offset, y_offset) = wasm_ffi::measure_text(&text, &font_css);
+            let (width, height, x_offset, y_offset) = host::text_metrics(&text, &font_css);
             let elements = vec![
                 vm.ctx.new_float(width).into(),
                 vm.ctx.new_float(height).into(),
