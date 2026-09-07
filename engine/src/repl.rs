@@ -36,7 +36,7 @@ pub struct Repl {
     /// on an in-memory filesystem, so an input that names one of them only
     /// resolves if it is here. Empty on the page, which has a single file.
     modules: Vec<(String, String)>,
-    /// The status `exit()` or `quit()` asked the process to leave with.
+    /// The status of the `exit()` that ended the session, if one has run.
     exit_status: Option<u32>,
 }
 
@@ -146,7 +146,7 @@ impl Repl {
         true
     }
 
-    /// The status `exit()` or `quit()` asked for, once one of them has run.
+    /// The status of the `exit()` that ended the session, if one has run.
     pub fn exit_status(&self) -> Option<u32> {
         self.exit_status
     }
