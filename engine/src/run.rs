@@ -17,8 +17,15 @@ pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");
 
 /// Create a RustPython interpreter with the standard library loaded.
 pub fn new_interpreter() -> vm::Interpreter {
+    new_interpreter_with_argv(Vec::new())
+}
+
+/// The [`new_interpreter`] the `test` command needs, which hands the runner
+/// the files to test in `sys.argv`.
+fn new_interpreter_with_argv(argv: Vec<String>) -> vm::Interpreter {
     let mut settings = vm::Settings::default();
     settings.write_bytecode = false;
+    settings.argv = argv;
     InterpreterBuilder::new()
         .settings(settings)
         .init_stdlib()
@@ -27,7 +34,17 @@ pub fn new_interpreter() -> vm::Interpreter {
 
 /// Run Python source in a fresh interpreter, with `dir` on `sys.path`.
 pub fn run_source(source: &str, filename: &str, dir: &str) -> Result<(), SpythonError> {
-    let interp = new_interpreter();
+    run_source_with_argv(source, filename, dir, Vec::new())
+}
+
+/// The [`run_source`] that also says what `sys.argv` holds.
+fn run_source_with_argv(
+    source: &str,
+    filename: &str,
+    dir: &str,
+    argv: Vec<String>,
+) -> Result<(), SpythonError> {
+    let interp = new_interpreter_with_argv(argv);
     let source = source.to_owned();
     let filename = filename.to_owned();
     let dir = dir.to_owned();
@@ -90,12 +107,6 @@ pub fn run_main(file: &Path, level: Level) -> Result<(), SpythonError> {
     run_source(&script.source, &script.name, &script.dir)
 }
 
-/// A path as a Python string literal's body.
-#[cfg(not(target_arch = "wasm32"))]
-fn escape(path: &str) -> String {
-    path.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
 /// Run doctests for the given files.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), SpythonError> {
@@ -110,36 +121,25 @@ pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Sp
         check::check_file(file, level)?;
     }
 
-    let py_verbose = if verbose { "True" } else { "False" };
-    let mut script = format!(
-        "{DOCTEST_RUNNER}\n\
-         import types, sys\n\
-         def _run(path, root):\n\
-         \x20   sys.path.insert(0, root)\n\
-         \x20   mod = types.ModuleType('__doctest__')\n\
-         \x20   mod.__file__ = path\n\
-         \x20   with open(path) as f:\n\
-         \x20       exec(compile(f.read(), path, 'exec'), vars(mod))\n\
-         \x20   return run_doctests(mod, verbose={py_verbose})\n\
-         total = 0\n",
-    );
-    let print_names = files.len() > 1;
-    for file in files {
-        let path = file.to_string_lossy();
-        let escaped = escape(&path);
-        // The doctests import the way the file they came from does, so they
-        // run with its own directory on the path -- the same directory the
-        // static check resolved them against.
-        let root = escape(&parent_dir(file));
-        if print_names {
-            script.push_str(&format!("print(\"{escaped}\", flush=True)\n"));
-        }
-        script.push_str(&format!("total += _run(\"{escaped}\", \"{root}\")\n"));
+    let mut argv = vec![TEST_NAME.to_owned()];
+    if verbose {
+        argv.push("--verbose".to_owned());
     }
-    script.push_str("sys.exit(total)\n");
+    argv.extend(files.iter().map(|file| file.to_string_lossy().into_owned()));
 
-    if run_source(&script, "<test>", ".").is_err() {
+    let script = format!("{DOCTEST_RUNNER}\n{TEST_MAIN}");
+    if run_source_with_argv(&script, TEST_NAME, ".", argv).is_err() {
         return Err(SpythonError::TestsFailed);
     }
     Ok(())
 }
+
+/// What drives the runner: the files come in through `sys.argv`, so a path
+/// with a quote or a backslash in it needs no escaping here.
+#[cfg(not(target_arch = "wasm32"))]
+const TEST_MAIN: &str = "import sys\nsys.exit(_main(sys.argv[1:]))\n";
+
+/// The name the test run reports itself under, as `sys.argv[0]` and as the
+/// file a traceback in the driver points at.
+#[cfg(not(target_arch = "wasm32"))]
+const TEST_NAME: &str = "<test>";

@@ -4,9 +4,9 @@ The stdlib module requires ``inspect`` -> ``dis`` -> ``io`` -> ``_io.FileIO``,
 which is not available in the RustPython WASM build.  This runner only depends
 on ``sys`` and builtins so it works on every target.
 
-The public entry point is ``run_doctests(module)`` which returns the number of
-failed examples.  When this file is executed as a script (via ``include_str!``
-in ``repl_new``), it tests ``__main__`` automatically.
+The public entry point is ``run_doctests(module)``, which returns the number of
+failed examples.  The ``test`` command drives ``_main(sys.argv[1:])`` instead,
+which runs the files it names; the REPL calls ``run_doctests`` on ``__main__``.
 """
 
 import sys as _sys
@@ -167,3 +167,45 @@ def run_doctests(module, verbose=False):
         + ".\n"
     )
     return _failed + _errors
+
+
+def _directory_of(path):
+    """The directory *path* sits in, which is where its imports resolve from.
+
+    ``os.path`` would say this, but the wasm build has not got ``os``.
+    """
+    cut = max(path.rfind("/"), path.rfind("\\"))
+    if cut < 0:
+        return "."
+    return path[:cut] or "/"
+
+
+def _main(argv):
+    """Run the doctests of the files named in *argv*, one module each.
+
+    A leading ``--verbose`` reports the examples that pass as well.  Every file
+    runs with its own directory ahead of the path, so its imports resolve the
+    way they do when it runs on its own, and with more than one file each name
+    is printed before its tests.  The return value is the exit status: the
+    number of examples that did not pass.
+
+    ``types`` is imported here and not at the top of the file because the wasm
+    build has not got it, and only the ``test`` command, which is native, gets
+    this far.
+    """
+    import types
+
+    verbose = bool(argv) and argv[0] == "--verbose"
+    if verbose:
+        argv = argv[1:]
+    total = 0
+    for path in argv:
+        if len(argv) > 1:
+            print(path, flush=True)
+        _sys.path.insert(0, _directory_of(path))
+        module = types.ModuleType("__doctest__")
+        module.__file__ = path
+        with open(path) as f:
+            exec(compile(f.read(), path, "exec"), vars(module))
+        total += run_doctests(module, verbose=verbose)
+    return total
