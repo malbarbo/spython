@@ -7,7 +7,8 @@
 //! from inside rustyline.
 
 use crate::Level;
-use crate::{infer_expression_type, new_interpreter, register_ffi_module, type_check_repl_input};
+use crate::ffi::register_ffi_module;
+use crate::{infer_expression_type, new_interpreter, type_check_repl_input};
 use rustpython::vm;
 use rustpython::vm::AsObject;
 use std::convert::Infallible;
@@ -405,7 +406,7 @@ pub fn repl_new(source: &str, level: Level) -> Box<ReplState> {
             .expect("creating the main scope should not fail");
         register_ffi_module(vm);
         #[cfg(feature = "capture")]
-        crate::install_capture_writers(vm);
+        crate::ffi::install_capture_writers(vm);
         #[cfg(target_arch = "wasm32")]
         if let Err(exc) = vm.run_string(
             scope.clone(),
@@ -486,7 +487,7 @@ pub fn repl_run(state: &mut ReplState, code: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::REPL_ATEXIT_RAN;
+    use crate::ffi::REPL_ATEXIT_RAN;
 
     #[test]
     fn repl_drop_runs_atexit_handlers() {

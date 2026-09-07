@@ -1,13 +1,12 @@
-#[cfg(feature = "capture")]
+//! Where a captured run's output goes.
+
 use std::cell::RefCell;
 
-#[cfg(feature = "capture")]
 thread_local! {
     static STDOUT_BUF: RefCell<String> = RefCell::new(String::new());
     static STDERR_BUF: RefCell<String> = RefCell::new(String::new());
 }
 
-#[cfg(feature = "capture")]
 pub fn capture_output<F: FnOnce()>(f: F) -> (String, String) {
     STDOUT_BUF.with(|b| b.borrow_mut().clear());
     STDERR_BUF.with(|b| b.borrow_mut().clear());
@@ -17,26 +16,22 @@ pub fn capture_output<F: FnOnce()>(f: F) -> (String, String) {
     (out, err)
 }
 
-#[cfg(feature = "capture")]
 pub fn write_stdout(s: &str) {
     STDOUT_BUF.with(|b| b.borrow_mut().push_str(s));
 }
 
-#[cfg(feature = "capture")]
 pub fn write_stderr(s: &str) {
     STDERR_BUF.with(|b| b.borrow_mut().push_str(s));
 }
 
-// When the `capture` feature is enabled, shadow the standard print macros
-// so all output goes to thread-local buffers instead of process stdout/stderr.
+// The macros below shadow the standard print ones, so what a run prints goes
+// to the buffers above instead of the process's own stdout and stderr.
 
-#[cfg(feature = "capture")]
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => { $crate::output::write_stdout(&format!($($arg)*)) };
 }
 
-#[cfg(feature = "capture")]
 #[macro_export]
 macro_rules! println {
     () => { $crate::output::write_stdout("\n") };
@@ -46,13 +41,11 @@ macro_rules! println {
     }};
 }
 
-#[cfg(feature = "capture")]
 #[macro_export]
 macro_rules! eprint {
     ($($arg:tt)*) => { $crate::output::write_stderr(&format!($($arg)*)) };
 }
 
-#[cfg(feature = "capture")]
 #[macro_export]
 macro_rules! eprintln {
     () => { $crate::output::write_stderr("\n") };

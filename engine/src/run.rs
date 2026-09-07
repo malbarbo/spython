@@ -3,7 +3,8 @@
 
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 
-use crate::{SpythonError, register_ffi_module};
+use crate::SpythonError;
+use crate::ffi::register_ffi_module;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{Level, check, error::read_file};
