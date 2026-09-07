@@ -116,8 +116,7 @@ fn is_help_or_version(a: &str) -> bool {
 /// `-l`/`--level` is skipped so it is not mistaken for a positional.
 fn first_positional(args: &[String]) -> Option<(&str, bool)> {
     let mut i = 0;
-    while i < args.len() {
-        let a = &args[i];
+    while let Some(a) = args.get(i) {
         if a == "--" {
             return args.get(i + 1).map(|s| (s.as_str(), true));
         }
