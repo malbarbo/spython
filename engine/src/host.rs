@@ -96,11 +96,16 @@ pub fn get_key_event() -> Option<(i32, String, [bool; 5])> {
         if event_type >= 3 {
             return None;
         }
+        // The page writes the name and a nul after it, and a name as long as
+        // the buffer gets no nul, so the cut is at most the whole buffer.
         let key_len = key_buf
             .iter()
             .position(|&b| b == 0)
             .unwrap_or(key_buf.len());
-        let key = String::from_utf8_lossy(&key_buf[..key_len]).into_owned();
+        let name = key_buf
+            .get(..key_len)
+            .expect("a cut at the nul, or at the end of the buffer");
+        let key = String::from_utf8_lossy(name).into_owned();
         let mods_bool = [
             mods[0] != 0,
             mods[1] != 0,
