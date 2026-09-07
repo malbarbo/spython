@@ -1,0 +1,14 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `*args` is missing a type annotation
+ --> err_missing_args_annotation.py:1:7
+  |
+1 | def f(*args) -> None:
+  |       ^^^^^
+2 |     print(args)
+  |
+
+Found 1 error.

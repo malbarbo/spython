@@ -1,0 +1,23 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+error[missing-attribute-annotation]: Class attribute `x` is missing a type annotation
+ --> err_missing_class_attr.py:2:5
+  |
+1 | class Point:
+2 |     x = 0
+  |     ^
+3 |     y = 0
+  |
+
+error[missing-attribute-annotation]: Class attribute `y` is missing a type annotation
+ --> err_missing_class_attr.py:3:5
+  |
+1 | class Point:
+2 |     x = 0
+3 |     y = 0
+  |     ^
+
+Found 2 errors.

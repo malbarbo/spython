@@ -1,8 +1,0 @@
----
-source: cli/tests/cli.rs
-expression: "format!(\"{out}\")"
-input_file: cli/tests/images/rhombus2.py
----
-<svg width="155" height="42" xmlns="http://www.w3.org/2000/svg">
-  <path d="M 0 20.705524 L 77.274066 0 L 154.548132 20.705524 L 77.274066 41.411047 Z" fill="rgba(147, 112, 219, 1.0)" />
-</svg>

@@ -1,0 +1,42 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+error[local-unknown-type]: Local variable `result_missing` has Unknown type; add a type annotation
+  --> err_annotation_in_nested_import.py:26:5
+   |
+25 |     # Test missing_annotations (should trigger annotation errors)
+26 |     result_missing = missing_annotations(10, 20)
+   |     ^^^^^^^^^^^^^^
+27 |     print(f"missing_annotations(10, 20) = {result_missing}")
+   |
+
+error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
+  --> test_package/subpackage/nested/deep_module.py:21:25
+   |
+21 | def missing_annotations(x, y):
+   |                         ^
+22 |     """This function has missing parameter and return annotations."""
+23 |     return x + y
+   |
+
+error[missing-parameter-annotation]: Parameter `y` is missing a type annotation
+  --> test_package/subpackage/nested/deep_module.py:21:28
+   |
+21 | def missing_annotations(x, y):
+   |                            ^
+22 |     """This function has missing parameter and return annotations."""
+23 |     return x + y
+   |
+
+error[missing-return-annotation]: Function `missing_annotations` is missing a return type annotation
+  --> test_package/subpackage/nested/deep_module.py:21:5
+   |
+21 | def missing_annotations(x, y):
+   |     ^^^^^^^^^^^^^^^^^^^
+22 |     """This function has missing parameter and return annotations."""
+23 |     return x + y
+   |
+
+Found 4 errors.

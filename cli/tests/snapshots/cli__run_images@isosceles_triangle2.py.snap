@@ -1,8 +1,0 @@
----
-source: cli/tests/cli.rs
-expression: "format!(\"{out}\")"
-input_file: cli/tests/images/isosceles_triangle2.py
----
-<svg width="32" height="58" xmlns="http://www.w3.org/2000/svg">
-  <path d="M 31.058285 57.95555 L 15.529143 0 L 0 57.95555 Z" fill="rgba(127, 255, 212, 1.0)" />
-</svg>

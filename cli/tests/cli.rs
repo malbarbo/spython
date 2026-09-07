@@ -1,6 +1,6 @@
 use assert_cmd::cargo;
 use indoc::{formatdoc, indoc};
-use insta::{assert_snapshot, glob};
+use insta::assert_snapshot;
 use std::path::Path;
 use std::process::Command;
 
@@ -112,20 +112,6 @@ fn run_spython(path: &Path) -> (String, String) {
     (out, err)
 }
 
-/// Like `run_spython`, but skips the dual-run even when `wasm-backend` is
-/// enabled. Use for tests that depend on capabilities the WASM backend
-/// doesn't support (multi-file imports, stdlib `open`, `os`, PNG output, etc.).
-fn run_spython_native_only(path: &Path) -> (String, String) {
-    let dir = path.parent().expect("path has parent");
-    let filename = path
-        .file_name()
-        .expect("path has filename")
-        .to_str()
-        .expect("filename is utf8");
-    let (out, err, _) = run_spython_native(&["run", "--level", "4", filename], dir);
-    (out, err)
-}
-
 fn run_level_native_only(level: u8, code: &str) -> (String, String, bool) {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -138,16 +124,6 @@ fn run_level_native_only(level: u8, code: &str) -> (String, String, bool) {
     let result = run_spython_native(&["run", "--level", &level_str, &filename], &dir);
     let _ = std::fs::remove_file(&file);
     result
-}
-
-#[test]
-fn run_files() {
-    // Native-only: `inputs/*.py` includes multi-file import tests that the
-    // WASM backend cannot execute (single-buffer source).
-    glob!("inputs/*.py", |path| {
-        let (out, err) = run_spython_native_only(path);
-        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
-    });
 }
 
 #[test]
@@ -655,32 +631,6 @@ fn check_output_agrees_between_backends() {
     // through `repl_new`, which runs them, and native `check` says nothing.
     let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
     run_spython_cmd(&["check", "--level", "4", "no_tests.py"], doctests);
-}
-
-// --- Image tests ---
-
-fn run_image(path: &Path) -> (String, String) {
-    let dir = path.parent().expect("path has parent");
-    let filename = path.file_name().expect("path has filename");
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .current_dir(dir)
-        .args(["run", "--level", "5"])
-        .arg(filename)
-        .output()
-        .expect("failed to run spython");
-    (
-        normalize_output(&String::from_utf8_lossy(&output.stdout)),
-        normalize_output(&String::from_utf8_lossy(&output.stderr)),
-    )
-}
-
-#[test]
-#[ignore]
-fn run_images() {
-    glob!("images/*.py", |path| {
-        let (out, _err) = run_image(path);
-        assert_snapshot!(format!("{out}"));
-    });
 }
 
 // --- Level restriction tests ---

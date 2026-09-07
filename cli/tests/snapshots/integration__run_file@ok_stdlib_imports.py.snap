@@ -1,0 +1,9 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+Traceback (most recent call last):
+  File "ok_stdlib_imports.py", line 3, in <module>
+    import os
+ModuleNotFoundError: No module named 'os'

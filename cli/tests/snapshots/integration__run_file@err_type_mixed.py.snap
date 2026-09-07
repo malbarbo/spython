@@ -1,0 +1,14 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+error[invalid-return-type]: Return type does not match returned value
+ --> err_type_mixed.py:9:12
+  |
+8 | def with_type_error(x: int, y: int) -> int:
+  |                                        --- Expected `int` because of return type
+9 |     return "string"  # Type error: returning str instead of int
+  |            ^^^^^^^^ expected `int`, found `Literal["string"]`
+
+Found 1 error.

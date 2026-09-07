@@ -1,0 +1,9 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+Sum of [1, 2, 3, 4, 5] = 15
+Uppercase: ['HELLO', 'WORLD']
+Hello from package
+use_helper(5) = 20
+STDERR

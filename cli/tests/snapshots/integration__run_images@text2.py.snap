@@ -1,0 +1,6 @@
+---
+source: cli/tests/integration.rs
+---
+<svg width="108" height="20" xmlns="http://www.w3.org/2000/svg">
+  <text dominant-baseline="alphabetic" text-anchor="start" x="-54" y="6" font-family="sans-serif" font-size="20" font-style="normal" font-weight="bold" transform="translate(54,10) rotate(0 0 0) scale(1,1)" fill="rgba(255, 0, 0, 1.0)" >Bold text</text>
+</svg>

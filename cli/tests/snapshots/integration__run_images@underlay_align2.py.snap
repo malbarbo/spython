@@ -1,0 +1,15 @@
+---
+source: cli/tests/integration.rs
+---
+<svg width="50" height="50" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <g>
+      <g>
+        <path d="M 0 0 L 50 0 L 50 50 L 0 50 Z" fill="rgba(46, 139, 87, 1.0)" />
+        <path d="M 10 0 L 50 0 L 50 40 L 10 40 Z" fill="rgba(192, 192, 192, 1.0)" />
+      </g>
+      <path d="M 20 0 L 50 0 L 50 30 L 20 30 Z" fill="rgba(46, 139, 87, 1.0)" />
+    </g>
+    <path d="M 30 0 L 50 0 L 50 20 L 30 20 Z" fill="rgba(192, 192, 192, 1.0)" />
+  </g>
+</svg>
