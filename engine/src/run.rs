@@ -44,26 +44,50 @@ pub fn run_source(source: &str, filename: &str, dir: &str) -> Result<(), Spython
     }
 }
 
+/// A file a run starts from, and everything running it takes.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Script {
+    /// What the file holds.
+    pub source: String,
+    /// The name it runs under, which is the path as the user wrote it.
+    pub name: String,
+    /// The directory its imports resolve from.
+    pub dir: String,
+    /// The first-party files it imports, each a path relative to `dir` and
+    /// its text.
+    pub modules: Vec<(String, String)>,
+}
+
+/// Check `file` at `level` and read it.
+///
+/// Both a script and a session that starts from a file come through here, so
+/// the two agree on what the file is and where it looks for its imports.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn check_and_read(file: &Path, level: Level) -> Result<Script, SpythonError> {
+    let modules = check::check_file(file, level)?;
+    Ok(Script {
+        source: read_file(file)?,
+        name: file.to_string_lossy().into_owned(),
+        dir: parent_dir(file),
+        modules,
+    })
+}
+
+/// The directory a file's imports resolve from, which is the one it sits in,
+/// and the working directory for a bare name.
+#[cfg(not(target_arch = "wasm32"))]
+fn parent_dir(file: &Path) -> String {
+    match file.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.to_string_lossy().into_owned(),
+        _ => ".".to_owned(),
+    }
+}
+
 /// Type-check a Python script and run it.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_main(file: &Path, level: Level) -> Result<(), SpythonError> {
-    check::check_file(file, level)?;
-
-    let source = read_file(file)?;
-    let file_str = file.to_string_lossy().into_owned();
-    let parent_dir = file
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or(".")
-        .to_owned();
-
-    run_source(&source, &file_str, &parent_dir)
-}
-
-/// Type-check a Python file and stop there.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run_check(file: &Path, level: Level) -> Result<(), SpythonError> {
-    check::check_file(file, level).map(drop)
+    let script = check_and_read(file, level)?;
+    run_source(&script.source, &script.name, &script.dir)
 }
 
 /// A path as a Python string literal's body.
@@ -107,12 +131,7 @@ pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Sp
         // The doctests import the way the file they came from does, so they
         // run with its own directory on the path -- the same directory the
         // static check resolved them against.
-        let root = escape(&file.parent().unwrap_or(Path::new(".")).to_string_lossy());
-        let root = if root.is_empty() {
-            ".".to_owned()
-        } else {
-            root
-        };
+        let root = escape(&parent_dir(file));
         if print_names {
             script.push_str(&format!("print(\"{escaped}\", flush=True)\n"));
         }

@@ -8,7 +8,7 @@ mod repl_reader;
 use repl_reader::{ReplReader, Theme};
 
 use engine::shell::welcome_message;
-use engine::{Level, Repl, Shell, SpythonError, Status, check, format, read_file, run, show_error};
+use engine::{Level, Repl, Shell, SpythonError, Status, check, format, run, show_error};
 use std::cell::{Cell, RefCell};
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
@@ -152,7 +152,7 @@ fn main() -> ExitCode {
             None => return ExitCode::FAILURE,
         },
         Command::Check { file, level } => match parse_level(level) {
-            Some(l) => run::run_check(&file, l),
+            Some(l) => check::check_file(&file, l).map(drop),
             None => return ExitCode::FAILURE,
         },
         Command::Format { check, paths } => format::run(check, &paths),
@@ -183,17 +183,7 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
     // The file is read and checked before the session opens, so that a file
     // the checker turns down leaves no banner behind.
     let preload = match file {
-        Some(path) => {
-            let modules = check::check_file(path, level)?;
-            let source = read_file(path)?;
-            let name = path.to_string_lossy().into_owned();
-            let dir = path
-                .parent()
-                .and_then(Path::to_str)
-                .unwrap_or(".")
-                .to_owned();
-            Some((source, name, dir, modules))
-        }
+        Some(path) => Some(run::check_and_read(path, level)?),
         None => None,
     };
 
@@ -202,8 +192,15 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
     // A terminal is what wants the colour; a redirected stderr keeps the
     // codes out of the file it is being read into.
     let mut repl = Repl::new(level, std::io::stderr().is_terminal());
-    if let Some((source, name, dir, modules)) = preload
-        && repl.load(&source, &name, Some(&dir), modules).is_err()
+    if let Some(script) = preload
+        && repl
+            .load(
+                &script.source,
+                &script.name,
+                Some(&script.dir),
+                script.modules,
+            )
+            .is_err()
     {
         return Err(SpythonError::ProgramFailed);
     }
