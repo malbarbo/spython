@@ -2,7 +2,6 @@
 compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm instead");
 
 use bpaf::{Bpaf, Parser};
-use ruff_db::diagnostic::Diagnostic;
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::SystemPathBuf;
 mod config;
@@ -12,9 +11,9 @@ mod repl;
 use overlay_system::OverlaySystem;
 
 use engine::{
-    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, VERSION, annotation_check,
-    collect_import_files, execute_source, format_source, make_project_metadata, new_interpreter,
-    print_type_errors, spython_lib,
+    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, SpythonError, TypeErrors, VERSION,
+    annotation_check, collect_import_files, execute_source, format_source, make_project_metadata,
+    new_interpreter, print_type_errors, show_error, spython_lib,
 };
 use std::collections::HashSet;
 use std::io::IsTerminal;
@@ -22,22 +21,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use ty_project::{Db, ProjectDatabase};
 use walkdir::WalkDir;
-
-/// Errors that can occur during file checking and execution.
-enum Error {
-    /// Failed to resolve file paths
-    FileResolution(String),
-    /// Failed to build the ty database
-    DatabaseBuild(String),
-    /// Failed to read a file
-    FileRead(std::io::Error),
-    /// Failed to write a file
-    FileWrite(std::io::Error),
-    /// Script execution failed
-    ScriptExecution,
-    /// Type checking errors found
-    TypeChecking(Box<ProjectDatabase>, Vec<Diagnostic>),
-}
 
 /// Teaching level (0-5)
 fn level_arg() -> impl bpaf::Parser<u8> {
@@ -248,29 +231,8 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            display_error(e);
+            show_error(&e);
             ExitCode::FAILURE
-        }
-    }
-}
-
-/// Display an error to the user.
-fn display_error(error: Error) {
-    match error {
-        Error::FileResolution(msg) | Error::DatabaseBuild(msg) => {
-            eprintln!("spython: {msg}");
-        }
-        Error::FileRead(e) => {
-            eprintln!("spython: cannot read file: {e}");
-        }
-        Error::FileWrite(e) => {
-            eprintln!("spython: cannot write file: {e}");
-        }
-        Error::ScriptExecution => {
-            // Error already displayed by RustPython
-        }
-        Error::TypeChecking(db, diagnostics) => {
-            print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
         }
     }
 }
@@ -279,15 +241,15 @@ fn display_error(error: Error) {
 ///
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
-fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
+fn start_repl(file: Option<&Path>, level: Level) -> Result<(), SpythonError> {
     let modules = match file {
         Some(path) => type_check_file(path, level)?,
         None => Vec::new(),
     };
 
     let preload = file
-        .map(|path| -> Result<_, Error> {
-            let source = std::fs::read_to_string(path).map_err(Error::FileRead)?;
+        .map(|path| -> Result<_, SpythonError> {
+            let source = read_file(path)?;
             let file_str = path.to_string_lossy().into_owned();
             let parent_dir = path
                 .parent()
@@ -322,7 +284,7 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
     if code == 0 {
         Ok(())
     } else {
-        Err(Error::ScriptExecution)
+        Err(SpythonError::ProgramFailed)
     }
 }
 
@@ -331,23 +293,19 @@ fn start_repl(file: Option<&Path>, level: Level) -> Result<(), Error> {
 ///
 /// Returns the first-party files it imports, each a path relative to its own
 /// directory and its text, for a REPL that has to keep checking against them.
-fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Error> {
-    let abs_file = dunce::canonicalize(file).map_err(|e| {
-        Error::FileResolution(format!(
-            "cannot resolve '{}' to an absolute path: {e}",
-            file.display()
-        ))
+fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, SpythonError> {
+    let abs_file = dunce::canonicalize(file).map_err(|err| SpythonError::FileRead {
+        path: file.to_path_buf(),
+        err,
     })?;
     if !abs_file.is_file() {
-        return Err(Error::FileResolution(format!(
-            "'{}' is not a file",
-            file.display()
-        )));
+        return Err(SpythonError::PathIsNotAFile {
+            path: file.to_path_buf(),
+        });
     }
 
-    let abs_sys = SystemPathBuf::from_path_buf(abs_file).map_err(|p| {
-        Error::FileResolution(format!("'{}' contains non-Unicode characters", p.display()))
-    })?;
+    let abs_sys = SystemPathBuf::from_path_buf(abs_file)
+        .map_err(|path| SpythonError::NonUtf8Path { path })?;
     // The file's own directory, not the process's: `import helpers` looks
     // beside the file that wrote it, which is also where the interpreter
     // looks when it runs (`sys.path[0]`). Rooting the check anywhere else
@@ -356,7 +314,7 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
     let root = abs_sys.parent().unwrap_or(&abs_sys).to_path_buf();
     let mut db = build_db(root.as_std_path())?;
     let main_file =
-        system_path_to_file(&db, &abs_sys).map_err(|e| Error::FileResolution(e.to_string()))?;
+        system_path_to_file(&db, &abs_sys).map_err(|e| SpythonError::Database(e.to_string()))?;
 
     let mut files = HashSet::new();
     files.insert(main_file);
@@ -393,7 +351,10 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
         .iter()
         .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error)
     {
-        return Err(Error::TypeChecking(Box::new(db), diagnostics));
+        return Err(SpythonError::TypeErrors(Box::new(TypeErrors {
+            db,
+            diagnostics,
+        })));
     }
     if !diagnostics.is_empty() {
         print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
@@ -403,10 +364,10 @@ fn type_check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, E
 }
 
 /// Run a Python script with type checking enabled.
-fn run_checked(file: &Path, level: Level) -> Result<(), Error> {
+fn run_checked(file: &Path, level: Level) -> Result<(), SpythonError> {
     type_check_file(file, level)?;
 
-    let source = std::fs::read_to_string(file).map_err(Error::FileRead)?;
+    let source = read_file(file)?;
     let file_str = file.to_string_lossy().into_owned();
     let parent_dir = file
         .parent()
@@ -417,12 +378,12 @@ fn run_checked(file: &Path, level: Level) -> Result<(), Error> {
     if execute_source(&source, &file_str, &parent_dir) {
         Ok(())
     } else {
-        Err(Error::ScriptExecution)
+        Err(SpythonError::ProgramFailed)
     }
 }
 
 /// Format Python files in the given paths, recursing into directories.
-fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
+fn run_format(paths: &[PathBuf]) -> Result<(), SpythonError> {
     for path in paths {
         for entry in WalkDir::new(path)
             .into_iter()
@@ -430,16 +391,23 @@ fn run_format(paths: &[PathBuf]) -> Result<(), Error> {
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "py"))
         {
             let file_path = entry.path();
-            let source = std::fs::read_to_string(file_path).map_err(Error::FileRead)?;
+            let source = read_file(file_path)?;
             let formatted = match format_source(&source) {
                 Ok(formatted) => formatted,
+                // One file the formatter turns down does not stop the others.
                 Err(e) => {
-                    eprintln!("spython: cannot format '{}': {e}", file_path.display());
+                    show_error(&SpythonError::Format {
+                        path: file_path.to_path_buf(),
+                        message: e.to_string(),
+                    });
                     continue;
                 }
             };
             if formatted != source {
-                std::fs::write(file_path, formatted).map_err(Error::FileWrite)?;
+                std::fs::write(file_path, formatted).map_err(|err| SpythonError::FileWrite {
+                    path: file_path.to_path_buf(),
+                    err,
+                })?;
             }
         }
     }
@@ -452,7 +420,7 @@ fn escape(path: &str) -> String {
 }
 
 /// Run doctests for the given files.
-fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error> {
+fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), SpythonError> {
     if files.is_empty() {
         return Ok(());
     }
@@ -501,18 +469,25 @@ fn run_test(files: &[PathBuf], verbose: bool, level: Level) -> Result<(), Error>
     if execute_source(&script, "<test>", ".") {
         Ok(())
     } else {
-        Err(Error::ScriptExecution)
+        Err(SpythonError::TestsFailed)
     }
 }
 
 /// Build a ty ProjectDatabase for the given file.
-fn build_db(cwd: &Path) -> Result<ProjectDatabase, Error> {
-    let cwd_sys = SystemPathBuf::from_path_buf(cwd.to_path_buf()).map_err(|_| {
-        Error::DatabaseBuild("current directory contains non-Unicode characters".to_string())
-    })?;
+fn build_db(cwd: &Path) -> Result<ProjectDatabase, SpythonError> {
+    let cwd_sys = SystemPathBuf::from_path_buf(cwd.to_path_buf())
+        .map_err(|path| SpythonError::NonUtf8Path { path })?;
 
     let (system, lib_root) = OverlaySystem::new(&cwd_sys);
     let metadata = make_project_metadata(cwd_sys, vec![lib_root]);
 
-    ProjectDatabase::fallible(metadata, system).map_err(|e| Error::DatabaseBuild(e.to_string()))
+    ProjectDatabase::fallible(metadata, system).map_err(|e| SpythonError::Database(e.to_string()))
+}
+
+/// Read a file, naming it in whatever the filesystem says about the read.
+fn read_file(path: &Path) -> Result<String, SpythonError> {
+    std::fs::read_to_string(path).map_err(|err| SpythonError::FileRead {
+        path: path.to_path_buf(),
+        err,
+    })
 }

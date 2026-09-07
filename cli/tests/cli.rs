@@ -2598,5 +2598,5 @@ fn missing_file() {
         .expect("failed to run spython");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("cannot resolve 'nonexistent.py'"));
+    assert!(stderr.contains("cannot read 'nonexistent.py'"));
 }

@@ -3,6 +3,7 @@ pub mod output;
 pub mod checker;
 pub mod completion;
 pub mod doctests;
+pub mod error;
 pub mod lints;
 pub mod panic;
 pub mod parser;
@@ -11,6 +12,7 @@ pub mod spython_lib;
 pub mod wasm_ffi;
 
 pub use checker::Level;
+pub use error::{SpythonError, show_error};
 pub use repl::{
     REPL_ERROR, REPL_OK, REPL_QUIT, ReplOutcome, ReplSession, ReplState, repl_new, repl_run,
 };
