@@ -123,7 +123,7 @@ impl Shell {
     pub fn run(&mut self, input: &str) -> Status {
         let Some((name, arg)) = split(input) else {
             let ran = self.repl.run(input);
-            return self.status(ran);
+            return self.status(ran.map(drop));
         };
         let Shell { repl, commands } = self;
         let Some(command) = commands.iter_mut().find(|c| c.name == name) else {
@@ -178,7 +178,7 @@ impl Shell {
                     Status::Error
                 }
             },
-            Builtin::Time => match self.repl.run_timed(arg) {
+            Builtin::Time => match self.repl.run(arg) {
                 Ok(elapsed) => {
                     println!("Time: {}", format_duration(elapsed));
                     Status::Ok

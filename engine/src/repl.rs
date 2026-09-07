@@ -176,20 +176,12 @@ impl Repl {
         self.accumulated_source.push_str(source);
     }
 
-    /// Type-check, run and remember one piece of Python.
+    /// Type-check, run and remember one piece of Python, and say how long the
+    /// interpreter took over it.
     ///
     /// It is checked against everything that ran before it, and only joins
     /// the accumulated source once it has run.
-    pub fn run(&mut self, code: &str) -> Result<(), Failed> {
-        self.eval(code).map(drop)
-    }
-
-    /// The same, and how long the interpreter took over it.
-    pub fn run_timed(&mut self, code: &str) -> Result<Duration, Failed> {
-        self.eval(code)
-    }
-
-    fn eval(&mut self, code: &str) -> Result<Duration, Failed> {
+    pub fn run(&mut self, code: &str) -> Result<Duration, Failed> {
         // `Mode::Single` wants the line the input ends on to be closed.
         let code = if code.ends_with('\n') {
             code.to_owned()
