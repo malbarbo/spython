@@ -95,30 +95,3 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
         .set_item("_spython_ffi", module.into(), vm)
         .expect("should be able to add to sys.modules");
 }
-
-/// Replace sys.stdout and sys.stderr with writers that route output
-/// to the thread-local capture buffers (see `output.rs`).
-#[cfg(feature = "capture")]
-pub(crate) fn install_capture_writers(vm: &vm::VirtualMachine) {
-    fn make_writer(vm: &vm::VirtualMachine, name: &str, write_fn: fn(&str)) -> vm::PyObjectRef {
-        let write = vm.new_function("write", move |s: String| -> usize {
-            let len = s.len();
-            write_fn(&s);
-            len
-        });
-        let flush = vm.new_function("flush", || {});
-        let dict = vm.ctx.new_dict();
-        dict.set_item("write", write.into(), vm).unwrap();
-        dict.set_item("flush", flush.into(), vm).unwrap();
-        vm.new_module(name, dict, None).into()
-    }
-
-    let stdout = make_writer(vm, "_capture_stdout", crate::output::write_stdout);
-    let stderr = make_writer(vm, "_capture_stderr", crate::output::write_stderr);
-    vm.sys_module
-        .set_attr("stdout", stdout, vm)
-        .expect("set sys.stdout");
-    vm.sys_module
-        .set_attr("stderr", stderr, vm)
-        .expect("set sys.stderr");
-}

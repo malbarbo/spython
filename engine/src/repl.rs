@@ -49,8 +49,6 @@ impl Repl {
                 .new_scope_with_main()
                 .expect("creating the main scope should not fail");
             register_ffi_module(vm);
-            #[cfg(feature = "capture")]
-            crate::ffi::install_capture_writers(vm);
             #[cfg(target_arch = "wasm32")]
             if let Err(exc) = vm.run_string(
                 scope.clone(),

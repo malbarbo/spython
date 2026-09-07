@@ -22,9 +22,6 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
 
-[features]
-capture = []
-
 [lints]
 workspace = true
 
