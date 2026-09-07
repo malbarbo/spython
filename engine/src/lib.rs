@@ -586,8 +586,7 @@ fn print_repl_diagnostics(diagnostics: &[Placed], new_input_lines: &[&str], use_
         eprintln!(" --> user.py:{display_line}:{}", col + 1);
 
         // Show the source line if available.
-        if adjusted_line < new_input_lines.len() {
-            let src_line = new_input_lines[adjusted_line];
+        if let Some(src_line) = new_input_lines.get(adjusted_line) {
             eprintln!("  |");
             eprintln!("{display_line} | {src_line}");
             let padding = " ".repeat(col);
@@ -674,17 +673,18 @@ fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
+    // A fresh dict takes any name, so setting one of these cannot fail.
     let dict = vm.ctx.new_dict();
-    dict.set_item("show_svg", show_svg_fn.into(), vm).unwrap();
-    dict.set_item("get_key_event", get_key_event_fn.into(), vm)
-        .unwrap();
-    dict.set_item("text_metrics", text_metrics_fn.into(), vm)
-        .unwrap();
-    dict.set_item("load_bitmap", load_bitmap_fn.into(), vm)
-        .unwrap();
+    let set = |name: &str, value: vm::PyObjectRef| {
+        dict.set_item(name, value, vm)
+            .expect("a fresh dict takes a name");
+    };
+    set("show_svg", show_svg_fn.into());
+    set("get_key_event", get_key_event_fn.into());
+    set("text_metrics", text_metrics_fn.into());
+    set("load_bitmap", load_bitmap_fn.into());
     #[cfg(test)]
-    dict.set_item("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into(), vm)
-        .unwrap();
+    set("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into());
     let module = vm.new_module("_spython_ffi", dict, None);
 
     let sys_modules = vm
