@@ -15,12 +15,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
 
-/// Teaching level (0-5)
-fn level_arg() -> impl bpaf::Parser<u8> {
+/// Teaching level (0-5). The parser turns down a level nobody teaches, where
+/// it turns down every other bad argument.
+fn level_arg() -> impl bpaf::Parser<Level> {
     bpaf::short('l')
         .long("level")
         .help("Teaching level (0-5): 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
         .argument::<u8>("LEVEL")
+        .parse(|n| Level::from_u8(n).ok_or(format!("invalid level {n}: must be 0-5")))
 }
 
 #[derive(Debug, Clone, Bpaf)]
@@ -29,7 +31,7 @@ enum Command {
     #[bpaf(command)]
     Repl {
         #[bpaf(external(level_arg), optional)]
-        level: Option<u8>,
+        level: Option<Level>,
         /// Optional Python file to execute before the REPL starts
         #[bpaf(positional("FILE"))]
         file: Option<PathBuf>,
@@ -37,8 +39,8 @@ enum Command {
     /// Run a Python script
     #[bpaf(command)]
     Run {
-        #[bpaf(external(level_arg), fallback(0))]
-        level: u8,
+        #[bpaf(external(level_arg), fallback(Level::Functions))]
+        level: Level,
         /// Python script to run
         #[bpaf(positional("FILE"))]
         file: PathBuf,
@@ -46,8 +48,8 @@ enum Command {
     /// Check the types of a Python file without running it
     #[bpaf(command)]
     Check {
-        #[bpaf(external(level_arg), fallback(0))]
-        level: u8,
+        #[bpaf(external(level_arg), fallback(Level::Functions))]
+        level: Level,
         /// Python file to check
         #[bpaf(positional("FILE"))]
         file: PathBuf,
@@ -58,8 +60,8 @@ enum Command {
         /// Show all test attempts, not just failures
         #[bpaf(short, long)]
         verbose: bool,
-        #[bpaf(external(level_arg), fallback(0))]
-        level: u8,
+        #[bpaf(external(level_arg), fallback(Level::Functions))]
+        level: Level,
         /// Python files to run doctests from
         #[bpaf(positional("FILE"), many)]
         files: Vec<PathBuf>,
@@ -83,7 +85,7 @@ enum Command {
 /// to a named subcommand: a leading `FILE` is a `run`, and bare options with
 /// no file are a `repl`. `None` is the bare `spython`, which is a `repl` too.
 fn cli() -> bpaf::OptionParser<Option<Command>> {
-    let level = level_arg().fallback(0);
+    let level = level_arg().fallback(Level::Functions);
     let file = bpaf::positional::<PathBuf>("FILE");
     let file_as_run = bpaf::construct!(Command::Run { level, file });
 
@@ -97,13 +99,6 @@ fn cli() -> bpaf::OptionParser<Option<Command>> {
         .version(engine::version_short().as_str())
         .descr("A student version of Python with type checking and teaching levels")
         .footer("Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
-}
-
-fn parse_level(level: u8) -> Option<Level> {
-    Level::from_u8(level).or_else(|| {
-        eprintln!("Invalid level {level}: must be 0-5");
-        None
-    })
 }
 
 fn main() -> ExitCode {
@@ -138,32 +133,16 @@ fn main() -> ExitCode {
         }
         Command::Repl { file, level } => {
             let cfg = config::load();
-            let l = match level {
-                Some(n) => match parse_level(n) {
-                    Some(l) => l,
-                    None => return ExitCode::FAILURE,
-                },
-                None => cfg.level,
-            };
-            run_interactive(file.as_deref(), l, cfg.theme)
+            run_interactive(file.as_deref(), level.unwrap_or(cfg.level), cfg.theme)
         }
-        Command::Run { file, level } => match parse_level(level) {
-            Some(l) => run::run_main(&file, l),
-            None => return ExitCode::FAILURE,
-        },
-        Command::Check { file, level } => match parse_level(level) {
-            Some(l) => check::check_file(&file, l).map(drop),
-            None => return ExitCode::FAILURE,
-        },
+        Command::Run { file, level } => run::run_main(&file, level),
+        Command::Check { file, level } => check::check_file(&file, level).map(drop),
         Command::Format { check, paths } => format::run(check, &paths),
         Command::Test {
             files,
             verbose,
             level,
-        } => match parse_level(level) {
-            Some(l) => run::run_test(&files, l, verbose),
-            None => return ExitCode::FAILURE,
-        },
+        } => run::run_test(&files, level, verbose),
     };
 
     match result {
