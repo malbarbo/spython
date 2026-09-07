@@ -300,6 +300,23 @@ Or to format all `.py` files in a directory:
 spython format directory/
 ```
 
+To find out which files are not formatted, without changing any of them:
+
+```sh
+spython format --check directory/
+```
+
+Each file that is not formatted is named, and the command ends with a
+failing status. This is what a continuous integration job runs.
+
+With no path, `format` reads the code from the standard input and writes the
+formatted code to the standard output. This is what an editor calls to format
+the file it has open:
+
+```sh
+spython format < file.py
+```
+
 
 # Commands
 
@@ -310,7 +327,7 @@ spython format directory/
 | `spython run file` | Run the file with type checking |
 | `spython check file` | Check the types without running |
 | `spython test files` | Run doctests |
-| `spython format paths` | Format code |
+| `spython format [--check] paths` | Format code, or say what is not formatted |
 | `spython help` | Show help |
 
 # Options

@@ -301,6 +301,23 @@ Ou para formatar todos os arquivos `.py` em um diretório:
 spython format diretorio/
 ```
 
+Para saber quais arquivos não estão formatados, sem alterar nenhum deles:
+
+```sh
+spython format --check diretorio/
+```
+
+Cada arquivo que não está formatado é nomeado, e o comando termina com
+status de falha. É o que um job de integração contínua executa.
+
+Sem caminho, o `format` lê o código da entrada padrão e escreve o código
+formatado na saída padrão. É o que um editor chama para formatar o arquivo
+que está aberto:
+
+```sh
+spython format < arquivo.py
+```
+
 
 # Comandos
 
@@ -311,7 +328,7 @@ spython format diretorio/
 | `spython run arquivo` | Executa o arquivo com verificação de tipos |
 | `spython check arquivo` | Verifica os tipos sem executar |
 | `spython test arquivos` | Executa os doctests |
-| `spython format caminhos` | Formata o código |
+| `spython format [--check] caminhos` | Formata o código, ou diz o que não está formatado |
 | `spython help` | Exibe ajuda |
 
 # Opções

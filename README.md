@@ -66,7 +66,8 @@ def double(x: int) -> int:
     return x * 2
 ```
 
-`spython format` formats a file, and `spython repl file.py` loads the
+`spython format` formats a file, `spython format --check` says which files
+are not formatted without changing them, and `spython repl file.py` loads the
 definitions of a file into the REPL. `spython --help` lists the rest.
 
 ### Levels
