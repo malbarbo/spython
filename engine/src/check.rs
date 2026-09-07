@@ -43,6 +43,20 @@ pub struct TypeErrors {
     pub db: ProjectDatabase,
     pub diagnostics: Vec<Diagnostic>,
 }
+
+/// What a check found that does not stop the file, with the database that
+/// prints it. A check that found nothing carries an empty one.
+pub struct Warnings {
+    pub db: ProjectDatabase,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl Warnings {
+    /// Print what the check found, and nothing when it found nothing.
+    pub fn show(&self, use_color: bool) {
+        print_type_errors(&self.db, &self.diagnostics, use_color);
+    }
+}
 /// Create a `ProjectMetadata` with spython's lint rule overrides applied.
 ///
 /// Promotes a few ty rules from `Ignore`/`Warn` to `Error` for the teaching
@@ -129,20 +143,20 @@ fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectData
 /// Type-check `source` entirely in memory (no OS filesystem access).
 ///
 /// Used by the WASM shim, which has one file and nothing to import.
-pub fn type_check_source(
+pub fn check_source(
     source: &str,
     level: Level,
     in_repl: bool,
-) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
-    type_check_in_memory(source, level, in_repl, &[])
+) -> Result<Warnings, Box<TypeErrors>> {
+    check_in_memory(source, level, in_repl, &[])
 }
 /// Type-check `source` against `modules` -- the first-party files it imports.
-fn type_check_in_memory(
+fn check_in_memory(
     source: &str,
     level: Level,
     in_repl: bool,
     modules: &[(String, String)],
-) -> Result<Option<Box<TypeErrors>>, Box<TypeErrors>> {
+) -> Result<Warnings, Box<TypeErrors>> {
     let (db, user_file) = in_memory_project(source, modules);
 
     let mut diagnostics = annotation_check(&db, level, in_repl);
@@ -158,10 +172,8 @@ fn type_check_in_memory(
         .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error);
     if has_errors {
         Err(Box::new(TypeErrors { db, diagnostics }))
-    } else if !diagnostics.is_empty() {
-        Ok(Some(Box::new(TypeErrors { db, diagnostics })))
     } else {
-        Ok(None)
+        Ok(Warnings { db, diagnostics })
     }
 }
 /// Run the annotation checker on all files registered in `db`.
@@ -358,7 +370,7 @@ pub(crate) fn type_check_repl_input(
         format!("{accumulated}\n{new_input}")
     };
 
-    let te = match type_check_in_memory(&combined, level, true, modules) {
+    let te = match check_in_memory(&combined, level, true, modules) {
         Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };

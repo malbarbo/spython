@@ -13,8 +13,8 @@ pub mod spython_lib;
 pub mod wasm_ffi;
 
 pub use check::{
-    TypeErrors, annotation_check, check_file_doctests, collect_import_files, make_project_metadata,
-    modules_beside, print_type_errors, type_check_source,
+    TypeErrors, Warnings, annotation_check, check_file_doctests, check_source,
+    collect_import_files, make_project_metadata, modules_beside, print_type_errors,
 };
 pub(crate) use check::{infer_expression_type, type_check_repl_input};
 pub use checker::Level;

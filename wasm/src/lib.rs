@@ -2,7 +2,7 @@
 
 #[cfg(feature = "wasm-backend")]
 use engine::execute_source;
-use engine::{ReplState, format_source, print_type_errors, type_check_source};
+use engine::{ReplState, check_source, format_source, print_type_errors};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static INIT: AtomicBool = AtomicBool::new(false);
@@ -78,15 +78,12 @@ pub unsafe extern "C" fn repl_new(
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
     if !source.trim().is_empty() {
-        match type_check_source(&source, level, false) {
+        match check_source(&source, level, false) {
             Err(te) => {
                 print_type_errors(&te.db, &te.diagnostics, true);
                 return std::ptr::null_mut();
             }
-            Ok(Some(te)) => {
-                print_type_errors(&te.db, &te.diagnostics, true);
-            }
-            Ok(None) => {}
+            Ok(warnings) => warnings.show(true),
         }
     }
     Box::leak(engine::repl_new(&source, level))
@@ -114,15 +111,12 @@ pub unsafe extern "C" fn run_source(
     let filename = new_string(filename_ptr, filename_len);
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
-    match type_check_source(&source, level, false) {
+    match check_source(&source, level, false) {
         Err(te) => {
             print_type_errors(&te.db, &te.diagnostics, false);
             return 1;
         }
-        Ok(Some(te)) => {
-            print_type_errors(&te.db, &te.diagnostics, false);
-        }
-        Ok(None) => {}
+        Ok(warnings) => warnings.show(false),
     }
     if execute_source(&source, &filename, "/") {
         0
