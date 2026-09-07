@@ -338,6 +338,9 @@ fn visit_module(
 pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_color: bool) {
     use ruff_db::diagnostic::Severity;
     use std::fmt::Write;
+    if diagnostics.is_empty() {
+        return;
+    }
     let config = DisplayDiagnosticConfig::new("spython").color(use_color);
     let n = diagnostics
         .iter()
@@ -601,9 +604,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
             diagnostics,
         })));
     }
-    if !diagnostics.is_empty() {
-        print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
-    }
+    print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
 
     Ok(modules_beside(&db, main_file, user_files))
 }
