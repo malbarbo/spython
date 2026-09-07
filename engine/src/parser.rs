@@ -601,7 +601,7 @@ def main() -> None:
         let lines: Vec<&str> = src.lines().collect();
         let mut rejected = 0;
         for k in 1..lines.len() {
-            let prefix = lines[..k].join("\n");
+            let prefix = lines.get(..k).unwrap_or(&lines).join("\n");
             if !parse_unchecked_source(&prefix, PySourceType::Python)
                 .errors()
                 .is_empty()
