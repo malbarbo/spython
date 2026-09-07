@@ -178,23 +178,27 @@ fn check_in_memory(
 }
 /// Run the annotation checker on all files registered in `db`.
 pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Vec<Diagnostic> {
-    // `Project::files` is backed by an `FxHashSet`, whose iteration order is
-    // not deterministic across platforms. Sort by path so the diagnostic
-    // stream — and the snapshot tests that consume it — are stable.
-    let mut files: Vec<_> = db.project().files(db).into_iter().collect();
-    files.sort_by_key(|f| f.path(db).as_str().to_owned());
     let mut diagnostics = Vec::new();
-    for file in files {
-        // Skip the embedded spython library — only check student files.
-        let is_spython_library = file
-            .path(db)
-            .as_system_path()
-            .is_some_and(spython_lib::is_lib_path);
-        if !is_spython_library {
-            diagnostics.extend(checker::check_file_annotations(db, file, level, in_repl));
-        }
+    for file in user_files(db, db.project().files(db).into_iter()) {
+        diagnostics.extend(checker::check_file_annotations(db, file, level, in_repl));
     }
     diagnostics
+}
+
+/// The files among `files` the student wrote, sorted by path. The embedded
+/// spython library is not one of them. The sets these files come from are
+/// backed by hashes, whose order is not the same from one platform to the
+/// next, and the diagnostics follow that order into the snapshot tests.
+fn user_files(db: &ProjectDatabase, files: impl Iterator<Item = File>) -> Vec<File> {
+    let mut files: Vec<File> = files
+        .filter(|f| {
+            !f.path(db)
+                .as_system_path()
+                .is_some_and(spython_lib::is_lib_path)
+        })
+        .collect();
+    files.sort_by_key(|f| f.path(db).as_str().to_owned());
+    files
 }
 /// The files among `files` that `main_file` can name, keyed by their path
 /// relative to the directory it sits in -- the form [`in_memory_project`]
@@ -584,18 +588,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     let mut diagnostics = annotation_check(&db, level, false);
     diagnostics.extend(db.check());
     // Validate and type-check doctests inside each user file's docstrings.
-    // Sort to stabilize diagnostic order across platforms — `files` is a
-    // `HashSet`, whose iteration order varies.
-    let mut user_files: Vec<_> = files
-        .iter()
-        .copied()
-        .filter(|f| {
-            !f.path(&db)
-                .as_system_path()
-                .is_some_and(spython_lib::is_lib_path)
-        })
-        .collect();
-    user_files.sort_by_key(|f| f.path(&db).as_str().to_owned());
+    let user_files = user_files(&db, files.iter().copied());
     for f in &user_files {
         diagnostics.extend(check_file_doctests(&db, *f, level));
     }
