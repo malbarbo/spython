@@ -82,8 +82,7 @@ impl Repl {
     ) -> Result<(), Failed> {
         self.modules = modules;
         self.accumulated_source = source.to_owned();
-        let scope = self.scope.as_ref().expect("scope is live").clone();
-        let interp = self.interp.as_ref().expect("interpreter is live");
+        let (interp, scope) = self.live();
         interp.enter(|vm| {
             if let Some(dir) = dir
                 && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
@@ -109,8 +108,7 @@ impl Repl {
             include_str!("doctest_runner.py"),
             "\nimport __main__; run_doctests(__main__); del __main__\n"
         );
-        let scope = self.scope.as_ref().expect("scope is live").clone();
-        let interp = self.interp.as_ref().expect("interpreter is live");
+        let (interp, scope) = self.live();
         interp.enter(|vm| match vm.run_string(scope, code, "<doctest>") {
             Ok(_) => Ok(()),
             Err(exc) => {
@@ -163,11 +161,17 @@ impl Repl {
     /// What the Tab key should do at `cursor`, over this session's names and
     /// the `commands` the shell answers.
     pub fn complete(&self, text: &str, cursor: usize, commands: &[(&str, bool)]) -> TabAction {
-        let globals = &self.scope.as_ref().expect("scope is live").globals;
-        self.interp
-            .as_ref()
-            .expect("interpreter is live")
-            .enter(|vm| crate::completion::tab_action(vm, globals, text, cursor, commands))
+        let (interp, scope) = self.live();
+        interp.enter(|vm| crate::completion::tab_action(vm, &scope.globals, text, cursor, commands))
+    }
+
+    /// The interpreter and the scope, which only a `Repl` on its way out has
+    /// let go of.
+    fn live(&self) -> (&vm::Interpreter, vm::scope::Scope) {
+        (
+            self.interp.as_ref().expect("interpreter is live"),
+            self.scope.as_ref().expect("scope is live").clone(),
+        )
     }
 
     /// Append successfully executed source to the accumulator.
@@ -209,8 +213,7 @@ impl Repl {
             return Err(Failed);
         }
 
-        let scope = self.scope.as_ref().expect("scope is live").clone();
-        let interp = self.interp.as_ref().expect("interpreter is live");
+        let (interp, scope) = self.live();
         let start = Instant::now();
         // `Err` is the status of an `exit()`, which only the session itself
         // can record, and the borrow of the interpreter has to end first.
