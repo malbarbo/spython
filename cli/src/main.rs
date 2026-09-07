@@ -6,8 +6,8 @@ mod config;
 mod repl;
 
 use engine::{
-    BUILD_DATE, GIT_HASH, LIBS_VERSION, LONG_VERSION, Level, SpythonError, VERSION, check,
-    format_source, new_interpreter, read_file, run, show_error,
+    BUILD_DATE, GIT_HASH, LIBS_VERSION, Level, SpythonError, VERSION, check, format_source,
+    new_interpreter, read_file, run, show_error,
 };
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -78,7 +78,7 @@ fn cli() -> bpaf::OptionParser<Option<Command>> {
     let command = command().optional();
     bpaf::construct!(command)
         .to_options()
-        .version(LONG_VERSION)
+        .version(engine::version_short().as_str())
         .descr("A student version of Python with type checking and teaching levels")
         .footer("Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
 }

@@ -24,13 +24,10 @@ fn main() {
     };
 
     let libs_version = "rustpython 0.5.0, ty/ruff 0.16.4";
-    let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap();
-    let long_version = format!("{pkg_version} ({libs_version}, {build_date}, {git_hash})");
 
     println!("cargo::rustc-env=BUILD_DATE={build_date}");
     println!("cargo::rustc-env=GIT_HASH={git_hash}");
     println!("cargo::rustc-env=LIBS_VERSION={libs_version}");
-    println!("cargo::rustc-env=LONG_VERSION={long_version}");
 
     println!("cargo::rerun-if-changed=../.git/HEAD");
     println!("cargo::rerun-if-changed=../.git/refs/");

@@ -200,8 +200,7 @@ pub unsafe extern "C" fn repl_complete(
 #[unsafe(no_mangle)]
 pub extern "C" fn version() -> *mut std::ffi::c_char {
     init();
-    let v = format!("spython {}", engine::LONG_VERSION);
-    std::ffi::CString::new(v)
+    std::ffi::CString::new(engine::version())
         .expect("the version has no interior nul")
         .into_raw()
 }

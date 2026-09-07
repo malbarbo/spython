@@ -1,4 +1,4 @@
-use crate::LONG_VERSION;
+use crate::version_short;
 
 /// Install a panic hook that prints a formatted "internal error" message
 /// pointing users at the issue tracker. Shared by the CLI and WASM entry
@@ -26,7 +26,7 @@ pub fn add_handler() {
             Panic: {location}{message}\n\
             Version: {version}\n\
             OS: {os}",
-            version = LONG_VERSION,
+            version = version_short(),
             os = std::env::consts::OS,
         );
     }));
