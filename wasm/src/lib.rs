@@ -1,7 +1,9 @@
 #![allow(clippy::missing_safety_doc)]
 
 use engine::{Repl, Shell, check_source, format_source, print_type_errors};
+use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{alloc, ptr};
 
 static INIT: AtomicBool = AtomicBool::new(false);
 
@@ -16,9 +18,14 @@ fn init() {
 #[unsafe(no_mangle)]
 pub extern "C" fn string_allocate(size: usize) -> *mut u8 {
     init();
-    let mut buf = Vec::with_capacity(size);
-    let ptr = buf.as_mut_ptr();
-    std::mem::forget(buf);
+    if size == 0 {
+        return ptr::NonNull::dangling().as_ptr();
+    }
+    let layout = string_layout(size);
+    let ptr = unsafe { alloc::alloc(layout) };
+    if ptr.is_null() {
+        alloc::handle_alloc_error(layout);
+    }
     ptr
 }
 
@@ -26,9 +33,17 @@ pub extern "C" fn string_allocate(size: usize) -> *mut u8 {
 pub unsafe extern "C" fn string_deallocate(ptr: *mut u8, size: usize) {
     init();
     assert!(!ptr.is_null());
-    unsafe {
-        let _ = Vec::from_raw_parts(ptr, 0, size);
+    if size == 0 {
+        return;
     }
+    assert_ne!(ptr, ptr::NonNull::dangling().as_ptr());
+    unsafe { alloc::dealloc(ptr, string_layout(size)) };
+}
+
+/// The page asks for bytes and reads them back as text, so the size it gave
+/// is the size the block has to be freed with.
+fn string_layout(size: usize) -> alloc::Layout {
+    alloc::Layout::from_size_align(size, 1).expect("more bytes than a layout holds")
 }
 
 #[unsafe(no_mangle)]
@@ -36,7 +51,7 @@ pub unsafe extern "C" fn cstr_deallocate(ptr: *mut std::ffi::c_char) {
     init();
     assert!(!ptr.is_null());
     unsafe {
-        let _ = std::ffi::CString::from_raw(ptr);
+        let _ = CString::from_raw(ptr);
     }
 }
 
@@ -44,6 +59,15 @@ fn new_string(ptr: *mut u8, len: usize) -> String {
     assert!(!ptr.is_null());
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
     String::from_utf8_lossy(slice).into_owned()
+}
+
+/// A string the page takes over, or null for one with a nul inside it, which
+/// no C string holds.
+fn to_cstr(s: String) -> *mut std::ffi::c_char {
+    match CString::new(s) {
+        Ok(cstr) => cstr.into_raw(),
+        Err(_) => ptr::null_mut(),
+    }
 }
 
 // --- Config parsing ---
@@ -80,7 +104,7 @@ pub unsafe extern "C" fn repl_new(
         match check_source(&source, level, false) {
             Err(te) => {
                 print_type_errors(&te.db, &te.diagnostics, true);
-                return std::ptr::null_mut();
+                return ptr::null_mut();
             }
             Ok(warnings) => warnings.show(true),
         }
@@ -161,7 +185,11 @@ pub unsafe extern "C" fn repl_ready(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_destroy(repl: *mut Shell) {
     init();
-    assert!(!repl.is_null());
+    // `repl_new` answers with null when it has no shell to give, and the page
+    // hands that null back here, taking it for a shell.
+    if repl.is_null() {
+        return;
+    }
     unsafe {
         let _ = Box::from_raw(repl);
     }
@@ -195,13 +223,10 @@ pub unsafe extern "C" fn repl_complete(
             }
             s
         }
-        engine::completion::TabAction::Nothing => return std::ptr::null_mut(),
+        engine::completion::TabAction::Nothing => return ptr::null_mut(),
     };
 
-    match std::ffi::CString::new(output) {
-        Ok(cstr) => cstr.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+    to_cstr(output)
 }
 
 // --- Version ---
@@ -209,9 +234,7 @@ pub unsafe extern "C" fn repl_complete(
 #[unsafe(no_mangle)]
 pub extern "C" fn version() -> *mut std::ffi::c_char {
     init();
-    std::ffi::CString::new(engine::version())
-        .expect("the version has no interior nul")
-        .into_raw()
+    to_cstr(engine::version())
 }
 
 // --- Formatting ---
@@ -220,8 +243,5 @@ pub extern "C" fn version() -> *mut std::ffi::c_char {
 pub unsafe extern "C" fn format(ptr: *mut u8, len: usize) -> *mut std::ffi::c_char {
     init();
     let source = new_string(ptr, len);
-    format_source(&source)
-        .ok()
-        .and_then(|s| std::ffi::CString::new(s).ok())
-        .map_or(std::ptr::null_mut(), |cstr| cstr.into_raw())
+    format_source(&source).map_or(ptr::null_mut(), to_cstr)
 }
