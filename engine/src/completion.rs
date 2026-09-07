@@ -256,7 +256,7 @@ mod tests {
     }
 
     fn with_vm(f: impl FnOnce(&VirtualMachine, &PyDictRef)) {
-        let interp = crate::new_interpreter();
+        let interp = crate::run::new_interpreter();
         interp.enter(|vm| {
             let scope = vm.new_scope_with_main().expect("a fresh __main__ scope");
             f(vm, &scope.globals);

@@ -14,16 +14,15 @@ pub mod run;
 pub mod shell;
 pub mod spython_lib;
 
-pub use check::{
-    TypeErrors, Warnings, annotation_check, check_file_doctests, check_source,
-    collect_import_files, make_project_metadata, modules_beside, print_type_errors,
-};
+// What the frontends reach for. Everything else a module holds is reachable
+// by its own path, such as `engine::check::annotation_check`.
+pub use check::{check_source, print_type_errors};
 pub(crate) use check::{infer_expression_type, type_check_repl_input};
 pub use checker::Level;
 pub use error::{SpythonError, read_file, show_error};
 pub use format::format_source;
 pub use repl::{Failed, Repl};
-pub use run::{DOCTEST_RUNNER, new_interpreter, run_source};
+pub use run::run_source;
 pub use shell::{Shell, Status};
 
 pub use ty_project::ProjectDatabase;

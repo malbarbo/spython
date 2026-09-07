@@ -1,7 +1,7 @@
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
-use crate::{TypeErrors, print_type_errors};
+use crate::check::{TypeErrors, print_type_errors};
 
 /// What stops a spython command. Each one ends the run with a failing status,
 /// after [`show_error`] has said what it was.

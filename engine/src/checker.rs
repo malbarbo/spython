@@ -1294,7 +1294,7 @@ mod tests {
         system
             .write_file(SystemPath::new("/test.py"), source)
             .expect("write");
-        let metadata = crate::make_project_metadata(cwd, vec![]);
+        let metadata = crate::check::make_project_metadata(cwd, vec![]);
         let mut db = ProjectDatabase::fallible(metadata, system).expect("db");
         let file = system_path_to_file(&db, &path).expect("file");
         db.project().set_included_paths(&mut db, vec![path]);
