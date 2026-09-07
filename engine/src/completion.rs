@@ -252,8 +252,7 @@ mod tests {
     /// The commands as a session hands them over, so the tests complete the
     /// same list the frontends do.
     fn commands() -> Vec<(&'static str, bool)> {
-        crate::repl::Repl::<std::convert::Infallible>::new(crate::Level::Full, false)
-            .command_names()
+        crate::shell::Shell::new(crate::repl::Repl::new(crate::Level::Full, false)).command_names()
     }
 
     fn with_vm(f: impl FnOnce(&VirtualMachine, &PyDictRef)) {

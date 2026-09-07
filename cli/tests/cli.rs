@@ -2521,10 +2521,13 @@ fn repl_unknown_command_is_refused() {
 }
 
 #[test]
-fn repl_time_command_without_expression_shows_usage() {
+fn repl_time_command_without_expression_says_what_it_takes() {
     let (_, err, success) = run_repl(":time\n");
     assert!(success);
-    assert!(err.contains("Usage: :time <expression>"), "stderr: {err}");
+    assert!(
+        err.contains("The :time command takes an expression."),
+        "stderr: {err}"
+    );
 }
 
 // --- REPL type checking tests ---

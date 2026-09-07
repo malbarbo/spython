@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-use engine::{Repl, check_source, format_source, print_type_errors};
+use engine::{Repl, Shell, check_source, format_source, print_type_errors};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static INIT: AtomicBool = AtomicBool::new(false);
@@ -70,12 +70,13 @@ pub unsafe extern "C" fn repl_new(
     code_len: usize,
     config_ptr: *mut u8,
     config_len: usize,
-) -> *mut Repl {
+) -> *mut Shell {
     init();
     let source = new_string(code_ptr, code_len);
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
-    if !source.trim().is_empty() {
+    let has_source = !source.trim().is_empty();
+    if has_source {
         match check_source(&source, level, false) {
             Err(te) => {
                 print_type_errors(&te.db, &te.diagnostics, true);
@@ -84,7 +85,15 @@ pub unsafe extern "C" fn repl_new(
             Ok(warnings) => warnings.show(true),
         }
     }
-    Box::leak(engine::repl_new(&source, level))
+    // The page renders the ANSI codes, so its diagnostics keep them, and it
+    // has one file, so there is nothing to import.
+    let mut repl = Repl::new(level, true);
+    // A file that raises still opens the session, so that the student can
+    // look at what the definitions above the error left behind.
+    if has_source && repl.load(&source, "user.py", None, Vec::new()).is_ok() {
+        let _ = repl.run_doctests();
+    }
+    Box::into_raw(Box::new(Shell::new(repl)))
 }
 
 /// Type-check `code` and, if no errors, execute it as a script.
@@ -124,12 +133,12 @@ pub unsafe extern "C" fn run_source(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_run(repl: *mut Repl, ptr: *mut u8, len: usize) -> u32 {
+pub unsafe extern "C" fn repl_run(repl: *mut Shell, ptr: *mut u8, len: usize) -> u32 {
     init();
     assert!(!repl.is_null());
-    let state = unsafe { &mut *repl };
+    let shell = unsafe { &mut *repl };
     let code = new_string(ptr, len);
-    engine::repl_run(state, &code)
+    shell.run(&code) as u32
 }
 
 /// `repl_ready` (see SimpleCode's ENGINE.md), answered by
@@ -140,7 +149,7 @@ pub unsafe extern "C" fn repl_run(repl: *mut Repl, ptr: *mut u8, len: usize) -> 
 /// `cursor` is a byte offset into the text, as `repl_complete` takes one.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_ready(
-    _repl: *mut Repl,
+    _repl: *mut Shell,
     ptr: *mut u8,
     len: usize,
     cursor: usize,
@@ -150,7 +159,7 @@ pub unsafe extern "C" fn repl_ready(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_destroy(repl: *mut Repl) {
+pub unsafe extern "C" fn repl_destroy(repl: *mut Shell) {
     init();
     assert!(!repl.is_null());
     unsafe {
@@ -162,17 +171,17 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut Repl) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_complete(
-    repl: *mut Repl,
+    repl: *mut Shell,
     text_ptr: *mut u8,
     text_len: usize,
     cursor_pos: usize,
 ) -> *mut std::ffi::c_char {
     init();
     assert!(!repl.is_null());
-    let state = unsafe { &*repl };
+    let shell = unsafe { &*repl };
     let text = new_string(text_ptr, text_len);
 
-    let result = state.complete(&text, cursor_pos);
+    let result = shell.complete(&text, cursor_pos);
 
     let output = match result {
         engine::completion::TabAction::Indent(spaces) => format!("i {spaces}"),

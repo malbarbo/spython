@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use engine::completion::{PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use engine::input::INDENT;
-use engine::{Level, Repl, ReplOutcome};
+use engine::{Level, Repl, Shell, Status};
 use rustyline::{
     Cmd, CompletionType, Config, Context, Editor, Event, EventHandler, KeyCode, KeyEvent,
     Modifiers,
@@ -104,11 +104,11 @@ impl rustyline::ConditionalEventHandler for SmartKeys {
 // ── Helper (completion, highlighting, validation) ─────────────
 
 struct ReplHelper {
-    /// The session, which completes a name with the interpreter it owns. The
-    /// editor holds it only while it is drawing a line, and the loop only
+    /// The shell, which completes a name with the interpreter the repl owns.
+    /// The editor holds it only while it is drawing a line, and the loop only
     /// while it is running one, so the two never ask for it at once.
-    repl: Rc<RefCell<Repl<Host>>>,
-    /// The session's commands: every name, and whether it takes an argument.
+    shell: Rc<RefCell<Shell>>,
+    /// The shell's commands: every name, and whether it takes an argument.
     commands: Vec<(&'static str, bool)>,
     /// The unfinished input the editor is still reading for. Ctrl-C abandons
     /// it; an input that runs out is run anyway, so the user is shown what is
@@ -128,7 +128,7 @@ impl Completer for ReplHelper {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
-        match self.repl.borrow().complete(line, pos) {
+        match self.shell.borrow().complete(line, pos) {
             TabAction::Indent(spaces) => Ok((pos, vec![spaces])),
             TabAction::Complete(startpos, candidates) => Ok((startpos, candidates)),
             TabAction::Nothing => Ok((pos, vec![])),
@@ -581,72 +581,65 @@ fn is_python_builtin(word: &str) -> bool {
 
 // ── REPL entry point ────────────────────────────────────────────────
 
-/// The commands only a terminal has, as opposed to the ones the engine
-/// answers for every frontend. The session checks and completes them like its
-/// own; adding one here without answering it below does not compile.
-#[derive(Clone, Copy)]
-pub enum Host {
-    Level,
-    Theme,
-}
-
 /// `:level` on its own says which level the REPL is on; with a number it moves
 /// to that level, which everything that has already run has to survive.
-fn level_command(repl: &mut Repl<Host>, theme: Theme, arg: &str) {
-    if arg.is_empty() {
-        println!("level {}", repl.level());
-        return;
+fn level_command(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
+    move |repl, arg| {
+        if arg.is_empty() {
+            println!("level {}", repl.level());
+            return Ok(());
+        }
+        let Some(level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
+            return Err("Invalid level: must be 0-5".to_owned());
+        };
+        if !repl.set_level(level) {
+            return Err(format!(
+                "Cannot change to level {level}: \
+                 accumulated source has errors at that level."
+            ));
+        }
+        println!("level {level}");
+        crate::config::save(level, theme.get());
+        Ok(())
     }
-    let Some(new_level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
-        eprintln!("Invalid level: must be 0-5");
-        return;
-    };
-    // Everything that has already run has to survive the new level.
-    if !repl.set_level(new_level) {
-        eprintln!(
-            "Cannot change to level {new_level}: \
-             accumulated source has errors at that level."
-        );
-        return;
-    }
-    println!("level {new_level}");
-    crate::config::save(new_level, theme);
 }
 
 /// `:theme` on its own says which theme is on; with a name it switches to it.
-fn theme_command(repl: &Repl<Host>, theme: &Cell<Theme>, arg: &str) {
-    if arg.is_empty() {
-        println!("{}", theme.get().name());
-        return;
+fn theme_command(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
+    move |repl, arg| {
+        if arg.is_empty() {
+            println!("{}", theme.get().name());
+            return Ok(());
+        }
+        let Some(chosen) = Theme::parse(arg) else {
+            return Err("Invalid theme: use 'light' or 'dark'".to_owned());
+        };
+        theme.set(chosen);
+        println!("{}", chosen.name());
+        crate::config::save(repl.level(), chosen);
+        Ok(())
     }
-    let Some(new_theme) = Theme::parse(arg) else {
-        eprintln!("Invalid theme: use 'light' or 'dark'");
-        return;
-    };
-    theme.set(new_theme);
-    println!("{}", new_theme.name());
-    crate::config::save(repl.level(), new_theme);
 }
 
 /// Run the terminal REPL until the user leaves it, over a session that has
 /// already run whatever file it started from.
-pub fn run_repl(repl: Repl<Host>, theme: Theme) -> Option<u32> {
+pub fn run_repl(repl: Repl, theme: Theme) -> Option<u32> {
     let theme = Rc::new(Cell::new(theme));
-    let mut repl = repl;
-    repl.add(
+    let mut shell = Shell::new(repl);
+    shell.add(
         ":level",
         Some("[0-5]"),
         "Show or change the teaching level (0-5)",
-        Host::Level,
+        level_command(Rc::clone(&theme)),
     );
-    repl.add(
+    shell.add(
         ":theme",
         Some("[light|dark]"),
         "Show or change theme (light, dark)",
-        Host::Theme,
+        theme_command(Rc::clone(&theme)),
     );
-    let commands = repl.command_names();
-    let repl = Rc::new(RefCell::new(repl));
+    let commands = shell.command_names();
+    let shell = Rc::new(RefCell::new(shell));
 
     let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
@@ -668,7 +661,7 @@ pub fn run_repl(repl: Repl<Host>, theme: Theme) -> Option<u32> {
     .expect("failed to initialize line editor");
 
     editor.set_helper(Some(ReplHelper {
-        repl: Rc::clone(&repl),
+        shell: Rc::clone(&shell),
         commands,
         pending: RefCell::new(String::new()),
         theme: Rc::clone(&theme),
@@ -705,19 +698,12 @@ pub fn run_repl(repl: Repl<Host>, theme: Theme) -> Option<u32> {
         };
         let _ = editor.add_history_entry(line.trim_end());
 
-        match repl.borrow_mut().run(&line) {
-            ReplOutcome::Quit => break,
-            ReplOutcome::Host(Host::Level, arg) => {
-                level_command(&mut repl.borrow_mut(), theme.get(), &arg);
-            }
-            ReplOutcome::Host(Host::Theme, arg) => {
-                theme_command(&repl.borrow(), &theme, &arg);
-            }
-            ReplOutcome::Ok | ReplOutcome::Error => {}
+        if shell.borrow_mut().run(&line) == Status::Quit {
+            break;
         }
     }
     let _ = editor.save_history(&repl_history_path);
-    repl.borrow().exit_status()
+    shell.borrow().repl().exit_status()
 }
 
 #[cfg(test)]

@@ -1,5 +1,10 @@
 //! The `:` commands, over a repl that knows none of them.
 
+use std::time::Duration;
+
+use crate::completion::TabAction;
+use crate::repl::{Failed, Repl};
+
 /// What became of an input. `repl_run` answers with these numbers.
 #[repr(u32)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -9,9 +14,30 @@ pub enum Status {
     Quit = 2,
 }
 
+pub struct Shell {
+    repl: Repl,
+    commands: Vec<Command>,
+}
+
+struct Command {
+    name: &'static str,
+    arg: Arg,
+    help: &'static str,
+    action: Action,
+}
+
+enum Action {
+    Builtin(Builtin),
+    Host(HostAction),
+}
+
+/// A command of the host's. It gets the repl, because a command such as
+/// `:level` changes what the next input is checked against.
+type HostAction = Box<dyn FnMut(&mut Repl, &str) -> Result<(), String>>;
+
 /// What a command takes after its name.
 #[derive(Clone, Copy)]
-pub(crate) enum Arg {
+enum Arg {
     /// Nothing.
     None,
     /// Python, required. It is also what says whether the input is finished,
@@ -22,7 +48,7 @@ pub(crate) enum Arg {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum Builtin {
+enum Builtin {
     Help,
     Quit,
     Type,
@@ -30,13 +56,13 @@ pub(crate) enum Builtin {
 }
 
 /// The commands every frontend has. A terminal adds its own.
-pub(crate) const BUILTINS: &[(&str, Arg, &str, Builtin)] = &[
+const BUILTINS: &[(&str, Arg, &str, Builtin)] = &[
     (":help", Arg::None, "Show this help", Builtin::Help),
     (":quit", Arg::None, "Exit the REPL", Builtin::Quit),
     (
         ":type",
         Arg::Expr,
-        "Show the type of an expression",
+        "Show the type of an expression without running it",
         Builtin::Type,
     ),
     (
@@ -46,6 +72,163 @@ pub(crate) const BUILTINS: &[(&str, Arg, &str, Builtin)] = &[
         Builtin::Time,
     ),
 ];
+
+impl Shell {
+    pub fn new(repl: Repl) -> Shell {
+        let commands = BUILTINS
+            .iter()
+            .map(|&(name, arg, help, builtin)| Command {
+                name,
+                arg,
+                help,
+                action: Action::Builtin(builtin),
+            })
+            .collect();
+        Shell { repl, commands }
+    }
+
+    /// A command of the host's. `word` is what the help shows after the name,
+    /// for one that takes a word; `run` gets the repl and what followed the
+    /// name, and answers with what to tell the user when it refuses.
+    pub fn add(
+        &mut self,
+        name: &'static str,
+        word: Option<&'static str>,
+        help: &'static str,
+        run: impl FnMut(&mut Repl, &str) -> Result<(), String> + 'static,
+    ) {
+        debug_assert!(self.commands.iter().all(|c| c.name != name));
+        self.commands.push(Command {
+            name,
+            arg: word.map_or(Arg::None, Arg::Word),
+            help,
+            action: Action::Host(Box::new(run)),
+        });
+    }
+
+    pub fn repl(&self) -> &Repl {
+        &self.repl
+    }
+
+    pub fn run(&mut self, input: &str) -> Status {
+        let Some((name, arg)) = split(input) else {
+            let ran = self.repl.run(input);
+            return self.status(ran);
+        };
+        let Shell { repl, commands } = self;
+        let Some(command) = commands.iter_mut().find(|c| c.name == name) else {
+            eprintln!("Unknown command {name}. Type :help to see the commands.");
+            return Status::Error;
+        };
+        match (command.arg, arg.is_empty()) {
+            (Arg::None, false) => {
+                eprintln!("The {name} command takes nothing after it.");
+                return Status::Error;
+            }
+            (Arg::Expr, true) => {
+                eprintln!("The {name} command takes an expression.");
+                return Status::Error;
+            }
+            _ => {}
+        }
+        let builtin = match &mut command.action {
+            Action::Host(run) => {
+                return match run(repl, arg) {
+                    Ok(()) => Status::Ok,
+                    Err(message) => {
+                        eprintln!("{message}");
+                        Status::Error
+                    }
+                };
+            }
+            Action::Builtin(builtin) => *builtin,
+        };
+        self.builtin(builtin, arg)
+    }
+
+    fn builtin(&mut self, builtin: Builtin, arg: &str) -> Status {
+        match builtin {
+            Builtin::Help => {
+                let usages: Vec<String> = self.commands.iter().map(Command::usage).collect();
+                let width = usages.iter().map(String::len).max().unwrap_or(0);
+                println!("Commands:");
+                for (usage, c) in usages.iter().zip(&self.commands) {
+                    println!("  {usage:<width$}  {}", c.help);
+                }
+                Status::Ok
+            }
+            Builtin::Quit => Status::Quit,
+            Builtin::Type => match self.repl.type_of(arg) {
+                Ok(type_) => {
+                    println!("{type_}");
+                    Status::Ok
+                }
+                Err(Failed) => Status::Error,
+            },
+            Builtin::Time => match self.repl.run_timed(arg) {
+                Ok(elapsed) => {
+                    println!("Time: {}", format_duration(elapsed));
+                    Status::Ok
+                }
+                Err(Failed) => self.status(Err(Failed)),
+            },
+        }
+    }
+
+    /// Every command's name, sorted, and whether it takes anything after it.
+    /// What a completer offers when the line so far is a colon, and what the
+    /// terminal's highlighter matches a line against.
+    pub fn command_names(&self) -> Vec<(&'static str, bool)> {
+        let mut names: Vec<(&'static str, bool)> = self
+            .commands
+            .iter()
+            .map(|c| (c.name, !matches!(c.arg, Arg::None)))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// What the Tab key should do at `cursor`, over the session's names and
+    /// the commands. The repl answers for the names, which it can only read
+    /// off the interpreter it owns.
+    pub fn complete(&self, text: &str, cursor: usize) -> TabAction {
+        self.repl.complete(text, cursor, &self.command_names())
+    }
+
+    /// An input that left an `exit()` behind ends the session, whether the
+    /// input itself ran or not.
+    fn status(&self, result: Result<(), Failed>) -> Status {
+        if self.repl.exit_status().is_some() {
+            Status::Quit
+        } else if result.is_ok() {
+            Status::Ok
+        } else {
+            Status::Error
+        }
+    }
+}
+
+impl Command {
+    fn usage(&self) -> String {
+        match self.arg {
+            Arg::None => self.name.to_owned(),
+            Arg::Expr => format!("{} <expression>", self.name),
+            Arg::Word(word) => format!("{} {word}", self.name),
+        }
+    }
+}
+
+fn format_duration(elapsed: Duration) -> String {
+    if elapsed.as_secs() > 0 {
+        format!("{:.2} s", elapsed.as_secs_f64())
+    } else if elapsed.as_millis() > 0 {
+        format!("{} ms", elapsed.as_millis())
+    } else if elapsed.as_micros() > 0 {
+        format!("{} \u{b5}s", elapsed.as_micros())
+    } else {
+        format!("{} ns", elapsed.as_nanos())
+    }
+}
 
 /// The name of the command at the head of the input and what follows it, or
 /// none for Python, which never starts with `:`. Public so a frontend reads
@@ -137,6 +320,14 @@ mod tests {
         ] {
             assert_eq!(ready_state(input), -1, "{input:?}");
         }
+    }
+
+    #[test]
+    fn a_duration_is_said_in_its_own_unit() {
+        assert_eq!(format_duration(Duration::from_secs(2)), "2.00 s");
+        assert_eq!(format_duration(Duration::from_millis(5)), "5 ms");
+        assert_eq!(format_duration(Duration::from_micros(7)), "7 \u{b5}s");
+        assert_eq!(format_duration(Duration::from_nanos(9)), "9 ns");
     }
 
     #[test]
