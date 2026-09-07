@@ -23,6 +23,15 @@ use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::{Level, checker, doctests, spython_lib};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::SpythonError;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{io::IsTerminal as _, path::Path};
+
+/// The spython lib, served from memory to a checker that looks on disk for it.
+#[cfg(not(target_arch = "wasm32"))]
+mod overlay;
+
 const PROJECT_ROOT: &str = "/";
 const USER_FILE: &str = "/user.py";
 /// Where the modules a session started from go. A root of their own, on the
@@ -519,6 +528,93 @@ fn print_repl_diagnostics(diagnostics: &[Placed], new_input_lines: &[&str], use_
         eprintln!("Found {error_count} error{s}.");
     }
 }
+/// Type-check a Python file: validates the path, builds the ty database,
+/// runs the annotation checker, then runs ty's type checker.
+///
+/// Returns the first-party files it imports, each a path relative to its own
+/// directory and its text, for a REPL that has to keep checking against them.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, SpythonError> {
+    use ruff_db::diagnostic::Severity;
+
+    let abs_file = dunce::canonicalize(file).map_err(|err| SpythonError::FileRead {
+        path: file.to_path_buf(),
+        err,
+    })?;
+    if !abs_file.is_file() {
+        return Err(SpythonError::PathIsNotAFile {
+            path: file.to_path_buf(),
+        });
+    }
+
+    let abs_sys = SystemPathBuf::from_path_buf(abs_file)
+        .map_err(|path| SpythonError::NonUtf8Path { path })?;
+    // The file's own directory, not the process's: `import helpers` looks
+    // beside the file that wrote it, which is also where the interpreter
+    // looks when it runs (`sys.path[0]`). Rooting the check anywhere else
+    // makes `spython test dir/main.py` disagree with `cd dir` for no reason
+    // the student can see.
+    let root = abs_sys.parent().unwrap_or(&abs_sys).to_path_buf();
+    let mut db = build_db(root.as_std_path())?;
+    let main_file =
+        system_path_to_file(&db, &abs_sys).map_err(|e| SpythonError::Database(e.to_string()))?;
+
+    let mut files = HashSet::new();
+    files.insert(main_file);
+    collect_import_files(&db, main_file, &mut files);
+
+    let sys_files: Vec<SystemPathBuf> = files
+        .iter()
+        .filter_map(|f| f.path(&db).as_system_path().map(|p| p.to_path_buf()))
+        .collect();
+    db.project().set_included_paths(&mut db, sys_files);
+
+    let mut diagnostics = annotation_check(&db, level, false);
+    diagnostics.extend(db.check());
+    // Validate and type-check doctests inside each user file's docstrings.
+    // Sort to stabilize diagnostic order across platforms — `files` is a
+    // `HashSet`, whose iteration order varies.
+    let mut user_files: Vec<_> = files
+        .iter()
+        .copied()
+        .filter(|f| {
+            !f.path(&db)
+                .as_system_path()
+                .is_some_and(spython_lib::is_lib_path)
+        })
+        .collect();
+    user_files.sort_by_key(|f| f.path(&db).as_str().to_owned());
+    for f in &user_files {
+        diagnostics.extend(check_file_doctests(&db, *f, level));
+    }
+    // An error stops the file; a warning is printed and the file goes on. The
+    // in-memory check the page runs has always drawn the line here, and this is
+    // where the one over the filesystem draws it too.
+    if diagnostics.iter().any(|d| d.severity() == Severity::Error) {
+        return Err(SpythonError::TypeErrors(Box::new(TypeErrors {
+            db,
+            diagnostics,
+        })));
+    }
+    if !diagnostics.is_empty() {
+        print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
+    }
+
+    Ok(modules_beside(&db, main_file, user_files))
+}
+
+/// Build a ty ProjectDatabase for the given file.
+#[cfg(not(target_arch = "wasm32"))]
+fn build_db(cwd: &Path) -> Result<ProjectDatabase, SpythonError> {
+    let cwd_sys = SystemPathBuf::from_path_buf(cwd.to_path_buf())
+        .map_err(|path| SpythonError::NonUtf8Path { path })?;
+
+    let (system, lib_root) = overlay::OverlaySystem::new(&cwd_sys);
+    let metadata = make_project_metadata(cwd_sys, vec![lib_root]);
+
+    ProjectDatabase::fallible(metadata, system).map_err(|e| SpythonError::Database(e.to_string()))
+}
+
 #[cfg(test)]
 mod repl_check_tests {
     use super::*;

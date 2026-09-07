@@ -27,7 +27,7 @@ fn synthetic_lib_root() -> SystemPathBuf {
     let p = cache_root.join("__spython_embedded__");
     SystemPathBuf::from_path_buf(p)
         .unwrap_or_else(|_| SystemPathBuf::from("/__spython_embedded__"))
-        .join(engine::spython_lib::LIB_DIR)
+        .join(crate::spython_lib::LIB_DIR)
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +56,7 @@ impl OverlaySystem {
         // at the call site as unresolved-import, which is louder than a
         // silent miscompile.
         let _ = mem.create_directory_all(&pkg_dir);
-        for (name, content) in engine::spython_lib::FILES {
+        for (name, content) in crate::spython_lib::FILES {
             let _ = mem.write_file(pkg_dir.join(name), content);
         }
         let system = Self {
