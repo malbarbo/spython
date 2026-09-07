@@ -16,6 +16,9 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 [features]
 capture = []
 
+[lints]
+workspace = true
+
 [dependencies]
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
 ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }

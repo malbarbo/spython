@@ -14,5 +14,8 @@ crate-type = ["cdylib"]
 # the identically-named feature on the `cli` crate.
 wasm-backend = []
 
+[lints]
+workspace = true
+
 [dependencies]
 engine = { path = "../engine" }
