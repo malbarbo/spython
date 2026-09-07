@@ -3,17 +3,19 @@ compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm inst
 
 use bpaf::{Bpaf, Parser};
 mod config;
-mod repl;
+mod repl_reader;
 
-use repl::Theme;
+use repl_reader::{ReplReader, Theme};
 
+use engine::shell::welcome_message;
 use engine::{
-    BUILD_DATE, GIT_HASH, LIBS_VERSION, Level, Repl, SpythonError, VERSION, check, format_source,
-    read_file, run, show_error,
+    Level, Repl, Shell, SpythonError, Status, check, format_source, read_file, run, show_error,
 };
+use std::cell::{Cell, RefCell};
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::rc::Rc;
 use walkdir::WalkDir;
 
 /// Teaching level (0-5)
@@ -143,7 +145,7 @@ fn main() -> ExitCode {
                 },
                 None => cfg.level,
             };
-            start_repl(file.as_deref(), l, cfg.theme)
+            run_interactive(file.as_deref(), l, cfg.theme)
         }
         Command::Run { file, level } => match parse_level(level) {
             Some(l) => run::run_main(&file, l),
@@ -177,7 +179,7 @@ fn main() -> ExitCode {
 ///
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
-fn start_repl(file: Option<&Path>, level: Level, theme: Theme) -> Result<(), SpythonError> {
+fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<(), SpythonError> {
     // The file is read and checked before the session opens, so that a file
     // the checker turns down leaves no banner behind.
     let preload = match file {
@@ -195,11 +197,7 @@ fn start_repl(file: Option<&Path>, level: Level, theme: Theme) -> Result<(), Spy
         None => None,
     };
 
-    println!(
-        "spython level {level} - {VERSION} ({BUILD_DATE}, {GIT_HASH})\n\
-         Using {LIBS_VERSION}.\n\
-         Type :help for commands, :quit or ctrl-d to exit."
-    );
+    print!("{}", welcome_message(level));
 
     // A terminal is what wants the colour; a redirected stderr keeps the
     // codes out of the file it is being read into.
@@ -210,9 +208,74 @@ fn start_repl(file: Option<&Path>, level: Level, theme: Theme) -> Result<(), Spy
         return Err(SpythonError::ProgramFailed);
     }
 
-    match repl::run_repl(repl, theme) {
+    let theme = Rc::new(Cell::new(theme));
+    let mut shell = Shell::new(repl);
+    shell.add(
+        ":level",
+        Some("[0-5]"),
+        "Show or change the teaching level (0-5)",
+        level_action(Rc::clone(&theme)),
+    );
+    shell.add(
+        ":theme",
+        Some("[light|dark]"),
+        "Show or change the theme",
+        theme_action(Rc::clone(&theme)),
+    );
+    let commands = shell.command_names();
+    let shell = Rc::new(RefCell::new(shell));
+
+    let reader = ReplReader::new(Rc::clone(&shell), commands, theme)
+        .map_err(|err| SpythonError::Other(Box::new(err)))?;
+    for input in reader {
+        if shell.borrow_mut().run(&input) == Status::Quit {
+            break;
+        }
+    }
+
+    match shell.borrow().repl().exit_status() {
         None | Some(0) => Ok(()),
         Some(_) => Err(SpythonError::ProgramFailed),
+    }
+}
+
+/// `:level` on its own says which level the REPL is on; with a number it moves
+/// to that level, which everything that has already run has to survive.
+fn level_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
+    move |repl, arg| {
+        if arg.is_empty() {
+            println!("level {}", repl.level());
+            return Ok(());
+        }
+        let Some(level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
+            return Err("Invalid level: must be 0-5".to_owned());
+        };
+        if !repl.set_level(level) {
+            return Err(format!(
+                "Cannot change to level {level}: \
+                 accumulated source has errors at that level."
+            ));
+        }
+        println!("level {level}");
+        config::save(level, theme.get());
+        Ok(())
+    }
+}
+
+/// `:theme` on its own says which theme is on; with a name it switches to it.
+fn theme_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
+    move |repl, arg| {
+        if arg.is_empty() {
+            println!("{}", theme.get().name());
+            return Ok(());
+        }
+        let Some(chosen) = Theme::parse(arg) else {
+            return Err("Invalid theme: use 'light' or 'dark'".to_owned());
+        };
+        theme.set(chosen);
+        println!("{}", chosen.name());
+        config::save(repl.level(), chosen);
+        Ok(())
     }
 }
 

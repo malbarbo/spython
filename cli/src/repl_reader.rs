@@ -1,109 +1,145 @@
+//! The line the terminal reads, and the colours it draws it in.
+
 use std::cell::{Cell, RefCell};
+use std::io::IsTerminal as _;
+use std::path::PathBuf;
 use std::rc::Rc;
 
+use engine::Shell;
 use engine::completion::{PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use engine::input::INDENT;
-use engine::{Level, Repl, Shell, Status};
 use rustyline::{
-    Cmd, CompletionType, Config, Context, Editor, Event, EventHandler, KeyCode, KeyEvent,
-    Modifiers,
+    Cmd, CompletionType, ConditionalEventHandler, Config, Context, Editor, EventContext,
+    EventHandler, KeyCode, KeyEvent, Modifiers, Movement, RepeatCount,
     completion::Completer,
+    error::ReadlineError,
     highlight::Highlighter,
     hint::Hinter,
+    history::FileHistory,
     validate::{ValidationContext, ValidationResult, Validator},
 };
 
-// ── Prompt ───────────────────────────────────────────────────────────
+const HISTORY_DIR: &str = "spython";
+const HISTORY_FILE: &str = "history";
 
-struct ReplPrompt {
-    ps1: String,
-    ps2: String,
+pub struct ReplReader {
+    // `next` takes the editor to read and gives it back, except on the read
+    // that ends the session, which is how the iteration stops.
+    editor: Option<Editor<InputHelper, FileHistory>>,
 }
+
+impl ReplReader {
+    pub fn new(
+        shell: Rc<RefCell<Shell>>,
+        commands: Vec<(&'static str, bool)>,
+        theme: Rc<Cell<Theme>>,
+    ) -> rustyline::Result<ReplReader> {
+        let mut editor = Editor::with_config(
+            Config::builder()
+                .completion_type(CompletionType::List)
+                .tab_stop(INDENT as u8)
+                .bracketed_paste(false)
+                .build(),
+        )?;
+
+        let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+        editor.set_helper(Some(InputHelper {
+            shell,
+            commands,
+            pending: RefCell::new(String::new()),
+            color,
+            theme,
+        }));
+
+        // Enter and Backspace move by a level of indentation, and the two
+        // control characters the terminal may send instead of them do too.
+        for key in [
+            KeyEvent(KeyCode::Enter, Modifiers::NONE),
+            KeyEvent(KeyCode::Char('M'), Modifiers::CTRL),
+            KeyEvent(KeyCode::Char('J'), Modifiers::CTRL),
+        ] {
+            editor.bind_sequence(key, EventHandler::Conditional(Box::new(AutoIndentHandler)));
+        }
+        for key in [
+            KeyEvent(KeyCode::Backspace, Modifiers::NONE),
+            KeyEvent(KeyCode::Char('H'), Modifiers::CTRL),
+        ] {
+            editor.bind_sequence(key, EventHandler::Conditional(Box::new(SmartBackspace)));
+        }
+
+        if let Some(history) = &history_path() {
+            let _ = editor.load_history(history);
+        }
+
+        Ok(ReplReader {
+            editor: Some(editor),
+        })
+    }
+}
+
+struct ReplPrompt;
 
 impl rustyline::Prompt for ReplPrompt {
     fn raw(&self) -> &str {
-        &self.ps1
+        ">>> "
     }
 
     fn continuation_raw(&self) -> &str {
-        &self.ps2
+        "... "
     }
 }
 
-// ── Smart keys (auto-indent / smart backspace) ──────────────────────
+impl Iterator for ReplReader {
+    type Item = String;
 
-struct SmartKeys;
+    fn next(&mut self) -> Option<String> {
+        let mut editor = self.editor.take()?;
 
-enum KeyKind {
-    Enter,
-    Backspace,
-    Other,
-}
-
-impl SmartKeys {
-    fn key_kind(evt: &Event) -> KeyKind {
-        let Some(k) = evt.get(0) else {
-            return KeyKind::Other;
-        };
-        match k {
-            KeyEvent(KeyCode::Enter, _) | KeyEvent(KeyCode::Char('M' | 'J'), Modifiers::CTRL) => {
-                KeyKind::Enter
+        match editor.readline(&ReplPrompt) {
+            Ok(input) => {
+                let _ = editor.add_history_entry(input.trim_end());
+                self.editor = Some(editor);
+                Some(input)
             }
-            KeyEvent(KeyCode::Backspace, _) | KeyEvent(KeyCode::Char('H'), Modifiers::CTRL) => {
-                KeyKind::Backspace
+            Err(ReadlineError::Interrupted) => {
+                // Ctrl-C throws the input away, so nothing stays pending.
+                take_pending(&editor);
+                eprintln!("KeyboardInterrupt");
+                self.editor = Some(editor);
+                Some(String::new())
             }
-            _ => KeyKind::Other,
-        }
-    }
-}
-
-/// What Enter does with the input as it stands: `None` accepts it, and
-/// `Some(indent)` opens a line that far in.
-///
-/// Where the cursor is is part of the question, and the engine answers all of
-/// it: the prompt in the browser asks the same thing through `repl_ready`, so
-/// the two read the key the same way.
-fn enter_action(line: &str, pos: usize) -> Option<usize> {
-    match engine::shell::ready_state(line, pos) {
-        -1 => None,
-        indent => Some(usize::try_from(indent).unwrap_or(0)),
-    }
-}
-
-impl rustyline::ConditionalEventHandler for SmartKeys {
-    fn handle(
-        &self,
-        evt: &Event,
-        _n: rustyline::RepeatCount,
-        _positive: bool,
-        ctx: &rustyline::EventContext<'_>,
-    ) -> Option<Cmd> {
-        match Self::key_kind(evt) {
-            KeyKind::Enter => enter_action(ctx.line(), ctx.pos())
-                .map(|indent| Cmd::Insert(1, format!("\n{:indent$}", ""))),
-            KeyKind::Backspace => {
-                let before = &ctx.line()[..ctx.pos()];
-                let current_line = &before[before.rfind('\n').map_or(0, |i| i + 1)..];
-                if current_line.len() > 1 && current_line.bytes().all(|b| b == b' ') {
-                    let spaces = current_line.len();
-                    let remove = if spaces.is_multiple_of(INDENT) {
-                        INDENT
-                    } else {
-                        spaces % INDENT
-                    };
-                    Some(Cmd::Kill(rustyline::Movement::BackwardChar(remove as u16)))
-                } else {
-                    None
+            Err(err) => {
+                if !matches!(err, ReadlineError::Eof) {
+                    eprintln!("Readline error: {err:?}");
                 }
+                if let Some(history) = &history_path() {
+                    let _ = editor.save_history(history);
+                }
+                // An input that the file cut off still runs, as the user
+                // wants to read what is wrong with it.
+                let pending = take_pending(&editor);
+                (!pending.trim().is_empty()).then_some(pending)
             }
-            KeyKind::Other => None,
         }
     }
 }
 
-// ── Helper (completion, highlighting, validation) ─────────────
+fn take_pending(editor: &Editor<InputHelper, FileHistory>) -> String {
+    editor
+        .helper()
+        .map_or_else(String::new, |helper| helper.pending.take())
+}
 
-struct ReplHelper {
+fn history_path() -> Option<PathBuf> {
+    dirs::data_dir().map(|mut p| {
+        p.push(HISTORY_DIR);
+        let _ = std::fs::create_dir_all(&p);
+        p.push(HISTORY_FILE);
+        p
+    })
+}
+
+struct InputHelper {
     /// The shell, which completes a name with the interpreter the repl owns.
     /// The editor holds it only while it is drawing a line, and the loop only
     /// while it is running one, so the two never ask for it at once.
@@ -114,12 +150,14 @@ struct ReplHelper {
     /// it; an input that runs out is run anyway, so the user is shown what is
     /// wrong with it instead of nothing at all.
     pending: RefCell<String>,
+    /// Whether the terminal takes colour.
+    color: bool,
     /// The theme the colours come from, which `:theme` writes and the next
     /// line the editor draws reads.
     theme: Rc<Cell<Theme>>,
 }
 
-impl Completer for ReplHelper {
+impl Completer for InputHelper {
     type Candidate = String;
 
     fn complete(
@@ -136,13 +174,13 @@ impl Completer for ReplHelper {
     }
 }
 
-impl Hinter for ReplHelper {
+impl Hinter for InputHelper {
     type Hint = String;
 }
 
-impl Highlighter for ReplHelper {
+impl Highlighter for InputHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> std::borrow::Cow<'l, str> {
-        if line.is_empty() {
+        if !self.color || line.is_empty() {
             return std::borrow::Cow::Borrowed(line);
         }
         std::borrow::Cow::Owned(highlight_python(
@@ -157,6 +195,9 @@ impl Highlighter for ReplHelper {
         prompt: &'p str,
         _default: bool,
     ) -> std::borrow::Cow<'b, str> {
+        if !self.color {
+            return std::borrow::Cow::Borrowed(prompt);
+        }
         let t = self.theme.get().palette();
         std::borrow::Cow::Owned(format!("{}{prompt}{RESET}", t.prompt))
     }
@@ -167,11 +208,11 @@ impl Highlighter for ReplHelper {
         _pos: usize,
         _forced: rustyline::highlight::CmdKind,
     ) -> bool {
-        true
+        self.color
     }
 }
 
-impl Validator for ReplHelper {
+impl Validator for InputHelper {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
         if engine::shell::ready_state(ctx.input(), ctx.input().len()) < 0 {
             self.pending.borrow_mut().clear();
@@ -183,12 +224,64 @@ impl Validator for ReplHelper {
     }
 }
 
-fn take_pending(repl: &Editor<ReplHelper, rustyline::history::DefaultHistory>) -> String {
-    repl.helper()
-        .map_or_else(String::new, |helper| helper.pending.take())
+impl rustyline::Helper for InputHelper {}
+
+/// What Enter does with the input as it stands: `None` accepts it, and
+/// `Some(indent)` opens a line that far in.
+///
+/// Where the cursor is is part of the question, and the engine answers all of
+/// it: the prompt in the browser asks the same thing through `repl_ready`, so
+/// the two read the key the same way.
+fn enter_action(line: &str, pos: usize) -> Option<usize> {
+    match engine::shell::ready_state(line, pos) {
+        -1 => None,
+        indent => Some(usize::try_from(indent).unwrap_or(0)),
+    }
 }
 
-impl rustyline::Helper for ReplHelper {}
+/// Enter: a line accepted, or a line opened at the caret.
+struct AutoIndentHandler;
+
+impl ConditionalEventHandler for AutoIndentHandler {
+    fn handle(
+        &self,
+        _evt: &rustyline::Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
+        enter_action(ctx.line(), ctx.pos())
+            .map(|indent| Cmd::Insert(1, format!("\n{:indent$}", "")))
+    }
+}
+
+/// Backspace takes back a whole level of indentation on a line with only
+/// spaces before the caret.
+struct SmartBackspace;
+
+impl ConditionalEventHandler for SmartBackspace {
+    fn handle(
+        &self,
+        _evt: &rustyline::Event,
+        _n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext,
+    ) -> Option<Cmd> {
+        let before = &ctx.line()[..ctx.pos()];
+        let current_line = &before[before.rfind('\n').map_or(0, |i| i + 1)..];
+        if current_line.len() > 1 && current_line.bytes().all(|b| b == b' ') {
+            let spaces = current_line.len();
+            let remove = if spaces.is_multiple_of(INDENT) {
+                INDENT
+            } else {
+                spaces % INDENT
+            };
+            Some(Cmd::Kill(Movement::BackwardChar(remove as u16)))
+        } else {
+            None
+        }
+    }
+}
 
 // ── Syntax highlighting ─────────────────────────────────────────────
 
@@ -580,131 +673,6 @@ fn is_python_builtin(word: &str) -> bool {
 }
 
 // ── REPL entry point ────────────────────────────────────────────────
-
-/// `:level` on its own says which level the REPL is on; with a number it moves
-/// to that level, which everything that has already run has to survive.
-fn level_command(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
-    move |repl, arg| {
-        if arg.is_empty() {
-            println!("level {}", repl.level());
-            return Ok(());
-        }
-        let Some(level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
-            return Err("Invalid level: must be 0-5".to_owned());
-        };
-        if !repl.set_level(level) {
-            return Err(format!(
-                "Cannot change to level {level}: \
-                 accumulated source has errors at that level."
-            ));
-        }
-        println!("level {level}");
-        crate::config::save(level, theme.get());
-        Ok(())
-    }
-}
-
-/// `:theme` on its own says which theme is on; with a name it switches to it.
-fn theme_command(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
-    move |repl, arg| {
-        if arg.is_empty() {
-            println!("{}", theme.get().name());
-            return Ok(());
-        }
-        let Some(chosen) = Theme::parse(arg) else {
-            return Err("Invalid theme: use 'light' or 'dark'".to_owned());
-        };
-        theme.set(chosen);
-        println!("{}", chosen.name());
-        crate::config::save(repl.level(), chosen);
-        Ok(())
-    }
-}
-
-/// Run the terminal REPL until the user leaves it, over a session that has
-/// already run whatever file it started from.
-pub fn run_repl(repl: Repl, theme: Theme) -> Option<u32> {
-    let theme = Rc::new(Cell::new(theme));
-    let mut shell = Shell::new(repl);
-    shell.add(
-        ":level",
-        Some("[0-5]"),
-        "Show or change the teaching level (0-5)",
-        level_command(Rc::clone(&theme)),
-    );
-    shell.add(
-        ":theme",
-        Some("[light|dark]"),
-        "Show or change theme (light, dark)",
-        theme_command(Rc::clone(&theme)),
-    );
-    let commands = shell.command_names();
-    let shell = Rc::new(RefCell::new(shell));
-
-    let repl_history_path = match dirs::data_dir() {
-        Some(mut path) => {
-            path.push("spython");
-            let _ = std::fs::create_dir_all(&path);
-            path.push("history");
-            path
-        }
-        None => ".spython_history".into(),
-    };
-
-    let mut editor = Editor::with_config(
-        Config::builder()
-            .completion_type(CompletionType::List)
-            .tab_stop(4)
-            .bracketed_paste(false)
-            .build(),
-    )
-    .expect("failed to initialize line editor");
-
-    editor.set_helper(Some(ReplHelper {
-        shell: Rc::clone(&shell),
-        commands,
-        pending: RefCell::new(String::new()),
-        theme: Rc::clone(&theme),
-    }));
-    editor.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
-    let _ = editor.load_history(&repl_history_path);
-
-    let prompt = ReplPrompt {
-        ps1: ">>> ".to_owned(),
-        ps2: "... ".to_owned(),
-    };
-
-    loop {
-        let line = match editor.readline(&prompt) {
-            Ok(line) => line,
-            Err(rustyline::error::ReadlineError::Interrupted) => {
-                let _ = take_pending(&editor);
-                eprintln!("KeyboardInterrupt");
-                continue;
-            }
-            Err(rustyline::error::ReadlineError::Eof) => {
-                // An input the file ended in the middle of is still an
-                // input: run it and let the error speak.
-                let pending = take_pending(&editor);
-                if pending.trim().is_empty() {
-                    break;
-                }
-                pending
-            }
-            Err(err) => {
-                eprintln!("Readline error: {err:?}");
-                break;
-            }
-        };
-        let _ = editor.add_history_entry(line.trim_end());
-
-        if shell.borrow_mut().run(&line) == Status::Quit {
-            break;
-        }
-    }
-    let _ = editor.save_history(&repl_history_path);
-    shell.borrow().repl().exit_status()
-}
 
 #[cfg(test)]
 mod tests {

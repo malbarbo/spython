@@ -1,4 +1,4 @@
-use crate::repl::Theme;
+use crate::repl_reader::Theme;
 use engine::Level;
 use std::fs;
 use std::path::PathBuf;

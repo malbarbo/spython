@@ -2,8 +2,18 @@
 
 use std::time::Duration;
 
+use crate::Level;
 use crate::completion::TabAction;
 use crate::repl::{Failed, Repl};
+
+/// What the terminal says when the session opens. The level is written the
+/// way `:level` writes it, so the two agree.
+pub fn welcome_message(level: Level) -> String {
+    format!(
+        "Welcome to {}, level {level}.\nType ctrl-d or \":quit\" to exit.\n",
+        crate::version()
+    )
+}
 
 /// What became of an input. `repl_run` answers with these numbers.
 #[repr(u32)]
