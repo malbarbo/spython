@@ -9,6 +9,32 @@ fn normalize_output(s: &str) -> String {
     s.replace('\r', "").replace('\\', "/")
 }
 
+/// Run a command that reads its stdin, and answer with what it wrote and
+/// whether it was happy. Everything that drives the REPL or `format` over a
+/// pipe comes through here.
+fn run_with_stdin(command: &mut Command, input: &[u8]) -> (String, String, bool) {
+    use std::io::Write as _;
+    let output = command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .take()
+                .expect("the child stdin is a pipe")
+                .write_all(input)?;
+            child.wait_with_output()
+        })
+        .expect("failed to run spython");
+    (
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        normalize_output(&String::from_utf8_lossy(&output.stderr)),
+        output.status.success(),
+    )
+}
+
 /// Run `spython <args>` with the given cwd. Used by helpers that can be
 /// dual-checked against the WASM backend. When the `wasm-backend` feature is
 /// enabled, also runs the Deno wrapper with the same args and asserts that
@@ -169,23 +195,9 @@ fn bare_file_shorthand_after_dashdash() {
 fn bare_level_starts_repl() {
     // `spython -l N` with no file or subcommand starts the REPL at level N
     // (the level flag is routed into an injected `repl`).
-    use std::io::Write;
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .args(["-l", "2"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            child
-                .stdin
-                .take()
-                .expect("the child stdin is a pipe")
-                .write_all(b":quit\n")?;
-            child.wait_with_output()
-        })
-        .expect("failed to run spython -l 2");
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    command.args(["-l", "2"]);
+    let (stdout, _, _) = run_with_stdin(&mut command, b":quit\n");
     assert!(
         stdout.contains("level 2 - User types"),
         "banner should report level 2, got: {stdout}"
@@ -2315,28 +2327,9 @@ fn file_in(dir: &Path, name: &str) -> String {
 /// Run `spython format <args>` over stdin, which is where it reads from when
 /// no path names a file.
 fn run_format_stdin(args: &[&str], input: &str) -> (String, String, bool) {
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .arg("format")
-        .args(args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child
-                .stdin
-                .take()
-                .expect("the child stdin is a pipe")
-                .write_all(input.as_bytes())?;
-            child.wait_with_output()
-        })
-        .expect("failed to run spython format");
-    (
-        normalize_output(&String::from_utf8_lossy(&output.stdout)),
-        normalize_output(&String::from_utf8_lossy(&output.stderr)),
-        output.status.success(),
-    )
+    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    command.arg("format").args(args);
+    run_with_stdin(&mut command, input.as_bytes())
 }
 
 #[test]
@@ -2463,33 +2456,17 @@ fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, Strin
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let output = command
-        .args(args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child
-                .stdin
-                .take()
-                .expect("the child stdin is a pipe")
-                .write_all(input.as_bytes())?;
-            child.wait_with_output()
-        })
-        .expect("failed to run spython repl");
-    let stdout = normalize_output(&String::from_utf8_lossy(&output.stdout));
+    command.args(args);
+    let (stdout, stderr, success) = run_with_stdin(&mut command, input.as_bytes());
     // Strip the welcome banner (two lines: "Welcome to..." and "Type ctrl-d...")
     let stdout = match stdout.find("to exit.\n") {
         Some(pos) => stdout[pos + "to exit.\n".len()..].to_owned(),
         None => stdout,
     };
-    let stdout = stdout.replace(">>> ", "").replace("... ", "");
     (
-        stdout,
-        normalize_output(&String::from_utf8_lossy(&output.stderr)),
-        output.status.success(),
+        stdout.replace(">>> ", "").replace("... ", ""),
+        stderr,
+        success,
     )
 }
 
@@ -2503,24 +2480,10 @@ fn the_repl_keeps_the_history_of_a_session_that_quit() {
     let data = std::env::temp_dir().join(format!("_spython_history_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     std::fs::create_dir_all(&data).expect("create the data directory");
-    let output = Command::new(cargo::cargo_bin!("spython"))
-        .arg("repl")
-        .env("XDG_DATA_HOME", &data)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child
-                .stdin
-                .take()
-                .expect("the child stdin is a pipe")
-                .write_all(b"x = 1\n:quit\n")?;
-            child.wait_with_output()
-        })
-        .expect("failed to run spython repl");
-    assert!(output.status.success());
+    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    command.arg("repl").env("XDG_DATA_HOME", &data);
+    let (_, err, success) = run_with_stdin(&mut command, b"x = 1\n:quit\n");
+    assert!(success, "stderr: {err}");
     let history = std::fs::read_to_string(data.join("spython").join("history"))
         .expect("read the history the session left");
     assert!(history.contains("x = 1"), "history: {history}");
