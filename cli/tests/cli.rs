@@ -35,6 +35,25 @@ fn run_with_stdin(command: &mut Command, input: &[u8]) -> (String, String, bool)
     )
 }
 
+/// A directory of its own holding `files`, for a test that needs them on a
+/// filesystem. The pid keeps two concurrent runs apart, and the removal keeps
+/// a directory a panicking test left behind from seeding this one.
+fn new_dir_with(prefix: &str, files: &[(&str, &str)]) -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("_spython_{prefix}_{}_{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create the test directory");
+    for (name, source) in files {
+        let path = dir.join(name);
+        let parent = path.parent().expect("the file is under the directory");
+        std::fs::create_dir_all(parent).expect("create the test directory");
+        std::fs::write(&path, source).expect("write the test file");
+    }
+    dir
+}
+
 /// Run `spython <args>` with the given cwd. Used by helpers that can be
 /// dual-checked against the WASM backend. When the `wasm-backend` feature is
 /// enabled, also runs the Deno wrapper with the same args and asserts that
@@ -2302,24 +2321,6 @@ fn level5_allows_strenum_without_annotations() {
 const UNFORMATTED: &str = "def f( x ):\n  return   x+1\n";
 const FORMATTED: &str = "def f(x):\n    return x + 1\n";
 
-/// A directory of its own, holding `files`, for a test that formats what it
-/// finds there. The pid keeps two concurrent runs apart, and the removal keeps
-/// a directory a panicking test left behind from seeding this one.
-fn new_format_dir(files: &[(&str, &str)]) -> PathBuf {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("_spython_format_{}_{n}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    for (name, source) in files {
-        let path = dir.join(name);
-        let parent = path.parent().expect("the file is under the directory");
-        std::fs::create_dir_all(parent).expect("create the test directory");
-        std::fs::write(&path, source).expect("write the test file");
-    }
-    dir
-}
-
 fn file_in(dir: &Path, name: &str) -> String {
     std::fs::read_to_string(dir.join(name)).expect("read the formatted file")
 }
@@ -2334,7 +2335,7 @@ fn run_format_stdin(args: &[&str], input: &str) -> (String, String, bool) {
 
 #[test]
 fn format_writes_the_file() {
-    let dir = new_format_dir(&[("a.py", UNFORMATTED)]);
+    let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
     let (out, err, success) = run_spython_native(&["format", "a.py"], &dir);
     assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(file_in(&dir, "a.py"), FORMATTED);
@@ -2343,7 +2344,10 @@ fn format_writes_the_file() {
 
 #[test]
 fn format_recurses_into_directories() {
-    let dir = new_format_dir(&[("sub/a.py", UNFORMATTED), ("sub/b.txt", UNFORMATTED)]);
+    let dir = new_dir_with(
+        "format",
+        &[("sub/a.py", UNFORMATTED), ("sub/b.txt", UNFORMATTED)],
+    );
     let (out, err, success) = run_spython_native(&["format", "."], &dir);
     assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(file_in(&dir, "sub/a.py"), FORMATTED);
@@ -2355,7 +2359,7 @@ fn format_recurses_into_directories() {
 
 #[test]
 fn format_check_names_the_file_and_leaves_it_alone() {
-    let dir = new_format_dir(&[("a.py", UNFORMATTED)]);
+    let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
     let (_, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
     assert!(!success, "stderr: {err}");
     assert!(err.contains("'a.py' is not formatted"), "stderr: {err}");
@@ -2365,7 +2369,7 @@ fn format_check_names_the_file_and_leaves_it_alone() {
 
 #[test]
 fn format_check_passes_on_a_formatted_file() {
-    let dir = new_format_dir(&[("a.py", FORMATTED)]);
+    let dir = new_dir_with("format", &[("a.py", FORMATTED)]);
     let (out, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
     assert!(success, "stdout: {out}\nstderr: {err}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -2373,7 +2377,10 @@ fn format_check_passes_on_a_formatted_file() {
 
 #[test]
 fn format_fails_on_a_file_it_cannot_parse() {
-    let dir = new_format_dir(&[("bad.py", "def f(:\n"), ("good.py", UNFORMATTED)]);
+    let dir = new_dir_with(
+        "format",
+        &[("bad.py", "def f(:\n"), ("good.py", UNFORMATTED)],
+    );
     for args in [&["format", "."][..], &["format", "--check", "."][..]] {
         let (_, err, success) = run_spython_native(args, &dir);
         assert!(!success, "{args:?}: {err}");
@@ -2419,22 +2426,7 @@ fn run_repl_after_file(input: &str, level: u8, source: &str) -> (String, String,
 /// Write `files` into a directory of their own and start the REPL on the
 /// first of them, so a file that imports its neighbours can be tested.
 fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (String, String, bool) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    // The pid keeps two concurrent runs apart, and the removal keeps a
-    // directory a panicking test left behind from seeding this one.
-    let dir =
-        std::env::temp_dir().join(format!("_spython_repl_preload_{}_{n}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create the test directory");
-    for (name, source) in files {
-        let path = dir.join(name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create the test directory");
-        }
-        std::fs::write(&path, source).expect("write the test file");
-    }
+    let dir = new_dir_with("repl_preload", files);
     // From the directory the files are in, which is where ty looks for the
     // ones a file imports.
     let result = run_repl_in(
