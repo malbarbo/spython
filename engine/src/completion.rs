@@ -167,7 +167,7 @@ fn get_available_completions<'a>(
     globals: &PyDictRef,
     words: &'a [String],
 ) -> Option<(&'a str, impl Iterator<Item = PyResult<PyStrRef>> + 'a)> {
-    let (first, rest) = words.split_first().unwrap();
+    let (first, rest) = words.split_first()?;
 
     let str_iter_method = |obj, name| {
         let iter = vm.call_special_method(obj, name, ())?;
@@ -206,6 +206,8 @@ fn reverse_string(s: &mut String) {
 }
 
 fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
+    // `words` starts with one word and only ever grows, so it always has a last.
+    const NON_EMPTY: &str = "words always has a last word";
     let mut words = vec![String::new()];
     let mut startpos = 0;
     for (char_count, (byte_offset, c)) in line.char_indices().rev().enumerate() {
@@ -214,16 +216,18 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
                 if char_count != 0 && words.last().is_some_and(|s| s.is_empty()) {
                     return None;
                 }
-                reverse_string(words.last_mut().unwrap());
+                reverse_string(words.last_mut().expect(NON_EMPTY));
                 if words.len() == 1 {
                     startpos = byte_offset + c.len_utf8();
                 }
                 words.push(String::new());
             }
-            c if c.is_alphanumeric() || c == '_' => words.last_mut().unwrap().push(c),
+            c if c.is_alphanumeric() || c == '_' => {
+                words.last_mut().expect(NON_EMPTY).push(c);
+            }
             _ => {
                 if words.len() == 1 {
-                    if words.last().unwrap().is_empty() {
+                    if words.last().expect(NON_EMPTY).is_empty() {
                         return None;
                     }
                     startpos = byte_offset + c.len_utf8();
@@ -232,10 +236,10 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
             }
         }
     }
-    if words.len() == 1 && words[0].is_empty() {
+    if words.len() == 1 && words.last().expect(NON_EMPTY).is_empty() {
         return None;
     }
-    reverse_string(words.last_mut().unwrap());
+    reverse_string(words.last_mut().expect(NON_EMPTY));
     words.reverse();
 
     Some((startpos, words))
@@ -260,7 +264,7 @@ mod tests {
     fn with_vm(f: impl FnOnce(&VirtualMachine, &PyDictRef)) {
         let interp = crate::new_interpreter();
         interp.enter(|vm| {
-            let scope = vm.new_scope_with_main().unwrap();
+            let scope = vm.new_scope_with_main().expect("a fresh __main__ scope");
             f(vm, &scope.globals);
         });
     }
@@ -268,7 +272,7 @@ mod tests {
     #[test]
     fn complete_builtin_name() {
         with_vm(|vm, globals| {
-            let (start, candidates) = complete(vm, globals, "pri").unwrap();
+            let (start, candidates) = complete(vm, globals, "pri").expect("a completion for pri");
             assert_eq!(start, 0);
             assert!(candidates.contains(&"print".to_owned()));
         });
@@ -278,7 +282,7 @@ mod tests {
     fn complete_keyword() {
         with_vm(|vm, globals| {
             // A name follows `def`, so the space that opens it comes along.
-            let (start, candidates) = complete(vm, globals, "de").unwrap();
+            let (start, candidates) = complete(vm, globals, "de").expect("a completion for de");
             assert_eq!(start, 0);
             assert!(candidates.contains(&"def ".to_owned()));
         });
@@ -287,7 +291,7 @@ mod tests {
     #[test]
     fn complete_keyword_for() {
         with_vm(|vm, globals| {
-            let (start, candidates) = complete(vm, globals, "fo").unwrap();
+            let (start, candidates) = complete(vm, globals, "fo").expect("a completion for fo");
             assert_eq!(start, 0);
             assert!(candidates.contains(&"for ".to_owned()));
         });
@@ -298,11 +302,11 @@ mod tests {
         with_vm(|vm, globals| {
             // `return` and `pass` can be the whole line, and `else` takes a
             // colon, which no space goes in front of.
-            let (_, candidates) = complete(vm, globals, "ret").unwrap();
+            let (_, candidates) = complete(vm, globals, "ret").expect("a completion for ret");
             assert!(candidates.contains(&"return".to_owned()));
-            let (_, candidates) = complete(vm, globals, "pas").unwrap();
+            let (_, candidates) = complete(vm, globals, "pas").expect("a completion for pas");
             assert!(candidates.contains(&"pass".to_owned()));
-            let (_, candidates) = complete(vm, globals, "els").unwrap();
+            let (_, candidates) = complete(vm, globals, "els").expect("a completion for els");
             assert!(candidates.contains(&"else".to_owned()));
         });
     }
@@ -317,7 +321,8 @@ mod tests {
     #[test]
     fn complete_builtin_attribute() {
         with_vm(|vm, globals| {
-            let (start, candidates) = complete(vm, globals, "str.up").unwrap();
+            let (start, candidates) =
+                complete(vm, globals, "str.up").expect("a completion for str.up");
             assert_eq!(start, 4);
             assert!(candidates.contains(&"upper".to_owned()));
         });
@@ -326,7 +331,8 @@ mod tests {
     #[test]
     fn complete_empty_line_shows_globals_and_builtins() {
         with_vm(|vm, globals| {
-            let (start, candidates) = complete(vm, globals, "").unwrap();
+            let (start, candidates) =
+                complete(vm, globals, "").expect("completions for an empty line");
             assert_eq!(start, 0);
             assert!(candidates.contains(&"print".to_owned()));
             assert!(candidates.contains(&"int".to_owned()));
