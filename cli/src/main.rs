@@ -8,9 +8,10 @@ mod repl;
 use repl::Theme;
 
 use engine::{
-    BUILD_DATE, GIT_HASH, LIBS_VERSION, Level, SpythonError, VERSION, check, format_source,
-    new_interpreter, read_file, run, show_error,
+    BUILD_DATE, GIT_HASH, LIBS_VERSION, Level, Repl, SpythonError, VERSION, check, format_source,
+    read_file, run, show_error,
 };
+use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use walkdir::WalkDir;
@@ -177,49 +178,41 @@ fn main() -> ExitCode {
 /// If `file` is given, it is type-checked and executed first so its
 /// definitions are available in the REPL (like `python -i file.py`).
 fn start_repl(file: Option<&Path>, level: Level, theme: Theme) -> Result<(), SpythonError> {
-    let modules = match file {
-        Some(path) => check::check_file(path, level)?,
-        None => Vec::new(),
-    };
-
-    let preload = file
-        .map(|path| -> Result<_, SpythonError> {
+    // The file is read and checked before the session opens, so that a file
+    // the checker turns down leaves no banner behind.
+    let preload = match file {
+        Some(path) => {
+            let modules = check::check_file(path, level)?;
             let source = read_file(path)?;
-            let file_str = path.to_string_lossy().into_owned();
-            let parent_dir = path
+            let name = path.to_string_lossy().into_owned();
+            let dir = path
                 .parent()
-                .and_then(|p| p.to_str())
+                .and_then(Path::to_str)
                 .unwrap_or(".")
                 .to_owned();
-            Ok((source, file_str, parent_dir))
-        })
-        .transpose()?;
-
-    let interp = new_interpreter();
-    let code = interp.run(|vm| {
-        let scope = vm.new_scope_with_main()?;
-        println!(
-            "spython level {level} - {VERSION} ({BUILD_DATE}, {GIT_HASH})\n\
-             Using {LIBS_VERSION}.\n\
-             Type :help for commands, :quit or ctrl-d to exit."
-        );
-        vm.sys_module.set_attr("ps1", vm.ctx.new_str(">>> "), vm)?;
-        vm.sys_module.set_attr("ps2", vm.ctx.new_str("... "), vm)?;
-        if let Some((source, file_str, parent_dir)) = &preload {
-            vm.insert_sys_path(vm.new_pyobj(parent_dir.as_str()))?;
-            vm.run_string(scope.clone(), source, file_str).map(drop)?;
+            Some((source, name, dir, modules))
         }
-        // The file that ran is the context the next inputs are checked in,
-        // together with whatever it imports.
-        let accumulated = preload
-            .as_ref()
-            .map_or_else(String::new, |(source, ..)| source.clone());
-        repl::run_repl(vm, scope, accumulated, level, theme, modules)
-    });
-    if code == 0 {
-        Ok(())
-    } else {
-        Err(SpythonError::ProgramFailed)
+        None => None,
+    };
+
+    println!(
+        "spython level {level} - {VERSION} ({BUILD_DATE}, {GIT_HASH})\n\
+         Using {LIBS_VERSION}.\n\
+         Type :help for commands, :quit or ctrl-d to exit."
+    );
+
+    // A terminal is what wants the colour; a redirected stderr keeps the
+    // codes out of the file it is being read into.
+    let mut repl = Repl::new(level, std::io::stderr().is_terminal());
+    if let Some((source, name, dir, modules)) = preload
+        && repl.load(&source, &name, Some(&dir), modules).is_err()
+    {
+        return Err(SpythonError::ProgramFailed);
+    }
+
+    match repl::run_repl(repl, theme) {
+        None | Some(0) => Ok(()),
+        Some(_) => Err(SpythonError::ProgramFailed),
     }
 }
 

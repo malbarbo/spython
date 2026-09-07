@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-use engine::{ReplState, check_source, format_source, print_type_errors};
+use engine::{Repl, check_source, format_source, print_type_errors};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static INIT: AtomicBool = AtomicBool::new(false);
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn repl_new(
     code_len: usize,
     config_ptr: *mut u8,
     config_len: usize,
-) -> *mut ReplState {
+) -> *mut Repl {
     init();
     let source = new_string(code_ptr, code_len);
     let config = new_string(config_ptr, config_len);
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn run_source(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize) -> u32 {
+pub unsafe extern "C" fn repl_run(repl: *mut Repl, ptr: *mut u8, len: usize) -> u32 {
     init();
     assert!(!repl.is_null());
     let state = unsafe { &mut *repl };
@@ -140,7 +140,7 @@ pub unsafe extern "C" fn repl_run(repl: *mut ReplState, ptr: *mut u8, len: usize
 /// `cursor` is a byte offset into the text, as `repl_complete` takes one.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_ready(
-    _repl: *mut ReplState,
+    _repl: *mut Repl,
     ptr: *mut u8,
     len: usize,
     cursor: usize,
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn repl_ready(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
+pub unsafe extern "C" fn repl_destroy(repl: *mut Repl) {
     init();
     assert!(!repl.is_null());
     unsafe {
@@ -162,7 +162,7 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut ReplState) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn repl_complete(
-    repl: *mut ReplState,
+    repl: *mut Repl,
     text_ptr: *mut u8,
     text_len: usize,
     cursor_pos: usize,
@@ -172,7 +172,7 @@ pub unsafe extern "C" fn repl_complete(
     let state = unsafe { &*repl };
     let text = new_string(text_ptr, text_len);
 
-    let result = state.tab_action(&text, cursor_pos);
+    let result = state.complete(&text, cursor_pos);
 
     let output = match result {
         engine::completion::TabAction::Indent(spaces) => format!("i {spaces}"),

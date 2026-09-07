@@ -1,11 +1,9 @@
 use std::cell::{Cell, RefCell};
-use std::io::IsTerminal;
 use std::rc::Rc;
 
-use engine::completion::{self, PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
+use engine::completion::{PYTHON_BOOLEANS, PYTHON_CONSTANTS, PYTHON_KEYWORDS, TabAction};
 use engine::input::INDENT;
-use engine::{Level, ReplOutcome, ReplSession};
-use rustpython_vm::{PyResult, VirtualMachine, builtins::PyDictRef, scope::Scope};
+use engine::{Level, Repl, ReplOutcome};
 use rustyline::{
     Cmd, CompletionType, Config, Context, Editor, Event, EventHandler, KeyCode, KeyEvent,
     Modifiers,
@@ -105,9 +103,11 @@ impl rustyline::ConditionalEventHandler for SmartKeys {
 
 // ── Helper (completion, highlighting, validation) ─────────────
 
-struct ReplHelper<'vm> {
-    vm: &'vm VirtualMachine,
-    globals: PyDictRef,
+struct ReplHelper {
+    /// The session, which completes a name with the interpreter it owns. The
+    /// editor holds it only while it is drawing a line, and the loop only
+    /// while it is running one, so the two never ask for it at once.
+    repl: Rc<RefCell<Repl<Host>>>,
     /// The session's commands: every name, and whether it takes an argument.
     commands: Vec<(&'static str, bool)>,
     /// The unfinished input the editor is still reading for. Ctrl-C abandons
@@ -119,24 +119,7 @@ struct ReplHelper<'vm> {
     theme: Rc<Cell<Theme>>,
 }
 
-impl<'vm> ReplHelper<'vm> {
-    fn new(
-        vm: &'vm VirtualMachine,
-        globals: PyDictRef,
-        commands: Vec<(&'static str, bool)>,
-        theme: Rc<Cell<Theme>>,
-    ) -> Self {
-        ReplHelper {
-            vm,
-            globals,
-            commands,
-            pending: RefCell::new(String::new()),
-            theme,
-        }
-    }
-}
-
-impl Completer for ReplHelper<'_> {
+impl Completer for ReplHelper {
     type Candidate = String;
 
     fn complete(
@@ -145,7 +128,7 @@ impl Completer for ReplHelper<'_> {
         pos: usize,
         _ctx: &Context,
     ) -> rustyline::Result<(usize, Vec<String>)> {
-        match completion::tab_action(self.vm, &self.globals, line, pos, &self.commands) {
+        match self.repl.borrow().complete(line, pos) {
             TabAction::Indent(spaces) => Ok((pos, vec![spaces])),
             TabAction::Complete(startpos, candidates) => Ok((startpos, candidates)),
             TabAction::Nothing => Ok((pos, vec![])),
@@ -153,11 +136,11 @@ impl Completer for ReplHelper<'_> {
     }
 }
 
-impl Hinter for ReplHelper<'_> {
+impl Hinter for ReplHelper {
     type Hint = String;
 }
 
-impl Highlighter for ReplHelper<'_> {
+impl Highlighter for ReplHelper {
     fn highlight<'l>(&self, line: &'l str, _pos: usize) -> std::borrow::Cow<'l, str> {
         if line.is_empty() {
             return std::borrow::Cow::Borrowed(line);
@@ -188,7 +171,7 @@ impl Highlighter for ReplHelper<'_> {
     }
 }
 
-impl Validator for ReplHelper<'_> {
+impl Validator for ReplHelper {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
         if engine::shell::ready_state(ctx.input(), ctx.input().len()) < 0 {
             self.pending.borrow_mut().clear();
@@ -200,12 +183,12 @@ impl Validator for ReplHelper<'_> {
     }
 }
 
-fn take_pending(repl: &Editor<ReplHelper<'_>, rustyline::history::DefaultHistory>) -> String {
+fn take_pending(repl: &Editor<ReplHelper, rustyline::history::DefaultHistory>) -> String {
     repl.helper()
         .map_or_else(String::new, |helper| helper.pending.take())
 }
 
-impl rustyline::Helper for ReplHelper<'_> {}
+impl rustyline::Helper for ReplHelper {}
 
 // ── Syntax highlighting ─────────────────────────────────────────────
 
@@ -609,9 +592,9 @@ pub enum Host {
 
 /// `:level` on its own says which level the REPL is on; with a number it moves
 /// to that level, which everything that has already run has to survive.
-fn level_command(session: &mut ReplSession<Host>, theme: Theme, arg: &str) {
+fn level_command(repl: &mut Repl<Host>, theme: Theme, arg: &str) {
     if arg.is_empty() {
-        println!("level {}", session.level());
+        println!("level {}", repl.level());
         return;
     }
     let Some(new_level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
@@ -619,7 +602,7 @@ fn level_command(session: &mut ReplSession<Host>, theme: Theme, arg: &str) {
         return;
     };
     // Everything that has already run has to survive the new level.
-    if !session.set_level(new_level) {
+    if !repl.set_level(new_level) {
         eprintln!(
             "Cannot change to level {new_level}: \
              accumulated source has errors at that level."
@@ -631,7 +614,7 @@ fn level_command(session: &mut ReplSession<Host>, theme: Theme, arg: &str) {
 }
 
 /// `:theme` on its own says which theme is on; with a name it switches to it.
-fn theme_command(session: &ReplSession<Host>, theme: &Cell<Theme>, arg: &str) {
+fn theme_command(repl: &Repl<Host>, theme: &Cell<Theme>, arg: &str) {
     if arg.is_empty() {
         println!("{}", theme.get().name());
         return;
@@ -642,35 +625,28 @@ fn theme_command(session: &ReplSession<Host>, theme: &Cell<Theme>, arg: &str) {
     };
     theme.set(new_theme);
     println!("{}", new_theme.name());
-    crate::config::save(session.level(), new_theme);
+    crate::config::save(repl.level(), new_theme);
 }
 
-/// Run the terminal REPL until the user leaves it, checking every input
-/// against `accumulated` -- what the file the session started from ran -- and
-/// the `modules` that file imports.
-pub fn run_repl(
-    vm: &VirtualMachine,
-    scope: Scope,
-    accumulated: String,
-    level: Level,
-    theme: Theme,
-    modules: Vec<(String, String)>,
-) -> PyResult<()> {
+/// Run the terminal REPL until the user leaves it, over a session that has
+/// already run whatever file it started from.
+pub fn run_repl(repl: Repl<Host>, theme: Theme) -> Option<u32> {
     let theme = Rc::new(Cell::new(theme));
-    let session =
-        &mut ReplSession::new(accumulated, level, std::io::stderr().is_terminal(), modules);
-    session.add(
+    let mut repl = repl;
+    repl.add(
         ":level",
-        Some("n"),
+        Some("[0-5]"),
         "Show or change the teaching level (0-5)",
         Host::Level,
     );
-    session.add(
+    repl.add(
         ":theme",
-        Some("name"),
+        Some("[light|dark]"),
         "Show or change theme (light, dark)",
         Host::Theme,
     );
+    let commands = repl.command_names();
+    let repl = Rc::new(RefCell::new(repl));
 
     let repl_history_path = match dirs::data_dir() {
         Some(mut path) => {
@@ -682,82 +658,66 @@ pub fn run_repl(
         None => ".spython_history".into(),
     };
 
-    {
-        let mut repl = Editor::with_config(
-            Config::builder()
-                .completion_type(CompletionType::List)
-                .tab_stop(4)
-                .bracketed_paste(false)
-                .build(),
-        )
-        .expect("failed to initialize line editor");
+    let mut editor = Editor::with_config(
+        Config::builder()
+            .completion_type(CompletionType::List)
+            .tab_stop(4)
+            .bracketed_paste(false)
+            .build(),
+    )
+    .expect("failed to initialize line editor");
 
-        repl.set_helper(Some(ReplHelper::new(
-            vm,
-            scope.globals.clone(),
-            session.command_names(),
-            Rc::clone(&theme),
-        )));
-        repl.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
-        let _ = repl.load_history(&repl_history_path);
+    editor.set_helper(Some(ReplHelper {
+        repl: Rc::clone(&repl),
+        commands,
+        pending: RefCell::new(String::new()),
+        theme: Rc::clone(&theme),
+    }));
+    editor.bind_sequence(Event::Any, EventHandler::Conditional(Box::new(SmartKeys)));
+    let _ = editor.load_history(&repl_history_path);
 
-        let ps1 = vm
-            .sys_module
-            .get_attr("ps1", vm)
-            .and_then(|p| p.str(vm))
-            .map(|s| s.expect_str().to_owned())
-            .unwrap_or_default();
-        let ps2 = vm
-            .sys_module
-            .get_attr("ps2", vm)
-            .and_then(|p| p.str(vm))
-            .map(|s| s.expect_str().to_owned())
-            .unwrap_or_default();
-        let prompt = ReplPrompt { ps1, ps2 };
+    let prompt = ReplPrompt {
+        ps1: ">>> ".to_owned(),
+        ps2: "... ".to_owned(),
+    };
 
-        loop {
-            let line = match repl.readline(&prompt) {
-                Ok(line) => line,
-                Err(rustyline::error::ReadlineError::Interrupted) => {
-                    let _ = take_pending(&repl);
-                    let exc =
-                        vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned());
-                    vm.print_exception(exc);
-                    continue;
-                }
-                Err(rustyline::error::ReadlineError::Eof) => {
-                    // An input the file ended in the middle of is still an
-                    // input: run it and let the error speak.
-                    let pending = take_pending(&repl);
-                    if pending.trim().is_empty() {
-                        break;
-                    }
-                    pending
-                }
-                Err(err) => {
-                    eprintln!("Readline error: {err:?}");
+    loop {
+        let line = match editor.readline(&prompt) {
+            Ok(line) => line,
+            Err(rustyline::error::ReadlineError::Interrupted) => {
+                let _ = take_pending(&editor);
+                eprintln!("KeyboardInterrupt");
+                continue;
+            }
+            Err(rustyline::error::ReadlineError::Eof) => {
+                // An input the file ended in the middle of is still an
+                // input: run it and let the error speak.
+                let pending = take_pending(&editor);
+                if pending.trim().is_empty() {
                     break;
                 }
-            };
-            let _ = repl.add_history_entry(line.trim_end());
-
-            match session.run(vm, scope.clone(), &line) {
-                ReplOutcome::Quit(None) => break,
-                ReplOutcome::Quit(Some(exc)) => {
-                    let _ = repl.save_history(&repl_history_path);
-                    return Err(exc);
-                }
-                ReplOutcome::Host(Host::Level, arg) => {
-                    level_command(session, theme.get(), &arg);
-                }
-                ReplOutcome::Host(Host::Theme, arg) => theme_command(session, &theme, &arg),
-                ReplOutcome::Ok | ReplOutcome::Error => {}
+                pending
             }
-        }
-        let _ = repl.save_history(&repl_history_path);
-    }
+            Err(err) => {
+                eprintln!("Readline error: {err:?}");
+                break;
+            }
+        };
+        let _ = editor.add_history_entry(line.trim_end());
 
-    Ok(())
+        match repl.borrow_mut().run(&line) {
+            ReplOutcome::Quit => break,
+            ReplOutcome::Host(Host::Level, arg) => {
+                level_command(&mut repl.borrow_mut(), theme.get(), &arg);
+            }
+            ReplOutcome::Host(Host::Theme, arg) => {
+                theme_command(&repl.borrow(), &theme, &arg);
+            }
+            ReplOutcome::Ok | ReplOutcome::Error => {}
+        }
+    }
+    let _ = editor.save_history(&repl_history_path);
+    repl.borrow().exit_status()
 }
 
 #[cfg(test)]
