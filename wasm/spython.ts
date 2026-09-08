@@ -5,11 +5,10 @@
 // Current scope: `run`, `check` and `test`, each `[--level N] FILE.py`, and
 // `--version`. `repl` and `format` remain native-only for now.
 //
-// `check` and `test` both go through `repl_new`, which is what the page calls:
-// it checks the file, runs it, and runs its doctests. So the wrapper agrees
-// with the native binary only on a file whose check is the whole answer --
-// `check` on a file that prints nothing, and `test` on one whose doctests
-// pass.
+// Each command goes through the export of the same name, which the WASM binary
+// only has under the `wasm-backend` feature. The page's own entry point,
+// `repl_new`, is not what is driven here: it checks the file, runs it and runs
+// its doctests, all three at once, which is none of these commands.
 
 import { makeWasi } from "./tests/wasi.ts";
 
@@ -19,14 +18,21 @@ interface WasmExports {
   string_deallocate(ptr: number, size: number): void;
   cstr_deallocate(ptr: number): void;
   version(): number;
-  repl_new(
+  check_source(
     code_ptr: number,
     code_len: number,
     config_ptr: number,
     config_len: number,
   ): number;
-  repl_destroy(repl: number): void;
   run_source(
+    code_ptr: number,
+    code_len: number,
+    filename_ptr: number,
+    filename_len: number,
+    config_ptr: number,
+    config_len: number,
+  ): number;
+  test_source(
     code_ptr: number,
     code_len: number,
     filename_ptr: number,
@@ -81,8 +87,8 @@ async function loadWasm(args: string[]): Promise<WasmExports> {
     env: [],
   });
 
-  // Stub env imports. None of these are exercised by `run_source` today, but
-  // the WASM module still declares them as required imports.
+  // Stub env imports. None of these are exercised by these commands today,
+  // but the WASM module still declares them as required imports.
   const env: WebAssembly.ModuleImports = {
     check_interrupt: (): number => 0,
     draw_svg: (): void => {},
@@ -110,43 +116,35 @@ async function loadWasm(args: string[]): Promise<WasmExports> {
   return exports;
 }
 
-async function runFile(file: string, level: number): Promise<number> {
+// `run` and `test` both name the file they were given, which is what a
+// traceback and a doctest header show; `check` runs nothing and needs no name.
+async function runFile(
+  kind: "run" | "test",
+  file: string,
+  level: number,
+): Promise<number> {
   const source = await Deno.readTextFile(file);
-  const exports = await loadWasm(["spython", "run", file]);
+  const exports = await loadWasm(["spython", kind, file]);
   const [codePtr, codeLen] = encodeString(exports, source);
   const [nmPtr, nmLen] = encodeString(exports, file);
   const [cfgPtr, cfgLen] = encodeString(exports, `level=${level}`);
-  const status = exports.run_source(
-    codePtr,
-    codeLen,
-    nmPtr,
-    nmLen,
-    cfgPtr,
-    cfgLen,
-  );
+  const call = kind === "run" ? exports.run_source : exports.test_source;
+  const status = call(codePtr, codeLen, nmPtr, nmLen, cfgPtr, cfgLen);
   exports.string_deallocate(codePtr, codeLen);
   exports.string_deallocate(nmPtr, nmLen);
   exports.string_deallocate(cfgPtr, cfgLen);
   return status === 0 ? 0 : 1;
 }
 
-// `check` and `test`: the page's own entry point. `repl_new` returns null when
-// the file does not check, and otherwise runs it and its doctests.
-async function loadFile(
-  command: string,
-  file: string,
-  level: number,
-): Promise<number> {
+async function checkFile(file: string, level: number): Promise<number> {
   const source = await Deno.readTextFile(file);
-  const exports = await loadWasm(["spython", command, file]);
+  const exports = await loadWasm(["spython", "check", file]);
   const [codePtr, codeLen] = encodeString(exports, source);
   const [cfgPtr, cfgLen] = encodeString(exports, `level=${level}`);
-  const repl = exports.repl_new(codePtr, codeLen, cfgPtr, cfgLen);
+  const status = exports.check_source(codePtr, codeLen, cfgPtr, cfgLen);
   exports.string_deallocate(codePtr, codeLen);
   exports.string_deallocate(cfgPtr, cfgLen);
-  if (repl === 0) return 1;
-  exports.repl_destroy(repl);
-  return 0;
+  return status === 0 ? 0 : 1;
 }
 
 async function runVersion(): Promise<number> {
@@ -231,11 +229,11 @@ async function main(): Promise<number> {
   switch (parsed.kind) {
     case "version":
       return await runVersion();
-    case "run":
-      return await runFile(parsed.file, parsed.level);
     case "check":
+      return await checkFile(parsed.file, parsed.level);
+    case "run":
     case "test":
-      return await loadFile(parsed.kind, parsed.file, parsed.level);
+      return await runFile(parsed.kind, parsed.file, parsed.level);
     case "error":
       writeOut(2, parsed.message);
       return 1;

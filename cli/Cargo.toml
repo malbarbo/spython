@@ -14,9 +14,9 @@ rustyline = "18"
 dirs = { package = "dirs-next", version = "2.0" }
 
 [features]
-# When enabled, the CLI integration tests also run their `spython run FILE.py`
-# invocations through the WASM backend (via `wasm/spython.ts` + Deno) and
-# assert that stdout/stderr match the native binary after normalization.
+# When enabled, the CLI integration tests also run their `run`, `check` and
+# `test` invocations through the WASM backend (via `wasm/spython.ts` + Deno)
+# and assert that stdout/stderr match the native binary after normalization.
 # Requires the `wasm32-wasip1` target and Deno on PATH. Enable with
 # `cargo test -p spython --features wasm-backend --test cli`.
 wasm-backend = []

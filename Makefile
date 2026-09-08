@@ -10,8 +10,9 @@ wasm:
 	cargo build -p wasm --target $(WASM_TARGET) --profile release-small
 	wasm-opt -Oz --enable-bulk-memory --enable-mutable-globals --enable-sign-ext --enable-nontrapping-float-to-int target/$(WASM_TARGET)/release-small/spython.wasm -o target/$(WASM_TARGET)/release-small/spython.wasm
 
-# Like wasm, plus the `wasm-backend` feature, which adds the `run_source` the
-# dual-run needs. Used by test-wasm-cli, never by a release build.
+# Like wasm, plus the `wasm-backend` feature, which adds the `run_source`,
+# `check_source` and `test_source` the dual-run needs. Used by test-wasm-cli,
+# never by a release build.
 wasm-test:
 	cargo build -p wasm --target $(WASM_TARGET) --profile release-small --features wasm-backend
 	wasm-opt -Oz --enable-bulk-memory --enable-mutable-globals --enable-sign-ext --enable-nontrapping-float-to-int target/$(WASM_TARGET)/release-small/spython.wasm -o target/$(WASM_TARGET)/release-small/spython.wasm

@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-use engine::{Repl, Shell, check_source, format_source, print_type_errors};
+use engine::{Repl, Shell, format_source, print_type_errors};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{alloc, ptr};
@@ -86,6 +86,23 @@ fn parse_config_level(config: &str) -> engine::Level {
     engine::Level::Functions
 }
 
+// --- Checking ---
+
+/// Check `source` at `level`, print what the check found, and say whether the
+/// file holds. Everything that takes a whole file starts here.
+fn check_and_report(source: &str, level: engine::Level, use_color: bool) -> bool {
+    match engine::check_source(source, level, false) {
+        Err(te) => {
+            print_type_errors(&te.db, &te.diagnostics, use_color);
+            false
+        }
+        Ok(warnings) => {
+            warnings.show(use_color);
+            true
+        }
+    }
+}
+
 // --- REPL ---
 
 #[unsafe(no_mangle)]
@@ -100,17 +117,11 @@ pub unsafe extern "C" fn repl_new(
     let config = new_string(config_ptr, config_len);
     let level = parse_config_level(&config);
     let has_source = !source.trim().is_empty();
-    if has_source {
-        match check_source(&source, level, false) {
-            Err(te) => {
-                print_type_errors(&te.db, &te.diagnostics, true);
-                return ptr::null_mut();
-            }
-            Ok(warnings) => warnings.show(true),
-        }
-    }
     // The page renders the ANSI codes, so its diagnostics keep them, and it
     // has one file, so there is nothing to import.
+    if has_source && !check_and_report(&source, level, true) {
+        return ptr::null_mut();
+    }
     let mut repl = Repl::new(level, true);
     repl.install_displayhook();
     // A file that raises still opens the session, so that the student can
@@ -119,42 +130,6 @@ pub unsafe extern "C" fn repl_new(
         let _ = repl.run_doctests();
     }
     Box::into_raw(Box::new(Shell::new(repl)))
-}
-
-/// Type-check `code` and, if no errors, execute it as a script.
-/// Returns 0 on success, 1 on type errors or execution failure.
-/// `filename` is used in Python tracebacks.
-///
-/// Only compiled when the `wasm-backend` feature is enabled — used by the
-/// `wasm/spython.ts` wrapper that backs dual-run integration tests. The
-/// distributed production binary does not include this export.
-#[cfg(feature = "wasm-backend")]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn run_source(
-    code_ptr: *mut u8,
-    code_len: usize,
-    filename_ptr: *mut u8,
-    filename_len: usize,
-    config_ptr: *mut u8,
-    config_len: usize,
-) -> u32 {
-    init();
-    let source = new_string(code_ptr, code_len);
-    let filename = new_string(filename_ptr, filename_len);
-    let config = new_string(config_ptr, config_len);
-    let level = parse_config_level(&config);
-    match check_source(&source, level, false) {
-        Err(te) => {
-            print_type_errors(&te.db, &te.diagnostics, false);
-            return 1;
-        }
-        Ok(warnings) => warnings.show(false),
-    }
-    if engine::run_source(&source, &filename, "/").is_ok() {
-        0
-    } else {
-        1
-    }
 }
 
 #[unsafe(no_mangle)]
@@ -194,6 +169,78 @@ pub unsafe extern "C" fn repl_destroy(repl: *mut Shell) {
     unsafe {
         let _ = Box::from_raw(repl);
     }
+}
+
+// --- The command line, for the dual-run ---
+//
+// `run`, `check` and `test` as the binary runs them, each over a source the
+// caller has already read. Only compiled when the `wasm-backend` feature is
+// enabled, for the `wasm/spython.ts` wrapper that backs the dual-run
+// integration tests. The distributed production binary, which reaches Python
+// through `repl_new`, does not include them.
+//
+// Nothing here takes colour: what the tests compare is what a redirected
+// stream holds.
+
+/// Type-check `code` and, if it holds, run it as a script. `filename` is what
+/// a traceback names. Returns 0 when the run finished and 1 when it did not.
+#[cfg(feature = "wasm-backend")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn run_source(
+    code_ptr: *mut u8,
+    code_len: usize,
+    filename_ptr: *mut u8,
+    filename_len: usize,
+    config_ptr: *mut u8,
+    config_len: usize,
+) -> u32 {
+    init();
+    let source = new_string(code_ptr, code_len);
+    let filename = new_string(filename_ptr, filename_len);
+    let level = parse_config_level(&new_string(config_ptr, config_len));
+    if !check_and_report(&source, level, false) {
+        return 1;
+    }
+    u32::from(engine::run_source(&source, &filename, "/").is_err())
+}
+
+/// Type-check `code` and say what the check found, running nothing. Returns 0
+/// when it holds and 1 when it does not.
+#[cfg(feature = "wasm-backend")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn check_source(
+    code_ptr: *mut u8,
+    code_len: usize,
+    config_ptr: *mut u8,
+    config_len: usize,
+) -> u32 {
+    init();
+    let source = new_string(code_ptr, code_len);
+    let level = parse_config_level(&new_string(config_ptr, config_len));
+    u32::from(!check_and_report(&source, level, false))
+}
+
+/// Type-check `code` and, if it holds, run the doctests of the file
+/// `filename` holding it. Returns 0 when every example passed and 1 when one
+/// did not.
+#[cfg(feature = "wasm-backend")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn test_source(
+    code_ptr: *mut u8,
+    code_len: usize,
+    filename_ptr: *mut u8,
+    filename_len: usize,
+    config_ptr: *mut u8,
+    config_len: usize,
+) -> u32 {
+    init();
+    let source = new_string(code_ptr, code_len);
+    let filename = new_string(filename_ptr, filename_len);
+    let level = parse_config_level(&new_string(config_ptr, config_len));
+    if !check_and_report(&source, level, false) {
+        return 1;
+    }
+    u32::from(engine::run_test_source(&source, &filename).is_err())
 }
 
 // --- Completion ---
