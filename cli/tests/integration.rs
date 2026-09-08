@@ -13,6 +13,9 @@ use std::process::Command;
 fn output_of(level: u8, file: &str) -> (String, String) {
     let (dir, name) = file.rsplit_once('/').expect("a file in a directory");
     let out = Command::new(cargo::cargo_bin!("spython"))
+        // A FORCE_COLOR the machine set for something else would put escape
+        // codes in every snapshot here.
+        .env_remove("FORCE_COLOR")
         .current_dir(format!("{}/{dir}", env!("CARGO_MANIFEST_DIR")))
         .args(["run", "--level", &level.to_string(), name])
         .output()

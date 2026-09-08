@@ -59,6 +59,11 @@ change is more than one, and it becomes more than one commit.
 - Only `dataclasses`, `enum`, `typing`, and `math` are available to a
   program. The list is what the freeze filter and `typeshed_allowlist.txt`
   let through.
+- Colour is decided by `color_stderr` and `color_stdout` in
+  `engine/src/error.rs`, and nowhere else. A non-empty `NO_COLOR` keeps the
+  escape codes out of both streams, as <https://no-color.org> asks, and a
+  non-empty `FORCE_COLOR` asks for them where no terminal is watching. The
+  page passes what it wants by hand.
 
 # Writing
 

@@ -86,14 +86,39 @@ pub fn show_error(err: &SpythonError) {
     }
 }
 
-/// Whether what goes to stderr takes colour. A terminal wants it, and a
-/// redirected stderr keeps the codes out of the file it is being read into.
+/// Whether what goes to stderr takes colour, which the diagnostics ask before
+/// they are printed.
 ///
-/// Every native decision about colour comes through here, so the answer is
-/// the same wherever spython writes. The page decides for itself: it renders
-/// the codes and asks for them by hand.
+/// The page decides for itself: it renders the codes and asks for them by
+/// hand.
 pub fn color_stderr() -> bool {
-    std::io::stderr().is_terminal()
+    use_color(std::io::stderr().is_terminal())
+}
+
+/// Whether what goes to stdout takes colour, which the reader asks before it
+/// highlights what the student is typing.
+pub fn color_stdout() -> bool {
+    use_color(std::io::stdout().is_terminal())
+}
+
+/// The one rule, for a stream that is or is not a terminal. A terminal wants
+/// colour, and a redirected stream keeps the codes out of the file it is
+/// being read into.
+///
+/// `NO_COLOR` with anything in it keeps them out of every stream, as
+/// <https://no-color.org> asks, and it wins over `FORCE_COLOR`: the spec
+/// gives way to an option written on the command line, and neither of these
+/// is one. `FORCE_COLOR` asks for colour where no terminal is watching, which
+/// is how a test reads what a student sees.
+fn use_color(is_terminal: bool) -> bool {
+    !env_is_set("NO_COLOR") && (env_is_set("FORCE_COLOR") || is_terminal)
+}
+
+/// Whether the environment holds `name` with something in it. An empty value
+/// is not an answer: no-color.org says so of `NO_COLOR`, and `FORCE_COLOR`
+/// reads the same way here.
+fn env_is_set(name: &str) -> bool {
+    std::env::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
 /// Read a file, naming it in whatever the filesystem says about the read.

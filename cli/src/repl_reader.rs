@@ -1,7 +1,6 @@
 //! The line the terminal reads, and the colours it draws it in.
 
 use std::cell::{Cell, RefCell};
-use std::io::IsTerminal as _;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -46,7 +45,7 @@ impl ReplReader {
                 .build(),
         )?;
 
-        let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+        let color = engine::color_stdout();
         editor.set_helper(Some(InputHelper {
             shell,
             commands,

@@ -4,6 +4,14 @@ use insta::assert_snapshot;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The binary under test. A FORCE_COLOR the machine running the tests set for
+/// something else would put escape codes in every snapshot here, so it goes.
+fn spython() -> Command {
+    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    command.env_remove("FORCE_COLOR");
+    command
+}
+
 /// Normalize Windows output: strip \r and convert backslashes to forward slashes.
 fn normalize_output(s: &str) -> String {
     s.replace('\r', "").replace('\\', "/")
@@ -83,7 +91,7 @@ fn run_spython_cmd(args: &[&str], cwd: &Path) -> (String, String, bool) {
 }
 
 fn run_spython_native(args: &[&str], cwd: &Path) -> (String, String, bool) {
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    let output = spython()
         .current_dir(cwd)
         .args(args)
         .output()
@@ -130,7 +138,7 @@ fn normalize_diagnostic_paths(s: &str) -> String {
 
 fn run_test(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {
     let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
-    let mut cmd = Command::new(cargo::cargo_bin!("spython"));
+    let mut cmd = spython();
     cmd.current_dir(doctests).args(["test", "--level", "4"]);
     for arg in extra_args {
         cmd.arg(arg);
@@ -214,7 +222,7 @@ fn bare_file_shorthand_after_dashdash() {
 fn bare_level_starts_repl() {
     // `spython -l N` with no file or subcommand starts the REPL at level N
     // (the level flag is routed into an injected `repl`).
-    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    let mut command = spython();
     command.args(["-l", "2"]);
     let (stdout, _, _) = run_with_stdin(&mut command, b":quit\n");
     assert!(
@@ -458,7 +466,7 @@ fn test_doctest_cross_module() {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/doctests/doctest_cross_module"
     ));
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    let output = spython()
         .current_dir(subdir)
         .args(["test", "--level", "4", "main.py"])
         .output()
@@ -524,7 +532,7 @@ fn test_doctest_under_a_package() {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/doctests/doctest_package"
     ));
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    let output = spython()
         .current_dir(subdir)
         .args(["test", "--level", "4", "main.py"])
         .output()
@@ -552,7 +560,7 @@ fn run_rejects_doctest_type_error() {
     ));
     let dir = path.parent().expect("path has parent");
     let filename = path.file_name().expect("path has filename");
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    let output = spython()
         .current_dir(dir)
         .args(["run", "--level", "4"])
         .arg(filename)
@@ -2313,7 +2321,7 @@ fn file_in(dir: &Path, name: &str) -> String {
 /// Run `spython format <args>` over stdin, which is where it reads from when
 /// no path names a file.
 fn run_format_stdin(args: &[&str], input: &str) -> (String, String, bool) {
-    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    let mut command = spython();
     command.arg("format").args(args);
     run_with_stdin(&mut command, input.as_bytes())
 }
@@ -2429,7 +2437,7 @@ fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (Stri
 }
 
 fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, String, bool) {
-    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    let mut command = spython();
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -2457,7 +2465,7 @@ fn the_repl_keeps_the_history_of_a_session_that_quit() {
     let data = std::env::temp_dir().join(format!("_spython_history_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     std::fs::create_dir_all(&data).expect("create the data directory");
-    let mut command = Command::new(cargo::cargo_bin!("spython"));
+    let mut command = spython();
     command.arg("repl").env("XDG_DATA_HOME", &data);
     let (_, err, success) = run_with_stdin(&mut command, b"x = 1\n:quit\n");
     assert!(success, "stderr: {err}");
@@ -2669,7 +2677,7 @@ fn repl_level1_allows_if() {
 
 #[test]
 fn panic_handler_shows_message() {
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    let output = spython()
         .arg("--test-panic")
         .output()
         .expect("failed to run spython");
@@ -2693,11 +2701,61 @@ fn panic_handler_shows_message() {
 
 #[test]
 fn missing_file() {
-    let output = Command::new(cargo::cargo_bin!("spython"))
+    let output = spython()
         .args(["run", "nonexistent.py"])
         .output()
         .expect("failed to run spython");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("cannot read 'nonexistent.py'"));
+}
+
+/// A file the checker turns down, for the tests that ask what colour the
+/// answer takes.
+fn dir_with_a_type_error(prefix: &str) -> PathBuf {
+    new_dir_with(
+        prefix,
+        &[("bad.py", "def f(x: int) -> int:\n    return 'a'\n")],
+    )
+}
+
+/// What `spython check bad.py` writes to stderr with `env` set. The wasm
+/// wrapper has no environment, so these stay native, and the output comes
+/// back as it was written: the escape codes are the answer.
+fn check_stderr_with_env(dir: &Path, env: &[(&str, &str)]) -> String {
+    let mut command = spython();
+    command.env_remove("NO_COLOR").current_dir(dir);
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    let output = command
+        .args(["check", "bad.py"])
+        .output()
+        .expect("failed to run spython");
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn force_color_colours_a_diagnostic_with_no_terminal_watching() {
+    let dir = dir_with_a_type_error("force_color");
+    let err = check_stderr_with_env(&dir, &[("FORCE_COLOR", "1")]);
+    assert!(err.contains('\x1b'), "expected escape codes, got: {err}");
+}
+
+#[test]
+fn no_color_keeps_the_codes_out_of_a_diagnostic() {
+    let dir = dir_with_a_type_error("no_color");
+    let err = check_stderr_with_env(&dir, &[("FORCE_COLOR", "1"), ("NO_COLOR", "1")]);
+    assert!(
+        !err.contains('\x1b'),
+        "expected no escape codes, got: {err}"
+    );
+    assert!(err.contains("error"), "expected the diagnostic, got: {err}");
+}
+
+#[test]
+fn an_empty_no_color_asks_for_nothing() {
+    let dir = dir_with_a_type_error("empty_no_color");
+    let err = check_stderr_with_env(&dir, &[("FORCE_COLOR", "1"), ("NO_COLOR", "")]);
+    assert!(err.contains('\x1b'), "expected escape codes, got: {err}");
 }
