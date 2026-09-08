@@ -625,36 +625,38 @@ fn check_refuses_what_run_cannot_import() {
     );
 }
 
+/// A file under `cli/tests`, named the way both backends are given it: the
+/// directory to run from, and the bare name to run.
+fn dual_run(command: &str, dir: &str, file: &str) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(dir);
+    run_spython_cmd(&[command, "--level", "4", file], &dir);
+}
+
 /// Both backends are asked for the same file, and `run_spython_cmd` asserts
-/// they agree. The page reaches `check` and `test` through `repl_new`, which
-/// checks the file, runs it, and runs its doctests -- so the two agree on a
-/// file whose doctests pass, and, for `check`, only on one that prints nothing.
+/// they agree. Each drives the export of its own command's name, so what one
+/// prints the other prints too, whether the examples pass or fail.
 #[test]
 fn test_output_agrees_between_backends() {
-    for (dir, file) in [
-        (
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"),
-            "ok.py",
-        ),
-        (
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"),
-            "doctest_progress.py",
-        ),
-        (
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/inputs"),
-            "ok_simple.py",
-        ),
-    ] {
-        run_spython_cmd(&["test", "--level", "4", file], Path::new(dir));
+    // A file whose examples pass, one whose example fails, one that writes to
+    // stderr while an example runs, one with no examples at all, and one that
+    // prints from the top level, which `test` does not reach: the source runs
+    // under a name of its own, not as `__main__`.
+    for file in ["ok.py", "fail.py", "doctest_progress.py", "no_tests.py"] {
+        dual_run("test", "doctests", file);
     }
+    dual_run("test", "inputs", "ok_simple.py");
 }
 
 #[test]
 fn check_output_agrees_between_backends() {
-    // Not a file with doctests or a `print`: the wrapper reaches `check`
-    // through `repl_new`, which runs them, and native `check` says nothing.
-    let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
-    run_spython_cmd(&["check", "--level", "4", "no_tests.py"], doctests);
+    // A file that holds, one whose doctest does not type-check, and one that
+    // prints when it runs, which `check` never does.
+    for file in ["no_tests.py", "ok.py", "doctest_type_error.py"] {
+        dual_run("check", "doctests", file);
+    }
+    dual_run("check", "inputs", "ok_simple.py");
 }
 
 // --- Level restriction tests ---
