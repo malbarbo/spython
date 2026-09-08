@@ -76,16 +76,24 @@ pub fn show_error(err: &SpythonError) {
                 eprintln!("spython: '{}' is not formatted", path.display());
             }
         }
-        SpythonError::TypeErrors(errors) => print_type_errors(
-            &errors.db,
-            &errors.diagnostics,
-            std::io::stderr().is_terminal(),
-        ),
+        SpythonError::TypeErrors(errors) => {
+            print_type_errors(&errors.db, &errors.diagnostics, color_stderr())
+        }
         SpythonError::Other(err) => eprintln!("spython: {err}"),
         // Whoever failed already said so: the interpreter printed the
         // traceback, and the doctest runner printed its own count.
         SpythonError::ProgramFailed | SpythonError::TestsFailed => (),
     }
+}
+
+/// Whether what goes to stderr takes colour. A terminal wants it, and a
+/// redirected stderr keeps the codes out of the file it is being read into.
+///
+/// Every native decision about colour comes through here, so the answer is
+/// the same wherever spython writes. The page decides for itself: it renders
+/// the codes and asks for them by hand.
+pub fn color_stderr() -> bool {
+    std::io::stderr().is_terminal()
 }
 
 /// Read a file, naming it in whatever the filesystem says about the read.

@@ -2,12 +2,13 @@
 //! directory, and the check the `run`, `test` and `check` commands run.
 
 use std::collections::HashSet;
-use std::{io::IsTerminal as _, path::Path};
+use std::path::Path;
 
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::SystemPathBuf;
 use ty_project::{Db as _, ProjectDatabase};
 
+use crate::error::color_stderr;
 use crate::{Level, SpythonError};
 
 use super::{
@@ -74,7 +75,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
             diagnostics,
         })));
     }
-    print_type_errors(&db, &diagnostics, std::io::stderr().is_terminal());
+    print_type_errors(&db, &diagnostics, color_stderr());
 
     Ok(modules_beside(&db, main_file, user_files))
 }

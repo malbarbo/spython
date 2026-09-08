@@ -10,7 +10,6 @@ use repl_reader::{ReplReader, Theme};
 use engine::shell::welcome_message;
 use engine::{Level, Repl, Shell, SpythonError, Status, check, format, run, show_error};
 use std::cell::{Cell, RefCell};
-use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
@@ -168,9 +167,7 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
 
     print!("{}", welcome_message(level));
 
-    // A terminal is what wants the colour; a redirected stderr keeps the
-    // codes out of the file it is being read into.
-    let mut repl = Repl::new(level, std::io::stderr().is_terminal());
+    let mut repl = Repl::new(level, engine::color_stderr());
     if let Some(script) = preload
         && repl
             .load(

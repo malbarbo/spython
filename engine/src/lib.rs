@@ -19,7 +19,7 @@ pub mod spython_lib;
 pub use check::{check_source, print_type_errors};
 pub(crate) use check::{infer_expression_type, type_check_repl_input};
 pub use checker::Level;
-pub use error::{SpythonError, read_file, show_error};
+pub use error::{SpythonError, color_stderr, read_file, show_error};
 pub use format::format_source;
 pub use repl::{Failed, Repl};
 pub use run::run_source;
