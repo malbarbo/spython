@@ -17,6 +17,24 @@ pub use native::{Script, check_and_read, run_main, run_test};
 /// own `run_doctests` both drive.
 pub const DOCTEST_RUNNER: &str = include_str!("doctest_runner.py");
 
+/// Run the doctests of `source`, which is what the file `filename` holds.
+///
+/// The `test` command reads its own files, inside the runner. A page has no
+/// files to read, so it hands over the text it already has, which travels in
+/// `sys.argv` and so needs no escaping into the script that drives the runner.
+pub fn run_test_source(source: &str, filename: &str) -> Result<(), SpythonError> {
+    let script = format!("{DOCTEST_RUNNER}\n{TEST_SOURCE_MAIN}");
+    let argv = vec![TEST_NAME.to_owned(), filename.to_owned(), source.to_owned()];
+    run_source_with_argv(&script, TEST_NAME, ".", argv).map_err(|_| SpythonError::TestsFailed)
+}
+
+/// What drives the runner over a source that came in already read.
+const TEST_SOURCE_MAIN: &str = "import sys\nsys.exit(_run_file(sys.argv[1], sys.argv[2]))\n";
+
+/// The name a test run reports itself under, as `sys.argv[0]` and as the file
+/// a traceback in the driver points at.
+const TEST_NAME: &str = "<test>";
+
 /// Create a RustPython interpreter with the standard library loaded.
 pub fn new_interpreter() -> vm::Interpreter {
     new_interpreter_with_argv(Vec::new())

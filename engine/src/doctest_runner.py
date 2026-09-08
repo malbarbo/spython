@@ -5,8 +5,10 @@ which is not available in the RustPython WASM build.  This runner only depends
 on ``sys`` and builtins so it works on every target.
 
 The public entry point is ``run_doctests(module)``, which returns the number of
-failed examples.  The ``test`` command drives ``_main(sys.argv[1:])`` instead,
-which runs the files it names; the REPL calls ``run_doctests`` on ``__main__``.
+failed examples, and which is what the REPL calls on ``__main__``.  A whole
+file goes through ``_run_file(path, source)``: the ``test`` command drives
+``_main(sys.argv[1:])``, which reads the files it names, and a page, which has
+no files to read, drives ``_run_file`` with the text it already holds.
 """
 
 import sys as _sys
@@ -180,21 +182,33 @@ def _directory_of(path):
     return path[:cut] or "/"
 
 
-def _main(argv):
-    """Run the doctests of the files named in *argv*, one module each.
+def _run_file(path, source, verbose=False):
+    """Run the doctests of *source*, which is what the file *path* holds.
 
-    A leading ``--verbose`` reports the examples that pass as well.  Every file
-    runs with its own directory ahead of the path, so its imports resolve the
-    way they do when it runs on its own, and with more than one file each name
-    is printed before its tests.  The return value is the exit status: the
-    number of examples that did not pass.
+    The source runs in a module of its own, so that a ``__main__`` guard in it
+    stays shut, and with its own directory ahead of the path, so that its
+    imports resolve the way they do when the file runs on its own.
 
-    ``types`` is imported here and not at the top of the file because the wasm
-    build has not got it, and only the ``test`` command, which is native, gets
-    this far.
+    ``types`` is imported here and not at the top of the file to keep the top
+    to ``sys`` and builtins, which is what makes the runner work on every
+    target.
     """
     import types
 
+    _sys.path.insert(0, _directory_of(path))
+    module = types.ModuleType("__doctest__")
+    module.__file__ = path
+    exec(compile(source, path, "exec"), vars(module))
+    return run_doctests(module, verbose=verbose)
+
+
+def _main(argv):
+    """Run the doctests of the files named in *argv*, one module each.
+
+    A leading ``--verbose`` reports the examples that pass as well, and with
+    more than one file each name is printed before its tests.  The return
+    value is the exit status: the number of examples that did not pass.
+    """
     verbose = bool(argv) and argv[0] == "--verbose"
     if verbose:
         argv = argv[1:]
@@ -202,10 +216,7 @@ def _main(argv):
     for path in argv:
         if len(argv) > 1:
             print(path, flush=True)
-        _sys.path.insert(0, _directory_of(path))
-        module = types.ModuleType("__doctest__")
-        module.__file__ = path
         with open(path) as f:
-            exec(compile(f.read(), path, "exec"), vars(module))
-        total += run_doctests(module, verbose=verbose)
+            source = f.read()
+        total += _run_file(path, source, verbose)
     return total

@@ -22,7 +22,7 @@ pub use checker::Level;
 pub use error::{SpythonError, color_stderr, color_stdout, read_file, show_error};
 pub use format::format_source;
 pub use repl::{Failed, Repl};
-pub use run::run_source;
+pub use run::{run_source, run_test_source};
 pub use shell::{Shell, Status};
 
 pub use ty_project::ProjectDatabase;

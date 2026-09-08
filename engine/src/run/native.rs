@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{Level, SpythonError, check, error::read_file};
 
-use super::{DOCTEST_RUNNER, run_source, run_source_with_argv};
+use super::{DOCTEST_RUNNER, TEST_NAME, run_source, run_source_with_argv};
 
 /// A file a run starts from, and everything running it takes.
 pub struct Script {
@@ -78,7 +78,3 @@ pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Sp
 /// What drives the runner: the files come in through `sys.argv`, so a path
 /// with a quote or a backslash in it needs no escaping here.
 const TEST_MAIN: &str = "import sys\nsys.exit(_main(sys.argv[1:]))\n";
-
-/// The name the test run reports itself under, as `sys.argv[0]` and as the
-/// file a traceback in the driver points at.
-const TEST_NAME: &str = "<test>";
