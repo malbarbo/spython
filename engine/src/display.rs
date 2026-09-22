@@ -21,8 +21,7 @@ mod _spython_display {
     use rustpython_vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
-    use sinteract::display::terminal::{PrintError, Printer};
-    use sinteract::display::{Display, TerminalOptions, open_native};
+    use sinteract::display::{Display, PrintError, Printer, TerminalOptions, open_native};
     use sinteract::event::{Event, InputEvent, Interrupt};
     use sinteract::scene::{
         Bitmap, ClipScope, Dash, FillRule, FontStyle, LineCap, LineJoin, Paint, Path, PathBuilder,
