@@ -1,7 +1,7 @@
 //! The `_spython_display` module: a window or a terminal that a World draws
-//! into, over [`sinteract::display`]. It walks the tree of an `Image` from
-//! `spython.image` and builds a [`Scene`], so Python never holds a scene
-//! that is half built.
+//! into, over [`sinteract::display`], and a printer of images in the
+//! terminal. Both walk the tree of an `Image` from `spython.image` and
+//! build a [`Scene`], so Python never holds a scene that is half built.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -21,7 +21,8 @@ mod _spython_display {
     use rustpython_vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
-    use sinteract::display::{Display, TerminalOptions, open_native};
+    use sinteract::display::terminal::{NoImage, Printer};
+    use sinteract::display::{Display, OpenError, TerminalOptions, open_native};
     use sinteract::event::{Event, InputEvent, NoEvent};
     use sinteract::scene::{
         Bitmap, ClipScope, Dash, FillRule, FontStyle, LineCap, LineJoin, Paint, Path, PathBuilder,
@@ -40,6 +41,80 @@ mod _spython_display {
     /// signals that arrived. Python runs them between two bytecodes, and a
     /// window gets its Ctrl-C from the terminal that started the program.
     const SIGNAL_PERIOD: Duration = Duration::from_millis(100);
+
+    /// A printer of images at the cursor, or `None` when the terminal shows
+    /// no graphics or stdout is not a terminal.
+    #[pyfunction]
+    fn open_printer(vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        match Printer::new() {
+            Ok(printer) => {
+                let printer = PyPrinter {
+                    inner: PyMutex::new(Printing {
+                        printer,
+                        images: Images::default(),
+                    }),
+                };
+                Ok(Some(printer.into_ref(&vm.ctx).into()))
+            }
+            Err(OpenError::NoGraphics) => Ok(None),
+            Err(e) => Err(vm.new_runtime_error(e.to_string())),
+        }
+    }
+
+    /// Prints one image after another in the terminal, and keeps the images
+    /// of the bitmaps from one print to the next.
+    #[pyattr]
+    #[pyclass(name = "Printer")]
+    #[derive(PyPayload)]
+    pub struct PyPrinter {
+        inner: PyMutex<Printing>,
+    }
+
+    struct Printing {
+        printer: Printer,
+        images: Images,
+    }
+
+    impl std::fmt::Debug for PyPrinter {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("Printer")
+        }
+    }
+
+    #[pyclass]
+    impl PyPrinter {
+        /// Print `image` at the cursor, on a scene of `width` by `height`.
+        /// Returns `True` if it printed, and `False` while a display holds
+        /// the terminal.
+        #[pymethod]
+        fn show(
+            &self,
+            image: PyObjectRef,
+            width: ArgIntoFloat,
+            height: ArgIntoFloat,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
+            let mut inner = self.inner.lock();
+            let Printing { printer, images } = &mut *inner;
+            draw(&image, &mut scene, images, vm)?;
+            for (id, blob) in std::mem::take(&mut images.upload) {
+                if let Err(e) = printer.assets_mut().insert_png(id, &blob) {
+                    // The images after this one are not in the assets, so the
+                    // next print decodes every image again.
+                    images.known.clear();
+                    return Err(vm.new_runtime_error(e.to_string()));
+                }
+            }
+            match printer.print(&scene) {
+                Ok(()) => Ok(true),
+                Err(NoImage::Busy) => Ok(false),
+                Err(e @ (NoImage::Alloc(_) | NoImage::Io(_))) => {
+                    Err(vm.new_runtime_error(e.to_string()))
+                }
+            }
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "Display")]

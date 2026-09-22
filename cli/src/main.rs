@@ -168,6 +168,7 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
     print!("{}", welcome_message(level));
 
     let mut repl = Repl::new(level, engine::color_stderr());
+    repl.install_displayhook();
     if let Some(script) = preload
         && repl
             .load(

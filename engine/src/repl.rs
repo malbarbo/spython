@@ -63,8 +63,9 @@ impl Repl {
         }
     }
 
-    /// Show a value the way the page shows one, which is not the way a
-    /// terminal does. The frontend that renders what comes back asks for this.
+    /// Show an image as a picture, in svg on the page and in a terminal that
+    /// shows graphics. Any other value, and an image in a terminal that
+    /// shows none, prints as Python prints it.
     pub fn install_displayhook(&self) {
         let (interp, scope) = self.live();
         interp.enter(|vm| {
