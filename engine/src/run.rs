@@ -46,10 +46,13 @@ fn new_interpreter_with_argv(argv: Vec<String>) -> vm::Interpreter {
     let mut settings = vm::Settings::default();
     settings.write_bytecode = false;
     settings.argv = argv;
-    InterpreterBuilder::new()
-        .settings(settings)
-        .init_stdlib()
-        .interpreter()
+    let builder = InterpreterBuilder::new().settings(settings).init_stdlib();
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = {
+        let display = crate::display::module_def(&builder.ctx);
+        builder.add_native_module(display)
+    };
+    builder.interpreter()
 }
 
 /// Run Python source in a fresh interpreter, with `dir` on `sys.path`.

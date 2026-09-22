@@ -1,6 +1,8 @@
 pub mod check;
 pub mod checker;
 pub mod completion;
+#[cfg(not(target_arch = "wasm32"))]
+mod display;
 pub mod doctests;
 pub mod error;
 pub mod ffi;
