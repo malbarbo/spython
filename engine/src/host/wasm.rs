@@ -43,6 +43,11 @@ pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
     (out[0], out[1], out[2], out[3])
 }
 
+/// The page reads no file.
+pub fn load_bitmap(_path: &str) -> Result<(f64, f64, String), String> {
+    Err("load_bitmap is not available in the browser".to_owned())
+}
+
 /// Take the event the page is holding, if it is holding one.
 pub fn get_key_event() -> Option<(i32, String, [bool; 5])> {
     let mut key_buf = [0u8; 48];

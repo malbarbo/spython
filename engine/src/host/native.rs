@@ -26,6 +26,18 @@ pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
     }
 }
 
+/// Read the PNG at `path`.
+pub fn load_bitmap(path: &str) -> Result<(f64, f64, String), String> {
+    let blob = std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let (width, height) =
+        crate::display::png_size(&blob).ok_or_else(|| format!("{path} is not a PNG"))?;
+    Ok((
+        f64::from(width),
+        f64::from(height),
+        crate::display::png_data_uri(&blob),
+    ))
+}
+
 /// Nothing is ever waiting, as nothing here reads keys.
 pub fn get_key_event() -> Option<(i32, String, [bool; 5])> {
     None

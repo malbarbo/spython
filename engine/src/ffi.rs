@@ -60,8 +60,15 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
 
     let load_bitmap_fn = vm.new_function(
         "load_bitmap",
-        |_path: String, vm: &vm::VirtualMachine| -> vm::PyResult {
-            Err(vm.new_runtime_error("load_bitmap is not available in native mode".to_owned()))
+        |path: String, vm: &vm::VirtualMachine| -> vm::PyResult {
+            let (width, height, data_uri) =
+                host::load_bitmap(&path).map_err(|e| vm.new_runtime_error(e))?;
+            let elements = vec![
+                vm.ctx.new_float(width).into(),
+                vm.ctx.new_float(height).into(),
+                vm.ctx.new_str(data_uri).into(),
+            ];
+            Ok(vm.ctx.new_tuple(elements).into())
         },
     );
     #[cfg(test)]

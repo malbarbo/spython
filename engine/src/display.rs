@@ -650,6 +650,11 @@ pub(crate) fn png_size(blob: &[u8]) -> Option<(u32, u32)> {
     Some((u32::from_be_bytes(*width), u32::from_be_bytes(*height)))
 }
 
+/// A data URI that holds the PNG in `blob`.
+pub(crate) fn png_data_uri(blob: &[u8]) -> String {
+    format!("data:image/png;base64,{}", B64.encode(blob))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -669,6 +674,14 @@ mod tests {
             None
         );
         assert_eq!(png_size(HEADER.get(..20).expect("a prefix")), None);
+    }
+
+    #[test]
+    fn a_data_uri_decodes_back_to_its_bytes() {
+        assert_eq!(
+            decode_data_uri(&png_data_uri(HEADER)).as_deref(),
+            Some(HEADER)
+        );
     }
 
     #[test]
