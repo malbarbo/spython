@@ -1710,13 +1710,24 @@ def _curve_controls(
 
 
 def to_svg(img: Image) -> str:
+    w, h = _canvas_size(img)
     return (
         "<svg "
-        + _attrib("width", float(_math.ceil(round(width(img), 6))))
-        + _attrib("height", float(_math.ceil(round(height(img), 6))))
+        + _attrib("width", w)
+        + _attrib("height", h)
         + 'xmlns="http://www.w3.org/2000/svg">\n'
         + _to_svg(img, 1)
         + "</svg>"
+    )
+
+
+# The size of `img` in whole pixels, which the svg of `to_svg` and the scene
+# of a display take.
+def _canvas_size(img: Image) -> tuple[float, float]:
+    mn, mx = _box(img)
+    return (
+        float(_math.ceil(round(mx.x - mn.x, 6))),
+        float(_math.ceil(round(mx.y - mn.y, 6))),
     )
 
 
