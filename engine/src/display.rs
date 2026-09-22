@@ -23,7 +23,7 @@ mod _spython_display {
     };
     use sinteract::display::terminal::{NoImage, Printer};
     use sinteract::display::{Display, OpenError, TerminalOptions, open_native};
-    use sinteract::event::{Event, InputEvent, NoEvent};
+    use sinteract::event::{Event, InputEvent, Interrupt};
     use sinteract::scene::{
         Bitmap, ClipScope, Dash, FillRule, FontStyle, LineCap, LineJoin, Paint, Path, PathBuilder,
         PathStyle, Rgba, RotatedRect, Scene, Text, TextSpec,
@@ -161,7 +161,7 @@ mod _spython_display {
             let event = loop {
                 let deadline = Instant::now() + SIGNAL_PERIOD;
                 match self.inner.lock().get_mut().wait_event(Some(deadline)) {
-                    Err(NoEvent::Timeout) => vm.check_signals()?,
+                    Err(Interrupt::Timeout) => vm.check_signals()?,
                     event => break event,
                 }
             };
@@ -170,11 +170,11 @@ mod _spython_display {
                 Ok(Event::Input(InputEvent::Vsync)) => (VSYNC, None),
                 Ok(Event::Input(InputEvent::Resize { .. })) => (RESIZE, None),
                 Ok(Event::Input(InputEvent::Mouse(_))) => (MOUSE, None),
-                Err(NoEvent::Close) => (CLOSE, None),
-                Err(NoEvent::Read(e)) => return Err(vm.new_os_error(e.to_string())),
+                Err(Interrupt::Close) => (CLOSE, None),
+                Err(Interrupt::Read(e)) => return Err(vm.new_os_error(e.to_string())),
                 // A Wake needs a Sender, and this module makes none. The
                 // loop above takes each Timeout.
-                Err(NoEvent::Wake | NoEvent::Timeout) => {
+                Err(Interrupt::Wake | Interrupt::Timeout) => {
                     unreachable!("a native display with no Sender wakes only at an event")
                 }
             };
