@@ -17,8 +17,8 @@ pub use target::get_key_event;
 
 /// The width and the height of the box around the text, and the offsets from
 /// the middle of that box to the origin of an svg `<text>` element, which sits
-/// at the start of the baseline. The browser measures, and natively a guess
-/// stands in.
+/// at the start of the baseline. The browser measures, and natively sinteract
+/// does, with the fonts that it draws.
 pub use target::text_metrics;
 
 #[cfg(target_arch = "wasm32")]

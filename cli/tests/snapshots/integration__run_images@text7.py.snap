@@ -1,6 +1,6 @@
 ---
 source: cli/tests/integration.rs
 ---
-<svg width="96" height="16" xmlns="http://www.w3.org/2000/svg">
-  <text dominant-baseline="alphabetic" text-anchor="start" x="-48" y="4.8" font-family="monospace" font-size="16" font-style="normal" font-weight="lighter" transform="translate(48,8) rotate(0 0 0) scale(1,1)" fill="rgba(169, 169, 169, 1.0)" >Light mono</text>
+<svg width="97" height="19" xmlns="http://www.w3.org/2000/svg">
+  <text dominant-baseline="alphabetic" text-anchor="start" x="-48.007812" y="4.257812" font-family="monospace" font-size="16" font-style="normal" font-weight="lighter" transform="translate(48.007812,9.0625) rotate(0 0 0) scale(1,1)" fill="rgba(169, 169, 169, 1.0)" >Light mono</text>
 </svg>

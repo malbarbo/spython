@@ -1,34 +1,103 @@
-//! What a run answers where there is no page: a drawing goes to stdout, the
-//! measuring is a guess, and no key is ever waiting.
+//! What a run answers where there is no page: a drawing goes to stdout,
+//! sinteract measures a text, and no key is ever waiting.
 
-/// Print the drawing, which is as far as a terminal takes one.
+use sinteract::scene::FontStyle;
+
+/// Print the drawing.
 pub fn draw_svg(svg: &str) {
     println!("{svg}");
 }
 
-/// Guess the box: a character is 0.6 of the size wide, a line is the size
-/// high, and the baseline sits 0.8 of the size below the top.
+/// Measure the text in the face that the css picks, the one that sinteract
+/// draws it with. A size that cannot draw measures nothing.
 pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
-    let size = font_size(font_css);
-    let width = text.chars().count() as f64 * size * 0.6;
-    let ascent = size * 0.8;
-    (width, size, -width / 2.0, ascent - size / 2.0)
-}
-
-/// The size in pixels the css says. Without one the size is 14, what a `Font`
-/// starts with.
-fn font_size(font_css: &str) -> f64 {
-    for part in font_css.split_whitespace() {
-        if let Some(digits) = part.strip_suffix("px")
-            && let Ok(size) = digits.parse::<f64>()
-        {
-            return size;
+    let font = CssFont::parse(font_css);
+    match sinteract::text::measure(font.family, font.weight, font.style, font.size, text) {
+        Some(m) => {
+            let width = f64::from(m.width());
+            (
+                width,
+                f64::from(m.height()),
+                -width / 2.0,
+                f64::from(m.baseline_y()),
+            )
         }
+        None => (0.0, 0.0, 0.0, 0.0),
     }
-    14.0
 }
 
 /// Nothing is ever waiting, as nothing here reads keys.
 pub fn get_key_event() -> Option<(i32, String, [bool; 5])> {
     None
+}
+
+/// The font of a css shorthand from `_to_css` of `spython.font`, which
+/// writes the style, the weight, the size in pixels and the family, in that
+/// order.
+struct CssFont<'a> {
+    style: FontStyle,
+    weight: u16,
+    size: f32,
+    family: &'a str,
+}
+
+impl<'a> CssFont<'a> {
+    /// Without a size the font is the 14 pixels that a `Font` starts with.
+    fn parse(css: &'a str) -> Self {
+        let mut font = CssFont {
+            style: FontStyle::Normal,
+            weight: 400,
+            size: 14.0,
+            family: "",
+        };
+        let mut rest = css.trim_start();
+        while let Some((word, after)) = rest.split_once(' ') {
+            match word {
+                "italic" => font.style = FontStyle::Italic,
+                "oblique" => font.style = FontStyle::Oblique,
+                "bold" => font.weight = 700,
+                "lighter" => font.weight = 300,
+                _ => {
+                    if let Some(size) = word.strip_suffix("px").and_then(|d| d.parse().ok()) {
+                        font.size = size;
+                        font.family = after;
+                    }
+                    break;
+                }
+            }
+            rest = after.trim_start();
+        }
+        font
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn css_font_reads_the_style_the_weight_the_size_and_the_family() {
+        let font = CssFont::parse("italic bold 20px Liberation Serif");
+        assert_eq!(font.style, FontStyle::Italic);
+        assert_eq!(font.weight, 700);
+        assert_eq!(font.size, 20.0);
+        assert_eq!(font.family, "Liberation Serif");
+    }
+
+    #[test]
+    fn css_font_without_a_style_and_a_weight_is_normal() {
+        let font = CssFont::parse("14.5px sans-serif");
+        assert_eq!(font.style, FontStyle::Normal);
+        assert_eq!(font.weight, 400);
+        assert_eq!(font.size, 14.5);
+        assert_eq!(font.family, "sans-serif");
+    }
+
+    #[test]
+    fn text_metrics_puts_the_origin_at_the_start_of_the_baseline() {
+        let (width, height, x, y) = text_metrics("spython", "14px sans-serif");
+        assert!(width > 0.0 && height > 0.0);
+        assert_eq!(x, -width / 2.0);
+        assert!(y > 0.0 && y < height / 2.0);
+    }
 }
