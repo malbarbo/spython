@@ -22,7 +22,7 @@ mod _spython_display {
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
     use sinteract::display::terminal::{NoImage, Printer};
-    use sinteract::display::{Display, OpenError, TerminalOptions, open_native};
+    use sinteract::display::{Display, TerminalOptions, open_native};
     use sinteract::event::{Event, InputEvent, Interrupt};
     use sinteract::scene::{
         Bitmap, ClipScope, Dash, FillRule, FontStyle, LineCap, LineJoin, Paint, Path, PathBuilder,
@@ -45,20 +45,15 @@ mod _spython_display {
     /// A printer of images at the cursor, or `None` when the terminal shows
     /// no graphics or stdout is not a terminal.
     #[pyfunction]
-    fn open_printer(vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-        match Printer::new() {
-            Ok(printer) => {
-                let printer = PyPrinter {
-                    inner: PyMutex::new(Printing {
-                        printer,
-                        images: Images::default(),
-                    }),
-                };
-                Ok(Some(printer.into_ref(&vm.ctx).into()))
-            }
-            Err(OpenError::NoGraphics) => Ok(None),
-            Err(e) => Err(vm.new_runtime_error(e.to_string())),
-        }
+    fn open_printer(vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let printer = Printer::new().ok()?;
+        let printer = PyPrinter {
+            inner: PyMutex::new(Printing {
+                printer,
+                images: Images::default(),
+            }),
+        };
+        Some(printer.into_ref(&vm.ctx).into())
     }
 
     /// Prints one image after another in the terminal, and keeps the images
