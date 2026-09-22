@@ -21,7 +21,7 @@ mod _spython_display {
     use rustpython_vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
-    use sinteract::display::terminal::{NoImage, Printer};
+    use sinteract::display::terminal::{PrintError, Printer};
     use sinteract::display::{Display, TerminalOptions, open_native};
     use sinteract::event::{Event, InputEvent, Interrupt};
     use sinteract::scene::{
@@ -103,8 +103,8 @@ mod _spython_display {
             }
             match printer.print(&scene) {
                 Ok(()) => Ok(true),
-                Err(NoImage::Busy) => Ok(false),
-                Err(e @ (NoImage::Alloc(_) | NoImage::Io(_))) => {
+                Err(PrintError::Busy) => Ok(false),
+                Err(e @ (PrintError::Alloc(_) | PrintError::Io(_))) => {
                     Err(vm.new_runtime_error(e.to_string()))
                 }
             }
