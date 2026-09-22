@@ -171,11 +171,10 @@ mod _spython_display {
                 Ok(Event::Input(InputEvent::Resize { .. })) => (RESIZE, None),
                 Ok(Event::Input(InputEvent::Mouse(_))) => (MOUSE, None),
                 Err(NoEvent::Close) => (CLOSE, None),
-                Err(NoEvent::Broken(e)) => return Err(vm.new_os_error(e.to_string())),
-                // A Wake needs a Sender, and this module makes none. A
-                // Damaged message needs a peer, and open_native opens none.
-                // The loop above takes each Timeout.
-                Err(NoEvent::Wake | NoEvent::Timeout | NoEvent::Damaged(_)) => {
+                Err(NoEvent::Read(e)) => return Err(vm.new_os_error(e.to_string())),
+                // A Wake needs a Sender, and this module makes none. The
+                // loop above takes each Timeout.
+                Err(NoEvent::Wake | NoEvent::Timeout) => {
                     unreachable!("a native display with no Sender wakes only at an event")
                 }
             };
