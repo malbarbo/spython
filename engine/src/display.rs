@@ -10,7 +10,6 @@ pub(crate) use _spython_display::module_def;
 
 #[rustpython_vm::pymodule(name = "_spython_display")]
 mod _spython_display {
-    use std::collections::HashMap;
     use std::thread::{self, ThreadId};
     use std::time::{Duration, Instant};
 
@@ -21,6 +20,7 @@ mod _spython_display {
     use rustpython_vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
+    use sinteract::asset::Assets;
     use sinteract::display::{Display, PrintError, Printer, TerminalOptions, open_native};
     use sinteract::event::{Event, InputEvent, Interrupt};
     use sinteract::scene::{
@@ -93,14 +93,7 @@ mod _spython_display {
             let mut inner = self.inner.lock();
             let Printing { printer, images } = &mut *inner;
             draw(&image, &mut scene, images, vm)?;
-            for (id, blob) in std::mem::take(&mut images.upload) {
-                if let Err(e) = printer.assets_mut().insert(id, &blob) {
-                    // The images after this one are not in the assets, so the
-                    // next print decodes every image again.
-                    images.known.clear();
-                    return Err(vm.new_runtime_error(e.to_string()));
-                }
-            }
+            images.send(&scene, |id, png| printer.assets_mut().insert(id, png), vm)?;
             match printer.print(&scene) {
                 Ok(()) => Ok(true),
                 Err(PrintError::Busy) => Ok(false),
@@ -205,16 +198,10 @@ mod _spython_display {
             draw(&image, &mut scene, &mut images, vm)?;
             let mut inner = self.inner.lock();
             let display = inner.get_mut();
-            let error = |e: sinteract::display::PresentError| vm.new_runtime_error(e.to_string());
-            for (id, blob) in std::mem::take(&mut images.upload) {
-                if let Err(e) = display.push_asset(id, &blob) {
-                    // The images after this one did not reach the display,
-                    // so the next frame uploads every image.
-                    images.known.clear();
-                    return Err(error(e));
-                }
-            }
-            display.present(scene).map_err(error)
+            images.send(&scene, |id, png| display.push_asset(id, png), vm)?;
+            display
+                .present(scene)
+                .map_err(|e| vm.new_runtime_error(e.to_string()))
         }
 
         /// End the session. A second call does nothing.
@@ -271,39 +258,54 @@ mod _spython_display {
         }
     }
 
-    /// The asset ids of the images that the bitmaps of a display name, by
-    /// data URI, and the ones that go to the display before the next frame.
+    /// The images that the bitmaps of a display or of a printer name.
     #[derive(Debug, Default)]
     struct Images {
-        known: HashMap<String, u32>,
-        upload: Vec<(u32, Vec<u8>)>,
+        assets: Assets,
     }
 
     impl Images {
-        /// The bitmap that draws `data_uri` into `rect`. An image seen for
-        /// the first time gets the next id and waits in `upload`.
+        /// The bitmap that draws `data_uri` into `rect`. It takes an id from
+        /// the assets at each frame, since an id holds for one frame only.
         fn bitmap(
             &mut self,
             data_uri: &str,
             rect: RotatedRect,
             vm: &VirtualMachine,
         ) -> PyResult<Bitmap> {
-            let id = match self.known.get(data_uri) {
-                Some(&id) => id,
-                None => {
-                    let blob = super::decode_data_uri(data_uri)
-                        .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-                    if super::png_size(&blob).is_none() {
-                        return Err(vm.new_value_error("a bitmap shows here only when it is a PNG"));
+            let blob = super::decode_data_uri(data_uri)
+                .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
+            let asset = self
+                .assets
+                .image(&blob)
+                .map_err(|e| vm.new_value_error(e.to_string()))?;
+            Ok(asset.fit(rect))
+        }
+
+        /// Hand `send` each image of `scene` that has not gone out. An
+        /// image that `send` refuses goes out again with the next frame, as
+        /// do the ones after it, which never reached `send`.
+        fn send<E: std::fmt::Display>(
+            &mut self,
+            scene: &Scene,
+            mut send: impl FnMut(u32, &[u8]) -> Result<(), E>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let uploads = self
+                .assets
+                .frame(scene)
+                .map_err(|e| vm.new_runtime_error(e.to_string()))?;
+            let mut uploads = uploads.into_iter();
+            while let Some((id, png)) = uploads.next() {
+                if let Err(e) = send(id, &png) {
+                    self.assets.lost(id);
+                    for (id, _) in uploads {
+                        self.assets.lost(id);
                     }
-                    let id = u32::try_from(self.known.len())
-                        .map_err(|_| vm.new_overflow_error("too many bitmaps"))?;
-                    self.known.insert(data_uri.to_owned(), id);
-                    self.upload.push((id, blob));
-                    id
+                    return Err(vm.new_runtime_error(e.to_string()));
                 }
-            };
-            Ok(Bitmap::fit(id, rect))
+            }
+            Ok(())
         }
     }
 
