@@ -35,6 +35,7 @@ mod _spython_display {
     const CLOSE: i32 = 4;
     const RESIZE: i32 = 5;
     const MOUSE: i32 = 6;
+    const PAD: i32 = 7;
 
     /// How long `wait_event` blocks before it runs the handlers of the
     /// signals that arrived. Python runs them between two bytecodes, and a
@@ -93,7 +94,7 @@ mod _spython_display {
             let Printing { printer, images } = &mut *inner;
             draw(&image, &mut scene, images, vm)?;
             for (id, blob) in std::mem::take(&mut images.upload) {
-                if let Err(e) = printer.assets_mut().insert_png(id, &blob) {
+                if let Err(e) = printer.assets_mut().insert(id, &blob) {
                     // The images after this one are not in the assets, so the
                     // next print decodes every image again.
                     images.known.clear();
@@ -160,10 +161,11 @@ mod _spython_display {
                 }
             };
             let (kind, key) = match event {
+                Ok(Event::Tick) => (VSYNC, None),
                 Ok(Event::Input(InputEvent::Key(k))) => (k.kind as i32, Some(k)),
-                Ok(Event::Input(InputEvent::Vsync)) => (VSYNC, None),
                 Ok(Event::Input(InputEvent::Resize { .. })) => (RESIZE, None),
                 Ok(Event::Input(InputEvent::Mouse(_))) => (MOUSE, None),
+                Ok(Event::Input(InputEvent::Pad(_))) => (PAD, None),
                 Err(Interrupt::Close) => (CLOSE, None),
                 Err(Interrupt::Read(e)) => return Err(vm.new_os_error(e.to_string())),
                 // A Wake needs a Sender, and this module makes none. The
@@ -205,7 +207,7 @@ mod _spython_display {
             let display = inner.get_mut();
             let error = |e: sinteract::display::PresentError| vm.new_runtime_error(e.to_string());
             for (id, blob) in std::mem::take(&mut images.upload) {
-                if let Err(e) = display.push_asset(id, &blob, Some("image/png")) {
+                if let Err(e) = display.push_asset(id, &blob) {
                     // The images after this one did not reach the display,
                     // so the next frame uploads every image.
                     images.known.clear();
@@ -269,20 +271,12 @@ mod _spython_display {
         }
     }
 
-    /// The images that the bitmaps of a display name, by data URI, and the
-    /// ones that go to the display before the next frame.
+    /// The asset ids of the images that the bitmaps of a display name, by
+    /// data URI, and the ones that go to the display before the next frame.
     #[derive(Debug, Default)]
     struct Images {
-        known: HashMap<String, Known>,
+        known: HashMap<String, u32>,
         upload: Vec<(u32, Vec<u8>)>,
-    }
-
-    /// The asset id and the size in pixels of an image.
-    #[derive(Clone, Copy, Debug)]
-    struct Known {
-        id: u32,
-        width: u32,
-        height: u32,
     }
 
     impl Images {
@@ -294,23 +288,22 @@ mod _spython_display {
             rect: RotatedRect,
             vm: &VirtualMachine,
         ) -> PyResult<Bitmap> {
-            let known = match self.known.get(data_uri) {
-                Some(known) => *known,
+            let id = match self.known.get(data_uri) {
+                Some(&id) => id,
                 None => {
                     let blob = super::decode_data_uri(data_uri)
                         .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-                    let (width, height) = super::png_size(&blob).ok_or_else(|| {
-                        vm.new_value_error("a bitmap shows here only when it is a PNG")
-                    })?;
+                    if super::png_size(&blob).is_none() {
+                        return Err(vm.new_value_error("a bitmap shows here only when it is a PNG"));
+                    }
                     let id = u32::try_from(self.known.len())
                         .map_err(|_| vm.new_overflow_error("too many bitmaps"))?;
-                    let known = Known { id, width, height };
-                    self.known.insert(data_uri.to_owned(), known);
+                    self.known.insert(data_uri.to_owned(), id);
                     self.upload.push((id, blob));
-                    known
+                    id
                 }
             };
-            Ok(Bitmap::fit(known.id, known.width, known.height, rect))
+            Ok(Bitmap::fit(id, rect))
         }
     }
 
