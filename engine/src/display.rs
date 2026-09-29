@@ -1,6 +1,6 @@
-//! The `_spython_display` module: a window or a terminal that a World draws
-//! into, over [`sinteract::display`], and a printer of images in the
-//! terminal. Both walk the tree of an `Image` from `spython.image` and
+//! The `_spython_display` module: the stage that a World draws into, over
+//! [`sinteract::display::Stage`], which is a window, the terminal, or a
+//! session with a server, and a printer of images in the terminal. Both walk the tree of an `Image` from `spython.image` and
 //! build a [`Scene`], so Python never holds a scene that is half built.
 
 use base64::Engine as _;
@@ -21,12 +21,14 @@ mod _spython_display {
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
     use sinteract::asset::fit_image;
-    use sinteract::display::{Display, PrintError, Printer, TerminalOptions, open_native};
-    use sinteract::event::{Event, InputEvent, Interrupt};
+    use sinteract::display::{PrintError, Printer, Stage, StageEvent, TerminalOptions};
+    use sinteract::event::{InputEvent, Interrupt};
     use sinteract::scene::{
         Bitmap, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path, PathBuilder,
         PathStyle, Rgba, RotatedRect, Scene, Text, TextSpec,
     };
+    use sinteract::session::Target;
+    use sinteract::wire::engine_to_server::PlayerRange;
 
     /// The kinds of event that `wait_event` returns, first in its tuple. A
     /// key keeps the number of its [`KeyKind`](sinteract::event::KeyKind),
@@ -41,6 +43,9 @@ mod _spython_display {
     /// signals that arrived. Python runs them between two bytecodes, and a
     /// window gets its Ctrl-C from the terminal that started the program.
     const SIGNAL_PERIOD: Duration = Duration::from_millis(100);
+
+    /// A World has one player, the user or player 1 of the server.
+    const PLAYERS: PlayerRange = PlayerRange::new(1, 1).expect("1 to 1 is a range");
 
     /// A printer of images at the cursor, or `None` when the terminal shows
     /// no graphics or stdout is not a terminal.
@@ -96,15 +101,15 @@ mod _spython_display {
     #[pyclass(name = "Display")]
     #[derive(Debug, PyPayload)]
     pub struct PyDisplay {
-        inner: PyMutex<OnThread<Box<dyn Display>>>,
+        inner: PyMutex<OnThread<Stage>>,
     }
 
     impl Constructor for PyDisplay {
         type Args = (String, ArgIntoFloat, ArgIntoFloat);
 
         /// Open a window of `width` by `height`, and the terminal when no
-        /// window opens. The terminal keeps the last frame on screen after
-        /// the close.
+        /// window opens, or the session when a server runs the program.
+        /// The terminal keeps the last frame on screen after the close.
         fn py_new(
             _cls: &Py<PyType>,
             (title, width, height): Self::Args,
@@ -116,10 +121,10 @@ mod _spython_display {
                 keep_last_frame: true,
                 ..TerminalOptions::default()
             };
-            let display = open_native(&title, width, height, options)
+            let (stage, _players) = Stage::open(&title, width, height, PLAYERS, options)
                 .map_err(|e| vm.new_runtime_error(e.to_string()))?;
             Ok(PyDisplay {
-                inner: PyMutex::new(OnThread::new(display)),
+                inner: PyMutex::new(OnThread::new(stage)),
             })
         }
     }
@@ -130,28 +135,32 @@ mod _spython_display {
         /// ctrl, shift, meta, repeat)`. Only a key fills the fields after
         /// the kind, and `repeat` is always `False`, because a repeat comes
         /// as another press. A signal that arrives meanwhile runs its handler, so
-        /// Ctrl-C raises `KeyboardInterrupt`.
+        /// Ctrl-C raises `KeyboardInterrupt`. A message that the session
+        /// drops goes to stderr, and the wait goes on.
         #[pymethod]
         fn wait_event(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let event = loop {
                 let deadline = Instant::now() + SIGNAL_PERIOD;
-                match self.inner.lock().get_mut().wait_event(Some(deadline)) {
+                match self.inner.lock().get_mut().wait(Some(deadline)) {
                     Err(Interrupt::Timeout) => vm.check_signals()?,
+                    Ok(StageEvent::Error(e)) => eprintln!("spython: {e}"),
                     event => break event,
                 }
             };
             let (kind, key) = match event {
-                Ok(Event::Tick) => (VSYNC, None),
-                Ok(Event::Input(InputEvent::Key(k))) => (k.kind as i32, Some(k)),
-                Ok(Event::Input(InputEvent::Resize { .. })) => (RESIZE, None),
-                Ok(Event::Input(InputEvent::Mouse(_))) => (MOUSE, None),
-                Ok(Event::Input(InputEvent::Pad(_))) => (PAD, None),
+                Ok(StageEvent::Tick) => (VSYNC, None),
+                Ok(StageEvent::Input { event, .. }) => match event {
+                    InputEvent::Key(k) => (k.kind as i32, Some(k)),
+                    InputEvent::Resize { .. } => (RESIZE, None),
+                    InputEvent::Mouse(_) => (MOUSE, None),
+                    InputEvent::Pad(_) => (PAD, None),
+                },
                 Err(Interrupt::Close) => (CLOSE, None),
                 Err(Interrupt::Read(e)) => return Err(vm.new_os_error(e.to_string())),
-                // A Wake needs a Sender, and this module makes none. The
-                // loop above takes each Timeout.
-                Err(Interrupt::Wake | Interrupt::Timeout) => {
-                    unreachable!("a native display with no Sender wakes only at an event")
+                // A Wake needs a Sender, and a stage makes none. The loop
+                // above takes each Timeout and each Error.
+                Ok(StageEvent::Error(_)) | Err(Interrupt::Wake | Interrupt::Timeout) => {
+                    unreachable!("the loop above takes every other event")
                 }
             };
             let (name, mods) = match key {
@@ -185,7 +194,7 @@ mod _spython_display {
             self.inner
                 .lock()
                 .get_mut()
-                .present(scene)
+                .present(Target::All, scene)
                 .map_err(|e| vm.new_runtime_error(e.to_string()))
         }
 
