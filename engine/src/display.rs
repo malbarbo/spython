@@ -20,11 +20,11 @@ mod _spython_display {
     use rustpython_vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
-    use sinteract::asset::Assets;
+    use sinteract::asset::fit_image;
     use sinteract::display::{Display, PrintError, Printer, TerminalOptions, open_native};
     use sinteract::event::{Event, InputEvent, Interrupt};
     use sinteract::scene::{
-        Bitmap, ClipScope, Dash, FillRule, FontStyle, LineCap, LineJoin, Paint, Path, PathBuilder,
+        Bitmap, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path, PathBuilder,
         PathStyle, Rgba, RotatedRect, Scene, Text, TextSpec,
     };
 
@@ -48,26 +48,17 @@ mod _spython_display {
     fn open_printer(vm: &VirtualMachine) -> Option<PyObjectRef> {
         let printer = Printer::new().ok()?;
         let printer = PyPrinter {
-            inner: PyMutex::new(Printing {
-                printer,
-                images: Images::default(),
-            }),
+            inner: PyMutex::new(printer),
         };
         Some(printer.into_ref(&vm.ctx).into())
     }
 
-    /// Prints one image after another in the terminal, and keeps the images
-    /// of the bitmaps from one print to the next.
+    /// Prints one image after another in the terminal.
     #[pyattr]
     #[pyclass(name = "Printer")]
     #[derive(PyPayload)]
     pub struct PyPrinter {
-        inner: PyMutex<Printing>,
-    }
-
-    struct Printing {
-        printer: Printer,
-        images: Images,
+        inner: PyMutex<Printer>,
     }
 
     impl std::fmt::Debug for PyPrinter {
@@ -90,11 +81,8 @@ mod _spython_display {
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
             let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
-            let mut inner = self.inner.lock();
-            let Printing { printer, images } = &mut *inner;
-            draw(&image, &mut scene, images, vm)?;
-            images.send(&scene, |id, png| printer.assets_mut().insert(id, png), vm)?;
-            match printer.print(&scene) {
+            draw(&image, &mut scene, vm)?;
+            match self.inner.lock().print(&scene) {
                 Ok(()) => Ok(true),
                 Err(PrintError::Busy) => Ok(false),
                 Err(e @ (PrintError::Alloc(_) | PrintError::Io(_))) => {
@@ -109,7 +97,6 @@ mod _spython_display {
     #[derive(Debug, PyPayload)]
     pub struct PyDisplay {
         inner: PyMutex<OnThread<Box<dyn Display>>>,
-        images: PyMutex<Images>,
     }
 
     impl Constructor for PyDisplay {
@@ -133,7 +120,6 @@ mod _spython_display {
                 .map_err(|e| vm.new_runtime_error(e.to_string()))?;
             Ok(PyDisplay {
                 inner: PyMutex::new(OnThread::new(display)),
-                images: PyMutex::default(),
             })
         }
     }
@@ -142,7 +128,8 @@ mod _spython_display {
     impl PyDisplay {
         /// Block until the next event, and return it as `(kind, key, alt,
         /// ctrl, shift, meta, repeat)`. Only a key fills the fields after
-        /// the kind. A signal that arrives meanwhile runs its handler, so
+        /// the kind, and `repeat` is always `False`, because a repeat comes
+        /// as another press. A signal that arrives meanwhile runs its handler, so
         /// Ctrl-C raises `KeyboardInterrupt`.
         #[pymethod]
         fn wait_event(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -167,9 +154,9 @@ mod _spython_display {
                     unreachable!("a native display with no Sender wakes only at an event")
                 }
             };
-            let (name, mods, repeat) = match key {
-                Some(k) => (k.key, k.modifiers, k.repeat),
-                None => (String::new(), Default::default(), false),
+            let (name, mods) = match key {
+                Some(k) => (k.key, k.modifiers),
+                None => (String::new(), Default::default()),
             };
             let elements = vec![
                 vm.ctx.new_int(kind).into(),
@@ -178,7 +165,7 @@ mod _spython_display {
                 vm.ctx.new_bool(mods.ctrl).into(),
                 vm.ctx.new_bool(mods.shift).into(),
                 vm.ctx.new_bool(mods.meta).into(),
-                vm.ctx.new_bool(repeat).into(),
+                vm.ctx.new_bool(false).into(),
             ];
             Ok(vm.ctx.new_tuple(elements).into())
         }
@@ -194,12 +181,10 @@ mod _spython_display {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
-            let mut images = self.images.lock();
-            draw(&image, &mut scene, &mut images, vm)?;
-            let mut inner = self.inner.lock();
-            let display = inner.get_mut();
-            images.send(&scene, |id, png| display.push_asset(id, png), vm)?;
-            display
+            draw(&image, &mut scene, vm)?;
+            self.inner
+                .lock()
+                .get_mut()
                 .present(scene)
                 .map_err(|e| vm.new_runtime_error(e.to_string()))
         }
@@ -258,128 +243,27 @@ mod _spython_display {
         }
     }
 
-    /// The images that the bitmaps of a display or of a printer name.
-    #[derive(Debug, Default)]
-    struct Images {
-        assets: Assets,
-    }
-
-    impl Images {
-        /// The bitmap that draws `data_uri` into `rect`. It takes an id from
-        /// the assets at each frame, since an id holds for one frame only.
-        fn bitmap(
-            &mut self,
-            data_uri: &str,
-            rect: RotatedRect,
-            vm: &VirtualMachine,
-        ) -> PyResult<Bitmap> {
-            let blob = super::decode_data_uri(data_uri)
-                .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-            let asset = self
-                .assets
-                .image(&blob)
-                .map_err(|e| vm.new_value_error(e.to_string()))?;
-            Ok(asset.fit(rect))
-        }
-
-        /// Hand `send` each image of `scene` that has not gone out. An
-        /// image that `send` refuses goes out again with the next frame, as
-        /// do the ones after it, which never reached `send`.
-        fn send<E: std::fmt::Display>(
-            &mut self,
-            scene: &Scene,
-            mut send: impl FnMut(u32, &[u8]) -> Result<(), E>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let uploads = self
-                .assets
-                .frame(scene)
-                .map_err(|e| vm.new_runtime_error(e.to_string()))?;
-            let mut uploads = uploads.into_iter();
-            while let Some((id, png)) = uploads.next() {
-                if let Err(e) = send(id, &png) {
-                    self.assets.lost(id);
-                    for (id, _) in uploads {
-                        self.assets.lost(id);
-                    }
-                    return Err(vm.new_runtime_error(e.to_string()));
-                }
-            }
-            Ok(())
-        }
-    }
-
-    /// Where [`draw`] puts an element: the scene, or a clip inside it.
-    trait Sink {
-        fn add_path(&mut self, path: Path);
-        fn text(&mut self, text: Text);
-        fn bitmap(&mut self, bitmap: Bitmap);
-        fn clip(&mut self, rect: RotatedRect) -> ClipScope<'_>;
-    }
-
-    impl Sink for Scene {
-        fn add_path(&mut self, path: Path) {
-            Scene::add_path(self, path);
-        }
-
-        fn text(&mut self, text: Text) {
-            Scene::text(self, text);
-        }
-
-        fn bitmap(&mut self, bitmap: Bitmap) {
-            Scene::bitmap(self, bitmap);
-        }
-
-        fn clip(&mut self, rect: RotatedRect) -> ClipScope<'_> {
-            Scene::clip(self, rect)
-        }
-    }
-
-    impl Sink for ClipScope<'_> {
-        fn add_path(&mut self, path: Path) {
-            ClipScope::add_path(self, path);
-        }
-
-        fn text(&mut self, text: Text) {
-            ClipScope::text(self, text);
-        }
-
-        fn bitmap(&mut self, bitmap: Bitmap) {
-            ClipScope::bitmap(self, bitmap);
-        }
-
-        fn clip(&mut self, rect: RotatedRect) -> ClipScope<'_> {
-            ClipScope::clip(self, rect)
-        }
-    }
-
-    /// Put `image` into `sink`, as `to_svg` of `spython.image` writes it.
-    /// The images of its bitmaps go to `images`.
-    fn draw(
-        image: &PyObject,
-        sink: &mut impl Sink,
-        images: &mut Images,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    /// Put `image` into `scene`, as `to_svg` of `spython.image` writes it.
+    fn draw(image: &PyObject, scene: &mut Scene, vm: &VirtualMachine) -> PyResult<()> {
         let class = image.class().name().to_owned();
         match class.as_str() {
             "_Path" => {
                 if let Some(path) = path(image, vm)? {
-                    sink.add_path(path);
+                    scene.add_path(path);
                 }
             }
             "_Combination" => {
-                draw(&*image.get_attr("a", vm)?, sink, images, vm)?;
-                draw(&*image.get_attr("b", vm)?, sink, images, vm)?;
+                draw(&*image.get_attr("a", vm)?, scene, vm)?;
+                draw(&*image.get_attr("b", vm)?, scene, vm)?;
             }
             "_Crop" => {
                 let rect = rotated_rect(&*image.get_attr("box", vm)?, false, false, vm)?;
-                let mut clip = sink.clip(rect);
-                draw(&*image.get_attr("image", vm)?, &mut clip, images, vm)?;
+                let inside = image.get_attr("image", vm)?;
+                scene.clip(rect, |clip| draw(&inside, clip, vm))?;
             }
             "_Text" => {
                 if let Some(text) = text(image, vm)? {
-                    sink.text(text);
+                    scene.add_text(text);
                 }
             }
             "_Bitmap" => {
@@ -388,11 +272,21 @@ mod _spython_display {
                 let data_uri = data_uri
                     .to_str()
                     .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-                sink.bitmap(images.bitmap(data_uri, rect, vm)?);
+                scene.add_bitmap(bitmap(data_uri, rect, vm)?);
             }
             _ => return Err(vm.new_type_error(format!("cannot draw a {class}"))),
         }
         Ok(())
+    }
+
+    /// The bitmap that draws `data_uri` into `rect`.
+    fn bitmap(data_uri: &str, rect: RotatedRect, vm: &VirtualMachine) -> PyResult<Bitmap> {
+        let blob = super::decode_data_uri(data_uri)
+            .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
+        let image = fit_image(blob)
+            .and_then(Image::new)
+            .map_err(|e| vm.new_value_error(e.to_string()))?;
+        Ok(Bitmap::fit(image, rect))
     }
 
     /// The path of a `_Path`, or `None` when its commands do not start with
@@ -505,8 +399,8 @@ mod _spython_display {
             return Ok(None);
         };
         let path_style = style.path_style();
-        text.fill = path_style.fill.primary_color();
-        text.stroke = path_style.stroke.primary_color();
+        text.fill = path_style.fill;
+        text.stroke = path_style.stroke;
         text.stroke_width = path_style.stroke_width;
         text.underline = font.get_attr("underline", vm)?.try_to_bool(vm)?;
         Ok(Some(text))

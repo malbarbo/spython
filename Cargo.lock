@@ -4567,6 +4567,7 @@ dependencies = [
  "image",
  "kurbo",
  "libc",
+ "miniz_oxide",
  "objc2 0.6.4",
  "pdf-writer",
  "png",
