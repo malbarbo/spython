@@ -31,7 +31,11 @@ fn main() {
 
     println!("cargo::rerun-if-changed=../.git/HEAD");
     println!("cargo::rerun-if-changed=../.git/refs/");
-    println!("cargo::rerun-if-changed=../.git/packed-refs");
+    // Cargo takes a missing file for changed and would run this script at
+    // every build. Git writes packed-refs only at its first gc.
+    if std::path::Path::new("../.git/packed-refs").exists() {
+        println!("cargo::rerun-if-changed=../.git/packed-refs");
+    }
 }
 
 /// Convert days since 1970-01-01 to (year, month, day).
