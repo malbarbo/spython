@@ -27,8 +27,7 @@ mod _spython_display {
         Bitmap, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path, PathBuilder,
         PathStyle, Rgba, RotatedRect, Scene, Text, TextSpec,
     };
-    use sinteract::session::Target;
-    use sinteract::wire::engine_to_server::PlayerRange;
+    use sinteract::session::{PlayerRange, Target};
 
     /// The kinds of event that `wait_event` returns, first in its tuple. A
     /// key keeps the number of its [`KeyKind`](sinteract::event::KeyKind),
