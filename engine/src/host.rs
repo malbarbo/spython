@@ -21,9 +21,8 @@ pub use target::get_key_event;
 /// does, with the fonts that it draws.
 pub use target::text_metrics;
 
-/// The width and the height of the image at the path, and a data URI that
-/// holds it, or the message of the error. Natively the image is a PNG, and
-/// the page reads no file.
+/// A data URI that holds the PNG, JPEG, GIF or WebP at the path, or the
+/// message of the error. The page reads no file.
 pub use target::load_bitmap;
 
 #[cfg(target_arch = "wasm32")]

@@ -226,6 +226,18 @@ Deno.test("repl smoke test", async () => {
   destroy(ctx);
 });
 
+Deno.test("a bitmap from a data URI takes the size of its image", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  // The signature and the start of the IHDR chunk of a PNG of 3 by 2.
+  const png = "\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x03\0\0\0\x02";
+  const uri = `data:image/png;base64,${btoa(png)}`;
+  run(ctx, "from spython.image import bitmap_data_uri, width, height");
+  run(ctx, `b = bitmap_data_uri("${uri}")`);
+  const r = run(ctx, "print(width(b), height(b))");
+  assertEquals(r.stdout, "3.0 2.0\n");
+  destroy(ctx);
+});
+
 Deno.test("multiple runs", async () => {
   const ctx = await newRepl("", { level: 5 });
   const r1 = run(ctx, "1 + 2");

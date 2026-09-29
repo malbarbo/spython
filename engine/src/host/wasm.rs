@@ -44,7 +44,7 @@ pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
 }
 
 /// The page reads no file.
-pub fn load_bitmap(_path: &str) -> Result<(f64, f64, String), String> {
+pub fn load_bitmap(_path: &str) -> Result<String, String> {
     Err("load_bitmap is not available in the browser".to_owned())
 }
 

@@ -1,6 +1,9 @@
 //! What a run answers where there is no page: a drawing goes to stdout,
 //! sinteract measures a text, and no key is ever waiting.
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as B64;
+use sinteract::asset::image_head;
 use sinteract::scene::FontStyle;
 
 /// Print the drawing.
@@ -26,16 +29,11 @@ pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
     }
 }
 
-/// Read the PNG at `path`.
-pub fn load_bitmap(path: &str) -> Result<(f64, f64, String), String> {
+/// Read the image at `path` into a data URI.
+pub fn load_bitmap(path: &str) -> Result<String, String> {
     let blob = std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    let (width, height) =
-        crate::display::png_size(&blob).ok_or_else(|| format!("{path} is not a PNG"))?;
-    Ok((
-        f64::from(width),
-        f64::from(height),
-        crate::display::png_data_uri(&blob),
-    ))
+    let head = image_head(&blob).map_err(|e| format!("{path}: {e}"))?;
+    Ok(format!("data:{};base64,{}", head.mime, B64.encode(&blob)))
 }
 
 /// Nothing is ever waiting, as nothing here reads keys.

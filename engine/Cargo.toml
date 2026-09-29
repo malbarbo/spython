@@ -28,6 +28,9 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 # On wasm32, drop features that don't work (host_env, threading, ssl).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
+# The size of a bitmap, from the header in its data URI.
+sinteract = { path = "../../sinteract", default-features = false }
+base64 = "0.22"
 
 [lints]
 workspace = true

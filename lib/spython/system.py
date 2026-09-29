@@ -17,6 +17,7 @@ try:
         get_key_event,
         text_metrics,
         load_bitmap,
+        bitmap_size,
     )  # type: ignore[import-not-found]
 except ImportError:
 
@@ -46,8 +47,11 @@ except ImportError:
                     pass
         return 14.0
 
-    def load_bitmap(path: str) -> tuple[float, float, str]:
+    def load_bitmap(path: str) -> str:
         raise RuntimeError("load_bitmap is not available in native mode")
+
+    def bitmap_size(data_uri: str) -> tuple[float, float]:
+        raise RuntimeError("bitmap_size is not available in native mode")
 
 
 # Opens a printer of images in the terminal, or gives None when the terminal
@@ -56,6 +60,15 @@ try:
     from _spython_display import open_printer as _open_printer  # type: ignore[import-not-found]
 except ImportError:
     _open_printer = None
+
+# The image of a data URI, which a bitmap keeps so the display draws it
+# with no decode, or None where nothing displays, as on the page.
+try:
+    from _spython_display import load_image  # type: ignore[import-not-found]
+except ImportError:
+
+    def load_image(data_uri: str) -> object:
+        return None
 
 
 def install_displayhook() -> None:

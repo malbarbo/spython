@@ -1,3 +1,4 @@
+mod bitmap;
 pub mod check;
 pub mod checker;
 pub mod completion;

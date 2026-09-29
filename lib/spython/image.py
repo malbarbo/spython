@@ -268,9 +268,10 @@ class _Text(Image):
 
 
 class _Bitmap(Image):
-    def __init__(self, box: _Box, data_uri: str) -> None:
+    def __init__(self, box: _Box, data_uri: str, loaded: object) -> None:
         self.box: _Box = box
         self.data_uri: str = data_uri
+        self.loaded: object = loaded
 
 
 empty: Image = _Path(_style_none, [], True)
@@ -335,7 +336,7 @@ def _translate(img: Image, dx: float, dy: float) -> Image:
             img.font,
         )
     if isinstance(img, _Bitmap):
-        return _Bitmap(_box_translate(img.box, dx, dy), img.data_uri)
+        return _Bitmap(_box_translate(img.box, dx, dy), img.data_uri, img.loaded)
     return img
 
 
@@ -1148,12 +1149,13 @@ def text(
 
 
 def bitmap(path: str) -> Image:
-    w, h, data_uri = _system.load_bitmap(path)
-    return _Bitmap(_Box(Point(w / 2.0, h / 2.0), w, h, 0.0), data_uri)
+    return bitmap_data_uri(_system.load_bitmap(path))
 
 
-def bitmap_data_uri(data_uri: str, width: float, height: float) -> Image:
-    return _Bitmap(_Box(Point(width / 2.0, height / 2.0), width, height, 0.0), data_uri)
+def bitmap_data_uri(data_uri: str) -> Image:
+    w, h = _system.bitmap_size(data_uri)
+    loaded = _system.load_image(data_uri)
+    return _Bitmap(_Box(Point(w / 2.0, h / 2.0), w, h, 0.0), data_uri, loaded)
 
 
 # **************************
@@ -1189,7 +1191,7 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
             img.font,
         )
     if isinstance(img, _Bitmap):
-        return _Bitmap(_box_rotate(img.box, center, angle), img.data_uri)
+        return _Bitmap(_box_rotate(img.box, center, angle), img.data_uri, img.loaded)
     return img
 
 
@@ -1225,7 +1227,9 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
             img.font,
         )
     if isinstance(img, _Bitmap):
-        return _Bitmap(_box_scale(img.box, x_factor, y_factor), img.data_uri)
+        return _Bitmap(
+            _box_scale(img.box, x_factor, y_factor), img.data_uri, img.loaded
+        )
     return img
 
 
@@ -1264,7 +1268,7 @@ def _flip(
             img.font,
         )
     if isinstance(img, _Bitmap):
-        return _Bitmap(_box_flip(img.box, point_flip), img.data_uri)
+        return _Bitmap(_box_flip(img.box, point_flip), img.data_uri, img.loaded)
     return img
 
 
@@ -1829,7 +1833,7 @@ def _to_svg(img: Image, level: int) -> str:
         result: str = (
             _indent(level)
             + "<image "
-            + _attribs("href", img.data_uri)
+            + _attribs("href", img.data_uri, img.loaded)
             + _attrib("x", b.center.x - b.width / 2.0)
             + _attrib("y", b.center.y - b.height / 2.0)
             + _attrib("width", b.width)

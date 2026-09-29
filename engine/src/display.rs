@@ -3,9 +3,6 @@
 //! session with a server, and a printer of images in the terminal. Both walk the tree of an `Image` from `spython.image` and
 //! build a [`Scene`], so Python never holds a scene that is half built.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as B64;
-
 pub(crate) use _spython_display::module_def;
 
 #[rustpython_vm::pymodule(name = "_spython_display")]
@@ -20,7 +17,6 @@ mod _spython_display {
     use rustpython_vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
-    use sinteract::asset::fit_image;
     use sinteract::display::{PrintError, Printer, Stage, StageEvent, TerminalOptions};
     use sinteract::event::{InputEvent, Interrupt};
     use sinteract::scene::{
@@ -56,6 +52,29 @@ mod _spython_display {
         };
         Some(printer.into_ref(&vm.ctx).into())
     }
+
+    /// The image in `data_uri`, which a `_Bitmap` keeps, so a frame draws it
+    /// with no decode. An image larger than the limit of sinteract shrinks.
+    #[pyfunction]
+    fn load_image(data_uri: PyStrRef, vm: &VirtualMachine) -> PyResult<PyLoadedImage> {
+        let blob = data_uri
+            .to_str()
+            .and_then(crate::bitmap::decode_data_uri)
+            .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
+        let image = Image::load(blob).map_err(|e| vm.new_value_error(e.to_string()))?;
+        Ok(PyLoadedImage { image })
+    }
+
+    /// An image that [`load_image`] loaded. Python only passes it along.
+    #[pyattr]
+    #[pyclass(name = "LoadedImage")]
+    #[derive(Debug, PyPayload)]
+    pub struct PyLoadedImage {
+        image: Image,
+    }
+
+    #[pyclass]
+    impl PyLoadedImage {}
 
     /// Prints one image after another in the terminal.
     #[pyattr]
@@ -276,25 +295,15 @@ mod _spython_display {
             }
             "_Bitmap" => {
                 let rect = rotated_rect(&*image.get_attr("box", vm)?, false, false, vm)?;
-                let data_uri = PyStrRef::try_from_object(vm, image.get_attr("data_uri", vm)?)?;
-                let data_uri = data_uri
-                    .to_str()
-                    .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-                scene.add_bitmap(bitmap(data_uri, rect, vm)?);
+                let loaded = image.get_attr("loaded", vm)?;
+                let loaded = loaded
+                    .downcast_ref::<PyLoadedImage>()
+                    .ok_or_else(|| vm.new_type_error("a bitmap needs the image of load_image"))?;
+                scene.add_bitmap(Bitmap::fit(loaded.image.clone(), rect));
             }
             _ => return Err(vm.new_type_error(format!("cannot draw a {class}"))),
         }
         Ok(())
-    }
-
-    /// The bitmap that draws `data_uri` into `rect`.
-    fn bitmap(data_uri: &str, rect: RotatedRect, vm: &VirtualMachine) -> PyResult<Bitmap> {
-        let blob = super::decode_data_uri(data_uri)
-            .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-        let image = fit_image(blob)
-            .and_then(Image::new)
-            .map_err(|e| vm.new_value_error(e.to_string()))?;
-        Ok(Bitmap::fit(image, rect))
     }
 
     /// The path of a `_Path`, or `None` when its commands do not start with
@@ -591,67 +600,5 @@ mod _spython_display {
     /// The `value` of the `Enum` at `obj.name`.
     fn enum_value(obj: &PyObject, name: &'static str, vm: &VirtualMachine) -> PyResult<String> {
         string(&*obj.get_attr(name, vm)?, "value", vm)
-    }
-}
-
-/// The bytes of a `data:` URI in base64, or `None` when `uri` is not one.
-fn decode_data_uri(uri: &str) -> Option<Vec<u8>> {
-    let (header, payload) = uri.strip_prefix("data:")?.split_once(',')?;
-    header.ends_with(";base64").then_some(())?;
-    B64.decode(payload).ok()
-}
-
-/// The width and the height of the PNG in `blob`, from its header, or `None`
-/// when `blob` is not a PNG.
-pub(crate) fn png_size(blob: &[u8]) -> Option<(u32, u32)> {
-    const SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-    // The IHDR chunk comes first, with the width and the height at the start
-    // of its data.
-    let rest = blob.strip_prefix(SIGNATURE)?;
-    let (_length, rest) = rest.split_first_chunk::<4>()?;
-    let rest = rest.strip_prefix(b"IHDR")?;
-    let (width, rest) = rest.split_first_chunk::<4>()?;
-    let (height, _) = rest.split_first_chunk::<4>()?;
-    Some((u32::from_be_bytes(*width), u32::from_be_bytes(*height)))
-}
-
-/// A data URI that holds the PNG in `blob`.
-pub(crate) fn png_data_uri(blob: &[u8]) -> String {
-    format!("data:image/png;base64,{}", B64.encode(blob))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The signature and the start of the IHDR chunk of a PNG of 3 by 2.
-    const HEADER: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x03\0\0\0\x02";
-
-    #[test]
-    fn png_size_reads_the_header() {
-        assert_eq!(png_size(HEADER), Some((3, 2)));
-    }
-
-    #[test]
-    fn png_size_refuses_what_is_not_a_png() {
-        assert_eq!(
-            png_size(b"GIF89a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"),
-            None
-        );
-        assert_eq!(png_size(HEADER.get(..20).expect("a prefix")), None);
-    }
-
-    #[test]
-    fn a_data_uri_decodes_back_to_its_bytes() {
-        assert_eq!(
-            decode_data_uri(&png_data_uri(HEADER)).as_deref(),
-            Some(HEADER)
-        );
-    }
-
-    #[test]
-    fn decode_data_uri_refuses_a_uri_that_is_not_base64() {
-        assert_eq!(decode_data_uri("data:image/png,abc"), None);
-        assert_eq!(decode_data_uri("image/png;base64,abc"), None);
     }
 }
