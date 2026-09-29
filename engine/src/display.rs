@@ -558,11 +558,7 @@ mod _spython_display {
                 } else {
                     sinteract::scene::DEFAULT_MITER_LIMIT
                 },
-                dash: self
-                    .dash
-                    .as_ref()
-                    .and_then(|a| Dash::new(a.clone(), 0.0))
-                    .map(Box::new),
+                dash: self.dash.as_ref().and_then(|a| Dash::new(a.clone(), 0.0)),
                 closed: false,
             }
         }
