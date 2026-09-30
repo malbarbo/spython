@@ -587,8 +587,8 @@ mod _spython_display {
             return Ok(Color::default());
         }
         let channel = |name: &'static str| -> PyResult<u8> {
-            let v = float(c, name, vm)?;
-            Ok(v.clamp(0.0, 255.0) as u8)
+            let v: i64 = c.get_attr(name, vm)?.try_into_value(vm)?;
+            Ok(v.clamp(0, 255) as u8)
         };
         Ok(Color {
             r: channel("r")?,
