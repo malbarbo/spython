@@ -21,7 +21,7 @@ mod _spython_display {
     use sinteract::event::{InputEvent, Interrupt};
     use sinteract::scene::{
         Bitmap, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path, PathBuilder,
-        PathStyle, Rgba, RotatedRect, Scene, Text, TextSpec,
+        PathStyle, RotatedRect, Scene, Text, TextSpec,
     };
     use sinteract::session::{PlayerRange, Target};
 
@@ -444,10 +444,10 @@ mod _spython_display {
     /// A `Style` of `spython.style`, with the defaults that its `to_svg`
     /// adds and that SVG takes for an attribute left out.
     struct Style {
-        fill: Option<Rgba>,
+        fill: Option<Color>,
         fill_opacity: f32,
         fill_rule: FillRule,
-        stroke: Option<Rgba>,
+        stroke: Option<Color>,
         stroke_width: Option<f32>,
         stroke_opacity: f32,
         dash: Option<Vec<f32>>,
@@ -528,8 +528,8 @@ mod _spython_display {
             // for an outline.
             let fill = match self.fill {
                 Some(c) => c,
-                None if outline => Rgba::default(),
-                None => Rgba {
+                None if outline => Color::default(),
+                None => Color {
                     r: 0,
                     g: 0,
                     b: 0,
@@ -564,20 +564,33 @@ mod _spython_display {
         }
     }
 
-    fn paint(c: Rgba, opacity: f32) -> Paint {
-        Paint::rgba(c.r, c.g, c.b, c.a * opacity)
+    /// A `Color` of `spython.color`, with the alpha as a fraction from 0 to
+    /// 1.
+    #[derive(Clone, Copy, Default)]
+    struct Color {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: f32,
+    }
+
+    /// The color with its alpha times `opacity`, rounded once to the byte of
+    /// the scene.
+    fn paint(c: Color, opacity: f32) -> Paint {
+        let a = (c.a * opacity).clamp(0.0, 1.0) * 255.0;
+        Paint::rgba(c.r, c.g, c.b, a.round() as u8)
     }
 
     /// A `Color` of `spython.color`. `NONE` has no alpha.
-    fn color(c: &PyObject, vm: &VirtualMachine) -> PyResult<Rgba> {
+    fn color(c: &PyObject, vm: &VirtualMachine) -> PyResult<Color> {
         if c.get_attr("_none", vm)?.try_to_bool(vm)? {
-            return Ok(Rgba::default());
+            return Ok(Color::default());
         }
         let channel = |name: &'static str| -> PyResult<u8> {
             let v = float(c, name, vm)?;
             Ok(v.clamp(0.0, 255.0) as u8)
         };
-        Ok(Rgba {
+        Ok(Color {
             r: channel("r")?,
             g: channel("g")?,
             b: channel("b")?,
