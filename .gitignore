@@ -1,5 +1,6 @@
 /target
 /wasm/target
+/dist
 __pycache__/
 
 # The stepper, and the plans it comes from. They do not compile against the

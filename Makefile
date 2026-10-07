@@ -1,6 +1,6 @@
 WASM_TARGET = wasm32-wasip1
 
-.PHONY: release wasm wasm-test test test-rs test-wasm test-wasm-cli test-images check
+.PHONY: release wasm wasm-test test test-rs test-wasm test-wasm-cli test-images check docs clean
 
 release:
 	cargo build --release
@@ -42,3 +42,9 @@ check:
 	cargo fmt -- --check
 	ruff format --check lib/spython/
 	deno fmt --check wasm/tests/ wasm/spython.ts
+
+docs:
+	bash docs/build-docs.sh
+
+clean:
+	rm -rf dist/docs
