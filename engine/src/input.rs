@@ -67,7 +67,7 @@ fn incomplete(src: &str) -> bool {
 }
 
 /// `cursor` brought inside `src` and onto a character boundary.
-fn char_boundary(src: &str, cursor: usize) -> usize {
+pub(crate) fn char_boundary(src: &str, cursor: usize) -> usize {
     let mut cursor = cursor.min(src.len());
     while !src.is_char_boundary(cursor) {
         cursor -= 1;

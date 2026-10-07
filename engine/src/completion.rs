@@ -36,6 +36,8 @@ pub enum TabAction {
 /// Decide whether Tab should indent or complete.
 ///
 /// `text` is the full editor content, `cursor_pos` is the byte offset of the cursor.
+/// A cursor inside a character or past the end moves back, as in
+/// `input::ready_state`.
 pub fn tab_action(
     vm: &VirtualMachine,
     globals: &PyDictRef,
@@ -43,6 +45,7 @@ pub fn tab_action(
     cursor_pos: usize,
     commands: &[(&str, bool)],
 ) -> TabAction {
+    let cursor_pos = crate::input::char_boundary(text, cursor_pos);
     let before = &text[..cursor_pos];
     let current_line_start = before.rfind('\n').map_or(0, |i| i + 1);
     let current_line = &before[current_line_start..];
@@ -443,6 +446,24 @@ mod tests {
             let action = tab_action(vm, globals, "    ", 4, &commands());
             assert!(
                 matches!(action, TabAction::Complete(_, ref c) if c.contains(&"print".to_owned()))
+            );
+        });
+    }
+
+    #[test]
+    fn tab_action_moves_a_cursor_inside_a_character_back() {
+        with_vm(|vm, globals| {
+            let action = tab_action(vm, globals, "ã", 1, &commands());
+            assert!(matches!(action, TabAction::Complete(0, _)));
+        });
+    }
+
+    #[test]
+    fn tab_action_moves_a_cursor_past_the_end_back() {
+        with_vm(|vm, globals| {
+            let action = tab_action(vm, globals, "pr", 10, &commands());
+            assert!(
+                matches!(action, TabAction::Complete(0, ref c) if c.contains(&"print".to_owned()))
             );
         });
     }
