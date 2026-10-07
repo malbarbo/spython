@@ -307,6 +307,15 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
                     import_from.level,
                 ) {
                     visit_module(db, file, &name, seen);
+                    // `from pkg import util` can name a module as well as a
+                    // name defined in `pkg`.
+                    for alias in &import_from.names {
+                        if let Some(child) = ModuleName::new(alias.name.id.as_str()) {
+                            let mut submodule = name.clone();
+                            submodule.extend(&child);
+                            visit_module(db, file, &submodule, seen);
+                        }
+                    }
                 }
             }
             _ => {}
