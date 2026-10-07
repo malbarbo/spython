@@ -14,7 +14,7 @@ walkdir = "2"
 # The display of a World and of animate, the image that the REPL prints,
 # the measure of a text, and the macros of the pyclass that holds the
 # display. The page draws and measures for itself.
-sinteract = { path = "../../sinteract" }
+sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master" }
 rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false }
 # The data URI of a bitmap.
 base64 = "0.22"
@@ -29,7 +29,7 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
 # The size of a bitmap, from the header in its data URI.
-sinteract = { path = "../../sinteract", default-features = false }
+sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master", default-features = false }
 base64 = "0.22"
 
 [lints]
