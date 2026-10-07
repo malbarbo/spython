@@ -59,7 +59,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
         .collect();
     db.project().set_included_paths(&mut db, sys_files);
 
-    let mut diagnostics = annotation_check(&db, level, false);
+    let mut diagnostics = annotation_check(&db, level, None);
     diagnostics.extend(db.check());
     // Validate and type-check doctests inside each user file's docstrings.
     let user_files = user_files(&db, files.iter().copied());

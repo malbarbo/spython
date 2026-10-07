@@ -13,6 +13,7 @@ use ruff_python_ast::name::Name;
 use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_python_ast::{ExprRef, Stmt};
 use ruff_ranged_value::RangedValue;
+use ruff_text_size::TextSize;
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_project::metadata::Options;
 use ty_project::metadata::options::{EnvironmentOptions, Rules};
@@ -146,22 +147,24 @@ pub fn check_source(
     level: Level,
     in_repl: bool,
 ) -> Result<Warnings, Box<TypeErrors>> {
-    check_in_memory(source, level, in_repl, &[])
+    check_in_memory(source, level, in_repl.then_some(TextSize::default()), &[])
 }
 /// Type-check `source` against `modules` -- the first-party files it imports.
+/// `repl_input` is where the REPL input starts in `source`, and `None` for a
+/// file.
 fn check_in_memory(
     source: &str,
     level: Level,
-    in_repl: bool,
+    repl_input: Option<TextSize>,
     modules: &[(String, String)],
 ) -> Result<Warnings, Box<TypeErrors>> {
     let (db, user_file) = in_memory_project(source, modules);
 
-    let mut diagnostics = annotation_check(&db, level, in_repl);
+    let mut diagnostics = annotation_check(&db, level, repl_input);
     diagnostics.extend(db.check());
     // Doctests are code too — validate prompt format and type-check snippets.
     // Skip in REPL context, where incremental input doesn't have docstrings.
-    if !in_repl {
+    if repl_input.is_none() {
         diagnostics.extend(check_file_doctests(&db, user_file, level));
     }
 
@@ -175,10 +178,14 @@ fn check_in_memory(
     }
 }
 /// Run the annotation checker on all files registered in `db`.
-pub fn annotation_check(db: &ProjectDatabase, level: Level, in_repl: bool) -> Vec<Diagnostic> {
+pub fn annotation_check(
+    db: &ProjectDatabase,
+    level: Level,
+    repl_input: Option<TextSize>,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for file in user_files(db, db.project().files(db).into_iter()) {
-        diagnostics.extend(checker::check_file_annotations(db, file, level, in_repl));
+        diagnostics.extend(checker::check_file_annotations(db, file, level, repl_input));
     }
     diagnostics
 }
@@ -262,7 +269,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
 
     let (scratch, syn_file) = in_memory_project(&syn_source, &modules);
 
-    let mut raw = annotation_check(&scratch, level, false);
+    let mut raw = annotation_check(&scratch, level, None);
     raw.extend(scratch.check());
 
     let remapped = doctests::remap_diagnostics(
@@ -403,15 +410,16 @@ pub(crate) fn type_check_repl_input(
         format!("{accumulated}\n{new_input}")
     };
 
-    let te = match check_in_memory(&combined, level, true, modules) {
-        Ok(_) => return true, // warnings don't block execution
-        Err(te) => te,
-    };
-
     // Where the input starts in `combined`. What lands before it is about the
     // accumulated source, which no prompt can reach: printing it would blame
     // what the user just typed for code they cannot fix from here.
     let input_offset = combined.len() - new_input.len();
+    let input_start = TextSize::try_from(input_offset).unwrap_or(TextSize::new(u32::MAX));
+
+    let te = match check_in_memory(&combined, level, Some(input_start), modules) {
+        Ok(_) => return true, // warnings don't block execution
+        Err(te) => te,
+    };
     let in_input: Vec<Placed> = te
         .diagnostics
         .iter()
@@ -665,6 +673,28 @@ mod repl_check_tests {
             "x: int = 1",
             "undefined_name",
             Level::Full,
+            false,
+            &[],
+        ));
+    }
+
+    #[test]
+    fn input_can_replace_a_function_of_an_earlier_input() {
+        assert!(type_check_repl_input(
+            "def f() -> int:\n    return 1\n",
+            "def f() -> int:\n    return 2\n",
+            Level::Functions,
+            false,
+            &[],
+        ));
+    }
+
+    #[test]
+    fn a_function_defined_twice_in_one_input_is_still_an_error() {
+        assert!(!type_check_repl_input(
+            "x: int = 1",
+            "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n",
+            Level::Functions,
             false,
             &[],
         ));

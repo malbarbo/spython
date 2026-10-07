@@ -80,14 +80,15 @@ impl Level {
 
 /// Check a file for missing annotations and forbidden constructs.
 ///
-/// `in_repl` is true when the check is running against REPL input; a bare
-/// expression statement is valid in a REPL (its value is displayed) so the
-/// `BARE_EXPRESSION` lint is suppressed in that context.
+/// `repl_input` is where the REPL input starts in the file, and `None` when
+/// the file is not REPL input. A bare expression statement is valid in a REPL
+/// (its value is displayed) so the `BARE_EXPRESSION` lint is suppressed in
+/// that context.
 pub fn check_file_annotations(
     db: &dyn Db,
     file: File,
     level: Level,
-    in_repl: bool,
+    repl_input: Option<TextSize>,
 ) -> Vec<Diagnostic> {
     let program_file = db.program_file(file);
     let parsed = parsed_module(db, program_file.python_file(db));
@@ -97,7 +98,7 @@ pub fn check_file_annotations(
         file,
         model: &model,
         level,
-        in_repl,
+        repl_input,
         in_class: false,
         in_function: false,
         in_doctest: false,
@@ -114,7 +115,7 @@ struct Checker<'a> {
     file: File,
     model: &'a SemanticModel<'a>,
     level: Level,
-    in_repl: bool,
+    repl_input: Option<TextSize>,
     in_class: bool,
     in_function: bool,
     in_doctest: bool,
@@ -607,9 +608,15 @@ impl Checker<'_> {
     /// earlier function/class in the same body. `@overload` stubs and
     /// synthetic doctest functions are ignored. Caller decides when this
     /// runs — currently only at teaching levels 0–3.
+    ///
+    /// In the REPL a definition from an earlier input does not count, so a
+    /// new input can replace a function or a class.
     fn check_redefinitions(&mut self, body: &[Stmt]) {
         let mut defined: HashMap<&str, &'static str> = HashMap::new();
         for stmt in body {
+            if self.repl_input.is_some_and(|start| stmt.start() < start) {
+                continue;
+            }
             let (name, range, kind) = match stmt {
                 Stmt::FunctionDef(f) => {
                     if has_decorator_named(&f.decorator_list, &["overload"])
@@ -901,7 +908,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 }
             }
             Stmt::Expr(expr_stmt) => {
-                if !self.in_repl
+                if self.repl_input.is_none()
                     && !self.in_doctest
                     && self.level < Level::Classes
                     && !matches!(
@@ -1484,7 +1491,7 @@ mod tests {
         let mut db = ProjectDatabase::fallible(metadata, system).expect("db");
         let file = system_path_to_file(&db, &path).expect("file");
         db.project().set_included_paths(&mut db, vec![path]);
-        check_file_annotations(&db, file, level, false)
+        check_file_annotations(&db, file, level, None)
             .into_iter()
             .map(|d| d.id().as_str().to_string())
             .collect()
