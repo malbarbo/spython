@@ -8,10 +8,10 @@ use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
 use std::collections::{HashMap, HashSet};
 
-use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
+use ruff_python_ast::visitor::{Visitor, walk_expr, walk_pattern, walk_stmt};
 use ruff_python_ast::{
-    CmpOp, Decorator, Expr, ExprContext, Operator, Parameter, Stmt, StmtAssign, StmtClassDef,
-    StmtFunctionDef, UnaryOp,
+    CmpOp, Comprehension, Decorator, Expr, ExprContext, Operator, Parameter, Parameters, Pattern,
+    Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, TypeParams, UnaryOp,
 };
 use ruff_python_stdlib::str as stdlib_str;
 use ruff_text_size::{Ranged, TextRange, TextSize};
@@ -1096,18 +1096,21 @@ fn single_return_bool(body: &[Stmt]) -> Option<bool> {
 
 /// F841: report local variables that are assigned but never read.
 ///
-/// Naive AST-based use-def via [`UnusedWalker`]. We do NOT recurse into
-/// nested function/class bodies — they have their own scope. As a
-/// consequence, an outer binding captured by a nested closure looks
-/// unused; that's a known false positive but rare in the student code
-/// this rule targets (only enabled at levels 0–3).
+/// A name is used when the function reads it, or when a scope nested in the
+/// function reads it without binding its own name of the same spelling.
 fn check_unused_variables(body: &[Stmt], file: File, diagnostics: &mut Vec<Diagnostic>) {
     let mut walker = UnusedWalker::default();
     walker.visit_body(body);
-    let UnusedWalker { bindings, uses } = walker;
     let mut reported: HashSet<&str> = HashSet::new();
-    for (name, range) in bindings {
-        if name.starts_with('_') || uses.contains(name) || !reported.insert(name) {
+    for &(name, range) in &walker.bindings {
+        // An assignment to a `global` or `nonlocal` name binds a name of
+        // another scope, and that scope may read it.
+        if name.starts_with('_')
+            || walker.uses.contains(name)
+            || walker.globals.contains(name)
+            || walker.nonlocals.contains(name)
+            || !reported.insert(name)
+        {
             continue;
         }
         diagnostics.push(make_lint_diagnostic(
@@ -1119,18 +1122,54 @@ fn check_unused_variables(body: &[Stmt], file: File, diagnostics: &mut Vec<Diagn
     }
 }
 
+/// What a single scope binds and reads. A nested scope gets its own walker,
+/// and only the names it reads from outside reach the walker of its parent.
 #[derive(Default)]
 struct UnusedWalker<'a> {
+    /// The bindings the check reports when nothing reads them.
     bindings: Vec<(&'a str, TextRange)>,
+    /// Every name the scope binds, reported or not. A nested scope that binds
+    /// a name reads its own and not the one outside.
+    locals: HashSet<&'a str>,
+    /// The names the scope reads, and the ones its nested scopes read from it.
     uses: HashSet<&'a str>,
+    globals: HashSet<&'a str>,
+    nonlocals: HashSet<&'a str>,
+    kind: ScopeKind,
+    /// The names that the scopes nested in a class body read from outside.
+    /// They skip the class body, whose names they do not see.
+    past_class: HashSet<&'a str>,
+    /// The targets of a walrus in a comprehension. They bind in the scope
+    /// around the comprehension.
+    escaped: Vec<(&'a str, TextRange)>,
+}
+
+#[derive(Default, PartialEq)]
+enum ScopeKind {
+    #[default]
+    Function,
+    Class,
+    Comprehension,
 }
 
 impl<'a> UnusedWalker<'a> {
+    fn new(kind: ScopeKind) -> Self {
+        Self {
+            kind,
+            ..Self::default()
+        }
+    }
+
+    fn bind(&mut self, name: &'a str, range: TextRange) {
+        self.bindings.push((name, range));
+        self.locals.insert(name);
+    }
+
     /// Record every `Name` reachable through tuple/list/starred unpacking
     /// as a binding. Attribute / subscript targets aren't local bindings.
     fn add_target(&mut self, target: &'a Expr) {
         match target {
-            Expr::Name(n) => self.bindings.push((n.id.as_str(), n.range())),
+            Expr::Name(n) => self.bind(n.id.as_str(), n.range()),
             Expr::Tuple(t) => t.elts.iter().for_each(|v| self.add_target(v)),
             Expr::List(l) => l.elts.iter().for_each(|v| self.add_target(v)),
             Expr::Starred(s) => self.add_target(&s.value),
@@ -1150,6 +1189,83 @@ impl<'a> UnusedWalker<'a> {
             Expr::Starred(s) => self.visit_target_reads(&s.value),
             _ => {}
         }
+    }
+
+    /// The names the scope reads from the scopes around it.
+    fn free_names(self) -> impl Iterator<Item = &'a str> {
+        let Self {
+            locals,
+            uses,
+            globals,
+            nonlocals,
+            past_class,
+            ..
+        } = self;
+        uses.into_iter()
+            .filter(move |n| !locals.contains(n) && !globals.contains(n))
+            .chain(nonlocals)
+            .chain(past_class)
+    }
+
+    fn add_nested(&mut self, mut nested: UnusedWalker<'a>) {
+        for (name, range) in std::mem::take(&mut nested.escaped) {
+            if self.kind == ScopeKind::Comprehension {
+                self.escaped.push((name, range));
+            } else {
+                self.bind(name, range);
+            }
+        }
+        // A scope nested in a class body does not see the names the class
+        // binds, so its reads go past the class.
+        if self.kind == ScopeKind::Class {
+            self.past_class.extend(nested.free_names());
+        } else {
+            self.uses.extend(nested.free_names());
+        }
+    }
+
+    /// The defaults and annotations of the parameters are evaluated here, and
+    /// the names of the parameters are bound in `nested`.
+    fn visit_parameters_of(&mut self, parameters: &'a Parameters, nested: &mut UnusedWalker<'a>) {
+        for parameter in parameters {
+            if let Some(default) = parameter.default() {
+                self.visit_expr(default);
+            }
+            if let Some(annotation) = parameter.annotation() {
+                self.visit_annotation(annotation);
+            }
+            nested.locals.insert(parameter.name().as_str());
+        }
+    }
+
+    fn bind_type_params(nested: &mut UnusedWalker<'a>, type_params: Option<&'a TypeParams>) {
+        for type_param in type_params.into_iter().flat_map(|t| t.iter()) {
+            nested.locals.insert(type_param.name().as_str());
+        }
+    }
+
+    /// The iterable of the first `for` is evaluated here, and everything else
+    /// in the comprehension is evaluated in a scope of its own.
+    fn visit_comprehension_scope(&mut self, generators: &'a [Comprehension], parts: &[&'a Expr]) {
+        let mut nested = UnusedWalker::new(ScopeKind::Comprehension);
+        for (i, generator) in generators.iter().enumerate() {
+            if i == 0 {
+                self.visit_expr(&generator.iter);
+            } else {
+                nested.visit_expr(&generator.iter);
+            }
+            nested.add_target(&generator.target);
+            nested.visit_target_reads(&generator.target);
+            for condition in &generator.ifs {
+                nested.visit_expr(condition);
+            }
+        }
+        for part in parts {
+            nested.visit_expr(part);
+        }
+        // The targets of a comprehension are not variables the check reports.
+        nested.bindings.clear();
+        self.add_nested(nested);
     }
 }
 
@@ -1181,6 +1297,7 @@ impl<'a> Visitor<'a> for UnusedWalker<'a> {
                 // the read explicitly here.
                 if let Expr::Name(n) = a.target.as_ref() {
                     self.uses.insert(n.id.as_str());
+                    self.locals.insert(n.id.as_str());
                 } else {
                     self.visit_expr(&a.target);
                 }
@@ -1188,34 +1305,44 @@ impl<'a> Visitor<'a> for UnusedWalker<'a> {
             }
             Stmt::For(f) => {
                 self.add_target(&f.target);
+                self.visit_target_reads(&f.target);
                 self.visit_expr(&f.iter);
                 self.visit_body(&f.body);
                 self.visit_body(&f.orelse);
             }
             Stmt::FunctionDef(func) => {
-                // Nested def: name is a binding in the enclosing scope, but
-                // body / parameters / return annotation live in their own
-                // scope so we don't visit them.
-                self.bindings.push((func.name.as_str(), func.name.range()));
+                self.bind(func.name.as_str(), func.name.range());
                 for d in &func.decorator_list {
                     self.visit_decorator(d);
                 }
+                let mut nested = UnusedWalker::new(ScopeKind::Function);
+                Self::bind_type_params(&mut nested, func.type_params.as_deref());
+                self.visit_parameters_of(&func.parameters, &mut nested);
+                if let Some(returns) = &func.returns {
+                    self.visit_annotation(returns);
+                }
+                nested.visit_body(&func.body);
+                self.add_nested(nested);
             }
             Stmt::ClassDef(cls) => {
-                self.bindings.push((cls.name.as_str(), cls.name.range()));
+                self.bind(cls.name.as_str(), cls.name.range());
                 for d in &cls.decorator_list {
                     self.visit_decorator(d);
                 }
                 if let Some(args) = &cls.arguments {
                     self.visit_arguments(args);
                 }
-                // Skip body — separate scope.
+                let mut nested = UnusedWalker::new(ScopeKind::Class);
+                Self::bind_type_params(&mut nested, cls.type_params.as_deref());
+                nested.visit_body(&cls.body);
+                self.add_nested(nested);
             }
             Stmt::With(w) => {
                 for item in &w.items {
                     self.visit_expr(&item.context_expr);
                     if let Some(v) = &item.optional_vars {
                         self.add_target(v);
+                        self.visit_target_reads(v);
                     }
                 }
                 self.visit_body(&w.body);
@@ -1228,31 +1355,90 @@ impl<'a> Visitor<'a> for UnusedWalker<'a> {
                         self.visit_expr(typ);
                     }
                     if let Some(name) = &h.name {
-                        self.bindings.push((name.as_str(), name.range()));
+                        self.bind(name.as_str(), name.range());
                     }
                     self.visit_body(&h.body);
                 }
                 self.visit_body(&t.orelse);
                 self.visit_body(&t.finalbody);
             }
+            Stmt::Import(import) => {
+                for alias in &import.names {
+                    let name = alias.asname.as_ref().map_or_else(
+                        || alias.name.split('.').next().unwrap_or_default(),
+                        |asname| asname.as_str(),
+                    );
+                    self.locals.insert(name);
+                }
+            }
+            Stmt::ImportFrom(import) => {
+                for alias in &import.names {
+                    self.locals
+                        .insert(alias.asname.as_ref().unwrap_or(&alias.name).as_str());
+                }
+            }
+            Stmt::Global(g) => self.globals.extend(g.names.iter().map(|n| n.as_str())),
+            Stmt::Nonlocal(n) => self.nonlocals.extend(n.names.iter().map(|n| n.as_str())),
             _ => walk_stmt(self, stmt),
         }
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
         match expr {
-            // Store ctx is handled by `add_target` at the parent; Del / Invalid no-op.
-            Expr::Name(n) if n.ctx == ExprContext::Load => {
-                self.uses.insert(n.id.as_str());
-            }
-            Expr::Name(_) => {}
+            Expr::Name(n) => match n.ctx {
+                ExprContext::Load => {
+                    self.uses.insert(n.id.as_str());
+                }
+                // A store reaches here only where `add_target` is not called,
+                // and `del x` makes `x` local too.
+                ExprContext::Store | ExprContext::Del => {
+                    self.locals.insert(n.id.as_str());
+                }
+                ExprContext::Invalid => {}
+            },
             Expr::Named(named) => {
                 // Walrus `(target := value)` binds target and reads value.
-                self.add_target(&named.target);
+                if let (ScopeKind::Comprehension, Expr::Name(n)) = (&self.kind, &*named.target) {
+                    self.escaped.push((n.id.as_str(), n.range()));
+                } else {
+                    self.add_target(&named.target);
+                }
                 self.visit_expr(&named.value);
+            }
+            Expr::Lambda(lambda) => {
+                let mut nested = UnusedWalker::new(ScopeKind::Function);
+                if let Some(parameters) = &lambda.parameters {
+                    self.visit_parameters_of(parameters, &mut nested);
+                }
+                nested.visit_expr(&lambda.body);
+                // A lambda binds only its parameters, which are not variables
+                // the check reports.
+                nested.bindings.clear();
+                self.add_nested(nested);
+            }
+            Expr::ListComp(c) => self.visit_comprehension_scope(&c.generators, &[&c.elt]),
+            Expr::SetComp(c) => self.visit_comprehension_scope(&c.generators, &[&c.elt]),
+            Expr::Generator(c) => self.visit_comprehension_scope(&c.generators, &[&c.elt]),
+            Expr::DictComp(c) => {
+                let mut parts: Vec<&'a Expr> = vec![&c.value];
+                parts.extend(c.key.as_deref());
+                self.visit_comprehension_scope(&c.generators, &parts);
             }
             _ => walk_expr(self, expr),
         }
+    }
+
+    fn visit_pattern(&mut self, pattern: &'a Pattern) {
+        let name = match pattern {
+            Pattern::MatchAs(p) => p.name.as_ref(),
+            Pattern::MatchStar(p) => p.name.as_ref(),
+            Pattern::MatchMapping(p) => p.rest.as_ref(),
+            _ => None,
+        };
+        if let Some(name) = name {
+            self.locals.insert(name.as_str());
+        }
+        walk_pattern(self, pattern);
     }
 }
 
@@ -1468,6 +1654,159 @@ mod tests {
         let diags = check(
             "class P:\n    x: int = 0\n\ndef f(p: P) -> None:\n    o: P = p\n    o.x = 1\n",
             Level::UserTypes,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_the_reads_of_a_closure() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    def g() -> int:\n        def h() -> int:\n            return n\n        return h()\n    return g()\n",
+            Level::Functions,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_read_in_a_default() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    def h(x: int = n) -> int:\n        return x\n    return h()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_read_in_a_decorator() {
+        let diags = check(
+            "def f(d: int) -> None:\n    n: int = d\n    @n\n    def h() -> None:\n        pass\n    h()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_a_name_a_parameter_hides() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    def g(n: int) -> int:\n        return n\n    return g(2)\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_a_name_a_nested_assignment_hides() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    def g() -> int:\n        n: int = 2\n        return n\n    return g()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_a_name_a_nested_import_hides() {
+        let diags = check(
+            "def f() -> float:\n    pi: float = 1.0\n    def g() -> float:\n        from math import pi\n        return pi\n    return g()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_read_of_a_method_past_the_class() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    class C:\n        n: int = 2\n        def m(self) -> int:\n            return n\n    return C().m()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_a_name_the_class_body_hides() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    class C:\n        n: int = 2\n        k: int = n\n    return C.k\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_read_of_the_class_body() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    class C:\n        k: int = n\n    return C.k\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_read_in_a_lambda() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    g = lambda: n\n    return g()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_a_name_a_lambda_parameter_hides() {
+        let diags = check(
+            "def f() -> int:\n    n: int = 1\n    g = lambda n: n\n    return g(2)\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_a_name_a_comprehension_target_hides() {
+        let diags = check(
+            "def f(xs: list[int]) -> list[int]:\n    n: int = 1\n    return [n for n in xs]\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_read_in_a_comprehension() {
+        let diags = check(
+            "def f(xs: list[int]) -> list[int]:\n    n: int = 1\n    return [x + n for x in xs]\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_binds_a_comprehension_walrus_in_the_function() {
+        let diags = check(
+            "def f(xs: list[int]) -> int:\n    [(last := x) for x in xs]\n    return last\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_flags_an_unread_comprehension_walrus() {
+        let diags = check(
+            "def f(xs: list[int]) -> None:\n    [(last := x) for x in xs]\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 1, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_records_a_nonlocal_rebinding() {
+        let diags = check(
+            "def f() -> None:\n    n: int = 1\n    def g() -> None:\n        nonlocal n\n        n = 2\n    g()\n",
+            Level::Repetition,
+        );
+        assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
+    }
+
+    #[test]
+    fn unused_walker_skips_an_assignment_to_a_global() {
+        let diags = check(
+            "def f() -> None:\n    global n\n    n = 2\n",
+            Level::Repetition,
         );
         assert_eq!(count(&diags, "unused-variable"), 0, "{diags:?}");
     }
