@@ -1,0 +1,30 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+error[missing-parameter-annotation]: Parameter `x` is missing a type annotation
+ --> spython_helpers/__init__.py:4:25
+  |
+4 | def missing_annotations(x, y):
+  |                         ^
+5 |     return x + y
+  |
+
+error[missing-parameter-annotation]: Parameter `y` is missing a type annotation
+ --> spython_helpers/__init__.py:4:28
+  |
+4 | def missing_annotations(x, y):
+  |                            ^
+5 |     return x + y
+  |
+
+error[missing-return-annotation]: Function `missing_annotations` is missing a return type annotation
+ --> spython_helpers/__init__.py:4:5
+  |
+4 | def missing_annotations(x, y):
+  |     ^^^^^^^^^^^^^^^^^^^
+5 |     return x + y
+  |
+
+Found 3 errors.

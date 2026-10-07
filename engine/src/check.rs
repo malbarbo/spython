@@ -284,8 +284,7 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
         match stmt {
             Stmt::Import(import) => {
                 for alias in &import.names {
-                    // Skip library modules (spython) — not student code.
-                    if alias.name.id.starts_with("spython") {
+                    if is_library(&alias.name.id) {
                         continue;
                     }
                     if let Some(name) = ModuleName::new(alias.name.id.as_str()) {
@@ -295,8 +294,7 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
             }
             Stmt::ImportFrom(import_from) => {
                 let module_str = import_from.module.as_deref();
-                // Skip library modules (spython) — not student code.
-                if module_str.is_some_and(|m| m.starts_with("spython")) {
+                if module_str.is_some_and(is_library) {
                     continue;
                 }
                 if let Ok(name) = ModuleName::from_identifier_parts(
@@ -311,6 +309,12 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
             _ => {}
         }
     }
+}
+/// Returns `true` if `module` is the spython library or one of its modules,
+/// `false` otherwise. The library is not student code, but a student module
+/// can still be named `spython_helpers`.
+fn is_library(module: &str) -> bool {
+    module == "spython" || module.starts_with("spython.")
 }
 /// Build the module-resolution key ty now requires for the importing file.
 fn importing_file<'db>(db: &'db ProjectDatabase, file: File) -> ImportingFile<'db> {
