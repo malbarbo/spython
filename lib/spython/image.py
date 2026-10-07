@@ -1833,7 +1833,7 @@ def _to_svg(img: Image, level: int) -> str:
         result: str = (
             _indent(level)
             + "<image "
-            + _attribs("href", img.data_uri, img.loaded)
+            + _attribs("href", img.data_uri)
             + _attrib("x", b.center.x - b.width / 2.0)
             + _attrib("y", b.center.y - b.height / 2.0)
             + _attrib("width", b.width)
