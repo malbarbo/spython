@@ -10,6 +10,7 @@ use ruff_db::system::{
     InMemorySystem, MemoryFileSystem, SystemPath, SystemPathBuf, WritableSystem,
 };
 use ruff_python_ast::name::Name;
+use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_python_ast::{ExprRef, Stmt};
 use ruff_ranged_value::RangedValue;
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
@@ -280,7 +281,9 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
     let parsed = parsed_module(db, db.program_file(file).python_file(db));
     let module = parsed.load(db);
 
-    for stmt in module.suite() {
+    let mut imports = Imports(Vec::new());
+    imports.visit_body(module.suite());
+    for stmt in imports.0 {
         match stmt {
             Stmt::Import(import) => {
                 for alias in &import.names {
@@ -307,6 +310,19 @@ pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet
                 }
             }
             _ => {}
+        }
+    }
+}
+/// The import statements of a module, including the ones inside a function
+/// or a block. The interpreter runs those too.
+struct Imports<'a>(Vec<&'a Stmt>);
+
+impl<'a> StatementVisitor<'a> for Imports<'a> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        if matches!(stmt, Stmt::Import(_) | Stmt::ImportFrom(_)) {
+            self.0.push(stmt);
+        } else {
+            walk_stmt(self, stmt);
         }
     }
 }
