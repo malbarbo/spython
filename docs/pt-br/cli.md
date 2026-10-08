@@ -63,9 +63,9 @@ Além de controlar quais construções estão disponíveis, os níveis 0 a 3
 aplicam restrições extras pensadas para evitar erros comuns de iniciantes.
 Todas elas são liberadas no nível 4.
 
-- **Condições booleanas** — o teste de `if`/`elif`/`while`/ternário/`assert`
-  e os operandos de `and`/`or`/`not` precisam ter tipo `bool`. "Truthiness"
-  implícita (`if x:` com `x: int`) é rejeitada.
+- **Condições booleanas** — o teste de `if`/`elif`/`while`/ternário/`assert`,
+  o guard de um `case` e os operandos de `and`/`or`/`not` precisam ter tipo
+  `bool`. "Truthiness" implícita (`if x:` com `x: int`) é rejeitada.
 - **Sem `bool` em aritmética** — valores `bool` não são aceitos como
   operandos de `+`, `-`, `*`, `/`, `//`, `%`, `**`, atribuição aumentada ou
   unário `+`/`-`. Isso evita bugs de aluno como `x + True`, que funciona

@@ -63,9 +63,9 @@ Beyond controlling which constructs are available, levels 0 through 3 apply
 extra restrictions designed to catch common beginner mistakes. All of these
 are lifted at level 4.
 
-- **Boolean conditions** — the test of `if`/`elif`/`while`/ternary/`assert`
-  and the operands of `and`/`or`/`not` must have type `bool`. Implicit
-  truthiness (`if x:` with `x: int`) is rejected.
+- **Boolean conditions** — the test of `if`/`elif`/`while`/ternary/`assert`,
+  the guard of a `case`, and the operands of `and`/`or`/`not` must have type
+  `bool`. Implicit truthiness (`if x:` with `x: int`) is rejected.
 - **No `bool` in arithmetic** — `bool` values are not allowed as operands of
   `+`, `-`, `*`, `/`, `//`, `%`, `**`, augmented assignment, or unary `+`/`-`.
   This catches student bugs like `x + True` that silently work because

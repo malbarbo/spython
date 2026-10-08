@@ -874,6 +874,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 for case in &match_stmt.cases {
                     self.visit_pattern(&case.pattern);
                     if let Some(guard) = &case.guard {
+                        self.check_bool_ctx(guard);
                         self.visit_expr(guard);
                     }
                     self.visit_body(&case.body);
@@ -1564,6 +1565,15 @@ mod tests {
 
     fn count(diags: &[String], id: &str) -> usize {
         diags.iter().filter(|d| d.as_str() == id).count()
+    }
+
+    #[test]
+    fn the_guard_of_a_case_is_a_condition() {
+        let source = "def f(x: int) -> int:\n    match x:\n        case 1 if x:\n            return 1\n        case _:\n            return 2\n";
+        let diags = check(source, Level::UserTypes);
+        assert_eq!(count(&diags, "non-boolean-condition"), 1, "{diags:?}");
+        let diags = check(&source.replace("if x:", "if x > 0:"), Level::UserTypes);
+        assert_eq!(count(&diags, "non-boolean-condition"), 0, "{diags:?}");
     }
 
     #[test]

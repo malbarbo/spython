@@ -228,8 +228,8 @@ declare_lint! {
 declare_lint! {
     /// ## What it does
     /// Checks that conditions in `if` / `elif` / `while` / ternary expressions,
-    /// operands of `and` / `or` / `not`, and `assert` tests have type `bool`
-    /// at teaching levels 0–3.
+    /// the guard of a `case`, operands of `and` / `or` / `not`, and `assert`
+    /// tests have type `bool` at teaching levels 0–3.
     ///
     /// ## Why is this bad?
     /// Python's truthiness rules (non-zero int is truthy, non-empty string is

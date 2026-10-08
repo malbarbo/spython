@@ -63,8 +63,9 @@ The level selector in the toolbar controls which Python constructs are allowed:
 Levels 0 through 3 apply extra restrictions aimed at common beginner
 mistakes, all lifted at level 4:
 
-- **Boolean conditions** — the test of `if`/`elif`/`while`/ternary/`assert`
-  and the operands of `and`/`or`/`not` must have type `bool`.
+- **Boolean conditions** — the test of `if`/`elif`/`while`/ternary/`assert`,
+  the guard of a `case`, and the operands of `and`/`or`/`not` must have type
+  `bool`.
 - **No `bool` in arithmetic** — `bool` values are not allowed in `+`, `-`,
   `*`, `/`, `//`, `%`, `**`, augmented assignment, or unary `+`/`-`.
 - **No chained comparisons** — `a < b < c` must be split with `and`.

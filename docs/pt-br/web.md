@@ -63,8 +63,9 @@ O seletor de nível na barra de ferramentas controla quais construções de Pyth
 Os níveis 0 a 3 aplicam restrições extras focadas em erros comuns de
 iniciantes, todas liberadas no nível 4:
 
-- **Condições booleanas** — o teste de `if`/`elif`/`while`/ternário/`assert`
-  e os operandos de `and`/`or`/`not` precisam ter tipo `bool`.
+- **Condições booleanas** — o teste de `if`/`elif`/`while`/ternário/`assert`,
+  o guard de um `case` e os operandos de `and`/`or`/`not` precisam ter tipo
+  `bool`.
 - **Sem `bool` em aritmética** — valores `bool` não são aceitos em `+`, `-`,
   `*`, `/`, `//`, `%`, `**`, atribuição aumentada ou unário `+`/`-`.
 - **Sem comparações encadeadas** — `a < b < c` precisa ser desmembrada com
