@@ -67,7 +67,10 @@ fn python_files(path: &Path) -> Result<Vec<PathBuf>, SpythonError> {
                 .into_io_error()
                 .expect("a walk that does not follow links finds no loop"),
         })?;
-        if entry.path().extension().is_some_and(|ext| ext == "py") {
+        // A file the command line names is formatted whatever its name, as
+        // `run` and `check` take it.
+        let named = entry.depth() == 0 && entry.file_type().is_file();
+        if named || entry.path().extension().is_some_and(|ext| ext == "py") {
             files.push(entry.into_path());
         }
     }

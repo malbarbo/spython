@@ -2639,6 +2639,17 @@ fn format_recurses_into_directories() {
 }
 
 #[test]
+fn format_writes_a_named_file_whatever_its_name() {
+    let dir = new_dir_with("format", &[("a.txt", UNFORMATTED)]);
+    let (out, err, success) = run_spython_native(&["format", "a.txt"], &dir);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(file_in(&dir, "a.txt"), FORMATTED);
+    let (_, err, success) = run_spython_native(&["format", "--check", "a.txt"], &dir);
+    assert!(success, "stderr: {err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn format_check_names_the_file_and_leaves_it_alone() {
     let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
     let (_, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
