@@ -35,12 +35,18 @@ mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::check_file;
 
-const PROJECT_ROOT: &str = "/";
-const USER_FILE: &str = "/user.py";
-/// Where the modules a session started from go. A root of their own, on the
-/// search path rather than beside the source, so no file the student wrote
-/// can land on [`USER_FILE`] and quietly replace the code being checked.
+/// The directory of [`USER_FILE`], which no search path includes. The code
+/// in the REPL and on the page is not a module at run time, so no import
+/// may find it, and the directory holds nothing else an import could find.
+const SOURCE_DIR: &str = "/source";
+const USER_FILE: &str = "/source/user.py";
+/// Where the modules a session started from go. A root of their own, so no
+/// file the student wrote can land on [`USER_FILE`] and quietly replace the
+/// code being checked.
 const MODULE_ROOT: &str = "/modules";
+/// Where the spython library goes. It is an extra path, and the parent
+/// directory is on no search path, so `import _spython_lib` finds nothing.
+const LIB_PARENT: &str = "/";
 /// Errors returned when type checking finds problems in source code.
 pub struct TypeErrors {
     pub db: ProjectDatabase,
@@ -124,18 +130,17 @@ where
     db.project().update_program(&mut db, settings);
     Ok(db)
 }
-/// A project over an in-memory filesystem holding `source` as `/user.py`, the
-/// spython library, and `modules`.
+/// A project over an in-memory filesystem holding `source` as [`USER_FILE`],
+/// the spython library, and `modules`.
 ///
 /// `modules` are the first-party files the source imports, each a path
 /// relative to the directory the source came from and its text. Nothing on
 /// the real filesystem is reachable from here, so `import helpers` only
 /// resolves if `helpers.py` is among them. They go under a root of their
-/// own, ahead of the source's: reachable by name, out of reach of the
-/// source's own path, and not included, so the checker reads them to resolve
-/// names and reports nothing about them.
+/// own, out of reach of the source's own path, and are not included, so the
+/// checker reads them to resolve names and reports nothing about them.
 fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectDatabase, File) {
-    let cwd = SystemPathBuf::from(PROJECT_ROOT);
+    let cwd = SystemPathBuf::from(SOURCE_DIR);
     let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
     system
         .write_file(SystemPath::new(USER_FILE), source)
@@ -151,13 +156,12 @@ fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectData
             )
             .expect("writing to in-memory filesystem should never fail");
     }
-    let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
+    let lib_root = spython_lib::write_into(&system, SystemPath::new(LIB_PARENT));
 
     let mut roots = Vec::new();
     if !modules.is_empty() {
         roots.push(SystemPathBuf::from(MODULE_ROOT));
     }
-    roots.push(cwd.clone());
     let mut db = project_database(cwd, roots, vec![lib_root], system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
@@ -703,6 +707,25 @@ mod repl_check_tests {
             &[],
             &[],
         ));
+    }
+
+    #[test]
+    fn an_import_finds_nothing_the_session_does_not_run() {
+        for import in [
+            "import _spython_lib",
+            "import modules",
+            "import source",
+            "import user",
+        ] {
+            assert!(
+                !type_check_repl_input("", import, Level::Full, false, &helpers(), &[]),
+                "{import}"
+            );
+            assert!(
+                check_source(import, Level::Full, false).is_err(),
+                "{import}"
+            );
+        }
     }
 
     #[test]
