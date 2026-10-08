@@ -1331,8 +1331,15 @@ mod tests {
     #[test]
     fn the_checker_refuses_a_second_statement_as_the_compiler_does() {
         const STATEMENTS: &[&str] = &[
-            "x = 1", "y", "x = (1,\n2)", "x = 1 \\\n+ 2", "if x:\n    pass", "for i in x:\n    y",
-            "@d\ndef f():\n    pass", "# c", "",
+            "x = 1",
+            "y",
+            "x = (1,\n2)",
+            "x = 1 \\\n+ 2",
+            "if x:\n    pass",
+            "for i in x:\n    y",
+            "@d\ndef f():\n    pass",
+            "# c",
+            "",
         ];
         const SEPARATORS: &[&str] = &["\n", "; ", ";", "\n\n", " \\\n", "  # c\n"];
         let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
