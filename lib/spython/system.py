@@ -64,7 +64,7 @@ except ImportError:
 # The image of a data URI, which a bitmap keeps so the display draws it
 # with no decode, or None where nothing displays, as on the page.
 try:
-    from _spython_display import load_image  # type: ignore[import-not-found]
+    from _spython_scene import load_image  # type: ignore[import-not-found]
 except ImportError:
 
     def load_image(data_uri: str) -> object:
