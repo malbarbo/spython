@@ -127,6 +127,36 @@ def test_run_runs_an_example_once():
     assert failures == 0, err
 
 
+def test_run_keeps_the_names_of_a_docstring_to_itself():
+    import types
+
+    source = (
+        "def a():\n"
+        '    """\n'
+        "    >>> x = 1\n"
+        "    >>> a = 2\n"
+        "    >>> x\n"
+        "    1\n"
+        '    """\n'
+        "def b():\n"
+        '    """\n'
+        "    >>> 'x' in globals(), a.__name__\n"
+        "    (False, 'a')\n"
+        '    """\n'
+    )
+    module = types.ModuleType("m")
+    exec(source, vars(module))
+    old = _sys.stderr
+    _sys.stderr = err = _Capture()
+    try:
+        failures = run_doctests(module, source)
+    finally:
+        _sys.stderr = old
+    assert failures == 0, err.getvalue()
+    assert "x" not in vars(module)
+    assert module.a.__name__ == "a"
+
+
 def test_run_takes_an_exception_after_a_traceback_header():
     source = (
         "def f() -> None:\n"

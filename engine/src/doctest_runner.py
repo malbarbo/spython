@@ -217,8 +217,9 @@ def _docstrings(source):
     return found
 
 
-def _run_example(source, module):
-    """Run *source* in *module* as the interactive prompt runs one statement.
+def _run_example(source, globs, module):
+    """Run *source* in *globs*, a copy of the globals of *module*, as the
+    interactive prompt runs one statement.
 
     Returns what it printed and, for an example that raised, the line a
     traceback ends with, or ``None``.
@@ -231,7 +232,7 @@ def _run_example(source, module):
     _sys.displayhook = _sys.__displayhook__
     exc_line = None
     try:
-        exec(compile(source, "<doctest>", "single"), vars(module))
+        exec(compile(source, "<doctest>", "single"), globs)
     except KeyboardInterrupt:
         # The student stopped the run, which is not something the example did.
         raise
@@ -291,9 +292,13 @@ def run_doctests(module, source, verbose=False):
             _errors += 1
             _write_err("    " + str(_examples) + "\n")
             continue
+        # The examples of a docstring share the names they define, and the
+        # module, the other docstrings, and the session after them do not
+        # see those names.
+        _globs = dict(vars(module))
         for _src, _want, _exc_msg in _examples:
             _total += 1
-            _got, _exc_line = _run_example(_src, module)
+            _got, _exc_line = _run_example(_src, _globs, module)
             _src = _src.rstrip("\n").replace("\n", "\n      ")
             if _exc_line is None:
                 _ok = _check_output(_want, _got)
@@ -322,6 +327,7 @@ def run_doctests(module, source, verbose=False):
                     + _want.removesuffix("\n").replace("\n", "\n      ")
                     + "\n    Got:\n      " + _got + "\n"
                 )
+        _globs.clear()
     _successes = _total - _failed - _errors
     _write_err(
         _plural(_total, "test")
