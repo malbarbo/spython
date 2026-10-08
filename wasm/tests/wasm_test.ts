@@ -513,13 +513,20 @@ Deno.test("load with doctests runs them", async () => {
   destroy(ctx);
 });
 
-Deno.test("a file that calls exit() opens the session", async () => {
+Deno.test("a file that calls exit() opens an empty session", async () => {
   const ctx = await newRepl("x = 1\nexit('bye')\nx = 2\n", { level: 5 });
   assertEquals(ctx.repl !== 0, true, "repl_new should return non-null");
   assertEquals(ctx.stderr.join(""), "bye\n");
-  const r = run(ctx, "x");
-  assertEquals(r.result, REPL_OK);
-  assertEquals(r.stdout, "1\n");
+  assertEquals(run(ctx, "x").result, REPL_ERROR);
+  assertEquals(run(ctx, "y = 1").result, REPL_OK);
+  destroy(ctx);
+});
+
+Deno.test("a file that raises opens an empty session", async () => {
+  const ctx = await newRepl("x = 1\nint('z')\ny = 2\n", { level: 5 });
+  assertEquals(ctx.repl !== 0, true, "repl_new should return non-null");
+  assertEquals(run(ctx, "x").result, REPL_ERROR);
+  assertEquals(run(ctx, "y").result, REPL_ERROR);
   destroy(ctx);
 });
 
@@ -534,22 +541,13 @@ const exitAfterADoctest = (status: number) =>
 exit(${status})
 `;
 
-Deno.test("a file that calls exit(0) runs its doctests", async () => {
-  const ctx = await newRepl(exitAfterADoctest(0), { level: 5 });
-  const stderr = ctx.stderr.join("");
-  assertEquals(
-    stderr.includes("1 test"),
-    true,
-    `expected test output in stderr, got: ${stderr}`,
-  );
-  destroy(ctx);
-});
-
-Deno.test("a file that calls exit(1) skips its doctests", async () => {
-  const ctx = await newRepl(exitAfterADoctest(1), { level: 5 });
-  assertEquals(ctx.stderr.join(""), "");
-  destroy(ctx);
-});
+for (const status of [0, 1]) {
+  Deno.test(`a file that calls exit(${status}) skips its doctests`, async () => {
+    const ctx = await newRepl(exitAfterADoctest(status), { level: 5 });
+    assertEquals(ctx.stderr.join(""), "");
+    destroy(ctx);
+  });
+}
 
 Deno.test("panic handler intercepts Rust panics", async () => {
   const ctx = await newRepl();

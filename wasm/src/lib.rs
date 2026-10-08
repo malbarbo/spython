@@ -124,13 +124,19 @@ pub unsafe extern "C" fn repl_new(
     }
     let mut repl = Repl::new(level, true);
     repl.install_displayhook();
-    // A file that raises or calls `exit()` still opens the session, so that
-    // the student can look at what the definitions above that line left
-    // behind. The protocol has no way to open a session that is already over.
+    // A file that raises or calls `exit()` ends the session in the CLI. The
+    // protocol has no way to open a session that is already over, so the page
+    // opens an empty one instead of keeping names the checker cannot know.
     if has_source {
-        let loaded = repl.load(&source, "user.py", None, Vec::new());
-        if let Ok(Loaded::Ran | Loaded::Exited(0)) = loaded {
-            let _ = repl.run_doctests();
+        match repl.load(&source, "user.py", None, Vec::new()) {
+            Ok(Loaded::Ran) => {
+                let _ = repl.run_doctests();
+            }
+            Ok(Loaded::Exited(_)) | Err(_) => {
+                drop(repl);
+                repl = Repl::new(level, true);
+                repl.install_displayhook();
+            }
         }
     }
     Box::into_raw(Box::new(Shell::new(repl)))
