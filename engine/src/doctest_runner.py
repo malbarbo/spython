@@ -75,8 +75,30 @@ def _check_prefix(lines, prefix, name, lineno):
             )
 
 
+def _exc_msg(want):
+    """The exception that *want* expects, which is everything from the first
+    line that starts with a letter, a digit, or ``_`` after a ``Traceback``
+    header, and ``None`` for a *want* with no such header."""
+    lines = want.split("\n")
+    rest = None
+    for header in _TRACEBACK_HEADERS:
+        if lines[0].startswith(header):
+            rest = lines[0][len(header) :]
+    if rest is None or rest.strip() != "":
+        return None
+    for i in range(1, len(lines)):
+        c = lines[i][:1]
+        if c and (c.isalnum() or c == "_"):
+            return "\n".join(lines[i:])
+    return None
+
+
+_TRACEBACK_HEADERS = ("Traceback (most recent call last):", "Traceback (innermost last):")
+
+
 def _parse(doc, name):
-    """The examples of *doc* as ``(source, want)`` pairs.
+    """The examples of *doc* as ``(source, want, exc_msg)`` triples, where
+    *exc_msg* is what :func:`_exc_msg` reads off *want*.
 
     Raises ``ValueError`` for a prompt with no space after it and for a line
     that does not line up with the ``>>>`` of its example, with the message of
@@ -113,12 +135,15 @@ def _parse(doc, name):
         _check_prefix(want_lines, " " * indent, name, start + len(source_lines))
         source = "\n".join(line[indent + 4 :] for line in source_lines)
         want = "\n".join(line[indent:] for line in want_lines)
+        exc_msg = _exc_msg(want)
         if not _is_blank_or_comment(source):
             if not source.endswith("\n"):
                 source += "\n"
             if want and not want.endswith("\n"):
                 want += "\n"
-            examples.append((source, want))
+            if exc_msg is not None and not exc_msg.endswith("\n"):
+                exc_msg += "\n"
+            examples.append((source, want, exc_msg))
     return examples
 
 
@@ -192,6 +217,49 @@ def _collect_docstrings(module):
     return _groups
 
 
+def _run_example(source, module):
+    """Run *source* in *module* as the interactive prompt runs one statement.
+
+    Returns what it printed and, for an example that raised, the line a
+    traceback ends with, or ``None``.
+    """
+    old_stdout = _sys.stdout
+    old_displayhook = _sys.displayhook
+    _sys.stdout = buf = _Capture()
+    # The repr of a value, as the stdlib shows it, and not the picture that
+    # the displayhook of the REPL draws.
+    _sys.displayhook = _sys.__displayhook__
+    exc_line = None
+    try:
+        exec(compile(source, "<doctest>", "single"), vars(module))
+    except BaseException as e:
+        exc_line = _exception_line(e, module)
+    finally:
+        _sys.stdout = old_stdout
+        _sys.displayhook = old_displayhook
+    return buf.getvalue(), exc_line
+
+
+def _exception_line(e, module):
+    """The lines a traceback of *e* ends with, as Python prints them when the
+    file of *module* runs as the main program."""
+    t = type(e)
+    name = t.__qualname__
+    if t.__module__ not in ("builtins", "__main__", module.__name__):
+        name = t.__module__ + "." + name
+    if isinstance(e, SyntaxError):
+        value = str(e.msg)
+    else:
+        try:
+            value = str(e)
+        except BaseException:
+            value = "<exception str() failed>"
+    line = name + ": " + value + "\n" if value else name + "\n"
+    for note in getattr(e, "__notes__", None) or []:
+        line += str(note) + "\n"
+    return line
+
+
 def run_doctests(module, verbose=False):
     """Run doctests found in *module* and return the number of failures."""
     _groups = []
@@ -219,51 +287,37 @@ def run_doctests(module, verbose=False):
             _errors += 1
             _write_err("    " + str(_examples) + "\n")
             continue
-        for _src, _want in _examples:
-            _src = _src.rstrip("\n")
+        for _src, _want, _exc_msg in _examples:
             _total += 1
-            _old_stdout = _sys.stdout
-            _sys.stdout = _buf = _Capture()
-            _had_error = False
-            try:
-                _code = compile(_src, "<doctest>", "eval")
-                _result = eval(_code, vars(module))
-                if _result is not None:
-                    print(repr(_result))
-            except SyntaxError:
-                try:
-                    _code = compile(_src, "<doctest>", "exec")
-                    exec(_code, vars(module))
-                except BaseException as _e:
-                    _had_error = True
-                    print(type(_e).__name__ + ": " + str(_e))
-            except BaseException as _e:
-                _had_error = True
-                print(type(_e).__name__ + ": " + str(_e))
-            finally:
-                _sys.stdout = _old_stdout
-            _got = _buf.getvalue()
-            if not _check_output(_want, _got):
-                if _had_error:
-                    _errors += 1
-                    _write_err(
-                        "    Error in example:\n"
-                        "      " + _src.replace("\n", "\n      ") + "\n"
-                        "    Got:\n"
-                        "      " + _shown(_got).replace("\n", "\n      ") + "\n"
-                    )
-                else:
-                    _failed += 1
-                    _write_err(
-                        "    Failed example:\n"
-                        "      " + _src.replace("\n", "\n      ") + "\n"
-                        "    Expected:\n"
-                        "      " + _want.removesuffix("\n").replace("\n", "\n      ") + "\n"
-                        "    Got:\n"
-                        "      " + _shown(_got).replace("\n", "\n      ") + "\n"
-                    )
-            elif verbose:
-                _write_err("    ok: " + _src.split("\n")[0] + "\n")
+            _got, _exc_line = _run_example(_src, module)
+            _src = _src.rstrip("\n").replace("\n", "\n      ")
+            if _exc_line is None:
+                _ok = _check_output(_want, _got)
+            elif _exc_msg is not None:
+                # An example that names its exception after a `Traceback`
+                # header passes on that exception, whatever it printed.
+                _got = _exc_line
+                _ok = _check_output(_exc_msg, _got)
+            else:
+                # With no header, the exception is one more line of output,
+                # as a traceback ends.
+                _got += _exc_line
+                _ok = _check_output(_want, _got)
+            _got = _shown(_got).replace("\n", "\n      ")
+            if _ok:
+                if verbose:
+                    _write_err("    ok: " + _src.split("\n")[0] + "\n")
+            elif _exc_line is not None and _exc_msg is None:
+                _errors += 1
+                _write_err("    Error in example:\n      " + _src + "\n    Got:\n      " + _got + "\n")
+            else:
+                _failed += 1
+                _write_err(
+                    "    Failed example:\n      " + _src + "\n"
+                    "    Expected:\n      "
+                    + _want.removesuffix("\n").replace("\n", "\n      ")
+                    + "\n    Got:\n      " + _got + "\n"
+                )
     _successes = _total - _failed - _errors
     _write_err(
         _plural(_total, "test")
