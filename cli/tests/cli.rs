@@ -480,6 +480,18 @@ fn test_doctest_never_runs() {
 }
 
 #[test]
+fn test_doctest_under_name_check() {
+    let (out, err, success) = run_test(&["doctest_under_name_check.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
 fn test_doctest_two_statements() {
     let (out, err, success) = run_test(&["doctest_two_statements.py"], &[]);
     assert!(!success);

@@ -827,6 +827,28 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Rejects a doctest in the docstring of a definition under a check of
+    /// `__name__`. The `test` command runs the file under a name of its own,
+    /// and the page runs it as `__main__`, so the definition would exist for
+    /// one and not for the other. The doctest runner leaves such a test out.
+    ///
+    /// ## Example
+    /// ```python
+    /// if __name__ == "__main__":
+    ///     def main() -> None:
+    ///         """
+    ///         >>> main()    # error: never runs
+    ///         """
+    /// ```
+    pub(crate) static DOCTEST_UNDER_NAME_CHECK = {
+        summary: "doctest under a check of `__name__`",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects a `# doctest:` directive in an example, such as `# doctest:
     /// +ELLIPSIS`. The doctest runner of spython has no options, so the
     /// directive would change nothing and the test would not do what the

@@ -16,6 +16,7 @@ use std::borrow::Cow;
 
 use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
+use ruff_python_ast::helpers::any_over_expr;
 use ruff_python_ast::visitor::{Visitor, walk_stmt};
 use ruff_python_ast::{Expr, ExprStringLiteral, ModModule, Stmt};
 use ruff_python_parser::{parse_expression, parse_module};
@@ -30,7 +31,7 @@ fn text_size(offset: usize) -> TextSize {
 
 use crate::lints::{
     DOCTEST_DIRECTIVE, DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT,
-    DOCTEST_MULTIPLE_STATEMENTS, DOCTEST_NEVER_RUNS,
+    DOCTEST_MULTIPLE_STATEMENTS, DOCTEST_NEVER_RUNS, DOCTEST_UNDER_NAME_CHECK,
 };
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
@@ -112,6 +113,10 @@ pub struct DoctestExtraction {
     /// The docstrings with examples that the runner never gets, because
     /// they belong to a definition inside a function.
     pub never_run: Vec<TextRange>,
+    /// The docstrings with examples that the runner never gets, because
+    /// they belong to a definition under a check of `__name__`, which the
+    /// `test` command and the page answer differently.
+    pub under_name_check: Vec<TextRange>,
     /// The name of the owner and the value of each docstring that the runner
     /// gets, in the order of the source.
     pub docstrings: Vec<(String, String)>,
@@ -124,6 +129,7 @@ pub fn extract_doctests(module: &ModModule, source: &str) -> DoctestExtraction {
         source,
         scope: MODULE_OWNER.to_owned(),
         reachable: true,
+        under_name_check: false,
         out: DoctestExtraction::default(),
     };
     visitor.docstring(&module.body);
@@ -153,6 +159,9 @@ struct DoctestVisitor<'a> {
     /// top of the module or of a class, and not in the body of a function,
     /// whose names do not exist where the examples run.
     reachable: bool,
+    /// Whether a definition here exists only for one answer to a check of
+    /// `__name__`.
+    under_name_check: bool,
     out: DoctestExtraction,
 }
 
@@ -178,14 +187,19 @@ impl DoctestVisitor<'_> {
             return;
         };
         let doc = clean_doc(&docstring_value(s, self.source));
-        if self.reachable {
+        if self.reachable && !self.under_name_check {
             scan_docstring(s, &doc, self.source, &self.scope, &mut self.out);
             self.out.docstrings.push((self.scope.clone(), doc));
+            return;
+        }
+        let parsed = parse_doc(&doc);
+        if parsed.examples.is_empty() && parsed.malformed.is_empty() {
+            return;
+        }
+        if self.reachable {
+            self.out.under_name_check.push(s.range());
         } else {
-            let parsed = parse_doc(&doc);
-            if !parsed.examples.is_empty() || !parsed.malformed.is_empty() {
-                self.out.never_run.push(s.range());
-            }
+            self.out.never_run.push(s.range());
         }
     }
 }
@@ -207,6 +221,13 @@ impl<'a> Visitor<'a> for DoctestVisitor<'_> {
                 self.visit_body(&cls.body);
                 self.scope = prev;
             }
+            // The `test` command runs the file under a name of its own, and
+            // the page as `__main__`.
+            Stmt::If(_) | Stmt::While(_) | Stmt::Match(_) if mentions_name(stmt) => {
+                let under = std::mem::replace(&mut self.under_name_check, true);
+                walk_stmt(self, stmt);
+                self.under_name_check = under;
+            }
             // A definition under an `if`, a `try`, or a loop is still an
             // attribute of the module or of the class.
             _ => walk_stmt(self, stmt),
@@ -215,6 +236,33 @@ impl<'a> Visitor<'a> for DoctestVisitor<'_> {
 
     // No expression holds a definition with a docstring.
     fn visit_expr(&mut self, _expr: &'a Expr) {}
+}
+
+/// Returns `true` if a condition of `stmt`, an `if`, a `while`, or a
+/// `match`, reads `__name__`, `false` otherwise.
+fn mentions_name(stmt: &Stmt) -> bool {
+    let reads_name = |expr: &Expr| {
+        any_over_expr(
+            expr,
+            |e| matches!(e, Expr::Name(name) if name.id.as_str() == "__name__"),
+        )
+    };
+    match stmt {
+        Stmt::If(s) => {
+            reads_name(&s.test)
+                || s.elif_else_clauses
+                    .iter()
+                    .any(|clause| clause.test.as_ref().is_some_and(reads_name))
+        }
+        Stmt::While(s) => reads_name(&s.test),
+        Stmt::Match(s) => {
+            reads_name(&s.subject)
+                || s.cases
+                    .iter()
+                    .any(|case| case.guard.as_deref().is_some_and(reads_name))
+        }
+        _ => false,
+    }
 }
 
 /// Read the examples of the docstring `s` the way the runner does, from
@@ -600,6 +648,21 @@ pub fn never_run_diagnostics(file: File, never_run: &[TextRange]) -> Vec<Diagnos
                 file,
                 *range,
                 "Doctest inside a function never runs: move the definition to the top of the module or of a class".to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Build a diagnostic for each docstring under a check of `__name__`.
+pub fn under_name_check_diagnostics(file: File, ranges: &[TextRange]) -> Vec<Diagnostic> {
+    ranges
+        .iter()
+        .map(|range| {
+            make_lint_diagnostic(
+                &DOCTEST_UNDER_NAME_CHECK,
+                file,
+                *range,
+                "Doctest under a check of `__name__` never runs: move the definition out of the check".to_string(),
             )
         })
         .collect()
@@ -1313,6 +1376,24 @@ mod tests {
         assert!(ex.snippets.is_empty());
         let docs: Vec<&str> = ex.never_run.iter().map(|r| &src[*r]).collect();
         assert_eq!(docs, ["\">>> inner()\"", "\">>> 1\""]);
+    }
+
+    #[test]
+    fn a_doctest_under_a_check_of_name_never_runs() {
+        let src = "if __name__ == \"__main__\":\n    def a() -> None:\n        \">>> a()\"\nelif True:\n    class B:\n        def m(self) -> None:\n            \">>> 1\"\nwhile not __name__:\n    def c() -> None:\n        \">>> c()\"\nmatch x:\n    case 1 if __name__ == \"m\":\n        def d() -> None:\n            \">>> d()\"\nif x:\n    def e() -> None:\n        \">>> e()\"\n";
+        let ex = extract(src);
+        let docs: Vec<&str> = ex.under_name_check.iter().map(|r| &src[*r]).collect();
+        assert_eq!(
+            docs,
+            ["\">>> a()\"", "\">>> 1\"", "\">>> c()\"", "\">>> d()\""]
+        );
+        let owners: Vec<&str> = ex
+            .docstrings
+            .iter()
+            .map(|(owner, _)| owner.as_str())
+            .collect();
+        assert_eq!(owners, ["e"]);
+        assert!(ex.never_run.is_empty());
     }
 
     #[test]

@@ -1,0 +1,19 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-under-name-check]: Doctest under a check of `__name__` never runs: move the definition out of the check
+  --> doctest_under_name_check.py:12:9
+   |
+11 |       def main() -> None:
+12 | /         """
+13 | |         >>> main()
+14 | |         4
+15 | |         """
+   | |___________^
+16 |           print(double(2))
+   |
+
+Found 1 error.

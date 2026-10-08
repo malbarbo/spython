@@ -255,6 +255,10 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
 
     let mut diagnostics = doctests::malformed_diagnostics(file, &extraction.malformed);
     diagnostics.extend(doctests::never_run_diagnostics(file, &extraction.never_run));
+    diagnostics.extend(doctests::under_name_check_diagnostics(
+        file,
+        &extraction.under_name_check,
+    ));
 
     if extraction.snippets.is_empty() {
         return diagnostics;
