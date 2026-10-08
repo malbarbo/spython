@@ -3,16 +3,6 @@
 /dist
 __pycache__/
 
-# The stepper, and the plans it comes from. They do not compile against the
-# current engine and no `mod` reaches them, so they stay out of the tree until
-# they do.
-/cli/stepper/
-/engine/src/trace.rs
-/wasm/tests/trace_test.ts
-/docs/pt-br/plano-desenho-heap.md
-/docs/pt-br/plano-stepper-tui.md
-/docs/pt-br/plano-trace-execucao.md
-
 # The plan this repository is being reshaped by, which describes the work
 # rather than being part of it.
 /docs/pt-br/plano-padronizacao.md
