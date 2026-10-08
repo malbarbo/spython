@@ -12,9 +12,12 @@ use crate::{infer_expression_type, type_check_repl_input};
 use ruff_python_ast::PySourceType;
 use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::parse_unchecked_source;
+use ruff_python_stdlib::identifiers::is_identifier;
+use ruff_python_stdlib::keyword::is_keyword;
 use ruff_text_size::{Ranged, TextLen, TextRange, TextSize};
 use rustpython::vm;
 use rustpython::vm::AsObject;
+use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -52,6 +55,11 @@ pub struct Repl {
     modules: Vec<(String, String)>,
     /// The status of the `exit()` that ended the session, if one has run.
     exit_status: Option<u32>,
+    /// The places in the accumulated source of the `del` statements that make
+    /// the checker forget a name a statement that raised has changed. The
+    /// student never wrote them, so what the checker says about them stays
+    /// off the screen.
+    forgotten: Vec<TextRange>,
 }
 
 impl Repl {
@@ -73,6 +81,7 @@ impl Repl {
             use_color,
             modules: Vec::new(),
             exit_status: None,
+            forgotten: Vec::new(),
         }
     }
 
@@ -175,6 +184,7 @@ impl Repl {
                 level,
                 self.use_color,
                 &self.modules,
+                &self.forgotten,
             )
         {
             return false;
@@ -240,6 +250,7 @@ impl Repl {
             self.level,
             self.use_color,
             &self.modules,
+            &self.forgotten,
         ) {
             return Err(Failed);
         }
@@ -272,28 +283,34 @@ impl Repl {
                         return Ran {
                             done: 0,
                             exit: None,
+                            changed: Vec::new(),
                         };
                     }
                 }
             }
             for (done, code_obj) in compiled.into_iter().enumerate() {
+                let before = Snapshot::take(&scope.globals, vm);
                 if let Err(exc) = vm.run_code_obj(code_obj, scope.clone()) {
-                    if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                    let changed = before.changed(&scope.globals);
+                    let exit = if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
                         // Says what the status is, and writes the message of
                         // an `exit("...")` that carries one.
-                        let status = vm.handle_exit_exception(exc);
-                        return Ran {
-                            done,
-                            exit: Some(status),
-                        };
-                    }
-                    vm.print_exception(exc);
-                    return Ran { done, exit: None };
+                        Some(vm.handle_exit_exception(exc))
+                    } else {
+                        vm.print_exception(exc);
+                        None
+                    };
+                    return Ran {
+                        done,
+                        exit,
+                        changed,
+                    };
                 }
             }
             Ran {
                 done: statements.len(),
                 exit: None,
+                changed: Vec::new(),
             }
         });
         let elapsed = start.elapsed();
@@ -305,6 +322,18 @@ impl Repl {
         if let Some(last) = ran.done.checked_sub(1).and_then(|at| statements.get(at)) {
             self.append_source(&up_to(&code, last.end(), parsed.tokens()));
         }
+        if !ran.changed.is_empty() {
+            let dels: Vec<String> = ran
+                .changed
+                .iter()
+                .map(|name| format!("del {name}"))
+                .collect();
+            let dels = dels.join("\n");
+            self.append_source(&dels);
+            let end = self.accumulated_source.text_len();
+            let start = end - dels.text_len();
+            self.forgotten.push(TextRange::new(start, end));
+        }
         if let Some(status) = ran.exit {
             self.exit_status = Some(status);
         }
@@ -313,10 +342,76 @@ impl Repl {
 }
 
 /// How far an input went: the number of its top-level statements that ran to
-/// the end, and the status of the `exit()` that stopped it, if one did.
+/// the end, the status of the `exit()` that stopped it, if one did, and the
+/// global names the statement that raised has bound, rebound or deleted.
 struct Ran {
     done: usize,
     exit: Option<u32>,
+    changed: Vec<String>,
+}
+
+/// The global names and what each one held, to tell afterwards which names a
+/// statement changed.
+///
+/// A value that takes a weak reference is held by one, so that the snapshot
+/// does not keep it alive and its `__del__` runs when Python would run it.
+/// The other values are held as they are. Comparing addresses alone would
+/// not do, as a new value can take the address of one that has been freed.
+struct Snapshot(Vec<(String, Held)>);
+
+enum Held {
+    Weak(vm::PyRef<vm::builtins::PyWeak>),
+    Strong(vm::PyObjectRef),
+}
+
+impl Snapshot {
+    fn take(globals: &vm::builtins::PyDictRef, vm: &vm::VirtualMachine) -> Snapshot {
+        let names = globals
+            .into_iter()
+            .filter_map(|(key, value)| {
+                let name = key
+                    .downcast_ref::<vm::builtins::PyStr>()?
+                    .to_str()?
+                    .to_owned();
+                let held = match value.downgrade(None, vm) {
+                    Ok(weak) => Held::Weak(weak),
+                    Err(_) => Held::Strong(value),
+                };
+                Some((name, held))
+            })
+            .collect();
+        Snapshot(names)
+    }
+
+    /// The names whose value in `globals` is not the one the snapshot holds,
+    /// the names `globals` has gained or lost included, sorted. A name no code
+    /// can spell, such as a key that `globals()` received, stays out.
+    fn changed(&self, globals: &vm::builtins::PyDictRef) -> Vec<String> {
+        let mut now: HashMap<String, vm::PyObjectRef> = globals
+            .into_iter()
+            .filter_map(|(key, value)| {
+                let name = key
+                    .downcast_ref::<vm::builtins::PyStr>()?
+                    .to_str()?
+                    .to_owned();
+                Some((name, value))
+            })
+            .collect();
+        let mut changed: Vec<String> = Vec::new();
+        for (name, held) in &self.0 {
+            let same = now.remove(name).is_some_and(|value| match held {
+                Held::Weak(weak) => weak.upgrade().is_some_and(|old| old.is(&value)),
+                Held::Strong(old) => old.is(&value),
+            });
+            if !same {
+                changed.push(name.clone());
+            }
+        }
+        changed.extend(now.into_keys());
+        changed.retain(|name| is_identifier(name) && !is_keyword(name));
+        changed.sort();
+        changed
+    }
 }
 
 /// The statement of `code` at `range`, on the line it has in `code`, so that
@@ -433,6 +528,46 @@ atexit.register(__test_mark_atexit_ran)\n";
         let input = "a: int = \"s\"; int(\"z\")  # type: ignore\n";
         assert!(repl.run(input).is_err());
         assert!(repl.set_level(Level::Full));
+    }
+
+    #[test]
+    fn a_name_a_statement_that_raised_has_rebound_is_forgotten() {
+        let mut repl = Repl::new(Level::Full, false);
+        assert!(repl.run("x = 1\n").is_ok());
+        assert!(repl.run("for x in [\"a\"]:\n    int(\"z\")\n").is_err());
+        assert!(repl.run("x\n").is_err());
+        assert!(repl.run("x = 2\n").is_ok());
+        assert!(repl.run("assert x + 1 == 3\n").is_ok());
+    }
+
+    #[test]
+    fn a_name_a_statement_that_raised_has_left_alone_is_kept() {
+        let mut repl = Repl::new(Level::Full, false);
+        assert!(repl.run("x = 1\n").is_ok());
+        assert!(repl.run("x = int(\"z\")\n").is_err());
+        assert!(repl.run("assert x + 1 == 2\n").is_ok());
+    }
+
+    #[test]
+    fn a_forgotten_name_does_not_hold_the_level() {
+        let mut repl = Repl::new(Level::Repetition, false);
+        assert!(repl.run("x = 1\n").is_ok());
+        assert!(repl.run("for x in [2]:\n    int(\"z\")\n").is_err());
+        assert!(repl.set_level(Level::Functions));
+    }
+
+    #[test]
+    fn the_value_a_statement_replaces_goes_when_python_lets_it_go() {
+        let mut repl = Repl::new(Level::Full, false);
+        let class = "log: list[str] = []\n\
+class A:\n    def __del__(self) -> None:\n        log.append(\"del\")\n\n\
+a = A()\n";
+        assert!(repl.run(class).is_ok());
+        assert!(
+            repl.run("for _ in [1]:\n    a = A()\n    log.append(\"x\")\n")
+                .is_ok()
+        );
+        assert!(repl.run("assert log == [\"del\", \"x\"], log\n").is_ok());
     }
 
     #[test]

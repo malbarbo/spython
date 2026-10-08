@@ -13,7 +13,7 @@ use ruff_python_ast::name::Name;
 use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_python_ast::{ExprRef, Stmt};
 use ruff_ranged_value::RangedValue;
-use ruff_text_size::TextSize;
+use ruff_text_size::{TextRange, TextSize};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_project::metadata::Options;
 use ty_project::metadata::options::{EnvironmentOptions, Rules};
@@ -399,7 +399,9 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
 /// resolving imports against `modules` -- the first-party files the session
 /// started from, which are not on any filesystem the checker can see.
 /// Diagnostics about the input are printed with their line numbers relative
-/// to it; diagnostics about the accumulated source are dropped.
+/// to it; diagnostics about the accumulated source are dropped, and so are
+/// the ones that fall in `unwritten`, the text in `accumulated` that the
+/// student never wrote.
 ///
 /// Returns `true` if the input passed type checking, `false` if errors were found.
 pub(crate) fn type_check_repl_input(
@@ -408,6 +410,7 @@ pub(crate) fn type_check_repl_input(
     level: Level,
     use_color: bool,
     modules: &[(String, String)],
+    unwritten: &[TextRange],
 ) -> bool {
     let accumulated = accumulated.trim_end_matches('\n');
     let new_input = new_input.trim_end_matches('\n');
@@ -434,6 +437,13 @@ pub(crate) fn type_check_repl_input(
             // No range means the diagnostic is about the check as a whole,
             // not about a line of history, so it stays.
             None => Some(Placed { diag, at: None }),
+            Some((start, _))
+                if unwritten
+                    .iter()
+                    .any(|range| range.contains(TextSize::try_from(start).unwrap_or_default())) =>
+            {
+                None
+            }
             Some((start, end)) if start >= input_offset => {
                 let (line, col) = line_and_column(new_input, start - input_offset);
                 Some(Placed {
@@ -608,6 +618,7 @@ mod repl_check_tests {
             Level::Full,
             false,
             &helpers(),
+            &[],
         ));
     }
 
@@ -623,6 +634,7 @@ mod repl_check_tests {
             Level::Full,
             false,
             &modules,
+            &[],
         ));
     }
 
@@ -639,6 +651,7 @@ mod repl_check_tests {
             Level::Full,
             false,
             &modules,
+            &[],
         ));
         // ...and the module is still what `user` names.
         assert!(type_check_repl_input(
@@ -647,6 +660,7 @@ mod repl_check_tests {
             Level::Full,
             false,
             &modules,
+            &[],
         ));
     }
 
@@ -657,6 +671,7 @@ mod repl_check_tests {
             "import helpers",
             Level::Full,
             false,
+            &[],
             &[],
         ));
     }
@@ -671,6 +686,7 @@ mod repl_check_tests {
             Level::Full,
             false,
             &[],
+            &[],
         ));
     }
 
@@ -681,6 +697,7 @@ mod repl_check_tests {
             "undefined_name",
             Level::Full,
             false,
+            &[],
             &[],
         ));
     }
@@ -693,6 +710,7 @@ mod repl_check_tests {
             Level::Functions,
             false,
             &[],
+            &[],
         ));
     }
 
@@ -703,6 +721,7 @@ mod repl_check_tests {
             "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n",
             Level::Functions,
             false,
+            &[],
             &[],
         ));
     }
