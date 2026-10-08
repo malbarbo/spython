@@ -129,17 +129,21 @@ impl Repl {
     /// Run the doctests of what [`Repl::load`] loaded, with the runner that
     /// ships with spython. The stdlib one needs `_io.FileIO`, which the page
     /// has not got.
+    ///
+    /// The runner has a scope of its own, so that its names stay out of the
+    /// session and leave the definitions of the student as they are.
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
-        let code =
-            format!("{DOCTEST_RUNNER}\nimport __main__; run_doctests(__main__); del __main__\n");
-        let (interp, scope) = self.live();
-        interp.enter(|vm| match vm.run_string(scope, &code, "<doctest>") {
-            Ok(_) => Ok(()),
-            Err(exc) => {
-                vm.print_exception(exc);
-                Err(Failed)
-            }
-        })
+        let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__)\n");
+        let (interp, _) = self.live();
+        interp.enter(
+            |vm| match vm.run_string(vm.new_scope_with_builtins(), &code, "<doctest>") {
+                Ok(_) => Ok(()),
+                Err(exc) => {
+                    vm.print_exception(exc);
+                    Err(Failed)
+                }
+            },
+        )
     }
 
     /// The teaching level.
@@ -314,6 +318,23 @@ atexit.register(__test_mark_atexit_ran)\n";
         let _ = repl.load("x = 1\nexit()\n", "user.py", None, Vec::new());
         assert_eq!(repl.exit_status(), None);
         assert!(repl.run("y = x\n").is_ok());
+    }
+
+    #[test]
+    fn run_doctests_leaves_the_names_of_the_session_alone() {
+        let mut repl = Repl::new(Level::Full, false);
+        let source =
+            "def _parse() -> int:\n    \"\"\"\n    >>> _parse()\n    1\n    \"\"\"\n    return 1\n";
+        let _ = repl.load(source, "user.py", None, Vec::new());
+        assert!(repl.run_doctests().is_ok());
+        assert!(repl.run("assert _parse() == 1\n").is_ok());
+        let (interp, scope) = repl.live();
+        interp.enter(|vm| {
+            assert!(matches!(
+                scope.globals.get_item_opt("run_doctests", vm),
+                Ok(None)
+            ));
+        });
     }
 
     #[test]
