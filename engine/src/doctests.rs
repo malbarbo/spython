@@ -16,7 +16,7 @@ use std::borrow::Cow;
 
 use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
-use ruff_python_ast::visitor::Visitor;
+use ruff_python_ast::visitor::{Visitor, walk_stmt};
 use ruff_python_ast::{Expr, ExprStringLiteral, ModModule, Stmt};
 use ruff_python_parser::parse_expression;
 use ruff_text_size::{Ranged, TextRange, TextSize};
@@ -28,7 +28,9 @@ fn text_size(offset: usize) -> TextSize {
     TextSize::try_from(offset).expect("a source under 4 GiB")
 }
 
-use crate::lints::{DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT};
+use crate::lints::{
+    DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT, DOCTEST_NEVER_RUNS,
+};
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
 /// recognizes functions whose name matches `__spython_doctest_<N>__` and
@@ -57,8 +59,8 @@ pub fn is_synthetic_fn_name(name: &str) -> bool {
 /// same namespace, so they are checked as one function body.
 #[derive(Debug, Clone)]
 pub struct DoctestSnippet {
-    /// Human-friendly name of the doctest's container: `"module"`, a function
-    /// name, or `"Class.method"`. Used in diagnostic messages.
+    /// Human-friendly name of the doctest's container: `"<module>"`, a
+    /// function name, or `"Class.method"`. Used in diagnostic messages.
     pub owner: String,
     /// The source of the examples with the prompts removed, joined by `\n`.
     pub code: String,
@@ -101,6 +103,9 @@ pub struct Malformed {
 pub struct DoctestExtraction {
     pub snippets: Vec<DoctestSnippet>,
     pub malformed: Vec<Malformed>,
+    /// The docstrings with examples that the runner never finds, because
+    /// they belong to a definition inside a function.
+    pub never_run: Vec<TextRange>,
 }
 
 /// Walk `module` looking for docstrings and extract doctest snippets from them.
@@ -108,67 +113,89 @@ pub struct DoctestExtraction {
 pub fn extract_doctests(module: &ModModule, source: &str) -> DoctestExtraction {
     let mut visitor = DoctestVisitor {
         source,
-        scope: "module".to_owned(),
+        scope: MODULE_OWNER.to_owned(),
+        reachable: true,
         out: DoctestExtraction::default(),
     };
+    visitor.docstring(&module.body);
     visitor.visit_body(&module.body);
     visitor.out
 }
 
+/// The owner of the docstring of the module, the name the runner gives it.
+/// No function or class can have it.
+const MODULE_OWNER: &str = "<module>";
+
 /// Walks the module collecting doctests from docstrings on the module,
-/// functions, and classes. Tracks the qualified scope name (`"module"`,
+/// functions, and classes. Tracks the qualified scope name (`"<module>"`,
 /// `"func"`, `"Class.method"`, …) for snippet ownership.
 struct DoctestVisitor<'a> {
     source: &'a str,
     scope: String,
+    /// Whether the runner finds a definition here: at the top of the module
+    /// or of a class it finds, and not in the body of a function, whose
+    /// definitions are not attributes of anything.
+    reachable: bool,
     out: DoctestExtraction,
 }
 
 impl DoctestVisitor<'_> {
-    /// Push a child name onto the scope: `module` → `name`, otherwise
+    /// Push a child name onto the scope: `<module>` → `name`, otherwise
     /// `parent` → `parent.name`. Returns the previous scope to restore.
     fn enter_scope(&mut self, name: &str) -> String {
-        let new_scope = if self.scope == "module" {
+        let new_scope = if self.scope == MODULE_OWNER {
             name.to_owned()
         } else {
             format!("{}.{}", self.scope, name)
         };
         std::mem::replace(&mut self.scope, new_scope)
     }
+
+    /// Read the docstring of `body`, a string as its first statement, as the
+    /// compiler takes it.
+    fn docstring(&mut self, body: &[Stmt]) {
+        let Some(Stmt::Expr(expr_stmt)) = body.first() else {
+            return;
+        };
+        let Expr::StringLiteral(s) = &*expr_stmt.value else {
+            return;
+        };
+        if self.reachable {
+            scan_docstring(s, self.source, &self.scope, &mut self.out);
+        } else {
+            let parsed = parse_doc(&clean_doc(&docstring_value(s, self.source)));
+            if !parsed.examples.is_empty() || !parsed.malformed.is_empty() {
+                self.out.never_run.push(s.range());
+            }
+        }
+    }
 }
 
 impl<'a> Visitor<'a> for DoctestVisitor<'_> {
-    fn visit_body(&mut self, body: &'a [Stmt]) {
-        // A string as the first statement is the docstring, as the compiler
-        // takes it.
-        if let Some(Stmt::Expr(expr_stmt)) = body.first()
-            && let Expr::StringLiteral(s) = &*expr_stmt.value
-        {
-            scan_docstring(s, self.source, &self.scope, &mut self.out);
-        }
-        for stmt in body {
-            self.visit_stmt(stmt);
-        }
-    }
-
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
-        // Only function and class bodies introduce a new scope (and a
-        // potential docstring); other statements (if/for/while/...) don't
-        // own doctests, so we skip them entirely.
         match stmt {
             Stmt::FunctionDef(func) => {
                 let prev = self.enter_scope(func.name.as_str());
+                self.docstring(&func.body);
+                let reachable = std::mem::replace(&mut self.reachable, false);
                 self.visit_body(&func.body);
+                self.reachable = reachable;
                 self.scope = prev;
             }
             Stmt::ClassDef(cls) => {
                 let prev = self.enter_scope(cls.name.as_str());
+                self.docstring(&cls.body);
                 self.visit_body(&cls.body);
                 self.scope = prev;
             }
-            _ => {}
+            // A definition under an `if`, a `try`, or a loop is still an
+            // attribute of the module or of the class.
+            _ => walk_stmt(self, stmt),
         }
     }
+
+    // No expression holds a definition with a docstring.
+    fn visit_expr(&mut self, _expr: &'a Expr) {}
 }
 
 /// Read the examples of the docstring `s` the way the runner does, from the
@@ -267,7 +294,10 @@ fn raw_lines(s: &ExprStringLiteral, source: &str) -> Option<Vec<TextRange>> {
         match end_of_line {
             Some(width) => {
                 texts.push(&raw[line_start..i]);
-                ranges.push(TextRange::new(text_size(start + line_start), text_size(start + i)));
+                ranges.push(TextRange::new(
+                    text_size(start + line_start),
+                    text_size(start + i),
+                ));
                 i += width.max(1);
                 line_start = i;
             }
@@ -373,9 +403,10 @@ fn parse_doc(doc: &str) -> ParsedDoc {
             i += 1;
         }
         let source_end = i;
-        while lines.get(i).is_some_and(|line| {
-            !line.trim_matches(' ').is_empty() && ps1_indent(line).is_none()
-        }) {
+        while lines
+            .get(i)
+            .is_some_and(|line| !line.trim_matches(' ').is_empty() && ps1_indent(line).is_none())
+        {
             i += 1;
         }
 
@@ -402,7 +433,12 @@ fn parse_doc(doc: &str) -> ParsedDoc {
         // The code of a line with a malformed prompt is not what the student
         // meant, and checking it would only add errors about the wrong text.
         let source_is_malformed = parsed.malformed.len() > malformed_before;
-        for (k, line) in lines.get(source_end..i).unwrap_or_default().iter().enumerate() {
+        for (k, line) in lines
+            .get(source_end..i)
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+        {
             if !line.is_empty() && !line.starts_with(&prefix) {
                 parsed
                     .malformed
@@ -475,6 +511,21 @@ fn skip_chars(line: &str, n: usize) -> &str {
 /// Python also counts the separators U+001C to U+001F as space.
 fn is_py_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
+}
+
+/// Build a diagnostic for each docstring whose examples never run.
+pub fn never_run_diagnostics(file: File, never_run: &[TextRange]) -> Vec<Diagnostic> {
+    never_run
+        .iter()
+        .map(|range| {
+            make_lint_diagnostic(
+                &DOCTEST_NEVER_RUNS,
+                file,
+                *range,
+                "Doctest inside a function never runs: move the definition to the top of the module or of a class".to_string(),
+            )
+        })
+        .collect()
 }
 
 /// Build diagnostics for each malformed line.
@@ -992,12 +1043,36 @@ mod tests {
     fn docstrings(count: usize) -> Vec<String> {
         const INDENTS: &[&str] = &["", "", " ", "  ", "    ", "     ", "\t", "\u{a0}", "\u{c}"];
         const HEADS: &[&str] = &[
-            ">>> ", ">>> ", ">>> ", ">>>", "... ", "... ", "...", "", "", "#",
-            "Traceback (most recent call last):", "<BLANKLINE>",
+            ">>> ",
+            ">>> ",
+            ">>> ",
+            ">>>",
+            "... ",
+            "... ",
+            "...",
+            "",
+            "",
+            "#",
+            "Traceback (most recent call last):",
+            "<BLANKLINE>",
         ];
         const TAILS: &[&str] = &[
-            "x", "1", " ", "  ", "# c", "\t", "\u{1c}", "é", ":", "(", ")", ".", ">>>", "...",
-            "ValueError: m", "\r",
+            "x",
+            "1",
+            " ",
+            "  ",
+            "# c",
+            "\t",
+            "\u{1c}",
+            "é",
+            ":",
+            "(",
+            ")",
+            ".",
+            ">>>",
+            "...",
+            "ValueError: m",
+            "\r",
         ];
         let mut state: u64 = 0x2545_f491_4f6c_dd1d;
         let mut next = |n: usize| {
@@ -1090,7 +1165,10 @@ mod tests {
         let kinds: Vec<MalformedKind> = extract(src).malformed.iter().map(|m| m.kind).collect();
         assert_eq!(
             kinds,
-            [MalformedKind::ContinuationIndent, MalformedKind::OutputIndent]
+            [
+                MalformedKind::ContinuationIndent,
+                MalformedKind::OutputIndent
+            ]
         );
     }
 
@@ -1118,6 +1196,37 @@ mod tests {
         let snippet = &extract(src).snippets[0];
         assert!(!snippet.exact);
         assert_eq!(snippet.code, "f()\ng()");
+    }
+
+    #[test]
+    fn a_definition_under_an_if_or_a_try_is_read() {
+        let src = "if True:\n    def f() -> None:\n        \">>> f()\"\nelse:\n    pass\ntry:\n    class C:\n        def m(self) -> None:\n            \">>> 1\"\nexcept ValueError:\n    pass\n";
+        let ex = extract(src);
+        let owners: Vec<&str> = ex.snippets.iter().map(|s| s.owner.as_str()).collect();
+        assert_eq!(owners, ["f", "C.m"]);
+        assert!(ex.never_run.is_empty());
+    }
+
+    #[test]
+    fn the_docstring_of_the_module_is_read_under_its_runner_name() {
+        let ex = extract("\">>> 1\"\n");
+        assert_eq!(ex.snippets[0].owner, "<module>");
+    }
+
+    #[test]
+    fn a_string_at_the_top_of_an_if_is_not_a_docstring() {
+        let ex = extract("if True:\n    \">>> 1\"\n");
+        assert!(ex.snippets.is_empty());
+        assert!(ex.never_run.is_empty());
+    }
+
+    #[test]
+    fn a_doctest_inside_a_function_never_runs() {
+        let src = "def outer() -> None:\n    def inner() -> None:\n        \">>> inner()\"\n    class C:\n        def m(self) -> None:\n            \">>> 1\"\n    if True:\n        def deeper() -> None:\n            \"no tests\"\n";
+        let ex = extract(src);
+        assert!(ex.snippets.is_empty());
+        let docs: Vec<&str> = ex.never_run.iter().map(|r| &src[*r]).collect();
+        assert_eq!(docs, ["\">>> inner()\"", "\">>> 1\""]);
     }
 
     #[test]

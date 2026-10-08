@@ -799,3 +799,28 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects a doctest in the docstring of a function or a class defined
+    /// inside a function. The doctest runner finds the definitions at the top
+    /// of the module and of its classes, as the stdlib `doctest` module does,
+    /// so such a test never runs.
+    ///
+    /// ## Example
+    /// ```python
+    /// def outer() -> int:
+    ///     def inner() -> int:
+    ///         """
+    ///         >>> inner()    # error: never runs
+    ///         1
+    ///         """
+    ///         return 1
+    ///     return inner()
+    /// ```
+    pub(crate) static DOCTEST_NEVER_RUNS = {
+        summary: "doctest that never runs",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}

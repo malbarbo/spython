@@ -238,8 +238,8 @@ pub fn modules_beside(
 /// Type-check and format-check doctests inside a file's docstrings.
 ///
 /// Returns diagnostics for:
-/// * malformed lines (`>>>x`, `...x`, a line to the left of its `>>>`) —
-///   always reported;
+/// * malformed lines (`>>>x`, `...x`, a line to the left of its `>>>`) and
+///   doctests inside a function, which never run — always reported;
 /// * annotation rules / level restrictions / ty type errors found inside the
 ///   doctest snippets, remapped to the original docstring locations.
 ///
@@ -254,6 +254,7 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
     let extraction = doctests::extract_doctests(module.syntax(), source_str);
 
     let mut diagnostics = doctests::malformed_diagnostics(file, &extraction.malformed);
+    diagnostics.extend(doctests::never_run_diagnostics(file, &extraction.never_run));
 
     if extraction.snippets.is_empty() {
         return diagnostics;

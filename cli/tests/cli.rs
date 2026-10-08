@@ -457,6 +457,18 @@ fn test_doctest_misaligned() {
 }
 
 #[test]
+fn test_doctest_never_runs() {
+    let (out, err, success) = run_test(&["doctest_never_runs.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
 fn test_doctest_continuation_no_space() {
     let (out, err, success) = run_test(&["doctest_continuation_no_space.py"], &[]);
     assert!(!success);

@@ -1,0 +1,20 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-never-runs]: Doctest inside a function never runs: move the definition to the top of the module or of a class
+ --> doctest_never_runs.py:3:9
+  |
+1 |   def outer() -> int:
+2 |       def inner() -> int:
+3 | /         """
+4 | |         >>> inner()
+5 | |         1
+6 | |         """
+  | |___________^
+7 |           return 1
+  |
+
+Found 1 error.

@@ -1,11 +1,10 @@
 ---
 source: cli/tests/cli.rs
-assertion_line: 437
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
 STDERR
-error[unsupported-operator]: in doctest of module: Unsupported `+` operation
+error[unsupported-operator]: in doctest of <module>: Unsupported `+` operation
  --> doctest_module_level.py:3:5
   |
 1 | """
