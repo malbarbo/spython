@@ -18,7 +18,7 @@ use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
 use ruff_python_ast::visitor::{Visitor, walk_stmt};
 use ruff_python_ast::{Expr, ExprStringLiteral, ModModule, Stmt};
-use ruff_python_parser::parse_expression;
+use ruff_python_parser::{parse_expression, parse_module};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::checker::make_lint_diagnostic;
@@ -30,7 +30,7 @@ fn text_size(offset: usize) -> TextSize {
 
 use crate::lints::{
     DOCTEST_DIRECTIVE, DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT,
-    DOCTEST_NEVER_RUNS,
+    DOCTEST_MULTIPLE_STATEMENTS, DOCTEST_NEVER_RUNS,
 };
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
@@ -91,6 +91,9 @@ pub enum MalformedKind {
     OutputIndent,
     /// A `# doctest:` directive, which the runner does not follow.
     Directive,
+    /// A second statement on a later line of the same example, which the
+    /// runner refuses.
+    SecondStatement,
 }
 
 /// A line that makes the runner refuse its docstring, or a `>>>` with no
@@ -227,6 +230,14 @@ fn scan_docstring(s: &ExprStringLiteral, source: &str, owner: &str, out: &mut Do
             out.malformed.push(Malformed {
                 range: range_of(*line),
                 kind: MalformedKind::Directive,
+            });
+        }
+    }
+    for example in &parsed.examples {
+        if let Some(line) = second_statement_line(example) {
+            out.malformed.push(Malformed {
+                range: range_of(line),
+                kind: MalformedKind::SecondStatement,
             });
         }
     }
@@ -481,6 +492,31 @@ fn parse_doc(doc: &str) -> ParsedDoc {
     parsed
 }
 
+/// The line of the docstring where a second statement of `example` starts,
+/// if one starts on a line after the first statement does. The runner
+/// compiles an example in single mode, and RustPython refuses that, as
+/// `single_mode_body_error` in its compiler says. A source that does not
+/// parse is left to the type check.
+fn second_statement_line(example: &[(usize, String)]) -> Option<usize> {
+    let source = example
+        .iter()
+        .map(|(_, code)| code.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let parsed = parse_module(&source).ok()?;
+    let body = &parsed.syntax().body;
+    let first = usize::from(body.first()?.start());
+    body.iter().skip(1).find_map(|stmt| {
+        let start = usize::from(stmt.start());
+        let between = source.get(first..start)?;
+        if !between.contains(['\n', '\r']) {
+            return None;
+        }
+        let line = source.get(..start)?.matches('\n').count();
+        example.get(line).map(|(line, _)| *line)
+    })
+}
+
 /// Returns `true` if `code` holds a `# doctest:` directive, `false`
 /// otherwise. The test is the one of the stdlib, which takes a `#` with a
 /// quote after it on the line for one inside a string.
@@ -576,6 +612,10 @@ pub fn malformed_diagnostics(file: File, malformed: &[Malformed]) -> Vec<Diagnos
                 MalformedKind::Directive => (
                     &DOCTEST_DIRECTIVE,
                     "spython runs doctests with no options: remove the `# doctest:` comment",
+                ),
+                MalformedKind::SecondStatement => (
+                    &DOCTEST_MULTIPLE_STATEMENTS,
+                    "A doctest example holds one statement: start this one with its own `>>>`",
                 ),
             };
             make_lint_diagnostic(lint, file, m.range, msg.to_string())
@@ -830,7 +870,6 @@ pub fn remap_diagnostics(
 #[allow(clippy::indexing_slicing)]
 mod tests {
     use super::*;
-    use ruff_python_parser::parse_module;
 
     fn extract(src: &str) -> DoctestExtraction {
         let parsed = parse_module(src).expect("the test source parses");
@@ -1266,6 +1305,76 @@ mod tests {
         let ex = extract(src);
         assert_eq!(ex.malformed[0].kind, MalformedKind::Directive);
         assert_eq!(&src[ex.malformed[0].range], "    >>> f()  # doctest: +SKIP");
+    }
+
+    #[test]
+    fn a_second_statement_on_a_later_line_is_malformed() {
+        let line = |code: &str| {
+            let example: Vec<(usize, String)> = code
+                .split('\n')
+                .enumerate()
+                .map(|(i, code)| (i + 10, code.to_owned()))
+                .collect();
+            second_statement_line(&example)
+        };
+        assert_eq!(line("x = 1; y = 2"), None);
+        assert_eq!(line("if True:\n    pass\n"), None);
+        assert_eq!(line("x = 1\n# c"), None);
+        assert_eq!(line("x = 1\ny = 2"), Some(11));
+        assert_eq!(line("x = (1,\n2); y = 3"), Some(11));
+        assert_eq!(line("if True:\n    pass\nx = 1"), Some(12));
+    }
+
+    /// The checker refuses the same examples as the single mode of the
+    /// compiler of RustPython, on examples made of statements from a fixed
+    /// seed.
+    #[test]
+    fn the_checker_refuses_a_second_statement_as_the_compiler_does() {
+        const STATEMENTS: &[&str] = &[
+            "x = 1", "y", "x = (1,\n2)", "x = 1 \\\n+ 2", "if x:\n    pass", "for i in x:\n    y",
+            "@d\ndef f():\n    pass", "# c", "",
+        ];
+        const SEPARATORS: &[&str] = &["\n", "; ", ";", "\n\n", " \\\n", "  # c\n"];
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = |n: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % n as u64).expect("below n")
+        };
+        let mut cases = String::new();
+        for _ in 0..3000 {
+            let mut source = String::from(STATEMENTS[next(STATEMENTS.len())]);
+            for _ in 0..next(4) {
+                source.push_str(SEPARATORS[next(SEPARATORS.len())]);
+                source.push_str(STATEMENTS[next(STATEMENTS.len())]);
+            }
+            let example: Vec<(usize, String)> = source
+                .split('\n')
+                .enumerate()
+                .map(|(i, code)| (i, code.to_owned()))
+                .collect();
+            if parse_module(&source).is_err() {
+                continue;
+            }
+            let refused = second_statement_line(&example).is_some();
+            cases.push_str(&format!(
+                "    ({}, {}),\n",
+                py_literal(&format!("{source}\n")),
+                if refused { "True" } else { "False" }
+            ));
+        }
+        let script = format!(
+            "_CASES = [\n{cases}]\n{}",
+            "for _src, _checker in _CASES:\n\
+             \x20   try:\n\
+             \x20       compile(_src, '<doctest>', 'single')\n\
+             \x20       _runner = False\n\
+             \x20   except SyntaxError as _e:\n\
+             \x20       _runner = _e.msg == 'multiple statements found while compiling a single statement'\n\
+             \x20   assert _runner == _checker, (_src, _runner, _checker)\n"
+        );
+        assert!(crate::run::run_source(&script, "single_test.py", ".").is_ok());
     }
 
     #[test]

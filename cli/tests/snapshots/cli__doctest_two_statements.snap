@@ -1,0 +1,18 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-multiple-statements]: A doctest example holds one statement: start this one with its own `>>>`
+ --> doctest_two_statements.py:4:1
+  |
+2 |     """
+3 |     >>> x = 2
+4 |     ... double(x)
+  | ^^^^^^^^^^^^^^^^^
+5 |     4
+6 |     """
+  |
+
+Found 1 error.

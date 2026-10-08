@@ -847,3 +847,37 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects a doctest example with a second statement on a later line.
+    /// The doctest runner compiles an example as the interactive prompt reads
+    /// one statement, as the stdlib `doctest` module does, and refuses it.
+    ///
+    /// ## Example
+    /// ```python
+    /// def double(n: int) -> int:
+    ///     """
+    ///     >>> x = 2
+    ///     ... double(x)    # error: a second statement
+    ///     4
+    ///     """
+    ///     return 2 * n
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def double(n: int) -> int:
+    ///     """
+    ///     >>> x = 2
+    ///     >>> double(x)
+    ///     4
+    ///     """
+    ///     return 2 * n
+    /// ```
+    pub(crate) static DOCTEST_MULTIPLE_STATEMENTS = {
+        summary: "doctest example with more than one statement",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
