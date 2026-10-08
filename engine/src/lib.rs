@@ -14,7 +14,6 @@ pub mod lints;
 pub mod panic;
 pub mod repl;
 pub mod run;
-#[cfg(not(target_arch = "wasm32"))]
 mod scene;
 pub mod shell;
 pub mod spython_lib;

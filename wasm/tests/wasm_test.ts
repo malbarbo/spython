@@ -226,6 +226,20 @@ Deno.test("a bitmap from a data URI takes the size of its image", async () => {
   destroy(ctx);
 });
 
+Deno.test("an image at the prompt goes to the page as an svg", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  run(ctx, "from spython.image import beside, circle, fill, red, text");
+  const r = run(ctx, 'beside(circle(5, fill(red)), text("a < b & c"))');
+  assertEquals(r.result, REPL_OK);
+  assertEquals(r.svgs.length, 1);
+  const svg = r.svgs[0];
+  assertEquals(svg.startsWith("<svg "), true, svg);
+  // The text goes in as the outlines of its glyphs, so nothing in it needs
+  // an escape.
+  assertEquals(svg.includes("a < b"), false, svg);
+  destroy(ctx);
+});
+
 Deno.test("multiple runs", async () => {
   const ctx = await newRepl("", { level: 5 });
   const r1 = run(ctx, "1 + 2");

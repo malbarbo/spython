@@ -15,7 +15,6 @@ from spython.style import (
     stroke,
     join,
     none,
-    outline_offset as _outline_offset,
     join as _join,
     stroke as _stroke,
     none as _style_none,
@@ -45,7 +44,6 @@ BOTTOM: YPlace = YPlace.BOTTOM
 
 _FP_EPSILON: float = 1.0e-10
 _SQRT3_2: float = 0.8660254037844386
-_clip_counter: int = 0
 
 
 # **************************
@@ -1715,229 +1713,14 @@ def _curve_controls(
 
 def to_svg(img: Image) -> str:
     w, h = _canvas_size(img)
-    return (
-        "<svg "
-        + _attrib("width", w)
-        + _attrib("height", h)
-        + 'xmlns="http://www.w3.org/2000/svg">\n'
-        + _to_svg(img, 1)
-        + "</svg>"
-    )
+    return _system.scene_svg(img, w, h)
 
 
-# The size of `img` in whole pixels, which the svg of `to_svg` and the scene
-# of a display take.
+# The size of `img` in whole pixels, which the scene of `to_svg` and of a
+# display take.
 def _canvas_size(img: Image) -> tuple[float, float]:
     mn, mx = _box(img)
     return (
         float(_math.ceil(round(mx.x - mn.x, 6))),
         float(_math.ceil(round(mx.y - mn.y, 6))),
     )
-
-
-def _next_clip_id() -> int:
-    global _clip_counter
-    result: int = _clip_counter
-    _clip_counter += 1
-    return result
-
-
-def _to_svg(img: Image, level: int) -> str:
-    if isinstance(img, _Path):
-        aligned: bool = _outline_offset(img.style) > 0.0
-        path_d: str = _commands_to_d(img.commands, aligned)
-        if img.closed:
-            path_d = path_d + " Z"
-        return (
-            _indent(level)
-            + "<path "
-            + _attribs("d", path_d)
-            + img.style.to_svg()
-            + "/>\n"
-        )
-    if isinstance(img, _Combination):
-        return (
-            _indent(level)
-            + "<g>\n"
-            + _to_svg(img.a, level + 1)
-            + _to_svg(img.b, level + 1)
-            + _indent(level)
-            + "</g>\n"
-        )
-    if isinstance(img, _Crop):
-        clipid: str = "clip" + str(_next_clip_id())
-        b = img.box
-        rect_svg: str = (
-            "<rect "
-            + _attrib("x", b.center.x - b.width / 2.0)
-            + _attrib("y", b.center.y - b.height / 2.0)
-            + _attrib("width", b.width)
-            + _attrib("height", b.height)
-            + _attribs("transform", _rotate_str(b.angle, b.center))
-            + "/>"
-        )
-        return (
-            _indent(level)
-            + "<defs><clipPath "
-            + _attribs("id", clipid)
-            + ">"
-            + rect_svg
-            + "</clipPath></defs>\n"
-            + _indent(level)
-            + "<g "
-            + _attribs("clip-path", "url(#" + clipid + ")")
-            + ">\n"
-            + _to_svg(img.image, level + 1)
-            + _indent(level)
-            + "</g>\n"
-        )
-    if isinstance(img, _Text):
-        b = img.box
-        css: str = _font._to_css(img.font)
-        original_width, original_height, x_offset, y_offset = _system.text_metrics(
-            img.text, css
-        )
-        scale_x: float = (
-            b.width / original_width * (-1.0 if img.flip_horizontal else 1.0)
-        )
-        scale_y: float = (
-            b.height / original_height * (-1.0 if img.flip_vertical else 1.0)
-        )
-        return (
-            _indent(level)
-            + "<text "
-            + _attribs("dominant-baseline", "alphabetic")
-            + _attribs("text-anchor", "start")
-            + _attrib("x", x_offset)
-            + _attrib("y", y_offset)
-            + _attribs("font-family", img.font.family)
-            + _attrib("font-size", img.font.size)
-            + _attribs("font-style", img.font.style.value)
-            + _attribs("font-weight", img.font.weight.value)
-            + (_attribs("text-decoration", "underline") if img.font.underline else "")
-            + _attribs(
-                "transform",
-                _translate_str(b.center.x, b.center.y)
-                + " "
-                + _rotate_str(b.angle, Point(0.0, 0.0))
-                + " "
-                + _scale_str(scale_x, scale_y),
-            )
-            + img.style.to_svg()
-            + ">"
-            + img.text
-            + "</text>\n"
-        )
-    if isinstance(img, _Bitmap):
-        b = img.box
-        result: str = (
-            _indent(level)
-            + "<image "
-            + _attribs("href", img.data_uri)
-            + _attrib("x", b.center.x - b.width / 2.0)
-            + _attrib("y", b.center.y - b.height / 2.0)
-            + _attrib("width", b.width)
-            + _attrib("height", b.height)
-        )
-        if b.angle != 0.0:
-            result = result + _attribs("transform", _rotate_str(b.angle, b.center))
-        return result + "/>\n"
-    return ""
-
-
-def _commands_to_d(commands: list[_PathCmd], aligned: bool) -> str:
-    c = _align if aligned else _fs
-    parts: list[str] = []
-    for cmd in commands:
-        parts.append(_cmd_to_d(cmd, c))
-    return " ".join(parts)
-
-
-def _cmd_to_d(cmd: _PathCmd, c: _Callable[[float], str]) -> str:
-    if isinstance(cmd, _MoveTo):
-        return "M " + c(cmd.p.x) + " " + c(cmd.p.y)
-    if isinstance(cmd, _LineTo):
-        return "L " + c(cmd.p.x) + " " + c(cmd.p.y)
-    if isinstance(cmd, _QuadTo):
-        return (
-            "Q "
-            + c(cmd.control.x)
-            + " "
-            + c(cmd.control.y)
-            + " "
-            + c(cmd.end.x)
-            + " "
-            + c(cmd.end.y)
-        )
-    if isinstance(cmd, _CubicTo):
-        return (
-            "C "
-            + c(cmd.c1.x)
-            + " "
-            + c(cmd.c1.y)
-            + " "
-            + c(cmd.c2.x)
-            + " "
-            + c(cmd.c2.y)
-            + " "
-            + c(cmd.end.x)
-            + " "
-            + c(cmd.end.y)
-        )
-    if isinstance(cmd, _ArcTo):
-        return (
-            "A "
-            + _fs(cmd.rx)
-            + " "
-            + _fs(cmd.ry)
-            + " "
-            + _fs(cmd.rotation)
-            + " "
-            + ("1" if cmd.large_arc else "0")
-            + " "
-            + ("1" if cmd.sweep else "0")
-            + " "
-            + c(cmd.end.x)
-            + " "
-            + c(cmd.end.y)
-        )
-    return ""
-
-
-def _f(v: float) -> str:
-    r: str = f"{v:.6f}".rstrip("0").rstrip(".")
-    if r == "-0":
-        return "0"
-    return r
-
-
-def _fs(v: float) -> str:
-    return _f(v)
-
-
-def _align(v: float) -> str:
-    return _f(_math.floor(v + _FP_EPSILON) + 0.5)
-
-
-def _rotate_str(angle: float, center: Point) -> str:
-    return "rotate(" + _f(angle) + " " + _f(center.x) + " " + _f(center.y) + ")"
-
-
-def _scale_str(sx: float, sy: float) -> str:
-    return "scale(" + _f(sx) + "," + _f(sy) + ")"
-
-
-def _translate_str(x: float, y: float) -> str:
-    return "translate(" + _f(x) + "," + _f(y) + ")"
-
-
-def _indent(level: int) -> str:
-    return "  " * level
-
-
-def _attrib(name: str, value: float) -> str:
-    return name + '="' + _f(value) + '" '
-
-
-def _attribs(name: str, value: str) -> str:
-    return name + '="' + value + '" '

@@ -61,14 +61,9 @@ try:
 except ImportError:
     _open_printer = None
 
-# The image of a data URI, which a bitmap keeps so the display draws it
-# with no decode, or None where nothing displays, as on the page.
-try:
-    from _spython_scene import load_image  # type: ignore[import-not-found]
-except ImportError:
-
-    def load_image(data_uri: str) -> object:
-        return None
+# The image of a data URI, which a bitmap keeps so the scene draws it with
+# no decode, and the svg of the scene of an image.
+from _spython_scene import load_image, to_svg as scene_svg  # type: ignore[import-not-found]
 
 
 def install_displayhook() -> None:

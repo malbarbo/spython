@@ -47,11 +47,12 @@ fn new_interpreter_with_argv(argv: Vec<String>) -> vm::Interpreter {
     settings.write_bytecode = false;
     settings.argv = argv;
     let builder = InterpreterBuilder::new().settings(settings).init_stdlib();
+    let scene = crate::scene::module_def(&builder.ctx);
+    let builder = builder.add_native_module(scene);
     #[cfg(not(target_arch = "wasm32"))]
     let builder = {
-        let scene = crate::scene::module_def(&builder.ctx);
         let display = crate::display::module_def(&builder.ctx);
-        builder.add_native_module(scene).add_native_module(display)
+        builder.add_native_module(display)
     };
     builder.interpreter()
 }

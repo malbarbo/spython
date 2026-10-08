@@ -8,21 +8,6 @@ class Color:
         self.a: float = max(0.0, min(1.0, a))
         self._none: bool = _none
 
-    def to_svg(self) -> str:
-        if self._none:
-            return "none"
-        return (
-            "rgba("
-            + str(self.r)
-            + ", "
-            + str(self.g)
-            + ", "
-            + str(self.b)
-            + ", "
-            + str(self.a)
-            + ")"
-        )
-
 
 def rgb(r: int, g: int, b: int) -> Color:
     return Color(r, g, b)

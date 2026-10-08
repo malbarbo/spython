@@ -1,6 +1,5 @@
 ---
 source: cli/tests/cli.rs
-assertion_line: 345
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
@@ -12,11 +11,11 @@ error[invalid-argument-type]: Argument to function `square` is incorrect
 5 |     return square(50.0, red)
   |                         ^^^ Expected `Style`, found `Color`
 info: Function defined here
-   --> <lib>/image.py:799:5
+   --> <lib>/image.py:797:5
     |
-799 | def square(side: float, *style_args: Style) -> Image:
+797 | def square(side: float, *style_args: Style) -> Image:
     |     ^^^^^^              ------------------ Parameter declared here
-800 |     return rectangle(side, side, *style_args)
+798 |     return rectangle(side, side, *style_args)
     |
 
 Found 1 error.

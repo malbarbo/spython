@@ -1,7 +1,12 @@
 //! The `_spython_scene` module: the [`Scene`] of an `Image` of
-//! `spython.image`, and the images that a bitmap keeps.
+//! `spython.image`, the svg that sinteract writes of it, and the images that a
+//! bitmap keeps. Every target builds the scene the same way, so an image
+//! looks the same on the page and in a window.
 
-pub(crate) use _spython_scene::{draw, module_def};
+pub(crate) use _spython_scene::module_def;
+// Only a display draws a scene of its own, and the page has none.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use _spython_scene::draw;
 
 #[rustpython_vm::pymodule(name = "_spython_scene")]
 pub(crate) mod _spython_scene {
@@ -27,6 +32,20 @@ pub(crate) mod _spython_scene {
         Ok(PyLoadedImage { image })
     }
 
+    /// The svg of `image`, an `Image` of `spython.image`, on a scene of
+    /// `width` by `height`.
+    #[pyfunction]
+    fn to_svg(
+        image: PyObjectRef,
+        width: ArgIntoFloat,
+        height: ArgIntoFloat,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
+        draw(&image, &mut scene, vm)?;
+        Ok(sinteract::renderer::svg::render_to_svg(&scene))
+    }
+
     /// An image that [`load_image`] loaded. Python only passes it along.
     #[pyattr]
     #[pyclass(name = "LoadedImage")]
@@ -38,7 +57,7 @@ pub(crate) mod _spython_scene {
     #[pyclass]
     impl PyLoadedImage {}
 
-    /// Put `image` into `scene`, as `to_svg` of `spython.image` writes it.
+    /// Put `image` into `scene`.
     pub(crate) fn draw(image: &PyObject, scene: &mut Scene, vm: &VirtualMachine) -> PyResult<()> {
         let class = image.class().name().to_owned();
         match class.as_str() {
@@ -209,8 +228,8 @@ pub(crate) mod _spython_scene {
         })
     }
 
-    /// A `Style` of `spython.style`, with the defaults that its `to_svg`
-    /// adds and that SVG takes for an attribute left out.
+    /// A `Style` of `spython.style`, with a default for each attribute left
+    /// out.
     struct Style {
         fill: Option<Color>,
         fill_opacity: f32,
@@ -225,8 +244,7 @@ pub(crate) mod _spython_scene {
 
     impl Style {
         /// Read the attributes of `style`. Of two that set the same thing,
-        /// the first wins, as it does in the SVG of `to_svg` when an HTML
-        /// parser reads it.
+        /// the first wins.
         fn read(style: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
             let mut s = Style {
                 fill: None,
@@ -285,15 +303,15 @@ pub(crate) mod _spython_scene {
         }
 
         /// Returns `true` if the path draws a thin outline on half pixels,
-        /// `false` otherwise. It is the `outline_offset` of `spython.style`.
+        /// `false` otherwise.
         fn aligned(&self) -> bool {
             self.stroke.is_some() && self.fill.is_none() && self.stroke_width.is_none()
         }
 
         fn path_style(&self) -> PathStyle {
             let outline = self.stroke.is_some();
-            // SVG fills black when no fill is set, and to_svg sets none
-            // for an outline.
+            // A shape with no fill is black, as in SVG, and an outline is not
+            // filled.
             let fill = match self.fill {
                 Some(c) => c,
                 None if outline => Color::default(),
@@ -320,7 +338,7 @@ pub(crate) mod _spython_scene {
                 }),
                 line_join: self.line_join.unwrap_or(LineJoin::Miter),
                 fill_rule: self.fill_rule,
-                // to_svg writes a limit of 10 only with the join it adds.
+                // An outline with no join of its own gets a limit of 10.
                 miter_limit: if self.line_join.is_none() && outline {
                     10.0
                 } else {
