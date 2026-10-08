@@ -2551,6 +2551,28 @@ fn repl_after_a_file_sees_what_it_defined() {
 }
 
 #[test]
+fn repl_after_a_file_that_calls_exit_ends_with_its_status() {
+    let (out, err, success) = run_repl_after_file("print('prompt')\n", 0, "exit(2)\n");
+    assert!(!success);
+    assert!(!err.contains("SystemExit"), "stderr: {err}");
+    assert!(!out.contains("prompt"), "stdout: {out}");
+}
+
+#[test]
+fn repl_after_a_file_that_calls_exit_with_zero_succeeds() {
+    let (out, err, success) = run_repl_after_file("print('prompt')\n", 0, "exit(0)\n");
+    assert!(success, "stderr: {err}");
+    assert!(!out.contains("prompt"), "stdout: {out}");
+}
+
+#[test]
+fn repl_after_a_file_that_calls_exit_shows_its_message() {
+    let (_, err, success) = run_repl_after_file("", 0, "exit('bye')\n");
+    assert!(!success);
+    assert_eq!(err, "bye\n");
+}
+
+#[test]
 fn repl_after_a_file_sees_what_it_imported() {
     let (out, err, success) = run_repl_after_files(
         "g(1)\nhelpers.helper(5)\n",

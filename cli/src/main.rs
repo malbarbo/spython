@@ -8,7 +8,9 @@ mod repl_reader;
 use repl_reader::{ReplReader, Theme};
 
 use engine::shell::welcome_message;
-use engine::{Level, Repl, Shell, SpythonError, Status, check, format, run, show_error};
+use engine::{
+    Failed, Level, Loaded, Repl, Shell, SpythonError, Status, check, format, run, show_error,
+};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -169,17 +171,19 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
 
     let mut repl = Repl::new(level, engine::color_stderr());
     repl.install_displayhook();
-    if let Some(script) = preload
-        && repl
-            .load(
-                &script.source,
-                &script.name,
-                Some(&script.dir),
-                script.modules,
-            )
-            .is_err()
-    {
-        return Err(SpythonError::ProgramFailed);
+    if let Some(script) = preload {
+        let loaded = repl.load(
+            &script.source,
+            &script.name,
+            Some(&script.dir),
+            script.modules,
+        );
+        // An `exit()` in the file ends the session, as it does at the prompt.
+        match loaded {
+            Ok(Loaded::Ran) => (),
+            Ok(Loaded::Exited(0)) => return Ok(()),
+            Ok(Loaded::Exited(_)) | Err(Failed) => return Err(SpythonError::ProgramFailed),
+        }
     }
 
     let theme = Rc::new(Cell::new(theme));

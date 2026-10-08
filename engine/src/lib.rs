@@ -25,7 +25,7 @@ pub(crate) use check::{infer_expression_type, type_check_repl_input};
 pub use checker::Level;
 pub use error::{SpythonError, color_stderr, color_stdout, read_file, show_error};
 pub use format::format_source;
-pub use repl::{Failed, Repl};
+pub use repl::{Failed, Loaded, Repl};
 pub use run::{run_source, run_test_source};
 pub use shell::{Shell, Status};
 

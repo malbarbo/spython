@@ -19,6 +19,15 @@ use std::time::{Duration, Instant};
 #[derive(Debug)]
 pub struct Failed;
 
+/// How a file that [`Repl::load`] ran came to its end.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Loaded {
+    /// It ran to the last line.
+    Ran,
+    /// It called `exit()` with this status.
+    Exited(u32),
+}
+
 /// A REPL session and the interpreter it runs in.
 pub struct Repl {
     // `scope` is wrapped in `Option` so the `Drop` impl can take it and
@@ -82,13 +91,17 @@ impl Repl {
     /// Run `source` under the name `name`, with `dir` on `sys.path` and
     /// `modules` the first-party files it imports. The session goes on from
     /// there, so what runs here is the context the next inputs are checked in.
+    ///
+    /// An `exit()` in `source` comes back as [`Loaded::Exited`] and does not
+    /// end the session. The page has no way to end a session that `repl_new`
+    /// is still opening, so each caller decides.
     pub fn load(
         &mut self,
         source: &str,
         name: &str,
         dir: Option<&str>,
         modules: Vec<(String, String)>,
-    ) -> Result<(), Failed> {
+    ) -> Result<Loaded, Failed> {
         self.modules = modules;
         self.accumulated_source = source.to_owned();
         let (interp, scope) = self.live();
@@ -100,7 +113,11 @@ impl Repl {
                 return Err(Failed);
             }
             match vm.run_string(scope, source, name) {
-                Ok(_) => Ok(()),
+                Ok(_) => Ok(Loaded::Ran),
+                // Writes the message of an `exit("...")` that carries one.
+                Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.system_exit) => {
+                    Ok(Loaded::Exited(vm.handle_exit_exception(exc)))
+                }
                 Err(exc) => {
                     vm.print_exception(exc);
                     Err(Failed)
@@ -282,5 +299,27 @@ atexit.register(__test_mark_atexit_ran)\n";
             REPL_ATEXIT_RAN.load(Ordering::SeqCst),
             "expected atexit handler to run on repl drop"
         );
+    }
+
+    #[test]
+    fn load_returns_the_status_of_an_exit() {
+        let mut repl = Repl::new(Level::Full, false);
+        let loaded = repl.load("x = 1\nexit(3)\n", "user.py", None, Vec::new());
+        assert_eq!(loaded.ok(), Some(Loaded::Exited(3)));
+    }
+
+    #[test]
+    fn load_after_an_exit_leaves_the_session_open() {
+        let mut repl = Repl::new(Level::Full, false);
+        let _ = repl.load("x = 1\nexit()\n", "user.py", None, Vec::new());
+        assert_eq!(repl.exit_status(), None);
+        assert!(repl.run("y = x\n").is_ok());
+    }
+
+    #[test]
+    fn load_of_a_file_that_ends_returns_ran() {
+        let mut repl = Repl::new(Level::Full, false);
+        let loaded = repl.load("x = 1\n", "user.py", None, Vec::new());
+        assert_eq!(loaded.ok(), Some(Loaded::Ran));
     }
 }
