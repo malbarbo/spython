@@ -2,23 +2,26 @@
 //! string, the checks it runs over it, and the printing of what it found.
 
 use std::collections::HashSet;
+use std::panic::RefUnwindSafe;
 
+use ruff_db::Db as SourceDb;
 use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics};
 use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{
-    InMemorySystem, MemoryFileSystem, SystemPath, SystemPathBuf, WritableSystem,
+    InMemorySystem, MemoryFileSystem, System, SystemPath, SystemPathBuf, WritableSystem,
 };
 use ruff_python_ast::name::Name;
 use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_python_ast::{ExprRef, Stmt};
 use ruff_ranged_value::RangedValue;
 use ruff_text_size::{TextRange, TextSize};
-use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
+use ty_module_resolver::{
+    FallibleStrategy, ImportingFile, ModuleName, SearchPathSettings, resolve_module,
+};
 use ty_project::metadata::Options;
 use ty_project::metadata::options::{EnvironmentOptions, Rules};
 use ty_project::metadata::python_version::SupportedPythonVersion;
-use ty_project::metadata::value::RelativePathBuf;
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
 use ty_python_semantic::Db as _;
 use ty_python_semantic::lint::Level as TyLevel;
@@ -57,21 +60,25 @@ impl Warnings {
         print_type_errors(&self.db, &self.diagnostics, use_color);
     }
 }
-/// Create a `ProjectMetadata` with spython's lint rule overrides applied.
+/// A project rooted at `cwd`, over `system`, with spython's rules applied.
 ///
 /// Promotes a few ty rules from `Ignore`/`Warn` to `Error` for the teaching
 /// context: `possibly-unresolved-reference` (variable assigned only in some
 /// branches) and `division-by-zero` (literal `/ 0`, `% 0`, etc.).
 ///
 /// `roots` are the directories that hold the student's own modules, in the
-/// order the interpreter looks in them. `extra_paths` is added to ty's module
-/// search path — used to surface the embedded spython library so `from
-/// spython import ...` resolves.
-pub fn make_project_metadata(
+/// order the interpreter looks in them. `extra_paths` come before them, and
+/// hold the embedded spython library so `from spython import ...` resolves.
+/// After them comes the standard library and nothing else.
+pub fn project_database<S>(
     cwd: SystemPathBuf,
     roots: Vec<SystemPathBuf>,
     extra_paths: Vec<SystemPathBuf>,
-) -> ProjectMetadata {
+    system: S,
+) -> Result<ProjectDatabase, String>
+where
+    S: System + 'static + Send + Sync + RefUnwindSafe,
+{
     let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd);
     let rules = Rules::from_iter([
         (
@@ -88,20 +95,6 @@ pub fn make_project_metadata(
         // whatever Python it finds on the machine, and a 3.13 there rejects
         // an annotation that names a class defined later, which 3.14 runs.
         python_version: Some(RangedValue::cli(SupportedPythonVersion::Py314)),
-        // Left to itself, ty also looks in `src` and `python`, and the
-        // interpreter does not.
-        root: Some(
-            roots
-                .into_iter()
-                .map(|p| RelativePathBuf::cli(p.as_path()))
-                .collect(),
-        ),
-        extra_paths: (!extra_paths.is_empty()).then(|| {
-            extra_paths
-                .into_iter()
-                .map(|p| RelativePathBuf::cli(p.as_path()))
-                .collect()
-        }),
         ..EnvironmentOptions::default()
     };
     metadata.apply_override_options(Options {
@@ -109,7 +102,27 @@ pub fn make_project_metadata(
         environment: Some(environment),
         ..Options::default()
     });
-    metadata
+    // ty looks for a Python installation on the machine and fails when
+    // `VIRTUAL_ENV` names one that is not there. The search paths below
+    // replace whatever it found, so a failure there does not matter.
+    let mut db = ProjectDatabase::use_defaults(metadata, system);
+    // Left to itself, ty also looks in `src` and `python` and in the
+    // site-packages of the installation. The interpreter does neither.
+    let search_paths = SearchPathSettings {
+        extra_paths,
+        src_roots: roots,
+        ..SearchPathSettings::empty()
+    }
+    .to_search_paths(
+        SourceDb::system(&db),
+        SourceDb::vendored(&db),
+        &FallibleStrategy,
+    )
+    .map_err(|err| err.to_string())?;
+    let mut settings = db.project().program_settings(&db).clone();
+    settings.search_paths = search_paths;
+    db.project().update_program(&mut db, settings);
+    Ok(db)
 }
 /// A project over an in-memory filesystem holding `source` as `/user.py`, the
 /// spython library, and `modules`.
@@ -145,8 +158,7 @@ fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectData
         roots.push(SystemPathBuf::from(MODULE_ROOT));
     }
     roots.push(cwd.clone());
-    let metadata = make_project_metadata(cwd, roots, vec![lib_root]);
-    let mut db = ProjectDatabase::fallible(metadata, system)
+    let mut db = project_database(cwd, roots, vec![lib_root], system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
     let file_path = SystemPathBuf::from(USER_FILE);

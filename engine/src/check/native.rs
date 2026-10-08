@@ -12,8 +12,8 @@ use crate::error::color_stderr;
 use crate::{Level, SpythonError};
 
 use super::{
-    TypeErrors, annotation_check, check_file_doctests, collect_import_files, make_project_metadata,
-    modules_beside, print_type_errors, user_files,
+    TypeErrors, annotation_check, check_file_doctests, collect_import_files, modules_beside,
+    print_type_errors, project_database, user_files,
 };
 
 /// The spython lib, served from memory to a checker that looks on disk for it.
@@ -86,7 +86,6 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, SpythonError> {
         .map_err(|path| SpythonError::NonUtf8Path { path })?;
 
     let (system, lib_root) = overlay::OverlaySystem::new(&cwd_sys);
-    let metadata = make_project_metadata(cwd_sys.clone(), vec![cwd_sys], vec![lib_root]);
-
-    ProjectDatabase::fallible(metadata, system).map_err(|e| SpythonError::Database(e.to_string()))
+    project_database(cwd_sys.clone(), vec![cwd_sys], vec![lib_root], system)
+        .map_err(SpythonError::Database)
 }

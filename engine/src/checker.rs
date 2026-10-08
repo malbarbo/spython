@@ -1476,7 +1476,6 @@ mod tests {
     use ruff_db::system::{
         InMemorySystem, MemoryFileSystem, SystemPath, SystemPathBuf, WritableSystem,
     };
-    use ty_project::ProjectDatabase;
 
     /// Run the annotation checker on `source` and return the diagnostic IDs
     /// in the order they were emitted.
@@ -1487,8 +1486,8 @@ mod tests {
         system
             .write_file(SystemPath::new("/test.py"), source)
             .expect("write");
-        let metadata = crate::check::make_project_metadata(cwd.clone(), vec![cwd], vec![]);
-        let mut db = ProjectDatabase::fallible(metadata, system).expect("db");
+        let mut db =
+            crate::check::project_database(cwd.clone(), vec![cwd], vec![], system).expect("db");
         let file = system_path_to_file(&db, &path).expect("file");
         db.project().set_included_paths(&mut db, vec![path]);
         check_file_annotations(&db, file, level, None)

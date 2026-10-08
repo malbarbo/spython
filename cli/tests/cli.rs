@@ -753,6 +753,57 @@ fn check_refuses_a_module_under_src() {
     );
 }
 
+#[test]
+fn check_refuses_a_module_from_site_packages() {
+    // The interpreter has no site-packages, so the checker must not look in
+    // the one of the environment `VIRTUAL_ENV` names.
+    let dir = new_dir_with(
+        "site_packages",
+        &[
+            ("main.py", "import thirdparty\nprint(thirdparty.f())\n"),
+            ("venv/pyvenv.cfg", "home = /usr/bin\nversion = 3.14.0\n"),
+            (
+                "venv/lib/python3.14/site-packages/thirdparty.py",
+                "def f() -> int:\n    return 1\n",
+            ),
+        ],
+    );
+    let output = spython()
+        .current_dir(&dir)
+        .env("VIRTUAL_ENV", dir.join("venv"))
+        .args(["check", "main.py"])
+        .output()
+        .expect("failed to run spython");
+    let _ = std::fs::remove_dir_all(&dir);
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "check should have refused, got: {err}"
+    );
+    assert!(
+        err.contains("Cannot resolve imported module `thirdparty`"),
+        "expected the unresolved import, got: {err}"
+    );
+}
+
+#[test]
+fn check_ignores_a_virtual_env_that_is_not_there() {
+    let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);
+    let output = spython()
+        .current_dir(&dir)
+        .env("VIRTUAL_ENV", dir.join("missing"))
+        .args(["main.py"])
+        .output()
+        .expect("failed to run spython");
+    let _ = std::fs::remove_dir_all(&dir);
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "the file should have run, got: {err}"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
+}
+
 /// A file under `cli/tests`, named the way both backends are given it: the
 /// directory to run from, and the bare name to run.
 fn dual_run(command: &str, dir: &str, file: &str) {
