@@ -55,6 +55,10 @@ pub struct Repl {
     modules: Vec<(String, String)>,
     /// The status of the `exit()` that ended the session, if one has run.
     exit_status: Option<u32>,
+    /// How many inputs have reached the interpreter. Each one runs under a
+    /// file name of its own, as in the Python REPL, so that a traceback finds
+    /// its lines.
+    inputs: usize,
     /// The places in the accumulated source of the `del` statements that make
     /// the checker forget a name a statement that raised has changed. The
     /// student never wrote them, so what the checker says about them stays
@@ -82,6 +86,7 @@ impl Repl {
             modules: Vec::new(),
             exit_status: None,
             forgotten: Vec::new(),
+            inputs: 0,
         }
     }
 
@@ -273,9 +278,12 @@ impl Repl {
             vec![TextRange::up_to(code.text_len())]
         };
 
+        let name = format!("<python-input-{}>", self.inputs);
+        self.inputs += 1;
         let (interp, scope) = self.live();
         let start = Instant::now();
         let ran = interp.enter(|vm| {
+            keep_source(vm, &name, &code);
             // Every statement compiles before the first one runs, so a
             // compile error leaves nothing half run, and the warnings come
             // out ahead of the output.
@@ -283,7 +291,7 @@ impl Repl {
             for &range in &statements {
                 let source = alone(&code, range);
                 match vm
-                    .compile(&source, vm::compiler::Mode::Single, "<stdin>")
+                    .compile(&source, vm::compiler::Mode::Single, name.as_str())
                     .map_err(|err| err.into_pyexception(vm, Some(&source)))
                 {
                     Ok(code_obj) => compiled.push(code_obj),

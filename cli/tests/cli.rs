@@ -2823,6 +2823,19 @@ fn repl_name_error() {
 }
 
 #[test]
+fn repl_traceback_shows_the_lines_of_each_input() {
+    let input = "def f(n: int) -> int:\n    return n // (n - n)\n\nf(1)\n";
+    let (_, err, _) = run_repl(input);
+    assert!(
+        err.contains(
+            "  File \"<python-input-1>\", line 1, in <module>\n    f(1)\n  \
+             File \"<python-input-0>\", line 2, in f\n    return n // (n - n)\n"
+        ),
+        "{err}"
+    );
+}
+
+#[test]
 fn repl_after_a_file_sees_what_it_defined() {
     let (out, err, success) =
         run_repl_after_file("f(3)\n", 0, "def f(x: int) -> int:\n    return x * 2\n");

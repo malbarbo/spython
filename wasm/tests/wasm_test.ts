@@ -539,6 +539,16 @@ Deno.test("the traceback of a file shows the line that raised", async () => {
   destroy(ctx);
 });
 
+Deno.test("the traceback of an input shows the line that raised", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  run(ctx, "x = 1");
+  assertStringIncludes(
+    run(ctx, "int('z')").stderr,
+    `  File "<python-input-1>", line 1, in <module>\n    int('z')\n`,
+  );
+  destroy(ctx);
+});
+
 const exitAfterADoctest = (status: number) =>
   `def one() -> int:
     """
