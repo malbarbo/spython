@@ -1,0 +1,29 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-inconsistent-indentation]: Doctest continuation `...` must start in the column of its `>>>`
+ --> doctest_misaligned.py:4:1
+  |
+2 |     """
+3 |     >>> add(1,
+4 |       ... 2)
+  | ^^^^^^^^^^^^
+5 |     3
+6 |     >>> add(0, 0)
+  |
+
+error[doctest-inconsistent-indentation]: Doctest output must not start to the left of its `>>>`
+ --> doctest_misaligned.py:7:1
+  |
+5 |     3
+6 |     >>> add(0, 0)
+7 |    0
+  | ^^^^
+8 |     """
+9 |     return x + y
+  |
+
+Found 2 errors.

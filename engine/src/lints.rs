@@ -734,9 +734,10 @@ declare_lint! {
 declare_lint! {
     /// ## What it does
     /// Rejects docstring lines that start with `>>>` or `...` but are not
-    /// followed by a single space (e.g. `>>>foo`). The doctest runner and
-    /// the stdlib `doctest` module silently ignore such lines, so the test
-    /// appears to pass while not running at all.
+    /// followed by a single space (e.g. `>>>foo`), and a `>>>` with nothing
+    /// after it. The doctest runner refuses a docstring with the first, as
+    /// the stdlib `doctest` module does, and skips the second, which is
+    /// almost always a test the student forgot to write.
     ///
     /// ## Example
     /// ```python
@@ -759,6 +760,41 @@ declare_lint! {
     /// ```
     pub(crate) static DOCTEST_MALFORMED_PROMPT = {
         summary: "malformed doctest prompt",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects a `...` line that does not start in the column of its `>>>`,
+    /// and a line of expected output that starts to the left of it. The
+    /// doctest runner refuses such a docstring, as the stdlib `doctest`
+    /// module does, so none of its tests would run.
+    ///
+    /// ## Example
+    /// ```python
+    /// def add(x: int, y: int) -> int:
+    ///     """
+    ///     >>> add(1,
+    ///       ... 2)    # error: `...` is not under `>>>`
+    ///     3
+    ///     """
+    ///     return x + y
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def add(x: int, y: int) -> int:
+    ///     """
+    ///     >>> add(1,
+    ///     ... 2)
+    ///     3
+    ///     """
+    ///     return x + y
+    /// ```
+    pub(crate) static DOCTEST_INCONSISTENT_INDENTATION = {
+        summary: "doctest line out of line with its prompt",
         status: LintStatus::stable("0.0.0"),
         default_level: Level::Error,
     }

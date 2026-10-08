@@ -1,9 +1,10 @@
 //! Doctest extraction, format validation, and type-check scaffolding.
 //!
 //! Walks the AST to find docstrings attached to the module, functions,
-//! classes, and methods, extracts doctest snippets from them, and detects
-//! malformed `>>>` / `...` prompts (e.g. `>>>foo` — a common student mistake
-//! that causes the doctest runner to silently skip the line).
+//! classes, and methods, and reads their examples with the grammar of the
+//! runner in `doctest_runner.py`. A line that makes the runner refuse the
+//! docstring, such as `>>>foo`, is reported here, where the student sees
+//! where it is.
 //!
 //! A synthetic Python source can be assembled from a file's original text
 //! plus one `def __spython_doctest_<N>__() -> None:` stub per snippet; that
@@ -11,11 +12,14 @@
 //! coming out of the synthetic functions are remapped back to the original
 //! docstring locations via `SyntheticMap` / `remap_diagnostics`.
 
+use std::borrow::Cow;
+
 use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
 use ruff_python_ast::visitor::Visitor;
-use ruff_python_ast::{Expr, ModModule, Stmt};
-use ruff_text_size::{TextRange, TextSize};
+use ruff_python_ast::{Expr, ExprStringLiteral, ModModule, Stmt};
+use ruff_python_parser::parse_expression;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::checker::make_lint_diagnostic;
 
@@ -24,7 +28,7 @@ fn text_size(offset: usize) -> TextSize {
     TextSize::try_from(offset).expect("a source under 4 GiB")
 }
 
-use crate::lints::DOCTEST_MALFORMED_PROMPT;
+use crate::lints::{DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT};
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
 /// recognizes functions whose name matches `__spython_doctest_<N>__` and
@@ -49,45 +53,54 @@ pub fn is_synthetic_fn_name(name: &str) -> bool {
     !middle.is_empty() && middle.chars().all(|c| c.is_ascii_digit())
 }
 
-/// A single doctest example extracted from a docstring: the executable source
-/// (concatenated `>>>`/`...` lines with the prompt stripped) plus per-line
-/// provenance back to the original file.
+/// The examples of one docstring, which run one after the other in the
+/// same namespace, so they are checked as one function body.
 #[derive(Debug, Clone)]
 pub struct DoctestSnippet {
     /// Human-friendly name of the doctest's container: `"module"`, a function
     /// name, or `"Class.method"`. Used in diagnostic messages.
     pub owner: String,
-    /// Executable code with prompts (`>>> ` / `... `) removed, joined by `\n`.
+    /// The source of the examples with the prompts removed, joined by `\n`.
     pub code: String,
-    /// The range in the original file of the first `>>>` line's content
-    /// (after the prompt). Used as a fallback when a diagnostic can't be
-    /// mapped to a specific line.
+    /// Where a diagnostic goes when it has no line of its own: the first
+    /// line of code, or the whole docstring when `exact` is false.
     pub anchor_range: TextRange,
-    /// For each line of `code`, the range in the original file of that
-    /// line's content (after the prompt). `line_ranges.len() == code.lines().count()`.
+    /// For each line of `code`, where it is in the file.
+    /// `line_ranges.len() == code.split('\n').count()`.
     pub line_ranges: Vec<TextRange>,
+    /// Whether each line of `code` is the text of its range in the file. It
+    /// is not when the docstring has an escape, a tab, or a second string,
+    /// and then every range is the whole docstring.
+    pub exact: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PromptKind {
+pub enum MalformedKind {
+    /// `>>>x`.
     Primary,
+    /// A `>>>` with nothing after it, which the runner skips.
+    EmptyPrompt,
+    /// `...x`.
     Continuation,
+    /// A `...` that does not start in the column of its `>>>`.
+    ContinuationIndent,
+    /// A line of output indented less than its `>>>`.
+    OutputIndent,
 }
 
-/// A docstring line that starts with `>>>` or `...` but is not followed by
-/// a single space — the doctest runner silently ignores these, hiding the
-/// fact that the test never ran.
+/// A line that makes the runner refuse its docstring, or a `>>>` with no
+/// example, which the runner skips.
 #[derive(Debug, Clone)]
-pub struct MalformedPrompt {
+pub struct Malformed {
     pub range: TextRange,
-    pub kind: PromptKind,
+    pub kind: MalformedKind,
 }
 
 /// Result of walking a module for doctests.
 #[derive(Debug, Default)]
 pub struct DoctestExtraction {
     pub snippets: Vec<DoctestSnippet>,
-    pub malformed: Vec<MalformedPrompt>,
+    pub malformed: Vec<Malformed>,
 }
 
 /// Walk `module` looking for docstrings and extract doctest snippets from them.
@@ -126,25 +139,12 @@ impl DoctestVisitor<'_> {
 
 impl<'a> Visitor<'a> for DoctestVisitor<'_> {
     fn visit_body(&mut self, body: &'a [Stmt]) {
-        // The docstring is the very first statement (if any) when it is a
-        // plain string-literal expression statement. Skip implicitly
-        // concatenated docstrings: we can't cleanly map offsets back to the
-        // original source when parts are joined.
+        // A string as the first statement is the docstring, as the compiler
+        // takes it.
         if let Some(Stmt::Expr(expr_stmt)) = body.first()
             && let Expr::StringLiteral(s) = &*expr_stmt.value
-            && !s.value.is_implicit_concatenated()
         {
-            let part = s
-                .value
-                .iter()
-                .next()
-                .expect("non-concatenated string has exactly one part");
-            scan_docstring(
-                part.content_range(),
-                self.source,
-                &self.scope,
-                &mut self.out,
-            );
+            scan_docstring(s, self.source, &self.scope, &mut self.out);
         }
         for stmt in body {
             self.visit_stmt(stmt);
@@ -171,174 +171,336 @@ impl<'a> Visitor<'a> for DoctestVisitor<'_> {
     }
 }
 
-/// Scan the content of one docstring (range = its content_range in `source`)
-/// for doctest examples and malformed prompts.
-///
-/// All examples found in this docstring are merged into a single
-/// `DoctestSnippet` — this mirrors the runtime semantics where every
-/// `>>>` example within a docstring shares the same `vars(module)` scope,
-/// so names defined by earlier examples are visible to later ones.
-fn scan_docstring(
-    content_range: TextRange,
-    source: &str,
-    owner: &str,
-    out: &mut DoctestExtraction,
-) {
-    let content_start: usize = content_range.start().into();
-    let content_end: usize = content_range.end().into();
-    let content = &source[content_start..content_end];
+/// Read the examples of the docstring `s` the way the runner does, from the
+/// value the interpreter gives the docstring.
+fn scan_docstring(s: &ExprStringLiteral, source: &str, owner: &str, out: &mut DoctestExtraction) {
+    let doc = clean_doc(&docstring_value(s, source));
+    let parsed = parse_doc(&doc);
+    let lines = raw_lines(s, source);
+    let range_of = |line: usize| {
+        lines
+            .as_ref()
+            .and_then(|lines| lines.get(line).copied())
+            .unwrap_or(s.range())
+    };
 
-    // Precompute line ranges (byte offset inside `content`).
-    let mut lines: Vec<(usize, usize, &str)> = Vec::new(); // (start, end_excl_newline, text)
-    let mut offset = 0usize;
-    for line in content.split_inclusive('\n') {
-        let trimmed_end = if line.ends_with("\r\n") {
-            line.len() - 2
-        } else if line.ends_with('\n') {
-            line.len() - 1
-        } else {
-            line.len()
-        };
-        lines.push((offset, offset + trimmed_end, &line[..trimmed_end]));
-        offset += line.len();
-    }
-
-    let mut code_lines: Vec<String> = Vec::new();
-    let mut line_ranges: Vec<TextRange> = Vec::new();
-    let mut anchor_range: Option<TextRange> = None;
-
-    let mut i = 0;
-    while let Some(&(line_start, line_end, line_text)) = lines.get(i) {
-        let stripped = line_text.trim_start();
-        let leading = line_text.len() - stripped.len();
-
-        let primary = starts_with_prompt(stripped, ">>>");
-        if let Some(kind) = primary {
-            let full_line_range = TextRange::new(
-                text_size(content_start + line_start),
-                text_size(content_start + line_end),
-            );
-            match kind {
-                PromptClass::Valid => {
-                    let content_after_prompt = text_size(content_start + line_start + leading + 4);
-                    let code_line_range =
-                        TextRange::new(content_after_prompt, text_size(content_start + line_end));
-                    code_lines.push(stripped[4..].to_string());
-                    line_ranges.push(code_line_range);
-                    if anchor_range.is_none() {
-                        anchor_range = Some(code_line_range);
-                    }
-                    i += 1;
-                    // Continuation `... ` lines.
-                    while let Some(&(cs, ce, ct)) = lines.get(i) {
-                        let cstrip = ct.trim_start();
-                        let cleading = ct.len() - cstrip.len();
-                        match starts_with_prompt(cstrip, "...") {
-                            Some(PromptClass::Valid) => {
-                                let after = text_size(content_start + cs + cleading + 4);
-                                code_lines.push(cstrip[4..].to_string());
-                                line_ranges
-                                    .push(TextRange::new(after, text_size(content_start + ce)));
-                                i += 1;
-                            }
-                            Some(PromptClass::MalformedEmpty) => {
-                                let after = text_size(content_start + cs + cleading + 3);
-                                code_lines.push(String::new());
-                                line_ranges.push(TextRange::new(after, after));
-                                i += 1;
-                            }
-                            Some(PromptClass::Malformed) => {
-                                out.malformed.push(MalformedPrompt {
-                                    range: TextRange::new(
-                                        text_size(content_start + cs),
-                                        text_size(content_start + ce),
-                                    ),
-                                    kind: PromptKind::Continuation,
-                                });
-                                i += 1;
-                                break;
-                            }
-                            None => break,
-                        }
-                    }
-                }
-                PromptClass::MalformedEmpty => {
-                    // `>>>` alone on a line — almost always a typo (the
-                    // student forgot the example). Report it like any other
-                    // malformed primary prompt.
-                    out.malformed.push(MalformedPrompt {
-                        range: full_line_range,
-                        kind: PromptKind::Primary,
-                    });
-                    i += 1;
-                }
-                PromptClass::Malformed => {
-                    out.malformed.push(MalformedPrompt {
-                        range: full_line_range,
-                        kind: PromptKind::Primary,
-                    });
-                    i += 1;
-                }
-            }
-        } else {
-            i += 1;
-        }
-    }
-
-    if let Some(anchor) = anchor_range {
-        out.snippets.push(DoctestSnippet {
-            owner: owner.to_string(),
-            code: code_lines.join("\n"),
-            anchor_range: anchor,
-            line_ranges,
+    for &(line, kind) in &parsed.malformed {
+        out.malformed.push(Malformed {
+            range: range_of(line),
+            kind,
         });
     }
+
+    let code_lines: Vec<&(usize, String)> = parsed.examples.iter().flatten().collect();
+    let line_ranges: Vec<TextRange> = code_lines
+        .iter()
+        .map(|(line, code)| match &lines {
+            // The code is what is left of the line once the margin, the
+            // indentation, and the prompt are gone, so it ends the line.
+            Some(_) => {
+                let line = range_of(*line);
+                TextRange::new(line.end() - text_size(code.len()), line.end())
+            }
+            None => s.range(),
+        })
+        .collect();
+    let Some(&anchor_range) = line_ranges.first() else {
+        return;
+    };
+    out.snippets.push(DoctestSnippet {
+        owner: owner.to_owned(),
+        code: code_lines
+            .iter()
+            .map(|(_, code)| code.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        anchor_range,
+        line_ranges,
+        exact: lines.is_some(),
+    });
 }
 
-enum PromptClass {
-    /// `>>> foo` or `... foo` — prompt followed by exactly one space and content.
-    Valid,
-    /// `>>>` / `...` alone (possibly with trailing whitespace-only text).
-    MalformedEmpty,
-    /// `>>>foo` / `...foo` — no space after prompt (student mistake).
-    Malformed,
+/// The value of the docstring `s` as the interpreter has it. RustPython
+/// turns each `\r\n` of the source into `\n` before it parses, and the value
+/// that the parser gives keeps the line endings of the text it reads.
+fn docstring_value<'a>(s: &'a ExprStringLiteral, source: &str) -> Cow<'a, str> {
+    let Some(text) = source.get(std::ops::Range::<usize>::from(s.range())) else {
+        return Cow::Borrowed(s.value.to_str());
+    };
+    if !text.contains("\r\n") {
+        return Cow::Borrowed(s.value.to_str());
+    }
+    match parse_expression(&text.replace("\r\n", "\n")).map(|parsed| parsed.into_expr()) {
+        Ok(Expr::StringLiteral(normalized)) => Cow::Owned(normalized.value.to_str().to_owned()),
+        // The text parsed once as a string, and has only lost some `\r`.
+        _ => Cow::Owned(s.value.to_str().replace("\r\n", "\n")),
+    }
 }
 
-/// Classify the start of `stripped` with respect to `prompt` (`">>>"` or `"..."`).
-/// Returns `None` if the line doesn't start with the prompt at all.
-fn starts_with_prompt(stripped: &str, prompt: &str) -> Option<PromptClass> {
-    if !stripped.starts_with(prompt) {
+/// The range in `source` of each line of the docstring `s`, without its line
+/// ending, or `None` when a line of the source is not the line of the value
+/// that [`clean_doc`] starts from: a docstring of several strings, one with
+/// an escape, or one with a tab, which `clean_doc` expands.
+fn raw_lines(s: &ExprStringLiteral, source: &str) -> Option<Vec<TextRange>> {
+    if s.value.is_implicit_concatenated() {
         return None;
     }
-    let rest = &stripped[prompt.len()..];
-    if rest.is_empty() {
-        return Some(PromptClass::MalformedEmpty);
+    let content = s.value.iter().next()?.content_range();
+    let start: usize = content.start().into();
+    let raw = source.get(start..usize::from(content.end()))?;
+    if raw.contains('\t') {
+        return None;
     }
-    // Exactly one space, followed by content (or end).
-    if let Some(stripped_rest) = rest.strip_prefix(' ') {
-        // Reject `>>>  foo` (two or more spaces) as well? We accept it: the
-        // runner strips `>>> ` (4 chars) and treats the extra space as
-        // indentation. Be lenient to match stdlib `doctest`.
-        let _ = stripped_rest;
-        return Some(PromptClass::Valid);
+    // A `\r\n` ends a line as `\n` does, as [`docstring_value`] reads it.
+    let mut ranges = Vec::new();
+    let mut texts = Vec::new();
+    let mut line_start = 0;
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i <= bytes.len() {
+        let end_of_line = match bytes.get(i) {
+            None => Some(0),
+            Some(b'\n') => Some(1),
+            Some(b'\r') if bytes.get(i + 1) == Some(&b'\n') => Some(2),
+            Some(_) => None,
+        };
+        match end_of_line {
+            Some(width) => {
+                texts.push(&raw[line_start..i]);
+                ranges.push(TextRange::new(text_size(start + line_start), text_size(start + i)));
+                i += width.max(1);
+                line_start = i;
+            }
+            None => i += 1,
+        }
     }
-    Some(PromptClass::Malformed)
+    let value = docstring_value(s, source);
+    let value: Vec<&str> = value.split('\n').collect();
+    (texts == value).then_some(ranges)
 }
 
-/// Build diagnostics for each malformed-prompt finding.
-pub fn malformed_prompt_diagnostics(file: File, malformed: &[MalformedPrompt]) -> Vec<Diagnostic> {
+/// The docstring the compiler stores for `doc`, with the tabs expanded and
+/// the margin of the lines after the first removed.
+// From `clean_doc` in the codegen of RustPython, which runs the doctests.
+fn clean_doc(doc: &str) -> String {
+    let doc = expand_tabs(doc, 8);
+    let margin = doc
+        .split('\n')
+        .skip(1)
+        .filter(|line| line.chars().any(|c| c != ' '))
+        .map(|line| line.chars().take_while(|c| *c == ' ').count())
+        .min()
+        .unwrap_or(0);
+
+    let mut cleaned = String::with_capacity(doc.len());
+    if let Some(first_line) = doc.split('\n').next() {
+        let trimmed = first_line.trim_start();
+        if trimmed.len() == first_line.len() && margin == 0 {
+            return doc;
+        }
+        cleaned.push_str(trimmed);
+    }
+    for line in doc.split('\n').skip(1) {
+        cleaned.push('\n');
+        let skip = line.chars().take(margin).take_while(|c| *c == ' ').count();
+        cleaned.push_str(&line[skip..]);
+    }
+    cleaned
+}
+
+// From `expandtabs` in the codegen of RustPython.
+fn expand_tabs(input: &str, tab_stop: usize) -> String {
+    let mut expanded = String::with_capacity(input.len());
+    let mut tab_size = tab_stop;
+    let mut col_count = 0usize;
+    for ch in input.chars() {
+        match ch {
+            '\t' => {
+                let num_spaces = tab_size - col_count;
+                col_count += num_spaces;
+                expanded.push_str(&" ".repeat(num_spaces));
+            }
+            '\r' | '\n' => {
+                expanded.push(ch);
+                col_count = 0;
+                tab_size = 0;
+            }
+            _ => {
+                expanded.push(ch);
+                col_count += 1;
+            }
+        }
+        if col_count >= tab_size {
+            tab_size += tab_stop;
+        }
+    }
+    expanded
+}
+
+/// The examples of a docstring, each a list of (line, code) pairs, and the
+/// lines that make the docstring malformed, both by the index of the line.
+#[derive(Debug, Default)]
+struct ParsedDoc {
+    examples: Vec<Vec<(usize, String)>>,
+    malformed: Vec<(usize, MalformedKind)>,
+}
+
+/// Read the examples of `doc`, a docstring as [`clean_doc`] leaves it, with
+/// the grammar of `_parse` in `doctest_runner.py`, which follows
+/// `DocTestParser` of the stdlib `doctest`.
+///
+/// The runner stops at the first line it refuses, and this goes on, so the
+/// student sees every such line at once. A `>>>` with nothing after it, which
+/// the runner skips, is malformed here, because it is almost always a test
+/// the student forgot to write.
+fn parse_doc(doc: &str) -> ParsedDoc {
+    let all: Vec<&str> = doc.split('\n').collect();
+    let margin = min_indent(&all);
+    let lines: Vec<&str> = all.iter().map(|line| skip_chars(line, margin)).collect();
+    let mut parsed = ParsedDoc::default();
+    let mut i = 0;
+    while let Some(line) = lines.get(i) {
+        let Some(indent) = ps1_indent(line) else {
+            i += 1;
+            continue;
+        };
+        let start = i;
+        i += 1;
+        while lines
+            .get(i)
+            .is_some_and(|line| line.trim_start_matches(' ').starts_with("..."))
+        {
+            i += 1;
+        }
+        let source_end = i;
+        while lines.get(i).is_some_and(|line| {
+            !line.trim_matches(' ').is_empty() && ps1_indent(line).is_none()
+        }) {
+            i += 1;
+        }
+
+        let source_lines = lines.get(start..source_end).unwrap_or_default();
+        let prefix = " ".repeat(indent);
+        let malformed_before = parsed.malformed.len();
+        for (k, line) in source_lines.iter().enumerate() {
+            // The runner checks the space first, at the column of the space
+            // after the `>>>`, so a `...` out of line fails that check too,
+            // with a message that does not say what is wrong.
+            if k > 0 && !line.is_empty() && !line.starts_with(&format!("{prefix}.")) {
+                parsed
+                    .malformed
+                    .push((start + k, MalformedKind::ContinuationIndent));
+            } else if line.chars().nth(indent + 3).is_some_and(|c| c != ' ') {
+                let kind = if k == 0 {
+                    MalformedKind::Primary
+                } else {
+                    MalformedKind::Continuation
+                };
+                parsed.malformed.push((start + k, kind));
+            }
+        }
+        // The code of a line with a malformed prompt is not what the student
+        // meant, and checking it would only add errors about the wrong text.
+        let source_is_malformed = parsed.malformed.len() > malformed_before;
+        for (k, line) in lines.get(source_end..i).unwrap_or_default().iter().enumerate() {
+            if !line.is_empty() && !line.starts_with(&prefix) {
+                parsed
+                    .malformed
+                    .push((source_end + k, MalformedKind::OutputIndent));
+            }
+        }
+
+        let code: Vec<(usize, String)> = source_lines
+            .iter()
+            .enumerate()
+            .map(|(k, line)| (start + k, skip_chars(line, indent + 4).to_owned()))
+            .collect();
+        let source = code
+            .iter()
+            .map(|(_, code)| code.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if source_is_malformed {
+            continue;
+        }
+        if is_blank_or_comment(&source) {
+            if source.chars().all(is_py_space) {
+                parsed.malformed.push((start, MalformedKind::EmptyPrompt));
+            }
+        } else {
+            parsed.examples.push(code);
+        }
+    }
+    parsed
+}
+
+/// The indentation of `line` if it starts with `>>>`, `None` otherwise.
+fn ps1_indent(line: &str) -> Option<usize> {
+    let rest = line.trim_start_matches(' ');
+    rest.starts_with(">>>").then(|| line.len() - rest.len())
+}
+
+/// The smallest indentation of a line that is not blank.
+fn min_indent(lines: &[&str]) -> usize {
+    lines
+        .iter()
+        .filter_map(|line| {
+            let rest = line.trim_start_matches(' ');
+            let first = rest.chars().next()?;
+            (!is_py_space(first)).then(|| line.len() - rest.len())
+        })
+        .min()
+        .unwrap_or(0)
+}
+
+/// Returns `true` if `source` is one line that is blank or only a comment,
+/// `false` otherwise.
+fn is_blank_or_comment(source: &str) -> bool {
+    let source = source.strip_suffix('\n').unwrap_or(source);
+    if source.contains('\n') {
+        return false;
+    }
+    let rest = source.trim_start_matches(' ');
+    rest.is_empty() || rest.starts_with('#')
+}
+
+/// `line` without its first `n` characters, as `line[n:]` in Python.
+fn skip_chars(line: &str, n: usize) -> &str {
+    line.char_indices()
+        .nth(n)
+        .map_or("", |(offset, _)| line.get(offset..).unwrap_or_default())
+}
+
+/// Returns `true` if Python's `str.isspace` holds for `c`, `false` otherwise.
+/// Python also counts the separators U+001C to U+001F as space.
+fn is_py_space(c: char) -> bool {
+    c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
+}
+
+/// Build diagnostics for each malformed line.
+pub fn malformed_diagnostics(file: File, malformed: &[Malformed]) -> Vec<Diagnostic> {
     malformed
         .iter()
         .map(|m| {
-            let msg = match m.kind {
-                PromptKind::Primary => {
-                    "Doctest prompt must be followed by a single space: change `>>>x` to `>>> x`"
-                }
-                PromptKind::Continuation => {
-                    "Doctest continuation must be followed by a single space: change `...x` to `... x`"
-                }
+            let (lint, msg) = match m.kind {
+                MalformedKind::Primary | MalformedKind::EmptyPrompt => (
+                    &DOCTEST_MALFORMED_PROMPT,
+                    "Doctest prompt must be followed by a single space: change `>>>x` to `>>> x`",
+                ),
+                MalformedKind::Continuation => (
+                    &DOCTEST_MALFORMED_PROMPT,
+                    "Doctest continuation must be followed by a single space: change `...x` to `... x`",
+                ),
+                MalformedKind::ContinuationIndent => (
+                    &DOCTEST_INCONSISTENT_INDENTATION,
+                    "Doctest continuation `...` must start in the column of its `>>>`",
+                ),
+                MalformedKind::OutputIndent => (
+                    &DOCTEST_INCONSISTENT_INDENTATION,
+                    "Doctest output must not start to the left of its `>>>`",
+                ),
             };
-            make_lint_diagnostic(&DOCTEST_MALFORMED_PROMPT, file, m.range, msg.to_string())
+            make_lint_diagnostic(lint, file, m.range, msg.to_string())
         })
         .collect()
 }
@@ -549,13 +711,19 @@ pub fn remap_diagnostics(
                     .get(line)
                     .copied()
                     .unwrap_or(snippet.anchor_range);
-                let range = remap_range_within_line(
-                    prim_range,
-                    line_idx,
-                    &line_starts,
-                    line_range,
-                    byte_to_line,
-                );
+                // A column of the code is a column of the file only when the
+                // line is the text of its range.
+                let range = if snippet.exact {
+                    remap_range_within_line(
+                        prim_range,
+                        line_idx,
+                        &line_starts,
+                        line_range,
+                        byte_to_line,
+                    )
+                } else {
+                    line_range
+                };
                 (snippet, range)
             }
             Some(SyntheticLine::SyntheticHeader(idx)) => match snippets.get(idx) {
@@ -641,7 +809,7 @@ mod tests {
         let ex = extract(src);
         assert_eq!(ex.snippets.len(), 0);
         assert_eq!(ex.malformed.len(), 1);
-        assert_eq!(ex.malformed[0].kind, PromptKind::Primary);
+        assert_eq!(ex.malformed[0].kind, MalformedKind::Primary);
     }
 
     #[test]
@@ -652,7 +820,7 @@ mod tests {
         let ex = extract(src);
         assert_eq!(ex.snippets.len(), 0);
         assert_eq!(ex.malformed.len(), 1);
-        assert_eq!(ex.malformed[0].kind, PromptKind::Primary);
+        assert_eq!(ex.malformed[0].kind, MalformedKind::EmptyPrompt);
     }
 
     #[test]
@@ -728,7 +896,7 @@ mod tests {
         assert!(
             ex.malformed
                 .iter()
-                .any(|m| m.kind == PromptKind::Continuation)
+                .any(|m| m.kind == MalformedKind::Continuation)
         );
     }
 
@@ -761,6 +929,195 @@ mod tests {
         assert!(syn.contains("def __spython_doctest_0__() -> None:"));
         assert!(map.lines.contains(&SyntheticLine::SyntheticBody(0, 0)));
         assert!(map.lines.contains(&SyntheticLine::SyntheticBody(0, 1)));
+    }
+
+    /// The docstring of `f` in `src`, as [`scan_docstring`] reads it: the
+    /// examples, each with the newline the runner gives its source, or
+    /// `ERR` when the runner would refuse the docstring.
+    fn read_as_the_checker(src: &str) -> String {
+        let parsed = parse_module(src).expect("the test source parses");
+        let module = parsed.into_syntax();
+        let Some(Stmt::FunctionDef(f)) = module.body.first() else {
+            panic!("the test source starts with a def");
+        };
+        let Some(Stmt::Expr(stmt)) = f.body.first() else {
+            panic!("the def starts with its docstring");
+        };
+        let Expr::StringLiteral(doc) = &*stmt.value else {
+            panic!("the docstring is a string");
+        };
+        let parsed = parse_doc(&clean_doc(&docstring_value(doc, src)));
+        if parsed
+            .malformed
+            .iter()
+            .any(|(_, kind)| *kind != MalformedKind::EmptyPrompt)
+        {
+            return "ERR".to_owned();
+        }
+        parsed
+            .examples
+            .iter()
+            .map(|example| {
+                let mut source = example
+                    .iter()
+                    .map(|(_, code)| code.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !source.ends_with('\n') {
+                    source.push('\n');
+                }
+                source
+            })
+            .collect::<Vec<_>>()
+            .join("\u{1}")
+    }
+
+    /// `text` as a Python string literal, every character that is not plain
+    /// ASCII written as an escape.
+    fn py_literal(text: &str) -> String {
+        let mut out = String::from("\"");
+        for c in text.chars() {
+            if (' '..='~').contains(&c) && c != '\\' && c != '"' {
+                out.push(c);
+            } else {
+                out.push_str(&format!("\\U{:08x}", u32::from(c)));
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    /// Docstrings made of lines that start with what the grammar of a
+    /// doctest cares about, from a fixed seed.
+    fn docstrings(count: usize) -> Vec<String> {
+        const INDENTS: &[&str] = &["", "", " ", "  ", "    ", "     ", "\t", "\u{a0}", "\u{c}"];
+        const HEADS: &[&str] = &[
+            ">>> ", ">>> ", ">>> ", ">>>", "... ", "... ", "...", "", "", "#",
+            "Traceback (most recent call last):", "<BLANKLINE>",
+        ];
+        const TAILS: &[&str] = &[
+            "x", "1", " ", "  ", "# c", "\t", "\u{1c}", "é", ":", "(", ")", ".", ">>>", "...",
+            "ValueError: m", "\r",
+        ];
+        let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = |n: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % n as u64).expect("below n")
+        };
+        (0..count)
+            .map(|_| {
+                let lines = 1 + next(8);
+                (0..lines)
+                    .map(|_| {
+                        let mut line = INDENTS[next(INDENTS.len())].to_owned();
+                        line.push_str(HEADS[next(HEADS.len())]);
+                        for _ in 0..next(3) {
+                            line.push_str(TAILS[next(TAILS.len())]);
+                        }
+                        line
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .collect()
+    }
+
+    /// The checker reads the same examples as the runner, from the same
+    /// source, written with escapes and, where it can be, as is.
+    #[test]
+    fn the_checker_reads_a_docstring_as_the_runner_does() {
+        let mut cases = String::new();
+        let mut exact_sources = Vec::new();
+        for doc in docstrings(3000) {
+            let mut sources = vec![format!("def f():\n    {}\n", py_literal(&doc))];
+            if !doc.contains(['\\', '"']) {
+                let src = format!("def f():\n    \"\"\"{doc}\"\"\"\n");
+                let crlf = src.replace('\n', "\r\n");
+                if !doc.contains('\t') {
+                    exact_sources.push(src.clone());
+                    exact_sources.push(crlf.clone());
+                }
+                sources.push(src);
+                sources.push(crlf);
+            }
+            for src in sources {
+                cases.push_str(&format!(
+                    "    ({}, {}),\n",
+                    py_literal(&src),
+                    py_literal(&read_as_the_checker(&src))
+                ));
+            }
+        }
+        let script = format!(
+            "{}\n_CASES = [\n{cases}]\n{}",
+            crate::run::DOCTEST_RUNNER,
+            "for _src, _checker in _CASES:\n\
+             \x20   _ns = {}\n\
+             \x20   exec(_src, _ns)\n\
+             \x20   try:\n\
+             \x20       _runner = '\\x01'.join(s for s, _, _ in _parse(_ns['f'].__doc__, 'f'))\n\
+             \x20   except ValueError:\n\
+             \x20       _runner = 'ERR'\n\
+             \x20   assert _runner == _checker, (_src, _runner, _checker)\n"
+        );
+        assert!(crate::run::run_source(&script, "parse_test.py", ".").is_ok());
+
+        // Where the docstring is the text of the file, each line of code is
+        // the text of its range.
+        for src in exact_sources {
+            for snippet in extract(&src).snippets {
+                assert!(snippet.exact, "{src:?}");
+                for (line, range) in snippet.code.split('\n').zip(&snippet.line_ranges) {
+                    assert_eq!(&src[*range], line, "{src:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_bare_continuation_is_an_empty_line_of_code() {
+        let src = "def f() -> None:\n    \"\"\"\n    >>> if True:\n    ...     f()\n    ...\n    \"\"\"\n";
+        let ex = extract(src);
+        assert!(ex.malformed.is_empty());
+        assert_eq!(ex.snippets[0].code, "if True:\n    f()\n");
+    }
+
+    #[test]
+    fn a_line_out_of_line_with_its_prompt_is_malformed() {
+        let src = "def f() -> None:\n    \"\"\"\n    >>> f(\n      ... )\n    >>> f()\n   x\n    \"\"\"\n";
+        let kinds: Vec<MalformedKind> = extract(src).malformed.iter().map(|m| m.kind).collect();
+        assert_eq!(
+            kinds,
+            [MalformedKind::ContinuationIndent, MalformedKind::OutputIndent]
+        );
+    }
+
+    #[test]
+    fn a_docstring_with_crlf_lines_maps_each_line() {
+        let src = "def f() -> None:\r\n    \"\"\"\r\n    >>> f()\r\n    >>> g()\r\n    \"\"\"\r\n";
+        let snippet = &extract(src).snippets[0];
+        assert!(snippet.exact);
+        assert_eq!(&src[snippet.line_ranges[0]], "f()");
+        assert_eq!(&src[snippet.line_ranges[1]], "g()");
+    }
+
+    #[test]
+    fn a_docstring_with_an_escape_maps_to_the_whole_docstring() {
+        let src = "def f() -> None:\n    \"\"\"\n    >>> f('\\n')\n    \"\"\"\n";
+        let snippet = &extract(src).snippets[0];
+        assert!(!snippet.exact);
+        assert_eq!(snippet.code, "f('");
+        assert_eq!(&src[snippet.line_ranges[0]], &src[21..src.len() - 1]);
+    }
+
+    #[test]
+    fn a_docstring_of_two_strings_is_read() {
+        let src = "def f() -> None:\n    \">>> f()\\n\" \">>> g()\"\n";
+        let snippet = &extract(src).snippets[0];
+        assert!(!snippet.exact);
+        assert_eq!(snippet.code, "f()\ng()");
     }
 
     #[test]

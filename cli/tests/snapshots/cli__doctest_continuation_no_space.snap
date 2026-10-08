@@ -1,6 +1,5 @@
 ---
 source: cli/tests/cli.rs
-assertion_line: 398
 expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
 ---
 STDOUT
@@ -16,15 +15,4 @@ error[doctest-malformed-prompt]: Doctest continuation must be followed by a sing
 6 |     """
   |
 
-error[invalid-syntax]: in doctest of f: unexpected EOF while parsing
- --> doctest_continuation_no_space.py:3:14
-  |
-1 | def f(x: int) -> int:
-2 |     """
-3 |     >>> y = (
-  |              ^
-4 |     ...x
-5 |     ... )
-  |
-
-Found 2 errors.
+Found 1 error.
