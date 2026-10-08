@@ -92,7 +92,8 @@ declare_lint! {
 // --- Construct restriction lints ---
 
 declare_lint! {
-    /// Forbids `if`/`elif`/`else` before level 1 (Selection).
+    /// Forbids `if`/`elif`/`else` and the conditional expression before level
+    /// 1 (Selection).
     pub(crate) static FORBIDDEN_SELECTION = {
         summary: "`if` not allowed at this level",
         status: LintStatus::stable("0.0.0"),

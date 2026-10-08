@@ -29,7 +29,7 @@ Spython restricts which Python constructs are available based on the teaching le
 | Level | Name       | Added constructs                                                      |
 |-------|------------|-----------------------------------------------------------------------|
 | 0     | Functions  | `def`, `return`, scalars, `str` indexing                              |
-| 1     | Selection  | `if`/`elif`/`else`                                                    |
+| 1     | Selection  | `if`/`elif`/`else`, `x if c else y`                                   |
 | 2     | User types | `class` (Enum / `@dataclass`), `match`                                |
 | 3     | Repetition | `list` literals, `for`, `while`, `+=`                                 |
 | 4     | Classes    | `class` with methods, `dict`/`set`, comprehensions, `lambda`          |

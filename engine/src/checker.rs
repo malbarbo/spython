@@ -42,7 +42,7 @@ const AVAILABLE_MODULES: &[&str] = &["dataclasses", "enum", "math", "typing"];
 pub enum Level {
     /// def, return, scalars (int, float, str, bool), string indexing.
     Functions = 0,
-    /// Adds: if/elif/else.
+    /// Adds: if/elif/else and the conditional expression.
     Selection = 1,
     /// Adds: Enum, @dataclass, match.
     UserTypes = 2,
@@ -1059,6 +1059,11 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 e.range(),
                 forbidden_msg("Generator expression", self.level, Level::Classes),
             ),
+            Expr::If(e) if self.level < Level::Selection => self.push(
+                &FORBIDDEN_SELECTION,
+                e.range(),
+                forbidden_msg("Conditional expression", self.level, Level::Selection),
+            ),
             Expr::Lambda(e) if self.level < Level::Classes => self.push(
                 &FORBIDDEN_LAMBDA,
                 e.range(),
@@ -1559,6 +1564,15 @@ mod tests {
 
     fn count(diags: &[String], id: &str) -> usize {
         diags.iter().filter(|d| d.as_str() == id).count()
+    }
+
+    #[test]
+    fn the_conditional_expression_waits_for_the_level_of_if() {
+        let source = "def f(x: int) -> int:\n    return 1 if x > 0 else 2\n";
+        let diags = check(source, Level::Functions);
+        assert_eq!(count(&diags, "forbidden-selection"), 1, "{diags:?}");
+        let diags = check(source, Level::Selection);
+        assert_eq!(count(&diags, "forbidden-selection"), 0, "{diags:?}");
     }
 
     #[test]

@@ -79,7 +79,7 @@ is 0.
 | Level | Name       | Adds                                                              |
 | ----- | ---------- | ----------------------------------------------------------------- |
 | 0     | Functions  | `def`, `return`, scalars, string indexing                         |
-| 1     | Selection  | `if`/`elif`/`else`                                                |
+| 1     | Selection  | `if`/`elif`/`else`, `x if c else y`                               |
 | 2     | User types | `class` (Enum / `@dataclass`), `match`                            |
 | 3     | Repetition | `list` literals, `for`, `while`, `+=`                             |
 | 4     | Classes    | full `class` with methods, `dict`/`set`, comprehensions, `lambda` |
