@@ -1,0 +1,45 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+STDERR
+error[unavailable-module]: Module `__future__` is not available; a program can import `dataclasses`, `enum`, `math`, `typing`, `spython` and the modules beside it
+ --> err_unavailable_module.py:1:6
+  |
+1 | from __future__ import annotations
+  |      ^^^^^^^^^^
+2 |
+3 | import os.path
+  |
+
+error[unavailable-module]: Module `os` is not available; a program can import `dataclasses`, `enum`, `math`, `typing`, `spython` and the modules beside it
+ --> err_unavailable_module.py:3:8
+  |
+1 | from __future__ import annotations
+2 |
+3 | import os.path
+  |        ^^^^^^^
+4 | from collections.abc import Sequence
+5 | from typing import Any
+  |
+
+error[unavailable-module]: Module `collections` is not available; a program can import `dataclasses`, `enum`, `math`, `typing`, `spython` and the modules beside it
+ --> err_unavailable_module.py:4:6
+  |
+3 | import os.path
+4 | from collections.abc import Sequence
+  |      ^^^^^^^^^^^^^^^
+5 | from typing import Any
+  |
+
+error[unavailable-module]: Module `re` is not available; a program can import `dataclasses`, `enum`, `math`, `typing`, `spython` and the modules beside it
+  --> err_unavailable_module.py:11:12
+   |
+10 | def first(items: Sequence[Any]) -> Any:
+11 |     import re
+   |            ^^
+12 |
+13 |     return items[0]
+   |
+
+Found 4 errors.

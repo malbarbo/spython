@@ -174,6 +174,27 @@ declare_lint! {
 }
 
 declare_lint! {
+    /// ## What it does
+    /// Rejects an import of a module of the standard library other than
+    /// `dataclasses`, `enum`, `math` and `typing`.
+    ///
+    /// ## Why is this bad?
+    /// The interpreter has only these modules, the `spython` library and the
+    /// modules beside the file. Any other module fails with
+    /// `ModuleNotFoundError` when the program runs.
+    ///
+    /// ## Example
+    /// ```python
+    /// import re    # error: not available
+    /// ```
+    pub(crate) static UNAVAILABLE_MODULE = {
+        summary: "import of a module the interpreter does not have",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
     /// Forbids `match` statements before level 2.
     pub(crate) static FORBIDDEN_MATCH = {
         summary: "`match` not allowed at this level",

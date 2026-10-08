@@ -15,6 +15,7 @@ use ruff_python_ast::{
 };
 use ruff_python_stdlib::str as stdlib_str;
 use ruff_text_size::{Ranged, TextRange, TextSize};
+use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_project::Db;
 use ty_python_semantic::lint::LintMetadata;
 use ty_python_semantic::types::KnownClass;
@@ -29,9 +30,12 @@ use crate::lints::{
     LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
     MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
     NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
-    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, TRUE_FALSE_COMPARISON, UNNECESSARY_PASS,
-    UNUSED_VARIABLE,
+    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE,
+    UNNECESSARY_PASS, UNUSED_VARIABLE,
 };
+
+/// The modules of the standard library the interpreter has.
+const AVAILABLE_MODULES: &[&str] = &["dataclasses", "enum", "math", "typing"];
 
 /// Teaching level that controls which Python constructs are allowed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -197,6 +201,34 @@ impl Checker<'_> {
                 format!(
                     "Operand has type `{}`; `bool` is not allowed in arithmetic expressions",
                     ty.display(db, &env)
+                ),
+            );
+        }
+    }
+
+    /// Reject `module` when its package comes from the standard library and
+    /// the interpreter does not have it. A module beside the file, or one
+    /// that does not resolve, is left to ty.
+    fn check_module(&mut self, module: &str, range: TextRange) {
+        let package = module.split('.').next().unwrap_or(module);
+        if AVAILABLE_MODULES.contains(&package) {
+            return;
+        }
+        let Some(name) = ModuleName::new(package) else {
+            return;
+        };
+        let db = self.model.db();
+        let importing = ImportingFile::ResolverFile(db.program_file(self.file).resolver_file(db));
+        let from_stdlib = resolve_module(db, importing, &name)
+            .and_then(|m| m.search_path(db))
+            .is_some_and(|path| path.is_standard_library());
+        if from_stdlib {
+            self.push(
+                &UNAVAILABLE_MODULE,
+                range,
+                format!(
+                    "Module `{package}` is not available; a program can import `dataclasses`, \
+                     `enum`, `math`, `typing`, `spython` and the modules beside it"
                 ),
             );
         }
@@ -940,11 +972,22 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     self.visit_expr(cause);
                 }
             }
+            Stmt::Import(import) => {
+                for alias in &import.names {
+                    self.check_module(&alias.name.id, alias.name.range());
+                }
+            }
+            Stmt::ImportFrom(import) => {
+                // A relative import names a module beside the file.
+                if import.level == 0
+                    && let Some(module) = &import.module
+                {
+                    self.check_module(&module.id, module.range());
+                }
+            }
             // Always allowed (or allowed at level 5): no checks, no
             // sub-expressions to recurse into.
-            Stmt::Import(_)
-            | Stmt::ImportFrom(_)
-            | Stmt::Pass(_)
+            Stmt::Pass(_)
             | Stmt::Break(_)
             | Stmt::Continue(_)
             | Stmt::TypeAlias(_)
@@ -1498,6 +1541,35 @@ mod tests {
 
     fn count(diags: &[String], id: &str) -> usize {
         diags.iter().filter(|d| d.as_str() == id).count()
+    }
+
+    #[test]
+    fn an_import_of_a_module_the_interpreter_lacks_is_an_error() {
+        for source in [
+            "import re\n",
+            "import os.path\n",
+            "from collections.abc import Sequence\n",
+            "from __future__ import annotations\n",
+            "def f() -> None:\n    import sys\n",
+        ] {
+            let diags = check(source, Level::Full);
+            assert_eq!(count(&diags, "unavailable-module"), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn an_import_of_a_module_the_interpreter_has_is_not_an_error() {
+        for source in [
+            "import math\n",
+            "from dataclasses import dataclass\n",
+            "from enum import Enum\n",
+            "from typing import Any\n",
+            "import nosuch\n",
+            "from . import sibling\n",
+        ] {
+            let diags = check(source, Level::Full);
+            assert_eq!(count(&diags, "unavailable-module"), 0, "{source}");
+        }
     }
 
     // -- Stmt::Raise.cause is visited ----------------------------------------

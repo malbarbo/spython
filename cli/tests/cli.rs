@@ -270,14 +270,40 @@ fn test_banner_and_function_name_come_first() {
     // The "Running tests..." banner and the name of each function must be
     // written (and flushed) *before* its examples run, so a student whose test
     // hangs sees that testing started and which function is to blame instead
-    // of a blank screen.
-    let (out, err, success) = run_test(&["doctest_progress.py"], &[]);
-    assert!(success, "stdout: {out}\nstderr: {err}");
-    assert_eq!(out, "");
-    assert_eq!(
-        err,
-        "Running tests...\n  noisy\nduring example\n1 test, 1 success, 0 failures and 0 errors.\n"
-    );
+    // of a blank screen. The example never ends, so what the test reads is
+    // what came out before it.
+    use std::io::BufRead;
+    let doctests = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests"));
+    let mut child = spython()
+        .current_dir(doctests)
+        .args(["test", "--level", "4", "doctest_hangs.py"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to run spython");
+    let stderr = child.stderr.take().expect("stderr is piped");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            if sender.send(line + "\n").is_err() {
+                break;
+            }
+        }
+    });
+    let expected = "Running tests...\n  forever\n";
+    let mut err = String::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while normalize_output(&err) != expected {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match receiver.recv_timeout(left) {
+            Ok(line) => err.push_str(&line),
+            Err(_) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(normalize_output(&err), expected);
 }
 
 #[test]
@@ -754,6 +780,22 @@ fn check_refuses_a_module_under_src() {
 }
 
 #[test]
+fn run_imports_a_module_beside_the_file_named_after_the_stdlib() {
+    // `re` is not available, but a `re.py` the student wrote is.
+    let dir = new_dir_with(
+        "beside_stdlib",
+        &[
+            ("main.py", "import re\nprint(re.f())\n"),
+            ("re.py", "def f() -> int:\n    return 1\n"),
+        ],
+    );
+    let (out, err, success) = run_spython_native(&["main.py"], &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(success, "the file should have run, got: {err}");
+    assert_eq!(out, "1\n");
+}
+
+#[test]
 fn check_refuses_a_module_from_site_packages() {
     // The interpreter has no site-packages, so the checker must not look in
     // the one of the environment `VIRTUAL_ENV` names.
@@ -818,11 +860,11 @@ fn dual_run(command: &str, dir: &str, file: &str) {
 /// prints the other prints too, whether the examples pass or fail.
 #[test]
 fn test_output_agrees_between_backends() {
-    // A file whose examples pass, one whose example fails, one that writes to
-    // stderr while an example runs, one with no examples at all, and one that
-    // prints from the top level, which `test` does not reach: the source runs
-    // under a name of its own, not as `__main__`.
-    for file in ["ok.py", "fail.py", "doctest_progress.py", "no_tests.py"] {
+    // A file whose examples pass, one whose example fails, one with no
+    // examples at all, and one that prints from the top level, which `test`
+    // does not reach: the source runs under a name of its own, not as
+    // `__main__`.
+    for file in ["ok.py", "fail.py", "no_tests.py"] {
         dual_run("test", "doctests", file);
     }
     dual_run("test", "inputs", "ok_simple.py");
