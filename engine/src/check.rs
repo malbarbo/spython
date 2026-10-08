@@ -17,6 +17,7 @@ use ruff_text_size::{TextRange, TextSize};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_project::metadata::Options;
 use ty_project::metadata::options::{EnvironmentOptions, Rules};
+use ty_project::metadata::python_version::SupportedPythonVersion;
 use ty_project::metadata::value::RelativePathBuf;
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
 use ty_python_semantic::Db as _;
@@ -79,18 +80,22 @@ pub fn make_project_metadata(
             RangedValue::cli(TyLevel::Error),
         ),
     ]);
-    let environment = (!extra_paths.is_empty()).then(|| EnvironmentOptions {
-        extra_paths: Some(
+    let environment = EnvironmentOptions {
+        // The version RustPython runs. Without it, ty takes the version of
+        // whatever Python it finds on the machine, and a 3.13 there rejects
+        // an annotation that names a class defined later, which 3.14 runs.
+        python_version: Some(RangedValue::cli(SupportedPythonVersion::Py314)),
+        extra_paths: (!extra_paths.is_empty()).then(|| {
             extra_paths
                 .into_iter()
                 .map(|p| RelativePathBuf::cli(p.as_path()))
-                .collect(),
-        ),
+                .collect()
+        }),
         ..EnvironmentOptions::default()
-    });
+    };
     metadata.apply_override_options(Options {
         rules: Some(rules),
-        environment,
+        environment: Some(environment),
         ..Options::default()
     });
     metadata
