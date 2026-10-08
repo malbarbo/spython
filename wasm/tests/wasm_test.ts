@@ -87,18 +87,6 @@ function makeEnv(
     ): number => {
       return 3; // KEYNONE (no event)
     },
-    text_metrics: (
-      _text: number,
-      _text_len: number,
-      _font: number,
-      _font_len: number,
-      out: number,
-    ): void => {
-      const view = new DataView(getBuffer() as ArrayBuffer);
-      for (const [i, v] of [40, 10, -20, 3].entries()) {
-        view.setFloat64(out + i * 8, v, true);
-      }
-    },
   };
   return { imports };
 }
