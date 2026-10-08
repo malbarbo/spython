@@ -41,6 +41,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Find the version
+        shell: bash
+        run: |
+          # A run started by hand has no tag, so it names the archives after
+          # the version of the crate and does not publish them.
+          CRATE="v$(sed -n 's/^version = "\([^"]*\)".*/\1/p' cli/Cargo.toml)"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="$GITHUB_REF_NAME"
+          else
+            VERSION="$CRATE"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
         with:
@@ -61,8 +74,6 @@ jobs:
       - name: Build archive
         shell: bash
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-
           if [ "${{ matrix.os }}" = "windows-2022" ]; then
             ARCHIVE="spython-$VERSION-${{ matrix.target }}.zip"
             cp "target/${{ matrix.target }}/release/spython.exe" "spython.exe"
@@ -91,6 +102,7 @@ jobs:
           esac
 
       - name: Upload release archive
+        if: github.ref_type == 'tag'
         # https://github.com/softprops/action-gh-release/issues/445
         # uses: softprops/action-gh-release@v2
         uses: softprops/action-gh-release@0bd7e8b279c9b5b36661d552472fbbfe671fe26e
