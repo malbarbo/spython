@@ -69,7 +69,7 @@ pub fn make_project_metadata(
     cwd: SystemPathBuf,
     extra_paths: Vec<SystemPathBuf>,
 ) -> ProjectMetadata {
-    let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd);
+    let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd.clone());
     let rules = Rules::from_iter([
         (
             RangedValue::cli("possibly-unresolved-reference".to_string()),
@@ -85,6 +85,9 @@ pub fn make_project_metadata(
         // whatever Python it finds on the machine, and a 3.13 there rejects
         // an annotation that names a class defined later, which 3.14 runs.
         python_version: Some(RangedValue::cli(SupportedPythonVersion::Py314)),
+        // The interpreter looks for a module in the directory of the file and
+        // nowhere else. Left to itself, ty also looks in `src` and `python`.
+        root: Some(vec![RelativePathBuf::cli(cwd.as_path())]),
         extra_paths: (!extra_paths.is_empty()).then(|| {
             extra_paths
                 .into_iter()

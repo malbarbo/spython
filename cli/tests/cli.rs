@@ -734,6 +734,25 @@ fn check_refuses_what_run_cannot_import() {
     );
 }
 
+#[test]
+fn check_refuses_a_module_under_src() {
+    // ty looks in `src` when the directory has one. The interpreter does not.
+    let dir = new_dir_with(
+        "src_layout",
+        &[
+            ("main.py", "import helper\nprint(helper.f())\n"),
+            ("src/helper.py", "def f() -> int:\n    return 1\n"),
+        ],
+    );
+    let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!success, "check should have refused, got: {err}");
+    assert!(
+        err.contains("Cannot resolve imported module `helper`"),
+        "expected the unresolved import, got: {err}"
+    );
+}
+
 /// A file under `cli/tests`, named the way both backends are given it: the
 /// directory to run from, and the bare name to run.
 fn dual_run(command: &str, dir: &str, file: &str) {
