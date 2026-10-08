@@ -407,6 +407,15 @@ fn test_keeps_the_failures_of_a_file_before_one_that_exits() {
 }
 
 #[test]
+fn test_goes_on_after_a_file_that_raises_before_its_tests() {
+    let (out, err, success) = run_test(&["raises.py", "fail.py"], &[]);
+    assert!(!success);
+    assert_eq!(out, "raises.py\nfail.py\n");
+    assert!(err.contains("The file raised an exception before its tests ran.\n"));
+    assert!(err.ends_with("1 test, 0 successes, 1 failure and 0 errors.\n"));
+}
+
+#[test]
 fn test_verbose() {
     let (out, err, success) = run_test(&["ok.py"], &["--verbose"]);
     assert!(success);

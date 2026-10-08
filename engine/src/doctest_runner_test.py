@@ -366,6 +366,17 @@ def test_run_file_fails_a_file_that_exits_before_its_tests():
     assert _run_file_err(doc + 'exit("bye")\n') == (1, "bye\nThe file exited before its tests ran.\n")
 
 
+def test_run_file_fails_a_file_that_raises_before_its_tests():
+    doc = 'def f():\n    """\n    >>> 1\n    1\n    """\n'
+    failures, err = _run_file_err(doc + 'int("z")\n')
+    assert failures == 1
+    assert err.startswith("Traceback (most recent call last):\n  File \"f.py\", line 6"), err
+    assert err.endswith(
+        "ValueError: invalid literal for int() with base 10: 'z'\n"
+        "The file raised an exception before its tests ran.\n"
+    ), err
+
+
 for _name, _test in list(globals().items()):
     if _name.startswith("test_"):
         # An exit that leaves a test would end the run with status 0.
