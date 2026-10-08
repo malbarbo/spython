@@ -85,3 +85,19 @@ fn run_source_with_argv(
         Err(SpythonError::ProgramFailed)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tests in `doctest_runner_test.py` run after the runner, in the
+    /// interpreter that runs it for real. A failed assert fails the run.
+    #[test]
+    fn the_doctest_runner_passes_its_tests() {
+        let script = format!(
+            "{DOCTEST_RUNNER}\n{}",
+            include_str!("doctest_runner_test.py")
+        );
+        assert!(run_source(&script, "doctest_runner_test.py", ".").is_ok());
+    }
+}

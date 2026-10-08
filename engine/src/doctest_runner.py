@@ -30,32 +30,96 @@ class _Capture:
         return "".join(self._parts)
 
 
-def _extract_examples(doc):
-    """Yield (source_lines, expected) pairs from a docstring."""
-    lines = doc.expandtabs().splitlines()
+# The rules of `DocTestParser` in the stdlib `doctest`, written without `re`,
+# which the binary does not freeze.
+
+
+def _indent_of(line):
+    """The number of spaces at the start of *line*."""
+    return len(line) - len(line.lstrip(" "))
+
+
+def _ps1_indent(line):
+    """The indentation of *line* if it starts with ``>>>``, ``None`` otherwise."""
+    n = _indent_of(line)
+    return n if line.startswith(">>>", n) else None
+
+
+def _min_indent(lines):
+    """The smallest indentation of a line that is not blank."""
+    indents = []
+    for line in lines:
+        n = _indent_of(line)
+        if n < len(line) and not line[n].isspace():
+            indents.append(n)
+    return min(indents) if indents else 0
+
+
+def _is_blank_or_comment(source):
+    """Returns ``True`` if *source* is one line that is blank or only a comment,
+    ``False`` otherwise."""
+    if source.endswith("\n"):
+        source = source[:-1]
+    if "\n" in source:
+        return False
+    rest = source.lstrip(" ")
+    return rest == "" or rest.startswith("#")
+
+
+def _check_prefix(lines, prefix, name, lineno):
+    for i, line in enumerate(lines):
+        if line and not line.startswith(prefix):
+            raise ValueError(
+                "line %r of the docstring for %s has inconsistent leading whitespace: %r"
+                % (lineno + i + 1, name, line)
+            )
+
+
+def _parse(doc, name):
+    """The examples of *doc* as ``(source, want)`` pairs.
+
+    Raises ``ValueError`` for a prompt with no space after it and for a line
+    that does not line up with the ``>>>`` of its example, with the message of
+    the stdlib.
+    """
+    lines = doc.expandtabs().split("\n")
+    margin = _min_indent(lines)
+    if margin > 0:
+        lines = [line[margin:] for line in lines]
+    examples = []
     i = 0
     while i < len(lines):
-        stripped = lines[i].lstrip()
-        if stripped.startswith(">>> "):
-            src = [stripped[4:]]
+        indent = _ps1_indent(lines[i])
+        if indent is None:
             i += 1
-            while i < len(lines):
-                cont = lines[i].lstrip()
-                if cont.startswith("... "):
-                    src.append(cont[4:])
-                    i += 1
-                else:
-                    break
-            expected_lines = []
-            while i < len(lines):
-                el = lines[i].lstrip()
-                if el == "" or el.startswith(">>> "):
-                    break
-                expected_lines.append(el)
-                i += 1
-            yield "\n".join(src), "\n".join(expected_lines)
-        else:
+            continue
+        start = i
+        source_lines = [lines[i]]
+        i += 1
+        while i < len(lines) and lines[i].lstrip(" ").startswith("..."):
+            source_lines.append(lines[i])
             i += 1
+        want_lines = []
+        while i < len(lines) and lines[i].strip(" ") != "" and _ps1_indent(lines[i]) is None:
+            want_lines.append(lines[i])
+            i += 1
+        for k, line in enumerate(source_lines):
+            if len(line) >= indent + 4 and line[indent + 3] != " ":
+                raise ValueError(
+                    "line %r of the docstring for %s lacks blank after %s: %r"
+                    % (start + k + 1, name, line[indent : indent + 3], line)
+                )
+        _check_prefix(source_lines[1:], " " * indent + ".", name, start)
+        _check_prefix(want_lines, " " * indent, name, start + len(source_lines))
+        source = "\n".join(line[indent + 4 :] for line in source_lines)
+        want = "\n".join(line[indent:] for line in want_lines)
+        if not _is_blank_or_comment(source):
+            if not source.endswith("\n"):
+                source += "\n"
+            if want and not want.endswith("\n"):
+                want += "\n"
+            examples.append((source, want))
+    return examples
 
 
 def _write_err(text):
@@ -74,12 +138,9 @@ def _plural(n, word):
     return str(n) + " " + word + ("es" if word == "success" else "s")
 
 
-def _collect_examples(module):
-    """Group the doctests of *module* as (function name, examples) pairs.
-
-    Functions without examples are left out, so an empty result means there is
-    nothing to run.
-    """
+def _collect_docstrings(module):
+    """The docstrings of *module* that hold a ``>>>``, as (name, docstring)
+    pairs."""
     _groups = []
     for _name in sorted(dir(module)):
         _obj = getattr(module, _name)
@@ -90,17 +151,20 @@ def _collect_examples(module):
         _doc = getattr(_obj, "__doc__", None)
         if not _doc or ">>>" not in _doc:
             continue
-        _examples = []
-        for _example in _extract_examples(_doc):
-            _examples.append(_example)
-        if _examples:
-            _groups.append((_name, _examples))
+        _groups.append((_name, _doc))
     return _groups
 
 
 def run_doctests(module, verbose=False):
     """Run doctests found in *module* and return the number of failures."""
-    _groups = _collect_examples(module)
+    _groups = []
+    for _name, _doc in _collect_docstrings(module):
+        try:
+            _examples = _parse(_doc, _name)
+        except ValueError as _e:
+            _examples = _e
+        if _examples:
+            _groups.append((_name, _examples))
     if not _groups:
         return 0
     # Announce the run before executing anything: an example that hangs must
@@ -113,7 +177,14 @@ def run_doctests(module, verbose=False):
         # The name goes out before the examples run, so a test that never
         # returns still tells the student which function to look at.
         _write_err("  " + _func_name + "\n")
-        for _src, _expected in _examples:
+        if isinstance(_examples, ValueError):
+            _total += 1
+            _errors += 1
+            _write_err("    " + str(_examples) + "\n")
+            continue
+        for _src, _want in _examples:
+            _src = _src.rstrip("\n")
+            _expected = _want[:-1]
             _total += 1
             _old_stdout = _sys.stdout
             _sys.stdout = _buf = _Capture()

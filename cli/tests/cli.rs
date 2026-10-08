@@ -281,6 +281,18 @@ fn test_banner_and_function_name_come_first() {
 }
 
 #[test]
+fn test_reads_doctests_with_the_grammar_of_the_stdlib() {
+    // A bare `...` continues the source, and the output keeps the spaces it
+    // has beyond the indentation of its `>>>`.
+    let (out, err, success) = run_test(&["doctest_grammar.py"], &[]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(
+        err,
+        "Running tests...\n  show\n1 test, 1 success, 0 failures and 0 errors.\n"
+    );
+}
+
+#[test]
 fn test_no_doctests() {
     let (out, err, success) = run_test(&["no_tests.py"], &[]);
     assert!(success);
