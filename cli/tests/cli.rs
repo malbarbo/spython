@@ -2941,6 +2941,29 @@ fn repl_help_lists_the_commands_of_both_the_engine_and_the_terminal() {
     }
 }
 
+/// `dirs` takes the configuration directory from `XDG_CONFIG_HOME` only on
+/// Linux, and elsewhere the test would write the real file.
+#[cfg(target_os = "linux")]
+#[test]
+fn repl_theme_keeps_a_level_from_the_command_line_out_of_the_config() {
+    let dir = new_dir_with(
+        "theme_config",
+        &[("spython/config", "level=2\ntheme=dark\n")],
+    );
+    let mut command = spython();
+    command
+        .env("XDG_CONFIG_HOME", &dir)
+        .args(["repl", "--level", "5"]);
+    let (_, err, success) = run_with_stdin(&mut command, b":theme light\n");
+    let config = std::fs::read_to_string(dir.join("spython/config"));
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(success, "{err}");
+    assert_eq!(
+        config.expect("the config is there"),
+        "level=2\ntheme=light\n"
+    );
+}
+
 #[test]
 fn repl_unknown_command_is_refused() {
     let (_, err, success) = run_repl(":nope\n");

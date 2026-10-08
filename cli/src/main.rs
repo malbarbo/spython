@@ -192,7 +192,7 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
         ":level",
         Some("[0-5]"),
         "Show or change the teaching level (0-5)",
-        level_action(Rc::clone(&theme)),
+        level_action(),
     );
     shell.add(
         ":theme",
@@ -219,7 +219,7 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
 
 /// `:level` on its own says which level the REPL is on; with a number it moves
 /// to that level, which everything that has already run has to survive.
-fn level_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
+fn level_action() -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
     move |repl, arg| {
         if arg.is_empty() {
             println!("level {}", repl.level());
@@ -235,14 +235,14 @@ fn level_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result
             ));
         }
         println!("level {level}");
-        config::save(level, theme.get());
+        config::save_level(level);
         Ok(())
     }
 }
 
 /// `:theme` on its own says which theme is on; with a name it switches to it.
 fn theme_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
-    move |repl, arg| {
+    move |_, arg| {
         if arg.is_empty() {
             println!("{}", theme.get().name());
             return Ok(());
@@ -252,7 +252,7 @@ fn theme_action(theme: Rc<Cell<Theme>>) -> impl FnMut(&mut Repl, &str) -> Result
         };
         theme.set(chosen);
         println!("{}", chosen.name());
-        config::save(repl.level(), chosen);
+        config::save_theme(chosen);
         Ok(())
     }
 }
