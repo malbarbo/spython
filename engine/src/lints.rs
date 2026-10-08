@@ -824,3 +824,26 @@ declare_lint! {
         default_level: Level::Error,
     }
 }
+
+declare_lint! {
+    /// ## What it does
+    /// Rejects a `# doctest:` directive in an example, such as `# doctest:
+    /// +ELLIPSIS`. The doctest runner of spython has no options, so the
+    /// directive would change nothing and the test would not do what the
+    /// student meant.
+    ///
+    /// ## Example
+    /// ```python
+    /// def names() -> list[str]:
+    ///     """
+    ///     >>> names()  # doctest: +ELLIPSIS    # error: no options
+    ///     ['ana', ...]
+    ///     """
+    ///     return ["ana", "bia"]
+    /// ```
+    pub(crate) static DOCTEST_DIRECTIVE = {
+        summary: "doctest option directive",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}

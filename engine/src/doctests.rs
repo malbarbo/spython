@@ -29,7 +29,8 @@ fn text_size(offset: usize) -> TextSize {
 }
 
 use crate::lints::{
-    DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT, DOCTEST_NEVER_RUNS,
+    DOCTEST_DIRECTIVE, DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT,
+    DOCTEST_NEVER_RUNS,
 };
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
@@ -88,6 +89,8 @@ pub enum MalformedKind {
     ContinuationIndent,
     /// A line of output indented less than its `>>>`.
     OutputIndent,
+    /// A `# doctest:` directive, which the runner does not follow.
+    Directive,
 }
 
 /// A line that makes the runner refuse its docstring, or a `>>>` with no
@@ -219,6 +222,14 @@ fn scan_docstring(s: &ExprStringLiteral, source: &str, owner: &str, out: &mut Do
     }
 
     let code_lines: Vec<&(usize, String)> = parsed.examples.iter().flatten().collect();
+    for (line, code) in &code_lines {
+        if has_directive(code) {
+            out.malformed.push(Malformed {
+                range: range_of(*line),
+                kind: MalformedKind::Directive,
+            });
+        }
+    }
     let line_ranges: Vec<TextRange> = code_lines
         .iter()
         .map(|(line, code)| match &lines {
@@ -470,6 +481,18 @@ fn parse_doc(doc: &str) -> ParsedDoc {
     parsed
 }
 
+/// Returns `true` if `code` holds a `# doctest:` directive, `false`
+/// otherwise. The test is the one of the stdlib, which takes a `#` with a
+/// quote after it on the line for one inside a string.
+fn has_directive(code: &str) -> bool {
+    code.match_indices('#').any(|(at, _)| {
+        let rest = code.get(at + 1..).unwrap_or_default();
+        rest.trim_start_matches(is_py_space)
+            .strip_prefix("doctest:")
+            .is_some_and(|options| !options.contains(['\'', '"']))
+    })
+}
+
 /// The indentation of `line` if it starts with `>>>`, `None` otherwise.
 fn ps1_indent(line: &str) -> Option<usize> {
     let rest = line.trim_start_matches(' ');
@@ -549,6 +572,10 @@ pub fn malformed_diagnostics(file: File, malformed: &[Malformed]) -> Vec<Diagnos
                 MalformedKind::OutputIndent => (
                     &DOCTEST_INCONSISTENT_INDENTATION,
                     "Doctest output must not start to the left of its `>>>`",
+                ),
+                MalformedKind::Directive => (
+                    &DOCTEST_DIRECTIVE,
+                    "spython runs doctests with no options: remove the `# doctest:` comment",
                 ),
             };
             make_lint_diagnostic(lint, file, m.range, msg.to_string())
@@ -1227,6 +1254,18 @@ mod tests {
         assert!(ex.snippets.is_empty());
         let docs: Vec<&str> = ex.never_run.iter().map(|r| &src[*r]).collect();
         assert_eq!(docs, ["\">>> inner()\"", "\">>> 1\""]);
+    }
+
+    #[test]
+    fn a_doctest_directive_is_malformed() {
+        assert!(has_directive("f()  # doctest: +ELLIPSIS"));
+        assert!(has_directive("f()  #doctest:+SKIP"));
+        assert!(!has_directive("print('# doctest: +SKIP')"));
+        assert!(!has_directive("f()  # doctests: none"));
+        let src = "def f() -> None:\n    \"\"\"\n    >>> f()  # doctest: +SKIP\n    \"\"\"\n";
+        let ex = extract(src);
+        assert_eq!(ex.malformed[0].kind, MalformedKind::Directive);
+        assert_eq!(&src[ex.malformed[0].range], "    >>> f()  # doctest: +SKIP");
     }
 
     #[test]
