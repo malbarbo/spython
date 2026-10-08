@@ -897,11 +897,11 @@ fn check_ignores_a_virtual_env_that_is_not_there() {
 
 /// A file under `cli/tests`, named the way both backends are given it: the
 /// directory to run from, and the bare name to run.
-fn dual_run(command: &str, dir: &str, file: &str) {
+fn dual_run(command: &str, dir: &str, file: &str) -> (String, String, bool) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join(dir);
-    run_spython_cmd(&[command, "--level", "4", file], &dir);
+    run_spython_cmd(&[command, "--level", "4", file], &dir)
 }
 
 /// Both backends are asked for the same file, and `run_spython_cmd` asserts
@@ -910,13 +910,24 @@ fn dual_run(command: &str, dir: &str, file: &str) {
 #[test]
 fn test_output_agrees_between_backends() {
     // A file whose examples pass, one whose example fails, one with no
-    // examples at all, one that exits before its examples, and one that prints from the top level, which `test`
-    // does not reach: the source runs under a name of its own, not as
-    // `__main__`.
-    for file in ["ok.py", "fail.py", "no_tests.py", "exits.py"] {
+    // examples at all, one that exits and one that raises before its
+    // examples, and one that prints from the top level, which `test` does not
+    // reach: the source runs under a name of its own, not as `__main__`.
+    for file in ["ok.py", "fail.py", "no_tests.py", "exits.py", "raises.py"] {
         dual_run("test", "doctests", file);
     }
     dual_run("test", "inputs", "ok_simple.py");
+}
+
+/// The traceback shows the line that raised, which a page has to take from
+/// the source it was given.
+#[test]
+fn run_output_agrees_between_backends() {
+    let (_, err, _) = dual_run("run", "doctests", "raises.py");
+    assert!(
+        err.contains("line 9, in <module>\n    int(\"z\")\n"),
+        "{err}"
+    );
 }
 
 #[test]

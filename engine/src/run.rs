@@ -38,6 +38,16 @@ const TEST_SOURCE_MAIN: &str = "import sys\nsys.exit(_run_file(sys.argv[1], sys.
 /// a traceback in the driver points at.
 const TEST_NAME: &str = "<test>";
 
+/// Keep `source` as the text of `filename`, which a traceback shows its lines
+/// from. A page has no disk to read them from, and the file on a disk may
+/// have changed since it ran.
+pub(crate) fn keep_source(vm: &vm::VirtualMachine, filename: &str, source: &str) {
+    vm.state
+        .sources
+        .lock()
+        .insert(filename.to_owned(), source.to_owned());
+}
+
 /// Returns `true` if the interpreter imports `package` without looking at
 /// `sys.path`, `false` otherwise. The interpreter looks first at what it
 /// has built in, frozen, or already in `sys.modules`, so a file of that name
@@ -112,6 +122,7 @@ fn run_source_with_argv(
         let scope = vm.new_scope_with_main()?;
         register_ffi_module(vm);
         vm.insert_sys_path(vm.new_pyobj(dir.as_str()))?;
+        keep_source(vm, &filename, &source);
         vm.run_string(scope, &source, &filename).map(drop)
     });
     if code == 0 {

@@ -530,6 +530,15 @@ Deno.test("a file that raises opens an empty session", async () => {
   destroy(ctx);
 });
 
+Deno.test("the traceback of a file shows the line that raised", async () => {
+  const ctx = await newRepl("x = 1\nint('z')\n", { level: 5 });
+  assertStringIncludes(
+    ctx.stderr.join(""),
+    `  File "user.py", line 2, in <module>\n    int('z')\n`,
+  );
+  destroy(ctx);
+});
+
 const exitAfterADoctest = (status: number) =>
   `def one() -> int:
     """

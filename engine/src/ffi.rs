@@ -97,6 +97,14 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
             Ok(vm.ctx.new_list(pairs).into())
         },
     );
+    // The test command runs a file inside the runner, which keeps its text
+    // for the traceback of the file.
+    let keep_source_fn = vm.new_function(
+        "keep_source",
+        |path: String, source: String, vm: &vm::VirtualMachine| {
+            crate::run::keep_source(vm, &path, &source);
+        },
+    );
     #[cfg(test)]
     let test_mark_atexit_ran_fn = vm.new_function(
         "__test_mark_atexit_ran",
@@ -118,6 +126,7 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     set("load_bitmap", load_bitmap_fn.into());
     set("bitmap_size", bitmap_size_fn.into());
     set("doctest_docstrings", doctest_docstrings_fn.into());
+    set("keep_source", keep_source_fn.into());
     #[cfg(test)]
     set("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into());
     let module = vm.new_module("_spython_ffi", dict, None);

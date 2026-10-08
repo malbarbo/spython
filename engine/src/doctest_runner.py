@@ -368,6 +368,8 @@ def _run_file(path, source, verbose=False):
     """
     import types
 
+    from _spython_ffi import keep_source
+
     # A file sees only the modules of its own directory, and not those that
     # the file before it imported under the same name.
     modules = dict(_sys.modules)
@@ -376,6 +378,7 @@ def _run_file(path, source, verbose=False):
         _sys.path.insert(0, _directory_of(path))
         module = types.ModuleType("__doctest__")
         module.__file__ = path
+        keep_source(path, source)
         try:
             exec(compile(source, path, "exec"), vars(module))
         except SystemExit as e:

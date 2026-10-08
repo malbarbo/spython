@@ -7,7 +7,7 @@
 use crate::Level;
 use crate::completion::TabAction;
 use crate::ffi::register_ffi_module;
-use crate::run::{DOCTEST_RUNNER, new_interpreter};
+use crate::run::{DOCTEST_RUNNER, keep_source, new_interpreter};
 use crate::{infer_expression_type, type_check_repl_input};
 use ruff_python_ast::PySourceType;
 use ruff_python_ast::token::{TokenKind, Tokens};
@@ -129,6 +129,7 @@ impl Repl {
                 vm.print_exception(exc);
                 return Err(Failed);
             }
+            keep_source(vm, name, source);
             match vm.run_string(scope, source, name) {
                 Ok(_) => Ok(Loaded::Ran),
                 // Writes the message of an `exit("...")` that carries one.
