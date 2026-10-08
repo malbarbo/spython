@@ -513,6 +513,44 @@ Deno.test("load with doctests runs them", async () => {
   destroy(ctx);
 });
 
+Deno.test("a file that calls exit() opens the session", async () => {
+  const ctx = await newRepl("x = 1\nexit('bye')\nx = 2\n", { level: 5 });
+  assertEquals(ctx.repl !== 0, true, "repl_new should return non-null");
+  assertEquals(ctx.stderr.join(""), "bye\n");
+  const r = run(ctx, "x");
+  assertEquals(r.result, REPL_OK);
+  assertEquals(r.stdout, "1\n");
+  destroy(ctx);
+});
+
+const exitAfterADoctest = (status: number) =>
+  `def one() -> int:
+    """
+    >>> one()
+    1
+    """
+    return 1
+
+exit(${status})
+`;
+
+Deno.test("a file that calls exit(0) runs its doctests", async () => {
+  const ctx = await newRepl(exitAfterADoctest(0), { level: 5 });
+  const stderr = ctx.stderr.join("");
+  assertEquals(
+    stderr.includes("1 test"),
+    true,
+    `expected test output in stderr, got: ${stderr}`,
+  );
+  destroy(ctx);
+});
+
+Deno.test("a file that calls exit(1) skips its doctests", async () => {
+  const ctx = await newRepl(exitAfterADoctest(1), { level: 5 });
+  assertEquals(ctx.stderr.join(""), "");
+  destroy(ctx);
+});
+
 Deno.test("panic handler intercepts Rust panics", async () => {
   const ctx = await newRepl();
   try {

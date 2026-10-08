@@ -1,6 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 
-use engine::{Repl, Shell, format_source, print_type_errors};
+use engine::{Loaded, Repl, Shell, format_source, print_type_errors};
 use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{alloc, ptr};
@@ -124,10 +124,14 @@ pub unsafe extern "C" fn repl_new(
     }
     let mut repl = Repl::new(level, true);
     repl.install_displayhook();
-    // A file that raises still opens the session, so that the student can
-    // look at what the definitions above the error left behind.
-    if has_source && repl.load(&source, "user.py", None, Vec::new()).is_ok() {
-        let _ = repl.run_doctests();
+    // A file that raises or calls `exit()` still opens the session, so that
+    // the student can look at what the definitions above that line left
+    // behind. The protocol has no way to open a session that is already over.
+    if has_source {
+        let loaded = repl.load(&source, "user.py", None, Vec::new());
+        if let Ok(Loaded::Ran | Loaded::Exited(0)) = loaded {
+            let _ = repl.run_doctests();
+        }
     }
     Box::into_raw(Box::new(Shell::new(repl)))
 }
