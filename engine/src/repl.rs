@@ -9,6 +9,10 @@ use crate::completion::TabAction;
 use crate::ffi::register_ffi_module;
 use crate::run::{DOCTEST_RUNNER, new_interpreter};
 use crate::{infer_expression_type, type_check_repl_input};
+use ruff_python_ast::PySourceType;
+use ruff_python_ast::token::{TokenKind, Tokens};
+use ruff_python_parser::parse_unchecked_source;
+use ruff_text_size::{Ranged, TextLen, TextRange, TextSize};
 use rustpython::vm;
 use rustpython::vm::AsObject;
 #[cfg(test)]
@@ -217,8 +221,11 @@ impl Repl {
     /// Type-check, run and remember one piece of Python, and say how long the
     /// interpreter took over it.
     ///
-    /// It is checked against everything that ran before it, and only joins
-    /// the accumulated source once it has run.
+    /// It is checked against everything that ran before it. Its top-level
+    /// statements run one at a time, as the Python REPL would run them typed
+    /// one per prompt, and each joins the accumulated source once it has run.
+    /// A statement that raises stops the input there, so the source holds
+    /// what ran and nothing after it.
     pub fn run(&mut self, code: &str) -> Result<Duration, Failed> {
         // `Mode::Single` wants the line the input ends on to be closed.
         let code = if code.ends_with('\n') {
@@ -237,42 +244,106 @@ impl Repl {
             return Err(Failed);
         }
 
+        let parsed = parse_unchecked_source(&code, PySourceType::Python);
+        // The checker has refused an input that does not parse, so the whole
+        // input as one piece is only there to let the compiler say why.
+        let statements: Vec<TextRange> = if parsed.has_valid_syntax() {
+            parsed.suite().iter().map(Ranged::range).collect()
+        } else {
+            vec![TextRange::up_to(code.text_len())]
+        };
+
         let (interp, scope) = self.live();
         let start = Instant::now();
-        // `Err` is the status of an `exit()`, which only the session itself
-        // can record, and the borrow of the interpreter has to end first.
-        let ran: Result<bool, u32> = interp.enter(|vm| {
-            match vm
-                .compile(&code, vm::compiler::Mode::Single, "<stdin>")
-                .map_err(|err| err.into_pyexception(vm, Some(&code)))
-                .and_then(|code_obj| vm.run_code_obj(code_obj, scope))
-            {
-                Ok(_) => Ok(true),
-                Err(exc) => {
+        let ran = interp.enter(|vm| {
+            // Every statement compiles before the first one runs, so a
+            // compile error leaves nothing half run, and the warnings come
+            // out ahead of the output.
+            let mut compiled = Vec::with_capacity(statements.len());
+            for &range in &statements {
+                let source = alone(&code, range);
+                match vm
+                    .compile(&source, vm::compiler::Mode::Single, "<stdin>")
+                    .map_err(|err| err.into_pyexception(vm, Some(&source)))
+                {
+                    Ok(code_obj) => compiled.push(code_obj),
+                    Err(exc) => {
+                        vm.print_exception(exc);
+                        return Ran {
+                            done: 0,
+                            exit: None,
+                        };
+                    }
+                }
+            }
+            for (done, code_obj) in compiled.into_iter().enumerate() {
+                if let Err(exc) = vm.run_code_obj(code_obj, scope.clone()) {
                     if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
                         // Says what the status is, and writes the message of
                         // an `exit("...")` that carries one.
-                        Err(vm.handle_exit_exception(exc))
-                    } else {
-                        vm.print_exception(exc);
-                        Ok(false)
+                        let status = vm.handle_exit_exception(exc);
+                        return Ran {
+                            done,
+                            exit: Some(status),
+                        };
                     }
+                    vm.print_exception(exc);
+                    return Ran { done, exit: None };
                 }
+            }
+            Ran {
+                done: statements.len(),
+                exit: None,
             }
         });
         let elapsed = start.elapsed();
 
-        match ran {
-            Err(status) => {
-                self.exit_status = Some(status);
-                Err(Failed)
-            }
-            Ok(false) => Err(Failed),
-            Ok(true) => {
-                self.append_source(&code);
-                Ok(elapsed)
-            }
+        if ran.done == statements.len() && ran.exit.is_none() {
+            self.append_source(&code);
+            return Ok(elapsed);
         }
+        if let Some(last) = ran.done.checked_sub(1).and_then(|at| statements.get(at)) {
+            self.append_source(&up_to(&code, last.end(), parsed.tokens()));
+        }
+        if let Some(status) = ran.exit {
+            self.exit_status = Some(status);
+        }
+        Err(Failed)
+    }
+}
+
+/// How far an input went: the number of its top-level statements that ran to
+/// the end, and the status of the `exit()` that stopped it, if one did.
+struct Ran {
+    done: usize,
+    exit: Option<u32>,
+}
+
+/// The statement of `code` at `range`, on the line it has in `code`, so that
+/// a traceback names the line the user typed.
+fn alone(code: &str, range: TextRange) -> String {
+    let line = code[..range.start().to_usize()].matches('\n').count();
+    format!("{}{}\n", "\n".repeat(line), &code[range])
+}
+
+/// The text of `code` up to `end`, together with the comment that closes the
+/// line `end` is on. A `# type: ignore` there covers the statements that ran
+/// as well, and the checker has to keep reading it on them.
+fn up_to(code: &str, end: TextSize, tokens: &Tokens) -> String {
+    let line_end = code[end.to_usize()..]
+        .find('\n')
+        .map_or(code.text_len(), |at| {
+            end + TextSize::try_from(at).unwrap_or_default()
+        });
+    let comment = tokens
+        .iter()
+        .find(|token| {
+            token.kind() == TokenKind::Comment && token.start() >= end && token.end() <= line_end
+        })
+        .map(|token| &code[token.range()]);
+    match comment {
+        Some(comment) => format!("{}  {comment}", &code[..end.to_usize()]),
+        None => code[..end.to_usize()].to_owned(),
     }
 }
 
@@ -344,6 +415,31 @@ atexit.register(__test_mark_atexit_ran)\n";
                 Ok(None)
             ));
         });
+    }
+
+    #[test]
+    fn an_input_that_raises_keeps_the_statements_that_ran() {
+        let mut repl = Repl::new(Level::Full, false);
+        assert!(repl.run("x = 1\n").is_ok());
+        assert!(repl.run("x = \"a\"\nint(\"z\")\ny = 1\n").is_err());
+        assert!(repl.run("assert x.upper() == \"A\"\n").is_ok());
+        assert!(repl.run("x + 1\n").is_err());
+        assert!(repl.run("y\n").is_err());
+    }
+
+    #[test]
+    fn a_comment_after_a_statement_that_ran_stays_with_it() {
+        let mut repl = Repl::new(Level::Full, false);
+        let input = "a: int = \"s\"; int(\"z\")  # type: ignore\n";
+        assert!(repl.run(input).is_err());
+        assert!(repl.set_level(Level::Full));
+    }
+
+    #[test]
+    fn a_statement_runs_on_the_line_it_was_typed_on() {
+        let code = "x = 1\nif x:\n    y = 2\n";
+        let range = TextRange::new(TextSize::new(6), code.text_len() - TextSize::new(1));
+        assert_eq!(alone(code, range), "\nif x:\n    y = 2\n");
     }
 
     #[test]
