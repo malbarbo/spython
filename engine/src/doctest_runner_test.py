@@ -348,6 +348,24 @@ def test_exception_line_ends_with_the_notes():
     assert _exception_line(e, types.ModuleType("m")) == "ValueError: m\na note\n"
 
 
+def _run_file_err(source):
+    """What `_run_file` returns for *source*, and what it wrote to stderr."""
+    old = _sys.stderr
+    _sys.stderr = err = _Capture()
+    try:
+        failures = _run_file("f.py", source)
+    finally:
+        _sys.stderr = old
+    return failures, err.getvalue()
+
+
+def test_run_file_fails_a_file_that_exits_before_its_tests():
+    doc = 'def f():\n    """\n    >>> 1\n    1\n    """\n'
+    for call in ["exit(0)", "exit()", "exit(3)", "raise SystemExit"]:
+        assert _run_file_err(doc + call + "\n") == (1, "The file exited before its tests ran.\n"), call
+    assert _run_file_err(doc + 'exit("bye")\n') == (1, "bye\nThe file exited before its tests ran.\n")
+
+
 for _name, _test in list(globals().items()):
     if _name.startswith("test_"):
         # An exit that leaves a test would end the run with status 0.

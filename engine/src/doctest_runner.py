@@ -354,7 +354,9 @@ def _directory_of(path):
 
 
 def _run_file(path, source, verbose=False):
-    """Run the doctests of *source*, which is what the file *path* holds.
+    """Run the doctests of *source*, which is what the file *path* holds, and
+    return the number of failures. A file that exits before its tests run
+    counts as one.
 
     The source runs in a module of its own, so that a ``__main__`` guard in it
     stays shut, and with its own directory ahead of the path, so that its
@@ -374,7 +376,15 @@ def _run_file(path, source, verbose=False):
         _sys.path.insert(0, _directory_of(path))
         module = types.ModuleType("__doctest__")
         module.__file__ = path
-        exec(compile(source, path, "exec"), vars(module))
+        try:
+            exec(compile(source, path, "exec"), vars(module))
+        except SystemExit as e:
+            # A file that stops halfway leaves no tests to run, and a status
+            # of 0 would say that they passed.
+            if e.code is not None and not isinstance(e.code, int):
+                _write_err(str(e.code) + "\n")
+            _write_err("The file exited before its tests ran.\n")
+            return 1
         return run_doctests(module, source, verbose=verbose)
     finally:
         for name in list(_sys.modules):

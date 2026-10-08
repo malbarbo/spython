@@ -389,6 +389,24 @@ fn test_multiple_prints_names() {
 }
 
 #[test]
+fn test_fails_a_file_that_exits_before_its_tests() {
+    let (out, err, success) = run_test(&["exits.py"], &[]);
+    assert!(!success);
+    assert_eq!(out, "");
+    assert_eq!(err, "The file exited before its tests ran.\n");
+}
+
+#[test]
+fn test_keeps_the_failures_of_a_file_before_one_that_exits() {
+    let (out, err, success) = run_test(&["fail.py", "exits.py", "ok.py"], &[]);
+    assert!(!success);
+    assert_eq!(out, "fail.py\nexits.py\nok.py\n");
+    assert!(err.contains("1 test, 0 successes, 1 failure and 0 errors.\n"));
+    assert!(err.contains("The file exited before its tests ran.\n"));
+    assert!(err.ends_with("2 tests, 2 successes, 0 failures and 0 errors.\n"));
+}
+
+#[test]
 fn test_verbose() {
     let (out, err, success) = run_test(&["ok.py"], &["--verbose"]);
     assert!(success);
@@ -883,10 +901,10 @@ fn dual_run(command: &str, dir: &str, file: &str) {
 #[test]
 fn test_output_agrees_between_backends() {
     // A file whose examples pass, one whose example fails, one with no
-    // examples at all, and one that prints from the top level, which `test`
+    // examples at all, one that exits before its examples, and one that prints from the top level, which `test`
     // does not reach: the source runs under a name of its own, not as
     // `__main__`.
-    for file in ["ok.py", "fail.py", "no_tests.py"] {
+    for file in ["ok.py", "fail.py", "no_tests.py", "exits.py"] {
         dual_run("test", "doctests", file);
     }
     dual_run("test", "inputs", "ok_simple.py");
