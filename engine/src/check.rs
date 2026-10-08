@@ -63,13 +63,16 @@ impl Warnings {
 /// context: `possibly-unresolved-reference` (variable assigned only in some
 /// branches) and `division-by-zero` (literal `/ 0`, `% 0`, etc.).
 ///
-/// `extra_paths` is added to ty's module search path — used to surface the
-/// embedded spython library so `from spython import ...` resolves.
+/// `roots` are the directories that hold the student's own modules, in the
+/// order the interpreter looks in them. `extra_paths` is added to ty's module
+/// search path — used to surface the embedded spython library so `from
+/// spython import ...` resolves.
 pub fn make_project_metadata(
     cwd: SystemPathBuf,
+    roots: Vec<SystemPathBuf>,
     extra_paths: Vec<SystemPathBuf>,
 ) -> ProjectMetadata {
-    let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd.clone());
+    let mut metadata = ProjectMetadata::new(Name::new("spython"), cwd);
     let rules = Rules::from_iter([
         (
             RangedValue::cli("possibly-unresolved-reference".to_string()),
@@ -85,9 +88,14 @@ pub fn make_project_metadata(
         // whatever Python it finds on the machine, and a 3.13 there rejects
         // an annotation that names a class defined later, which 3.14 runs.
         python_version: Some(RangedValue::cli(SupportedPythonVersion::Py314)),
-        // The interpreter looks for a module in the directory of the file and
-        // nowhere else. Left to itself, ty also looks in `src` and `python`.
-        root: Some(vec![RelativePathBuf::cli(cwd.as_path())]),
+        // Left to itself, ty also looks in `src` and `python`, and the
+        // interpreter does not.
+        root: Some(
+            roots
+                .into_iter()
+                .map(|p| RelativePathBuf::cli(p.as_path()))
+                .collect(),
+        ),
         extra_paths: (!extra_paths.is_empty()).then(|| {
             extra_paths
                 .into_iter()
@@ -109,8 +117,8 @@ pub fn make_project_metadata(
 /// `modules` are the first-party files the source imports, each a path
 /// relative to the directory the source came from and its text. Nothing on
 /// the real filesystem is reachable from here, so `import helpers` only
-/// resolves if `helpers.py` is among them. They go under a search path of
-/// their own, next to the library's: reachable by name, out of reach of the
+/// resolves if `helpers.py` is among them. They go under a root of their
+/// own, ahead of the source's: reachable by name, out of reach of the
 /// source's own path, and not included, so the checker reads them to resolve
 /// names and reports nothing about them.
 fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectDatabase, File) {
@@ -132,11 +140,12 @@ fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectData
     }
     let lib_root = spython_lib::write_into(&system, SystemPath::new(PROJECT_ROOT));
 
-    let mut search_paths = vec![lib_root];
+    let mut roots = Vec::new();
     if !modules.is_empty() {
-        search_paths.push(SystemPathBuf::from(MODULE_ROOT));
+        roots.push(SystemPathBuf::from(MODULE_ROOT));
     }
-    let metadata = make_project_metadata(cwd, search_paths);
+    roots.push(cwd.clone());
+    let metadata = make_project_metadata(cwd, roots, vec![lib_root]);
     let mut db = ProjectDatabase::fallible(metadata, system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 

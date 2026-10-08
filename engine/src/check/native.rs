@@ -86,7 +86,7 @@ fn build_db(cwd: &Path) -> Result<ProjectDatabase, SpythonError> {
         .map_err(|path| SpythonError::NonUtf8Path { path })?;
 
     let (system, lib_root) = overlay::OverlaySystem::new(&cwd_sys);
-    let metadata = make_project_metadata(cwd_sys, vec![lib_root]);
+    let metadata = make_project_metadata(cwd_sys.clone(), vec![cwd_sys], vec![lib_root]);
 
     ProjectDatabase::fallible(metadata, system).map_err(|e| SpythonError::Database(e.to_string()))
 }
