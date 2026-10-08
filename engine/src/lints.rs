@@ -849,6 +849,24 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Rejects a binding of the name `__test__`. The stdlib `doctest` runs
+    /// the strings and the functions of a `__test__` dictionary as doctests,
+    /// and the doctest runner of spython does not, so the tests in it would
+    /// never run.
+    ///
+    /// ## Example
+    /// ```python
+    /// __test__ = {"double": ">>> 2 * 2\n4\n"}    # error: never runs
+    /// ```
+    pub(crate) static DOCTEST_TEST_DICT = {
+        summary: "dictionary of doctests that never run",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects a `# doctest:` directive in an example, such as `# doctest:
     /// +ELLIPSIS`. The doctest runner of spython has no options, so the
     /// directive would change nothing and the test would not do what the

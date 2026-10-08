@@ -17,8 +17,14 @@ use std::borrow::Cow;
 use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
 use ruff_python_ast::helpers::any_over_expr;
-use ruff_python_ast::visitor::{Visitor, walk_stmt};
-use ruff_python_ast::{Expr, ExprStringLiteral, ModModule, Stmt};
+use ruff_python_ast::visitor::{
+    Visitor, walk_except_handler, walk_expr, walk_parameter, walk_pattern, walk_stmt,
+    walk_type_param,
+};
+use ruff_python_ast::{
+    Alias, ExceptHandler, Expr, ExprContext, ExprStringLiteral, Identifier, ModModule, Parameter,
+    Pattern, Stmt, TypeParam,
+};
 use ruff_python_parser::{parse_expression, parse_module};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
@@ -31,7 +37,7 @@ fn text_size(offset: usize) -> TextSize {
 
 use crate::lints::{
     DOCTEST_DIRECTIVE, DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT,
-    DOCTEST_MULTIPLE_STATEMENTS, DOCTEST_NEVER_RUNS, DOCTEST_UNDER_NAME_CHECK,
+    DOCTEST_MULTIPLE_STATEMENTS, DOCTEST_NEVER_RUNS, DOCTEST_TEST_DICT, DOCTEST_UNDER_NAME_CHECK,
 };
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
@@ -120,6 +126,9 @@ pub struct DoctestExtraction {
     /// The name of the owner and the value of each docstring that the runner
     /// gets, in the order of the source.
     pub docstrings: Vec<(String, String)>,
+    /// Each place that binds the name `__test__`, whose doctests the stdlib
+    /// runs and the runner does not.
+    pub test_dict: Vec<TextRange>,
 }
 
 /// Walk `module` looking for docstrings and extract doctest snippets from them.
@@ -134,7 +143,91 @@ pub fn extract_doctests(module: &ModModule, source: &str) -> DoctestExtraction {
     };
     visitor.docstring(&module.body);
     visitor.visit_body(&module.body);
+    let mut test_dict = TestDictVisitor::default();
+    test_dict.visit_body(&module.body);
+    visitor.out.test_dict = test_dict.bindings;
     visitor.out
+}
+
+/// The name of the dictionary of extra doctests in the stdlib.
+const TEST_DICT: &str = "__test__";
+
+/// Collects every place that binds [`TEST_DICT`], in any scope, since a
+/// student has no other reason to use the name.
+#[derive(Default)]
+struct TestDictVisitor {
+    bindings: Vec<TextRange>,
+}
+
+impl TestDictVisitor {
+    fn bind(&mut self, name: &Identifier) {
+        if name.as_str() == TEST_DICT {
+            self.bindings.push(name.range());
+        }
+    }
+}
+
+impl<'a> Visitor<'a> for TestDictVisitor {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        match stmt {
+            Stmt::FunctionDef(func) => self.bind(&func.name),
+            Stmt::ClassDef(cls) => self.bind(&cls.name),
+            _ => {}
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if let Expr::Name(name) = expr
+            && name.ctx == ExprContext::Store
+            && name.id.as_str() == TEST_DICT
+        {
+            self.bindings.push(name.range());
+        }
+        walk_expr(self, expr);
+    }
+
+    fn visit_alias(&mut self, alias: &'a Alias) {
+        // `import a.b` binds `a`.
+        let bound = match &alias.asname {
+            Some(asname) => asname.as_str(),
+            None => alias.name.as_str().split('.').next().unwrap_or_default(),
+        };
+        if bound == TEST_DICT {
+            self.bindings.push(alias.range());
+        }
+    }
+
+    fn visit_parameter(&mut self, parameter: &'a Parameter) {
+        self.bind(&parameter.name);
+        walk_parameter(self, parameter);
+    }
+
+    fn visit_except_handler(&mut self, handler: &'a ExceptHandler) {
+        let ExceptHandler::ExceptHandler(h) = handler;
+        if let Some(name) = &h.name {
+            self.bind(name);
+        }
+        walk_except_handler(self, handler);
+    }
+
+    fn visit_pattern(&mut self, pattern: &'a Pattern) {
+        let name = match pattern {
+            Pattern::MatchAs(p) => p.name.as_ref(),
+            Pattern::MatchStar(p) => p.name.as_ref(),
+            Pattern::MatchMapping(p) => p.rest.as_ref(),
+            _ => None,
+        };
+        if let Some(name) = name {
+            self.bind(name);
+        }
+        walk_pattern(self, pattern);
+    }
+
+    fn visit_type_param(&mut self, type_param: &'a TypeParam) {
+        self.bind(type_param.name());
+        walk_type_param(self, type_param);
+    }
 }
 
 /// The docstrings of `source` that the runner gets, as the pairs of
@@ -663,6 +756,22 @@ pub fn under_name_check_diagnostics(file: File, ranges: &[TextRange]) -> Vec<Dia
                 file,
                 *range,
                 "Doctest under a check of `__name__` never runs: move the definition out of the check".to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Build a diagnostic for each place that binds `__test__`.
+pub fn test_dict_diagnostics(file: File, ranges: &[TextRange]) -> Vec<Diagnostic> {
+    ranges
+        .iter()
+        .map(|range| {
+            make_lint_diagnostic(
+                &DOCTEST_TEST_DICT,
+                file,
+                *range,
+                "`spython test` does not run the doctests of `__test__`: put them in a docstring"
+                    .to_string(),
             )
         })
         .collect()
@@ -1394,6 +1503,13 @@ mod tests {
             .collect();
         assert_eq!(owners, ["e"]);
         assert!(ex.never_run.is_empty());
+    }
+
+    #[test]
+    fn every_binding_of_the_test_dict_is_found() {
+        let src = "__test__ = {}\n__test__: dict = {}\nfor __test__ in x: pass\nimport __test__\nimport __test__.y\nimport y as __test__\nfrom y import __test__\ndef __test__(__test__): pass\nclass __test__: pass\ntry: pass\nexcept E as __test__: pass\nmatch x:\n    case [*__test__]: pass\n    case {**__test__}: pass\n    case __test__: pass\ndef f[__test__](): (__test__ := 1)\nprint(__test__)\nimport y.__test__\n";
+        let ex = extract(src);
+        assert_eq!(ex.test_dict.len(), 16, "{:?}", ex.test_dict);
     }
 
     #[test]

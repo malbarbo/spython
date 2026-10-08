@@ -492,6 +492,18 @@ fn test_doctest_under_name_check() {
 }
 
 #[test]
+fn test_doctest_test_dict() {
+    let (out, err, success) = run_test(&["doctest_test_dict.py"], &[]);
+    assert!(!success);
+    let filter = normalize_output(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctests/"));
+    insta::with_settings!({
+        filters => vec![(filter.as_str(), "")]
+    }, {
+        assert_snapshot!(format!("STDOUT\n{out}STDERR\n{err}"));
+    });
+}
+
+#[test]
 fn test_doctest_two_statements() {
     let (out, err, success) = run_test(&["doctest_two_statements.py"], &[]);
     assert!(!success);

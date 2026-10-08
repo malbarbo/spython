@@ -1,0 +1,16 @@
+---
+source: cli/tests/cli.rs
+expression: "format!(\"STDOUT\\n{out}STDERR\\n{err}\")"
+---
+STDOUT
+STDERR
+error[doctest-test-dict]: `spython test` does not run the doctests of `__test__`: put them in a docstring
+ --> doctest_test_dict.py:5:1
+  |
+5 | __test__ = {
+  | ^^^^^^^^
+6 |     "double": """
+7 |     >>> double(2)
+  |
+
+Found 1 error.
