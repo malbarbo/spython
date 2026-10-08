@@ -350,4 +350,8 @@ def test_exception_line_ends_with_the_notes():
 
 for _name, _test in list(globals().items()):
     if _name.startswith("test_"):
-        _test()
+        # An exit that leaves a test would end the run with status 0.
+        try:
+            _test()
+        except SystemExit:
+            raise AssertionError(_name + " exited")
