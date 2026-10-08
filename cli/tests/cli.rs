@@ -919,13 +919,18 @@ fn test_output_agrees_between_backends() {
     dual_run("test", "inputs", "ok_simple.py");
 }
 
-/// The traceback shows the line that raised, which a page has to take from
-/// the source it was given.
+/// The traceback shows the line that raised, in the file and in the library,
+/// which a page has to take from the source it was given.
 #[test]
 fn run_output_agrees_between_backends() {
     let (_, err, _) = dual_run("run", "doctests", "raises.py");
     assert!(
         err.contains("line 9, in <module>\n    int(\"z\")\n"),
+        "{err}"
+    );
+    let (_, err, _) = dual_run("run", "doctests", "raises_in_lib.py");
+    assert!(
+        err.contains("in beside\n    raise TypeError(\"beside expects at least 2 images\")\n"),
         "{err}"
     );
 }

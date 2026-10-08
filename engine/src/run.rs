@@ -99,7 +99,19 @@ fn new_interpreter_with_argv(argv: Vec<String>) -> vm::Interpreter {
         let display = crate::display::module_def(&builder.ctx);
         builder.add_native_module(display)
     };
-    builder.interpreter()
+    let interp = builder.interpreter();
+    // The library is frozen, and its code takes the name of its module for
+    // a file name.
+    interp.enter(|vm| {
+        for (file, source) in crate::spython_lib::FILES {
+            let module = match file.trim_end_matches(".py") {
+                "__init__" => "spython".to_owned(),
+                stem => format!("spython.{stem}"),
+            };
+            keep_source(vm, &module, source);
+        }
+    });
+    interp
 }
 
 /// Run Python source in a fresh interpreter, with `dir` on `sys.path`.
