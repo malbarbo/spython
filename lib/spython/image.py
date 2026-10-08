@@ -1136,7 +1136,7 @@ def text(
             underline=f.underline,
         )
     css: str = _font._to_css(f)
-    w, h, _, _ = _system.text_metrics(txt, css)
+    w, h = _system.text_metrics(txt, css)
     s: Style = _make_style(*style_args)
     return _Text(s, _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), txt, False, False, f)
 

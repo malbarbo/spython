@@ -47,12 +47,10 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     let text_metrics_fn = vm.new_function(
         "text_metrics",
         |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
-            let (width, height, x_offset, y_offset) = host::text_metrics(&text, &font_css);
+            let (width, height) = host::text_metrics(&text, &font_css);
             let elements = vec![
                 vm.ctx.new_float(width).into(),
                 vm.ctx.new_float(height).into(),
-                vm.ctx.new_float(x_offset).into(),
-                vm.ctx.new_float(y_offset).into(),
             ];
             vm.ctx.new_tuple(elements).into()
         },

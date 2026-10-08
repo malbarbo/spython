@@ -22,24 +22,14 @@ pub use target::get_key_event;
 /// message of the error. The page reads no file.
 pub use target::load_bitmap;
 
-/// The width and the height of the box around the text, and the offsets from
-/// the middle of that box to the origin of an svg `<text>` element, which sits
-/// at the start of the baseline. sinteract measures, with the fonts it embeds
-/// and draws with, so a text has the same size on every target. A size that
-/// cannot draw measures nothing.
-pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64, f64, f64) {
+/// The width and the height of the box around the text. sinteract measures,
+/// with the fonts it embeds and draws with, so a text has the same size on
+/// every target. A size that cannot draw measures nothing.
+pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64) {
     let font = CssFont::parse(font_css);
     match sinteract::text::measure(font.family, font.weight, font.style, font.size, text) {
-        Some(m) => {
-            let width = f64::from(m.width());
-            (
-                width,
-                f64::from(m.height()),
-                -width / 2.0,
-                f64::from(m.baseline_y()),
-            )
-        }
-        None => (0.0, 0.0, 0.0, 0.0),
+        Some(m) => (f64::from(m.width()), f64::from(m.height())),
+        None => (0.0, 0.0),
     }
 }
 
@@ -113,10 +103,13 @@ mod tests {
     }
 
     #[test]
-    fn text_metrics_puts_the_origin_at_the_start_of_the_baseline() {
-        let (width, height, x, y) = text_metrics("spython", "14px sans-serif");
+    fn text_metrics_measures_a_text() {
+        let (width, height) = text_metrics("spython", "14px sans-serif");
         assert!(width > 0.0 && height > 0.0);
-        assert_eq!(x, -width / 2.0);
-        assert!(y > 0.0 && y < height / 2.0);
+    }
+
+    #[test]
+    fn text_metrics_of_a_size_that_cannot_draw_is_nothing() {
+        assert_eq!(text_metrics("spython", "0px sans-serif"), (0.0, 0.0));
     }
 }

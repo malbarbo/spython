@@ -28,13 +28,10 @@ except ImportError:
         return None
 
     # A guess from the size, since there is no font engine here. A character
-    # is 0.6 of the size wide, a line is the size high, and the baseline sits
-    # 0.8 of the size below the top.
-    def text_metrics(text: str, font_css: str) -> tuple[float, float, float, float]:
+    # is 0.6 of the size wide, and a line is the size high.
+    def text_metrics(text: str, font_css: str) -> tuple[float, float]:
         size: float = _font_size(font_css)
-        width: float = len(text) * size * 0.6
-        ascent: float = size * 0.8
-        return (width, size, -width / 2.0, ascent - size / 2.0)
+        return (len(text) * size * 0.6, size)
 
     # The size in pixels the css says. Without one the size is 14, what a
     # `Font` starts with.
