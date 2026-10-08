@@ -16,27 +16,31 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
     if paths.is_empty() {
         return run_stdin(check);
     }
+    // Every path is walked before any file is written, so a path that does
+    // not exist leaves the files of the others as they were.
+    let mut files = Vec::new();
+    for path in paths {
+        files.extend(python_files(path)?);
+    }
     let mut rejected = Vec::new();
     let mut unformatted = Vec::new();
-    for path in paths {
-        for file in python_files(path) {
-            let source = read_file(&file)?;
-            let formatted = match format_source(&source) {
-                Ok(formatted) => formatted,
-                Err(message) => {
-                    rejected.push((file, message));
-                    continue;
-                }
-            };
-            if formatted == source {
+    for file in files {
+        let source = read_file(&file)?;
+        let formatted = match format_source(&source) {
+            Ok(formatted) => formatted,
+            Err(message) => {
+                rejected.push((file, message));
                 continue;
             }
-            if check {
-                unformatted.push(file);
-            } else {
-                std::fs::write(&file, formatted)
-                    .map_err(|err| SpythonError::FileWrite { path: file, err })?;
-            }
+        };
+        if formatted == source {
+            continue;
+        }
+        if check {
+            unformatted.push(file);
+        } else {
+            std::fs::write(&file, formatted)
+                .map_err(|err| SpythonError::FileWrite { path: file, err })?;
         }
     }
     if rejected.is_empty() && unformatted.is_empty() {
@@ -51,13 +55,23 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
 
 /// Every `.py` file under `path`, sorted, as a directory hands its entries
 /// back in an order of its own. A path that names a file is that file.
-fn python_files(path: &Path) -> impl Iterator<Item = PathBuf> {
-    walkdir::WalkDir::new(path)
-        .sort_by_file_name()
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "py"))
-        .map(|entry| entry.into_path())
+///
+/// A path that does not exist, or a directory that cannot be read, is an
+/// error, so the command never succeeds on files it did not see.
+fn python_files(path: &Path) -> Result<Vec<PathBuf>, SpythonError> {
+    let mut files = Vec::new();
+    for entry in walkdir::WalkDir::new(path).sort_by_file_name() {
+        let entry = entry.map_err(|err| SpythonError::FileRead {
+            path: err.path().unwrap_or(path).to_path_buf(),
+            err: err
+                .into_io_error()
+                .expect("a walk that does not follow links finds no loop"),
+        })?;
+        if entry.path().extension().is_some_and(|ext| ext == "py") {
+            files.push(entry.into_path());
+        }
+    }
+    Ok(files)
 }
 
 /// The stdin half of [`run`], which answers on stdout instead of writing over

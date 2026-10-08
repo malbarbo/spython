@@ -2674,6 +2674,23 @@ fn format_fails_on_a_file_it_cannot_parse() {
 }
 
 #[test]
+fn format_fails_on_a_path_that_does_not_exist() {
+    let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
+    for args in [
+        &["format", "a.py", "nosuch.py"][..],
+        &["format", "--check", "a.py", "nosuch.py"][..],
+    ] {
+        let (_, err, success) = run_spython_native(args, &dir);
+        assert!(!success, "{args:?}: {err}");
+        assert!(err.contains("cannot read 'nosuch.py'"), "{args:?}: {err}");
+    }
+    // The file that exists is left as it was, as the paths are all looked at
+    // before any file is written.
+    assert_eq!(file_in(&dir, "a.py"), UNFORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn format_reads_stdin_and_writes_stdout() {
     let (out, err, success) = run_format_stdin(&[], UNFORMATTED);
     assert!(success, "stderr: {err}");
