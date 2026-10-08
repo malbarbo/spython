@@ -432,11 +432,22 @@ def _run_file(path, source, verbose=False):
     """
     import types
 
-    _sys.path.insert(0, _directory_of(path))
-    module = types.ModuleType("__doctest__")
-    module.__file__ = path
-    exec(compile(source, path, "exec"), vars(module))
-    return run_doctests(module, verbose=verbose)
+    # A file sees only the modules of its own directory, and not those that
+    # the file before it imported under the same name.
+    modules = dict(_sys.modules)
+    path_before = list(_sys.path)
+    try:
+        _sys.path.insert(0, _directory_of(path))
+        module = types.ModuleType("__doctest__")
+        module.__file__ = path
+        exec(compile(source, path, "exec"), vars(module))
+        return run_doctests(module, verbose=verbose)
+    finally:
+        for name in list(_sys.modules):
+            if name not in modules:
+                del _sys.modules[name]
+        _sys.modules.update(modules)
+        _sys.path[:] = path_before
 
 
 def _main(argv):

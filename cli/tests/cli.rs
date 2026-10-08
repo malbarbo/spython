@@ -310,6 +310,15 @@ fn test_runs_the_doctests_of_the_module_and_of_methods_once() {
 }
 
 #[test]
+fn test_gives_each_file_the_modules_of_its_own_directory() {
+    let (out, err, success) = run_test(
+        &["same_module_name/a/main.py", "same_module_name/b/main.py"],
+        &[],
+    );
+    assert!(success, "stdout: {out}\nstderr: {err}");
+}
+
+#[test]
 fn test_no_doctests() {
     let (out, err, success) = run_test(&["no_tests.py"], &[]);
     assert!(success);
