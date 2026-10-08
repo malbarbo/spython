@@ -51,6 +51,25 @@ def test_parse_refuses_a_line_that_does_not_line_up():
     )
 
 
+def test_check_output_takes_blankline_for_a_blank_line():
+    assert _check_output("a\n<BLANKLINE>\nb\n", "a\n\nb\n")
+    assert _check_output("a\n<BLANKLINE>  \n", "a\n   \n")
+
+
+def test_check_output_tells_a_missing_newline():
+    assert not _check_output("a\n", "a\n\n")
+    assert not _check_output("a\n", "a")
+
+
+def test_check_output_does_not_take_true_for_1():
+    assert not _check_output("1\n", "True\n")
+
+
+def test_shown_marks_a_blank_line():
+    assert _shown("a\n\n") == "a\n<BLANKLINE>"
+    assert _shown("a\n  \nb\n") == "a\n<BLANKLINE>\nb"
+
+
 def _run(source):
     """The number of examples of *source* that did not pass, and what the
     runner wrote to stderr."""

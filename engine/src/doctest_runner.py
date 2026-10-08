@@ -122,6 +122,43 @@ def _parse(doc, name):
     return examples
 
 
+_BLANKLINE = "<BLANKLINE>"
+
+
+def _to_ascii(s):
+    return str(s.encode("ASCII", "backslashreplace"), "ASCII")
+
+
+def _check_output(want, got):
+    """Returns ``True`` if *got* is the output that *want* asks for, ``False``
+    otherwise.
+
+    The rules are those of ``OutputChecker`` in the stdlib with no options.
+    A ``<BLANKLINE>`` in *want* stands for a blank line, which would end the
+    example, and a line of *got* that holds only spaces counts as blank.
+    """
+    got = _to_ascii(got)
+    want = _to_ascii(want)
+    if got == want:
+        return True
+    want = "\n".join(
+        "" if line.startswith(_BLANKLINE) and line[len(_BLANKLINE) :].strip() == "" else line
+        for line in want.split("\n")
+    )
+    got = "\n".join("" if line and line.isspace() else line for line in got.split("\n"))
+    return got == want
+
+
+def _shown(output):
+    """*output* as the report shows it, with ``<BLANKLINE>`` for a blank line
+    that would otherwise not show."""
+    lines = output.split("\n")
+    for i in range(len(lines) - 1):
+        if lines[i].strip(" ") == "":
+            lines[i] = _BLANKLINE
+    return "\n".join(lines).removesuffix("\n")
+
+
 def _write_err(text):
     """Write *text* to stderr and flush it right away.
 
@@ -184,7 +221,6 @@ def run_doctests(module, verbose=False):
             continue
         for _src, _want in _examples:
             _src = _src.rstrip("\n")
-            _expected = _want[:-1]
             _total += 1
             _old_stdout = _sys.stdout
             _sys.stdout = _buf = _Capture()
@@ -206,15 +242,15 @@ def run_doctests(module, verbose=False):
                 print(type(_e).__name__ + ": " + str(_e))
             finally:
                 _sys.stdout = _old_stdout
-            _got = _buf.getvalue().rstrip("\n")
-            if _got != _expected:
+            _got = _buf.getvalue()
+            if not _check_output(_want, _got):
                 if _had_error:
                     _errors += 1
                     _write_err(
                         "    Error in example:\n"
                         "      " + _src.replace("\n", "\n      ") + "\n"
                         "    Got:\n"
-                        "      " + _got.replace("\n", "\n      ") + "\n"
+                        "      " + _shown(_got).replace("\n", "\n      ") + "\n"
                     )
                 else:
                     _failed += 1
@@ -222,9 +258,9 @@ def run_doctests(module, verbose=False):
                         "    Failed example:\n"
                         "      " + _src.replace("\n", "\n      ") + "\n"
                         "    Expected:\n"
-                        "      " + _expected.replace("\n", "\n      ") + "\n"
+                        "      " + _want.removesuffix("\n").replace("\n", "\n      ") + "\n"
                         "    Got:\n"
-                        "      " + _got.replace("\n", "\n      ") + "\n"
+                        "      " + _shown(_got).replace("\n", "\n      ") + "\n"
                     )
             elif verbose:
                 _write_err("    ok: " + _src.split("\n")[0] + "\n")

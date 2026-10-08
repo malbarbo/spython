@@ -293,6 +293,12 @@ fn test_reads_doctests_with_the_grammar_of_the_stdlib() {
 }
 
 #[test]
+fn test_takes_blankline_for_a_blank_line_of_output() {
+    let (out, err, success) = run_test(&["doctest_blankline.py"], &[]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+}
+
+#[test]
 fn test_no_doctests() {
     let (out, err, success) = run_test(&["no_tests.py"], &[]);
     assert!(success);
