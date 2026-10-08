@@ -5,7 +5,10 @@ use std::collections::HashSet;
 use std::panic::RefUnwindSafe;
 
 use ruff_db::Db as SourceDb;
-use ruff_db::diagnostic::{Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics};
+use ruff_db::diagnostic::{
+    Annotation, Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics, Span, SubDiagnostic,
+    UnifiedFile,
+};
 use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{
@@ -40,6 +43,8 @@ pub use native::check_file;
 /// may find it, and the directory holds nothing else an import could find.
 const SOURCE_DIR: &str = "/source";
 const USER_FILE: &str = "/source/user.py";
+/// The REPL input alone, which a type error of the REPL points into.
+const INPUT_FILE: &str = "/source/<repl>";
 /// Where the modules a session started from go. A root of their own, so no
 /// file the student wrote can land on [`USER_FILE`] and quietly replace the
 /// code being checked.
@@ -463,39 +468,44 @@ pub(crate) fn type_check_repl_input(
         Ok(_) => return true, // warnings don't block execution
         Err(te) => te,
     };
-    let in_input: Vec<Placed> = te
+    let user_file = system_path_to_file(&te.db, SystemPath::new(USER_FILE))
+        .expect("the user file was written before the check");
+    let input_path = SystemPath::new(INPUT_FILE);
+    te.db
+        .system()
+        .as_writable()
+        .expect("the in-memory system is writable")
+        .write_file(input_path, new_input)
+        .expect("writing to in-memory filesystem should never fail");
+    let input_file =
+        system_path_to_file(&te.db, input_path).expect("the input file was just written");
+    let input = Input {
+        user_file,
+        input_file,
+        range: TextRange::new(input_start, TextSize::of(combined.as_str())),
+    };
+    let in_input: Vec<Diagnostic> = te
         .diagnostics
         .iter()
-        .filter_map(|diag| match diagnostic_range(diag) {
+        .filter(|diag| match diagnostic_start(diag) {
             // No range means the diagnostic is about the check as a whole,
             // not about a line of history, so it stays.
-            None => Some(Placed { diag, at: None }),
-            Some((start, _))
-                if unwritten
-                    .iter()
-                    .any(|range| range.contains(TextSize::try_from(start).unwrap_or_default())) =>
-            {
-                None
+            None => true,
+            Some(start) => {
+                !unwritten.iter().any(|range| range.contains(start))
+                    && input.range.contains_inclusive(start)
             }
-            Some((start, end)) if start >= input_offset => {
-                let (line, col) = line_and_column(new_input, start - input_offset);
-                Some(Placed {
-                    diag,
-                    at: Some((line, col, end - start)),
-                })
-            }
-            Some(_) => None,
         })
+        .map(|diag| input.move_onto(diag))
         .collect();
     if !in_input
         .iter()
-        .any(|p| p.diag.severity() == ruff_db::diagnostic::Severity::Error)
+        .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error)
     {
         return true;
     }
 
-    let new_input_lines: Vec<&str> = new_input.lines().collect();
-    print_repl_diagnostics(&in_input, &new_input_lines, use_color);
+    print_type_errors(&te.db, &in_input, use_color);
 
     false
 }
@@ -556,79 +566,67 @@ fn simplify_type_display(s: &str) -> String {
     }
     s.to_owned()
 }
-/// The byte range a diagnostic points at.
+/// Where a diagnostic starts.
 ///
 /// `None` for one that carries no range -- ty reports an unreadable file that
 /// way. It is nowhere in particular, which is not the same as being at the
 /// start, and the caller has to keep the two apart.
-fn diagnostic_range(diag: &Diagnostic) -> Option<(usize, usize)> {
+fn diagnostic_start(diag: &Diagnostic) -> Option<TextSize> {
     diag.primary_span()
         .and_then(|span| span.range())
-        .map(|range| (usize::from(range.start()), usize::from(range.end())))
+        .map(|range| range.start())
 }
-/// Where `offset` falls in `source`: the 0-based line and 0-based column.
-fn line_and_column(source: &str, offset: usize) -> (usize, usize) {
-    let offset = offset.min(source.len());
-    let line = source[..offset].matches('\n').count();
-    let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
-    (line, offset - line_start)
+/// The REPL input inside the source the REPL checks, which puts the code of
+/// the session before it, and the file that holds the input alone.
+struct Input {
+    user_file: File,
+    input_file: File,
+    range: TextRange,
 }
-/// A diagnostic and where it falls inside the REPL input: 0-based line,
-/// 0-based column, and how many bytes it underlines. `None` for one that
-/// carries no range, which is shown against the first line for want of a
-/// better place.
-struct Placed<'a> {
-    diag: &'a Diagnostic,
-    at: Option<(usize, usize, usize)>,
-}
-/// Print diagnostics already placed inside the REPL input.
-fn print_repl_diagnostics(diagnostics: &[Placed], new_input_lines: &[&str], use_color: bool) {
-    use ruff_db::diagnostic::Severity;
-    let mut error_count = 0;
 
-    for Placed { diag, at } in diagnostics {
-        let is_error = diag.severity() == Severity::Error;
-        if is_error {
-            error_count += 1;
-        }
-
-        let (adjusted_line, col, span_len) = at.unwrap_or((0, 0, 1));
-        let display_line = adjusted_line + 1; // 1-indexed
-
-        let severity = match (is_error, use_color) {
-            (true, true) => "\x1b[1;91merror",
-            (true, false) => "error",
-            (false, true) => "\x1b[1;93mwarning",
-            (false, false) => "warning",
-        };
-
-        let id = diag.id();
-        let msg = diag.headline_message();
-        let reset = if use_color { "\x1b[0m" } else { "" };
-        let bold = if use_color { "\x1b[1m" } else { "" };
-
-        eprintln!("{severity}[{id}]{reset}: {bold}{msg}{reset}");
-        eprintln!(" --> user.py:{display_line}:{}", col + 1);
-
-        // Show the source line if available.
-        if let Some(src_line) = new_input_lines.get(adjusted_line) {
-            eprintln!("  |");
-            eprintln!("{display_line} | {src_line}");
-            let padding = " ".repeat(col);
-            let underline_len = span_len.max(1).min(src_line.len().saturating_sub(col));
-            let underline = "^".repeat(underline_len);
-            if use_color {
-                eprintln!("  | {padding}\x1b[1;91m{underline}\x1b[0m");
-            } else {
-                eprintln!("  | {padding}{underline}");
+impl Input {
+    /// A copy of `diag` with its annotations moved from the input in the
+    /// checked source onto the input file, so the error shows the lines and
+    /// columns of what the user typed. An annotation that points into the
+    /// session before the input goes, as the user cannot fix that code from
+    /// the prompt, and so does a sub-diagnostic that only pointed there. An
+    /// annotation without a range moves to the input file without one, and an
+    /// annotation that points into another file stays.
+    fn move_onto(&self, diag: &Diagnostic) -> Diagnostic {
+        let mut moved = Diagnostic::new(diag.id(), diag.severity(), diag.headline_message());
+        moved.set_documentation_url(diag.documentation_url().map(str::to_owned));
+        for annotation in diag.annotations() {
+            if let Some(annotation) = self.move_annotation(annotation) {
+                moved.annotate(annotation);
             }
-            eprintln!("  |");
         }
+        for sub in diag.sub_diagnostics() {
+            let mut moved_sub = SubDiagnostic::new(sub.severity(), sub.headline_message());
+            for annotation in sub.annotations() {
+                if let Some(annotation) = self.move_annotation(annotation) {
+                    moved_sub.annotate(annotation);
+                }
+            }
+            if sub.annotations().is_empty() || !moved_sub.annotations().is_empty() {
+                moved.sub(moved_sub);
+            }
+        }
+        moved
     }
 
-    if error_count > 0 {
-        let s = if error_count == 1 { "" } else { "s" };
-        eprintln!("Found {error_count} error{s}.");
+    fn move_annotation(&self, annotation: &Annotation) -> Option<Annotation> {
+        let span = annotation.get_span();
+        if span.file() != &UnifiedFile::Ty(self.user_file) {
+            return Some(annotation.clone());
+        }
+        let range = match span.range() {
+            None => None,
+            Some(range) if self.range.contains_range(range) => Some(range - self.range.start()),
+            Some(_) => return None,
+        };
+        let mut annotation = annotation.clone();
+        annotation.set_span(Span::from(self.input_file).with_optional_range(range));
+        Some(annotation)
     }
 }
 

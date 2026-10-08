@@ -3022,6 +3022,25 @@ fn repl_missing_annotation_is_error() {
     );
 }
 
+/// A type error points into the input alone, by the characters on the screen.
+/// The earlier input that defines `f` stays out of it.
+#[test]
+fn repl_type_error_points_into_the_input() {
+    let input = "def f(x: int) -> int:\n    return x\n\ny = 1\nif y > 0:\n\té = f(\"a\")\n\n";
+    let (_, err, success) = run_repl_level(input, 1);
+    assert!(success);
+    let expected = indoc! {r#"
+        error[invalid-argument-type]: Argument to function `f` is incorrect
+         --> <repl>:2:8
+          |
+        1 | if y > 0:
+        2 |     é = f("a")
+          |           ^^^ Expected `int`, found `Literal["a"]`
+    "#};
+    assert!(err.contains(expected), "stderr: {err}");
+    assert!(!err.contains("def f"), "stderr: {err}");
+}
+
 #[test]
 fn repl_annotated_function_ok() {
     let (out, err, success) = run_repl("def f(x: int) -> int:\n    return x * 2\n\nf(3)\n");
