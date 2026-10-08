@@ -56,9 +56,11 @@ change is more than one, and it becomes more than one commit.
   `cli()` in `cli/src/main.rs` reads the three as alternatives.
 - The CLI saves the level and the theme in `config_dir()/spython/config`,
   as `key=value` lines. `--level` wins over the file. See `cli/src/config.rs`.
-- Only `dataclasses`, `enum`, `typing`, and `math` are available to a
-  program. The list is what the freeze filter and `typeshed_allowlist.txt`
-  let through.
+- A program can import `dataclasses`, `enum`, `math`, `typing`, `spython`,
+  and the modules beside it. `AVAILABLE_MODULES` in `engine/src/checker.rs`
+  holds the four from the standard library, and the `unavailable-module`
+  lint rejects the rest. The freeze filter and `typeshed_allowlist.txt` let
+  through more, which the interpreter and the stubs need for themselves.
 - Colour is decided by `color_stderr` and `color_stdout` in
   `engine/src/error.rs`, and nowhere else. A non-empty `NO_COLOR` keeps the
   escape codes out of both streams, as <https://no-color.org> asks, and a
