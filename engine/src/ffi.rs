@@ -76,6 +76,27 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
             Ok(vm.ctx.new_tuple(elements).into())
         },
     );
+    // The doctest runner takes the docstrings from here, so that it runs
+    // the examples the checker has read.
+    let doctest_docstrings_fn = vm.new_function(
+        "doctest_docstrings",
+        |source: String, vm: &vm::VirtualMachine| -> vm::PyResult {
+            let docstrings = crate::doctests::docstrings(&source)
+                .ok_or_else(|| vm.new_value_error("the source does not parse"))?;
+            let pairs = docstrings
+                .into_iter()
+                .map(|(owner, doc)| {
+                    vm.ctx
+                        .new_tuple(vec![
+                            vm.ctx.new_str(owner).into(),
+                            vm.ctx.new_str(doc).into(),
+                        ])
+                        .into()
+                })
+                .collect();
+            Ok(vm.ctx.new_list(pairs).into())
+        },
+    );
     #[cfg(test)]
     let test_mark_atexit_ran_fn = vm.new_function(
         "__test_mark_atexit_ran",
@@ -96,6 +117,7 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     set("text_metrics", text_metrics_fn.into());
     set("load_bitmap", load_bitmap_fn.into());
     set("bitmap_size", bitmap_size_fn.into());
+    set("doctest_docstrings", doctest_docstrings_fn.into());
     #[cfg(test)]
     set("__test_mark_atexit_ran", test_mark_atexit_ran_fn.into());
     let module = vm.new_module("_spython_ffi", dict, None);

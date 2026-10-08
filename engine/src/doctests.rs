@@ -109,9 +109,12 @@ pub struct Malformed {
 pub struct DoctestExtraction {
     pub snippets: Vec<DoctestSnippet>,
     pub malformed: Vec<Malformed>,
-    /// The docstrings with examples that the runner never finds, because
+    /// The docstrings with examples that the runner never gets, because
     /// they belong to a definition inside a function.
     pub never_run: Vec<TextRange>,
+    /// The name of the owner and the value of each docstring that the runner
+    /// gets, in the order of the source.
+    pub docstrings: Vec<(String, String)>,
 }
 
 /// Walk `module` looking for docstrings and extract doctest snippets from them.
@@ -128,8 +131,16 @@ pub fn extract_doctests(module: &ModModule, source: &str) -> DoctestExtraction {
     visitor.out
 }
 
-/// The owner of the docstring of the module, the name the runner gives it.
-/// No function or class can have it.
+/// The docstrings of `source` that the runner gets, as the pairs of
+/// [`DoctestExtraction::docstrings`], or `None` for a source that does not
+/// parse.
+pub fn docstrings(source: &str) -> Option<Vec<(String, String)>> {
+    let parsed = parse_module(source).ok()?;
+    Some(extract_doctests(parsed.syntax(), source).docstrings)
+}
+
+/// The owner of the docstring of the module. No function or class can have
+/// this name.
 const MODULE_OWNER: &str = "<module>";
 
 /// Walks the module collecting doctests from docstrings on the module,
@@ -138,9 +149,9 @@ const MODULE_OWNER: &str = "<module>";
 struct DoctestVisitor<'a> {
     source: &'a str,
     scope: String,
-    /// Whether the runner finds a definition here: at the top of the module
-    /// or of a class it finds, and not in the body of a function, whose
-    /// definitions are not attributes of anything.
+    /// Whether the runner gets the docstrings of the definitions here: at the
+    /// top of the module or of a class, and not in the body of a function,
+    /// whose names do not exist where the examples run.
     reachable: bool,
     out: DoctestExtraction,
 }
@@ -166,10 +177,12 @@ impl DoctestVisitor<'_> {
         let Expr::StringLiteral(s) = &*expr_stmt.value else {
             return;
         };
+        let doc = clean_doc(&docstring_value(s, self.source));
         if self.reachable {
-            scan_docstring(s, self.source, &self.scope, &mut self.out);
+            scan_docstring(s, &doc, self.source, &self.scope, &mut self.out);
+            self.out.docstrings.push((self.scope.clone(), doc));
         } else {
-            let parsed = parse_doc(&clean_doc(&docstring_value(s, self.source)));
+            let parsed = parse_doc(&doc);
             if !parsed.examples.is_empty() || !parsed.malformed.is_empty() {
                 self.out.never_run.push(s.range());
             }
@@ -204,11 +217,16 @@ impl<'a> Visitor<'a> for DoctestVisitor<'_> {
     fn visit_expr(&mut self, _expr: &'a Expr) {}
 }
 
-/// Read the examples of the docstring `s` the way the runner does, from the
-/// value the interpreter gives the docstring.
-fn scan_docstring(s: &ExprStringLiteral, source: &str, owner: &str, out: &mut DoctestExtraction) {
-    let doc = clean_doc(&docstring_value(s, source));
-    let parsed = parse_doc(&doc);
+/// Read the examples of the docstring `s` the way the runner does, from
+/// `doc`, the value the interpreter gives the docstring.
+fn scan_docstring(
+    s: &ExprStringLiteral,
+    doc: &str,
+    source: &str,
+    owner: &str,
+    out: &mut DoctestExtraction,
+) {
+    let parsed = parse_doc(doc);
     let lines = raw_lines(s, source);
     let range_of = |line: usize| {
         lines
@@ -1197,8 +1215,10 @@ mod tests {
             "for _src, _checker in _CASES:\n\
              \x20   _ns = {}\n\
              \x20   exec(_src, _ns)\n\
+             \x20   _doc = dict(_docstrings(_src)).get('f')\n\
+             \x20   assert _doc == _ns['f'].__doc__, (_src, _doc)\n\
              \x20   try:\n\
-             \x20       _runner = '\\x01'.join(s for s, _, _ in _parse(_ns['f'].__doc__, 'f'))\n\
+             \x20       _runner = '\\x01'.join(s for s, _, _ in _parse(_doc, 'f'))\n\
              \x20   except ValueError:\n\
              \x20       _runner = 'ERR'\n\
              \x20   assert _runner == _checker, (_src, _runner, _checker)\n"

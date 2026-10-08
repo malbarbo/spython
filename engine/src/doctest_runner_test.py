@@ -86,7 +86,7 @@ def _run(source):
     old = _sys.stderr
     _sys.stderr = err = _Capture()
     try:
-        failures = run_doctests(module)
+        failures = run_doctests(module, source)
     finally:
         _sys.stderr = old
     return failures, err.getvalue()
@@ -203,7 +203,6 @@ _FINDER_SOURCE = '''
 0
 """
 import functools
-from _finder_helpers import helper
 
 
 def f():
@@ -259,41 +258,42 @@ if True:
 '''
 
 
-def test_collect_docstrings_finds_what_the_stdlib_finds():
+def test_docstrings_are_those_the_stdlib_finds():
     # The names are those the stdlib `DocTestFinder` gives for the same
     # module, without the name of the module in front.
-    import types
+    names = [n for n, _ in _docstrings(_FINDER_SOURCE)]
+    assert names == [
+        "<module>",
+        "C",
+        "C.Inner",
+        "C.Inner.deep",
+        "C.c",
+        "C.m",
+        "C.p",
+        "C.s",
+        "cached",
+        "f",
+        "in_if",
+    ], names
 
-    helpers = types.ModuleType("_finder_helpers")
-    exec('def helper():\n    """>>> helper()"""\n', vars(helpers))
-    _sys.modules["_finder_helpers"] = helpers
-    try:
-        for name in ("m", "__main__"):
-            module = types.ModuleType(name)
-            old = _sys.modules.get(name)
-            if name == "__main__":
-                _sys.modules[name] = module
-            try:
-                exec(_FINDER_SOURCE, vars(module))
-                names = [n for n, _ in _collect_docstrings(module)]
-            finally:
-                if name == "__main__":
-                    _sys.modules[name] = old
-            assert names == [
-                "<module>",
-                "C",
-                "C.Inner",
-                "C.Inner.deep",
-                "C.c",
-                "C.m",
-                "C.p",
-                "C.s",
-                "cached",
-                "f",
-                "in_if",
-            ], names
-    finally:
-        del _sys.modules["_finder_helpers"]
+
+def test_run_runs_a_docstring_that_the_object_lost():
+    source = (
+        "def plain(f):\n"
+        "    def wrapper():\n"
+        "        return f()\n"
+        "    return wrapper\n"
+        "@plain\n"
+        "def f() -> int:\n"
+        '    """\n'
+        "    >>> f()\n"
+        "    2\n"
+        '    """\n'
+        "    return 1\n"
+    )
+    failures, err = _run(source)
+    assert failures == 1, err
+    assert "  f\n" in err, err
 
 
 def test_exception_line_names_the_module_of_an_imported_class():

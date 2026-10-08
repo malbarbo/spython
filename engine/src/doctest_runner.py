@@ -4,8 +4,8 @@ The stdlib module requires ``inspect`` -> ``dis`` -> ``io`` -> ``_io.FileIO``,
 which is not available in the RustPython WASM build.  This runner only depends
 on ``sys`` and builtins so it works on every target.
 
-The public entry point is ``run_doctests(module)``, which returns the number of
-failed examples, and which is what the REPL calls on ``__main__``.  A whole
+The public entry point is ``run_doctests(module, source)``, which returns the
+number of failed examples, and which is what the REPL calls on ``__main__``.  A whole
 file goes through ``_run_file(path, source)``: the ``test`` command drives
 ``_main(sys.argv[1:])``, which reads the files it names, and a page, which has
 no files to read, drives ``_run_file`` with the text it already holds.
@@ -200,94 +200,21 @@ def _plural(n, word):
     return str(n) + " " + word + ("es" if word == "success" else "s")
 
 
-def _collect_docstrings(module):
-    """The docstrings of *module* that hold a ``>>>``, as (name, docstring)
-    pairs, the docstring of the module first and the others in the order of
-    their names.
+def _docstrings(source):
+    """The docstrings of *source*, as (name, docstring) pairs, the docstring
+    of the module first and the others in the order of their names.
 
-    The rules are those of ``DocTestFinder`` in the stdlib. The docstrings
-    come from the module, from the functions and classes it defines, and
-    from the methods, classes, and properties those classes define, each
-    object once.
+    The docstrings come from the extraction of the checker, so that the
+    examples that run are the ones the checker has read, whatever a
+    decorator or a later assignment does to the objects.
     """
-    found = []
-    seen = set()
+    from _spython_ffi import doctest_docstrings
 
-    def visit(obj, name):
-        if id(obj) in seen:
-            return
-        seen.add(id(obj))
-        doc = getattr(obj, "__doc__", None)
-        if doc is not None and not isinstance(doc, str):
-            doc = str(doc)
-        if doc and ">>>" in doc:
-            found.append((name, doc))
-        if obj is module:
-            for valname, val in vars(module).items():
-                if (_is_routine(_unwrap(val)) or isinstance(val, type)) and _from_module(module, val):
-                    visit(val, valname)
-        elif isinstance(obj, type):
-            for valname, val in vars(obj).items():
-                if isinstance(val, (staticmethod, classmethod)):
-                    val = val.__func__
-                if (
-                    _is_routine(val) or isinstance(val, type) or isinstance(val, property)
-                ) and _from_module(module, val):
-                    visit(val, name + "." + valname)
-
-    visit(module, "<module>")
+    found = doctest_docstrings(source)
     # No function or class can have that name, so the key puts the module
     # first and leaves the others in the order of their names.
     found.sort(key=lambda pair: (pair[0] != "<module>", pair[0]))
     return found
-
-
-# The types of `inspect.isroutine`, which needs more of the stdlib than the
-# binary freezes.
-_FunctionType = type(_indent_of)
-_BuiltinFunctionType = type(len)
-_MethodType = type(_Capture().write)
-_MethodWrapperType = type(object().__str__)
-
-
-def _unwrap(obj):
-    """The function under the wrappers that ``functools.wraps`` made."""
-    seen = set()
-    while hasattr(obj, "__wrapped__") and id(obj) not in seen:
-        seen.add(id(obj))
-        obj = obj.__wrapped__
-    return obj
-
-
-def _is_method_descriptor(obj):
-    if isinstance(obj, (type, _MethodType, _FunctionType)):
-        return False
-    t = type(obj)
-    return hasattr(t, "__get__") and not hasattr(t, "__set__") and not hasattr(t, "__delete__")
-
-
-def _is_routine(obj):
-    """Returns ``True`` if *obj* is a function or a method, ``False``
-    otherwise."""
-    return isinstance(
-        obj, (_FunctionType, _BuiltinFunctionType, _MethodType, _MethodWrapperType)
-    ) or _is_method_descriptor(obj)
-
-
-def _from_module(module, obj):
-    """Returns ``True`` if *module* defines *obj*, ``False`` otherwise.
-
-    The answer comes from the name of the module that *obj* carries, as
-    ``DocTestFinder`` decides for a module in ``sys.modules``. The module of a
-    test run is not there, and the wrapper that a decorator from another
-    module returns has the globals of that module.
-    """
-    name = getattr(obj, "__module__", None)
-    if name is not None:
-        return name == module.__name__
-    if hasattr(obj, "__objclass__"):
-        return obj.__objclass__.__module__ == module.__name__
-    return True
 
 
 def _run_example(source, module):
@@ -336,10 +263,11 @@ def _exception_line(e, module):
     return line
 
 
-def run_doctests(module, verbose=False):
-    """Run doctests found in *module* and return the number of failures."""
+def run_doctests(module, source, verbose=False):
+    """Run the doctests of *source* in *module*, where *source* has run, and
+    return the number of failures."""
     _groups = []
-    for _name, _doc in _collect_docstrings(module):
+    for _name, _doc in _docstrings(source):
         try:
             _examples = _parse(_doc, _name)
         except ValueError as _e:
@@ -441,7 +369,7 @@ def _run_file(path, source, verbose=False):
         module = types.ModuleType("__doctest__")
         module.__file__ = path
         exec(compile(source, path, "exec"), vars(module))
-        return run_doctests(module, verbose=verbose)
+        return run_doctests(module, source, verbose=verbose)
     finally:
         for name in list(_sys.modules):
             if name not in modules:

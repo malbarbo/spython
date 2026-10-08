@@ -803,9 +803,9 @@ declare_lint! {
 declare_lint! {
     /// ## What it does
     /// Rejects a doctest in the docstring of a function or a class defined
-    /// inside a function. The doctest runner finds the definitions at the top
-    /// of the module and of its classes, as the stdlib `doctest` module does,
-    /// so such a test never runs.
+    /// inside a function. The examples run in the namespace of the module,
+    /// where a name defined inside a function does not exist, so the doctest
+    /// runner leaves such a test out.
     ///
     /// ## Example
     /// ```python

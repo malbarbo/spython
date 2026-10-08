@@ -126,24 +126,33 @@ impl Repl {
         })
     }
 
-    /// Run the doctests of what [`Repl::load`] loaded, with the runner that
-    /// ships with spython. The stdlib one needs `_io.FileIO`, which the page
-    /// has not got.
+    /// Run the doctests of the source that has run in the session, with the
+    /// runner that ships with spython. The stdlib one needs `_io.FileIO`,
+    /// which the page has not got.
     ///
     /// The runner has a scope of its own, so that its names stay out of the
     /// session and leave the definitions of the student as they are.
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
-        let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__)\n");
+        let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__, _source)\n");
         let (interp, _) = self.live();
-        interp.enter(
-            |vm| match vm.run_string(vm.new_scope_with_builtins(), &code, "<doctest>") {
+        interp.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let run = scope
+                .globals
+                .set_item(
+                    "_source",
+                    vm.ctx.new_str(self.accumulated_source.as_str()).into(),
+                    vm,
+                )
+                .and_then(|()| vm.run_string(scope, &code, "<doctest>"));
+            match run {
                 Ok(_) => Ok(()),
                 Err(exc) => {
                     vm.print_exception(exc);
                     Err(Failed)
                 }
-            },
-        )
+            }
+        })
     }
 
     /// The teaching level.
