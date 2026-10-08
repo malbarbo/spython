@@ -796,6 +796,28 @@ fn run_imports_a_module_beside_the_file_named_after_the_stdlib() {
 }
 
 #[test]
+fn check_refuses_a_module_beside_the_file_the_interpreter_hides() {
+    // The interpreter takes its own `copy` and `enum` before the files.
+    for module in ["copy", "enum"] {
+        let main = format!("import {module}\nprint({module}.f())\n");
+        let dir = new_dir_with(
+            "shadowed",
+            &[
+                ("main.py", main.as_str()),
+                (&format!("{module}.py"), "def f() -> int:\n    return 1\n"),
+            ],
+        );
+        let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!success, "check should have refused {module}, got: {err}");
+        assert!(
+            err.contains("error[shadowed-module]"),
+            "expected a shadowed {module}, got: {err}"
+        );
+    }
+}
+
+#[test]
 fn check_refuses_a_module_from_site_packages() {
     // The interpreter has no site-packages, so the checker must not look in
     // the one of the environment `VIRTUAL_ENV` names.

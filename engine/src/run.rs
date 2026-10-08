@@ -1,6 +1,9 @@
 //! Running Python: the interpreter every run starts, and the three commands
 //! that reach it.
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 
 use crate::SpythonError;
@@ -34,6 +37,38 @@ const TEST_SOURCE_MAIN: &str = "import sys\nsys.exit(_run_file(sys.argv[1], sys.
 /// The name a test run reports itself under, as `sys.argv[0]` and as the file
 /// a traceback in the driver points at.
 const TEST_NAME: &str = "<test>";
+
+/// Returns `true` if the interpreter imports `package` without looking at
+/// `sys.path`, `false` otherwise. The interpreter looks first at what it
+/// has built in, frozen, or already in `sys.modules`, so a file of that name
+/// beside the program is never imported.
+pub(crate) fn has_own_package(package: &str) -> bool {
+    static PACKAGES: OnceLock<HashSet<String>> = OnceLock::new();
+    PACKAGES
+        .get_or_init(|| {
+            new_interpreter().enter(|vm| {
+                register_ffi_module(vm);
+                let mut names: Vec<String> = vm
+                    .state
+                    .module_defs
+                    .keys()
+                    .chain(vm.state.frozen.keys())
+                    .map(|name| (*name).to_owned())
+                    .collect();
+                if let Ok(modules) = vm.sys_module.get_attr("modules", vm)
+                    && let Ok(keys) = vm.call_method(&modules, "keys", ())
+                    && let Ok(keys) = keys.try_to_value::<Vec<String>>(vm)
+                {
+                    names.extend(keys);
+                }
+                names
+                    .iter()
+                    .map(|name| name.split('.').next().unwrap_or(name).to_owned())
+                    .collect()
+            })
+        })
+        .contains(package)
+}
 
 /// Create a RustPython interpreter with the standard library loaded.
 pub fn new_interpreter() -> vm::Interpreter {
@@ -89,6 +124,24 @@ fn run_source_with_argv(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_interpreter_has_its_own_builtin_frozen_and_registered_packages() {
+        for package in [
+            "sys",
+            "math",
+            "copy",
+            "enum",
+            "typing",
+            "spython",
+            "_spython_ffi",
+        ] {
+            assert!(has_own_package(package), "{package}");
+        }
+        for package in ["re", "helper", "spython_helpers"] {
+            assert!(!has_own_package(package), "{package}");
+        }
+    }
 
     /// The tests in `doctest_runner_test.py` run after the runner, in the
     /// interpreter that runs it for real. A failed assert fails the run.

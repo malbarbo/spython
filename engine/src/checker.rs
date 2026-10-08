@@ -30,8 +30,8 @@ use crate::lints::{
     LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
     MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
     NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
-    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE,
-    UNNECESSARY_PASS, UNUSED_VARIABLE,
+    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, SHADOWED_MODULE, TRUE_FALSE_COMPARISON,
+    UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
 };
 
 /// The modules of the standard library the interpreter has.
@@ -206,31 +206,49 @@ impl Checker<'_> {
         }
     }
 
-    /// Reject `module` when its package comes from the standard library and
-    /// the interpreter does not have it. A module beside the file, or one
-    /// that does not resolve, is left to ty.
+    /// Reject `module` when the interpreter would not import what ty resolved
+    /// it to: a module of the standard library the interpreter lacks, or a
+    /// file beside the program that a module of the interpreter hides. A
+    /// module that does not resolve is left to ty.
     fn check_module(&mut self, module: &str, range: TextRange) {
         let package = module.split('.').next().unwrap_or(module);
-        if AVAILABLE_MODULES.contains(&package) {
-            return;
-        }
         let Some(name) = ModuleName::new(package) else {
             return;
         };
         let db = self.model.db();
         let importing = ImportingFile::ResolverFile(db.program_file(self.file).resolver_file(db));
-        let from_stdlib = resolve_module(db, importing, &name)
-            .and_then(|m| m.search_path(db))
-            .is_some_and(|path| path.is_standard_library());
-        if from_stdlib {
-            self.push(
-                &UNAVAILABLE_MODULE,
-                range,
-                format!(
-                    "Module `{package}` is not available; a program can import `dataclasses`, \
-                     `enum`, `math`, `typing`, `spython` and the modules beside it"
-                ),
-            );
+        let Some(resolved) = resolve_module(db, importing, &name) else {
+            return;
+        };
+        // Only a namespace package has no search path, and the standard
+        // library has none, so it is a directory beside the file.
+        match resolved.search_path(db) {
+            Some(path) if path.is_standard_library() => {
+                if !AVAILABLE_MODULES.contains(&package) {
+                    self.push(
+                        &UNAVAILABLE_MODULE,
+                        range,
+                        format!(
+                            "Module `{package}` is not available; a program can import \
+                             `dataclasses`, `enum`, `math`, `typing`, `spython` and the \
+                             modules beside it"
+                        ),
+                    );
+                }
+            }
+            Some(path) if !path.is_first_party() => {}
+            _ => {
+                if crate::run::has_own_package(package) {
+                    self.push(
+                        &SHADOWED_MODULE,
+                        range,
+                        format!(
+                            "The interpreter imports its own `{package}` and never reads \
+                             the one beside the file; rename the file"
+                        ),
+                    );
+                }
+            }
         }
     }
 

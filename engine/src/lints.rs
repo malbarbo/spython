@@ -195,6 +195,27 @@ declare_lint! {
 }
 
 declare_lint! {
+    /// ## What it does
+    /// Rejects an import of a module beside the file whose name is also the
+    /// name of a module the interpreter has, such as `enum` or `copy`.
+    ///
+    /// ## Why is this bad?
+    /// The interpreter takes its own module first and never reads the file,
+    /// so the program runs with a module other than the one it was checked
+    /// against.
+    ///
+    /// ## Example
+    /// ```python
+    /// import copy    # error: with a `copy.py` beside the file
+    /// ```
+    pub(crate) static SHADOWED_MODULE = {
+        summary: "import of a module beside the file that the interpreter never reads",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
     /// Forbids `match` statements before level 2.
     pub(crate) static FORBIDDEN_MATCH = {
         summary: "`match` not allowed at this level",
