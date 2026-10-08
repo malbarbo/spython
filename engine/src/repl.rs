@@ -103,11 +103,16 @@ impl Repl {
 
     /// Run `source` under the name `name`, with `dir` on `sys.path` and
     /// `modules` the first-party files it imports. The session goes on from
-    /// there, so what runs here is the context the next inputs are checked in.
+    /// there, so a file that runs to its end is the context the next inputs
+    /// are checked in.
     ///
-    /// An `exit()` in `source` comes back as [`Loaded::Exited`] and does not
-    /// end the session. The page has no way to end a session that `repl_new`
-    /// is still opening, so each caller decides.
+    /// A file that raises or calls `exit()` stops at a line the session
+    /// cannot know without running it in pieces, which would change what its
+    /// module holds. So the checker gets nothing of it, and the names it bound
+    /// are unknown to the next inputs. The `exit()` comes back as
+    /// [`Loaded::Exited`] and does not end the session. The page has no way
+    /// to end a session that `repl_new` is still opening, so each caller
+    /// decides.
     pub fn load(
         &mut self,
         source: &str,
@@ -116,9 +121,8 @@ impl Repl {
         modules: Vec<(String, String)>,
     ) -> Result<Loaded, Failed> {
         self.modules = modules;
-        self.accumulated_source = source.to_owned();
         let (interp, scope) = self.live();
-        interp.enter(|vm| {
+        let loaded = interp.enter(|vm| {
             if let Some(dir) = dir
                 && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
             {
@@ -136,7 +140,11 @@ impl Repl {
                     Err(Failed)
                 }
             }
-        })
+        });
+        if let Ok(Loaded::Ran) = loaded {
+            self.accumulated_source = source.to_owned();
+        }
+        loaded
     }
 
     /// Run the doctests of the source that has run in the session, with the
@@ -492,7 +500,18 @@ atexit.register(__test_mark_atexit_ran)\n";
         let mut repl = Repl::new(Level::Full, false);
         let _ = repl.load("x = 1\nexit()\n", "user.py", None, Vec::new());
         assert_eq!(repl.exit_status(), None);
-        assert!(repl.run("y = x\n").is_ok());
+        assert!(repl.run("y = 1\n").is_ok());
+    }
+
+    #[test]
+    fn a_file_that_stops_partway_leaves_its_names_unknown() {
+        let mut repl = Repl::new(Level::Full, false);
+        let loaded = repl.load("x = 1\nint(\"z\")\ny = 2\n", "user.py", None, Vec::new());
+        assert!(loaded.is_err());
+        assert!(repl.run("y\n").is_err());
+        assert!(repl.run("x\n").is_err());
+        let _ = repl.load("x = 1\nexit()\ny = 2\n", "user.py", None, Vec::new());
+        assert!(repl.run("y\n").is_err());
     }
 
     #[test]
