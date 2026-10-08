@@ -197,6 +197,105 @@ def test_run_stops_at_an_interrupt():
         raise AssertionError("expected the interrupt to stop the run")
 
 
+_FINDER_SOURCE = '''
+"""
+>>> 0
+0
+"""
+import functools
+from _finder_helpers import helper
+
+
+def f():
+    """>>> f()"""
+
+
+g = f
+
+
+class C:
+    """>>> C()"""
+
+    def m(self):
+        """>>> 1"""
+
+    @staticmethod
+    def s():
+        """>>> 2"""
+
+    @classmethod
+    def c(cls):
+        """>>> 3"""
+
+    @property
+    def p(self):
+        """>>> 4"""
+
+    class Inner:
+        """>>> 5"""
+
+        def deep(self):
+            """>>> 6"""
+
+    alias = m
+
+
+@functools.lru_cache
+def cached(x):
+    """>>> cached(1)"""
+
+
+def outer():
+    def nested():
+        """>>> nested()"""
+
+    return nested
+
+
+if True:
+
+    def in_if():
+        """>>> in_if()"""
+'''
+
+
+def test_collect_docstrings_finds_what_the_stdlib_finds():
+    # The names are those the stdlib `DocTestFinder` gives for the same
+    # module, without the name of the module in front.
+    import types
+
+    helpers = types.ModuleType("_finder_helpers")
+    exec('def helper():\n    """>>> helper()"""\n', vars(helpers))
+    _sys.modules["_finder_helpers"] = helpers
+    try:
+        for name in ("m", "__main__"):
+            module = types.ModuleType(name)
+            old = _sys.modules.get(name)
+            if name == "__main__":
+                _sys.modules[name] = module
+            try:
+                exec(_FINDER_SOURCE, vars(module))
+                names = [n for n, _ in _collect_docstrings(module)]
+            finally:
+                if name == "__main__":
+                    _sys.modules[name] = old
+            assert names == [
+                "<module>",
+                "C",
+                "C.Inner",
+                "C.Inner.deep",
+                "C.c",
+                "C.m",
+                "C.p",
+                "C.s",
+                "cached",
+                "f",
+                "in_if",
+            ], names
+    finally:
+        del _sys.modules["_finder_helpers"]
+
+
 def test_exception_line_names_the_module_of_an_imported_class():
     import types
 

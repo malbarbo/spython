@@ -299,6 +299,17 @@ fn test_takes_blankline_for_a_blank_line_of_output() {
 }
 
 #[test]
+fn test_runs_the_doctests_of_the_module_and_of_methods_once() {
+    let (out, err, success) = run_test(&["doctest_everywhere.py"], &[]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(
+        err,
+        "Running tests...\n  <module>\n  Point\n  Point.norm1\n  double\n\
+         4 tests, 4 successes, 0 failures and 0 errors.\n"
+    );
+}
+
+#[test]
 fn test_no_doctests() {
     let (out, err, success) = run_test(&["no_tests.py"], &[]);
     assert!(success);

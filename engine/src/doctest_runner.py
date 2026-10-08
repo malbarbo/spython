@@ -202,19 +202,92 @@ def _plural(n, word):
 
 def _collect_docstrings(module):
     """The docstrings of *module* that hold a ``>>>``, as (name, docstring)
-    pairs."""
-    _groups = []
-    for _name in sorted(dir(module)):
-        _obj = getattr(module, _name)
-        if not callable(_obj):
-            continue
-        if getattr(_obj, "__module__", None) != module.__name__:
-            continue
-        _doc = getattr(_obj, "__doc__", None)
-        if not _doc or ">>>" not in _doc:
-            continue
-        _groups.append((_name, _doc))
-    return _groups
+    pairs, the docstring of the module first and the others in the order of
+    their names.
+
+    The rules are those of ``DocTestFinder`` in the stdlib. The docstrings
+    come from the module, from the functions and classes it defines, and
+    from the methods, classes, and properties those classes define, each
+    object once.
+    """
+    found = []
+    seen = set()
+
+    def visit(obj, name):
+        if id(obj) in seen:
+            return
+        seen.add(id(obj))
+        doc = getattr(obj, "__doc__", None)
+        if doc is not None and not isinstance(doc, str):
+            doc = str(doc)
+        if doc and ">>>" in doc:
+            found.append((name, doc))
+        if obj is module:
+            for valname, val in vars(module).items():
+                if (_is_routine(_unwrap(val)) or isinstance(val, type)) and _from_module(module, val):
+                    visit(val, valname)
+        elif isinstance(obj, type):
+            for valname, val in vars(obj).items():
+                if isinstance(val, (staticmethod, classmethod)):
+                    val = val.__func__
+                if (
+                    _is_routine(val) or isinstance(val, type) or isinstance(val, property)
+                ) and _from_module(module, val):
+                    visit(val, name + "." + valname)
+
+    visit(module, "<module>")
+    # No function or class can have that name, so the key puts the module
+    # first and leaves the others in the order of their names.
+    found.sort(key=lambda pair: (pair[0] != "<module>", pair[0]))
+    return found
+
+
+# The types of `inspect.isroutine`, which needs more of the stdlib than the
+# binary freezes.
+_FunctionType = type(_indent_of)
+_BuiltinFunctionType = type(len)
+_MethodType = type(_Capture().write)
+_MethodWrapperType = type(object().__str__)
+
+
+def _unwrap(obj):
+    """The function under the wrappers that ``functools.wraps`` made."""
+    seen = set()
+    while hasattr(obj, "__wrapped__") and id(obj) not in seen:
+        seen.add(id(obj))
+        obj = obj.__wrapped__
+    return obj
+
+
+def _is_method_descriptor(obj):
+    if isinstance(obj, (type, _MethodType, _FunctionType)):
+        return False
+    t = type(obj)
+    return hasattr(t, "__get__") and not hasattr(t, "__set__") and not hasattr(t, "__delete__")
+
+
+def _is_routine(obj):
+    """Returns ``True`` if *obj* is a function or a method, ``False``
+    otherwise."""
+    return isinstance(
+        obj, (_FunctionType, _BuiltinFunctionType, _MethodType, _MethodWrapperType)
+    ) or _is_method_descriptor(obj)
+
+
+def _from_module(module, obj):
+    """Returns ``True`` if *module* defines *obj*, ``False`` otherwise.
+
+    The answer comes from the name of the module that *obj* carries, as
+    ``DocTestFinder`` decides for a module in ``sys.modules``. The module of a
+    test run is not there, and the wrapper that a decorator from another
+    module returns has the globals of that module.
+    """
+    name = getattr(obj, "__module__", None)
+    if name is not None:
+        return name == module.__name__
+    if hasattr(obj, "__objclass__"):
+        return obj.__objclass__.__module__ == module.__name__
+    return True
 
 
 def _run_example(source, module):
