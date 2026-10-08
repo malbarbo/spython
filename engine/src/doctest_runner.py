@@ -232,6 +232,9 @@ def _run_example(source, module):
     exc_line = None
     try:
         exec(compile(source, "<doctest>", "single"), vars(module))
+    except KeyboardInterrupt:
+        # The student stopped the run, which is not something the example did.
+        raise
     except BaseException as e:
         exc_line = _exception_line(e, module)
     finally:

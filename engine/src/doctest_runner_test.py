@@ -179,6 +179,24 @@ def test_run_refuses_two_statements_in_one_example():
     assert "SyntaxError: multiple statements found while compiling a single statement" in err
 
 
+def test_run_stops_at_an_interrupt():
+    source = (
+        "def f() -> None:\n"
+        '    """\n'
+        "    >>> f()\n"
+        "    KeyboardInterrupt\n"
+        '    """\n'
+        "    raise KeyboardInterrupt\n"
+    )
+    old = _sys.stdout
+    try:
+        _run(source)
+    except KeyboardInterrupt:
+        assert _sys.stdout is old
+    else:
+        raise AssertionError("expected the interrupt to stop the run")
+
+
 def test_exception_line_names_the_module_of_an_imported_class():
     import types
 
