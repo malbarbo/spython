@@ -268,6 +268,33 @@ Running tests...
 2 tests, 2 successes, 0 failures and 0 errors.
 ```
 
+Examples follow the rules of Python's `doctest` module. The expected
+output ends at a blank line or at the next `>>>`, so a blank line inside
+the output is written as `<BLANKLINE>`. An example that raises an exception
+expects the last line of the traceback, either alone or after a
+`Traceback (most recent call last):` line:
+
+```python
+def first(xs: list[int]) -> int:
+    """
+    >>> first([7, 8])
+    7
+    >>> first([])
+    Traceback (most recent call last):
+    ...
+    IndexError: list index out of range
+    """
+    return xs[0]
+```
+
+Each example holds one statement. The examples of a docstring see the
+names of the module and the names that the examples before them define,
+and a name defined in one docstring does not exist in the others. The
+runner has no options, so a `# doctest:` directive is an error. A doctest
+that would never run is an error too. This happens in a function defined
+inside another function, in a definition under a check of `__name__`, and
+in a `__test__` dictionary.
+
 Use `--verbose` to see all tests (not just failures):
 
 ```sh
