@@ -130,7 +130,8 @@ fn main() -> ExitCode {
         panic!("test panic");
     }
 
-    let command = match cli().run_inner(bpaf::Args::current_args()) {
+    // The name of the executable ends in .exe on Windows.
+    let command = match cli().run_inner(bpaf::Args::current_args().set_name("spython")) {
         Ok(cmd) => cmd,
         Err(err) => {
             err.print_message(80);
