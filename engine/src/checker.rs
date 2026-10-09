@@ -1201,6 +1201,22 @@ fn check_unused_variables(body: &[Stmt], file: File, diagnostics: &mut Vec<Diagn
     }
 }
 
+/// The names that a function with `body` binds in its own scope.
+pub(crate) fn local_names(body: &[Stmt]) -> Vec<&str> {
+    let mut walker = UnusedWalker::default();
+    walker.visit_body(body);
+    let UnusedWalker {
+        locals,
+        globals,
+        nonlocals,
+        ..
+    } = walker;
+    locals
+        .into_iter()
+        .filter(|name| !globals.contains(name) && !nonlocals.contains(name))
+        .collect()
+}
+
 /// What a single scope binds and reads. A nested scope gets its own walker,
 /// and only the names it reads from outside reach the walker of its parent.
 #[derive(Default)]

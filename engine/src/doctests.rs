@@ -13,6 +13,7 @@
 //! docstring locations via `SyntheticMap` / `remap_diagnostics`.
 
 use std::borrow::Cow;
+use std::collections::{BTreeSet, HashSet};
 
 use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
 use ruff_db::files::File;
@@ -875,6 +876,10 @@ pub enum SyntheticLine {
     SyntheticHeader(usize),
     /// A real doctest body line: `(snippet_idx, line_idx_in_snippet)`.
     SyntheticBody(usize, usize),
+    /// A line that copies a name of the module for a snippet that assigns
+    /// it. `remap_diagnostics` drops the diagnostics here, because the
+    /// snippet does not have the line.
+    ModuleCopy,
 }
 
 /// Maps lines of the synthetic source (produced by `build_synthetic_source`)
@@ -884,16 +889,23 @@ pub struct SyntheticMap {
     /// One entry per 0-based line index in the synthetic source.
     pub lines: Vec<SyntheticLine>,
     /// Byte offset in the synthetic source where the verbatim copy of the
-    /// original ends (i.e. where the appended doctest functions begin).
+    /// original ends (i.e. where the appended lines begin).
     pub original_len: u32,
 }
 
 /// Build a synthetic Python source: the original verbatim, then one
 /// `def __spython_doctest_<N>__() -> None:` stub per snippet, with the
 /// snippet's code indented 4 spaces inside the function body.
+///
+/// The runner gives each docstring a copy of the module globals, so a snippet
+/// that assigns a name of the module starts from the module value and leaves
+/// the module alone. The function starts each such name as a local copy of a
+/// module variable `__spython_module_<name>__`. `module_names` holds the
+/// names the module binds.
 pub fn build_synthetic_source(
     original: &str,
     snippets: &[DoctestSnippet],
+    module_names: &HashSet<&str>,
 ) -> (String, SyntheticMap) {
     let mut syn = String::with_capacity(original.len() + 256);
     syn.push_str(original);
@@ -907,7 +919,17 @@ pub fn build_synthetic_source(
     let original_line_count = syn.lines().count();
     let mut line_map: Vec<SyntheticLine> = vec![SyntheticLine::Original; original_line_count];
 
-    for (idx, snippet) in snippets.iter().enumerate() {
+    let copies: Vec<Vec<String>> = snippets
+        .iter()
+        .map(|snippet| copied_names(&snippet.code, module_names))
+        .collect();
+    let all_copies: BTreeSet<&String> = copies.iter().flatten().collect();
+    for name in all_copies {
+        syn.push_str(&format!("{MODULE_COPY_PREFIX}{name}__ = {name}\n"));
+        line_map.push(SyntheticLine::ModuleCopy);
+    }
+
+    for (idx, (snippet, copies)) in snippets.iter().zip(&copies).enumerate() {
         // Blank separator line.
         syn.push('\n');
         line_map.push(SyntheticLine::SyntheticHeader(idx));
@@ -918,6 +940,10 @@ pub fn build_synthetic_source(
         syn.push_str(SYNTHETIC_FN_SUFFIX);
         syn.push_str("() -> None:\n");
         line_map.push(SyntheticLine::SyntheticHeader(idx));
+        for name in copies {
+            syn.push_str(&format!("    {name} = {MODULE_COPY_PREFIX}{name}__\n"));
+            line_map.push(SyntheticLine::ModuleCopy);
+        }
 
         // `String::split('\n')` always yields at least one element, so an empty
         // snippet appears as `[""]` here and falls into the all-empty branch.
@@ -942,6 +968,23 @@ pub fn build_synthetic_source(
             original_len,
         },
     )
+}
+
+const MODULE_COPY_PREFIX: &str = "__spython_module_";
+
+/// The names of `module_names` that `code` assigns at its top level,
+/// sorted. Code that does not parse assigns nothing.
+fn copied_names(code: &str, module_names: &HashSet<&str>) -> Vec<String> {
+    let Ok(parsed) = parse_module(code) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = crate::checker::local_names(parsed.suite())
+        .into_iter()
+        .filter(|name| module_names.contains(name))
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+    names
 }
 
 /// Filter and rewrite diagnostics from a synthetic source:
@@ -1038,7 +1081,7 @@ pub fn remap_diagnostics(
                 Some(snippet) => (snippet, snippet.anchor_range),
                 None => continue,
             },
-            Some(SyntheticLine::Original) | None => continue,
+            Some(SyntheticLine::Original | SyntheticLine::ModuleCopy) | None => continue,
         };
 
         let id = diag.id();
@@ -1182,7 +1225,7 @@ mod tests {
         // can be remapped to the snippet's anchor range instead of dropped.
         let src = "def add(x: int, y: int) -> int:\n    \"\"\"\n    >>> add(1, 2)\n    \"\"\"\n    return x + y\n";
         let ex = extract(src);
-        let (_, map) = build_synthetic_source(src, &ex.snippets);
+        let (_, map) = build_synthetic_source(src, &ex.snippets, &HashSet::new());
         assert!(
             map.lines
                 .iter()
@@ -1232,10 +1275,29 @@ mod tests {
         let ex = extract(src);
         assert_eq!(ex.snippets.len(), 1);
         assert_eq!(ex.snippets[0].code, "add(1, 2)\nadd(-1, 1)");
-        let (syn, map) = build_synthetic_source(src, &ex.snippets);
+        let (syn, map) = build_synthetic_source(src, &ex.snippets, &HashSet::new());
         assert!(syn.contains("def __spython_doctest_0__() -> None:"));
         assert!(map.lines.contains(&SyntheticLine::SyntheticBody(0, 0)));
         assert!(map.lines.contains(&SyntheticLine::SyntheticBody(0, 1)));
+    }
+
+    #[test]
+    fn a_snippet_starts_with_a_copy_of_each_module_name_it_assigns() {
+        let src = "total = 1\n\ndef f() -> int:\n    \"\"\"\n    >>> total = total + 1\n    >>> n = 2\n    \"\"\"\n    return total\n";
+        let ex = extract(src);
+        assert_eq!(ex.snippets.len(), 1);
+        let (syn, map) = build_synthetic_source(src, &ex.snippets, &HashSet::from(["total", "f"]));
+        assert!(syn.contains(
+            "\n__spython_module_total__ = total\n\ndef __spython_doctest_0__() -> None:\n    total = __spython_module_total__\n    total = total + 1\n"
+        ));
+        assert!(!syn.contains("__spython_module_n__"));
+        assert_eq!(
+            map.lines
+                .iter()
+                .filter(|l| **l == SyntheticLine::ModuleCopy)
+                .count(),
+            2
+        );
     }
 
     /// The docstring of `f` in `src`, as [`scan_docstring`] reads it: the

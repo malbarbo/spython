@@ -371,6 +371,12 @@ fn test_runs_the_doctests_of_the_module_and_of_methods_once() {
 }
 
 #[test]
+fn test_gives_a_doctest_a_copy_of_the_names_of_the_module() {
+    let (out, err, success) = run_test(&["doctest_module_name.py"], &[]);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+}
+
+#[test]
 fn test_runs_a_docstring_that_its_object_lost() {
     let (out, err, success) = run_test(&["doctest_lost_docstring.py"], &[]);
     assert!(success, "stdout: {out}\nstderr: {err}");

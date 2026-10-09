@@ -24,6 +24,7 @@ use ty_project::metadata::Options;
 use ty_project::metadata::options::{EnvironmentOptions, Rules};
 use ty_project::metadata::python_version::SupportedPythonVersion;
 use ty_project::{Db, ProjectDatabase, ProjectMetadata};
+use ty_python_core::{global_scope, place_table};
 use ty_python_semantic::Db as _;
 use ty_python_semantic::lint::Level as TyLevel;
 use ty_python_semantic::{HasType, SemanticModel};
@@ -325,7 +326,13 @@ pub fn check_file_doctests(
         return diagnostics;
     }
 
-    let (syn_source, syn_map) = doctests::build_synthetic_source(source_str, &extraction.snippets);
+    let module_names: HashSet<&str> = place_table(db, global_scope(db, db.program_file(file)))
+        .symbols()
+        .filter(|symbol| symbol.is_bound())
+        .map(|symbol| symbol.name().as_str())
+        .collect();
+    let (syn_source, syn_map) =
+        doctests::build_synthetic_source(source_str, &extraction.snippets, &module_names);
 
     // A doctest can name what the file around it imports, so the check gets
     // the file's first-party imports as the modules to resolve against --
