@@ -546,8 +546,12 @@ pub(crate) mod _spython_scene {
         })
     }
 
+    /// The number at `obj.name`, or 0 when it is within [`FP_EPSILON`] of
+    /// 0. A sine or a cosine leaves a residue near 0 that differs from one
+    /// libm to another, and the svg would write the residue in full.
     fn float(obj: &PyObject, name: &'static str, vm: &VirtualMachine) -> PyResult<f64> {
-        Ok(ArgIntoFloat::try_from_object(vm, obj.get_attr(name, vm)?)?.into())
+        let v: f64 = ArgIntoFloat::try_from_object(vm, obj.get_attr(name, vm)?)?.into();
+        Ok(if v.abs() < FP_EPSILON { 0.0 } else { v })
     }
 
     fn string(obj: &PyObject, name: &'static str, vm: &VirtualMachine) -> PyResult<String> {
