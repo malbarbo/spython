@@ -81,7 +81,9 @@ pub(crate) mod _spython_scene {
                 }
             }
             "_Bitmap" => {
-                let rect = rotated_rect(&*image.get_attr("box", vm)?, false, false, vm)?;
+                let flip_h = image.get_attr("flip_horizontal", vm)?.try_to_bool(vm)?;
+                let flip_v = image.get_attr("flip_vertical", vm)?.try_to_bool(vm)?;
+                let rect = rotated_rect(&*image.get_attr("box", vm)?, flip_h, flip_v, vm)?;
                 let loaded = image.get_attr("loaded", vm)?;
                 let loaded = loaded
                     .downcast_ref::<PyLoadedImage>()
