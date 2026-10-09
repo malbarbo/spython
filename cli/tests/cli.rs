@@ -988,6 +988,17 @@ fn check_follows_an_import_that_only_a_doctest_makes() {
 }
 
 #[test]
+fn show_svg_writes_in_order_with_print() {
+    let source =
+        "from spython import show_svg\n\nprint(\"first\")\nshow_svg(\"<svg/>\")\nprint(\"last\")\n";
+    let dir = new_dir_with("show_svg", &[("main.py", source)]);
+    let (out, err, success) = run_spython_native(&["main.py"], &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "first\n<svg/>\nlast\n");
+}
+
+#[test]
 fn check_ignores_a_virtual_env_that_is_not_there() {
     let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);
     let output = spython()

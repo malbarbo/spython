@@ -20,7 +20,7 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     let show_svg_fn = vm.new_function(
         "show_svg",
         |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
-            host::draw_svg(&svg);
+            host::draw_svg(&svg, vm)?;
             Ok(vm.ctx.none())
         },
     );

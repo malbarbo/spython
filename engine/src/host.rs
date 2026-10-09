@@ -11,7 +11,7 @@
 use sinteract::scene::FontStyle;
 
 /// Put a drawing where whoever is watching will see it: on the page under
-/// WASM, and on stdout natively.
+/// WASM, and on `sys.stdout` natively.
 pub use target::draw_svg;
 
 /// The kind of the event waiting on the page, the name of the key and the
