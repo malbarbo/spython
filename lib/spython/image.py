@@ -54,8 +54,8 @@ _SQRT3_2: float = 0.8660254037844386
 
 class Point:
     def __init__(self, x: float, y: float) -> None:
-        self.x: float = x
-        self.y: float = y
+        self.x: float = float(x)
+        self.y: float = float(y)
 
 
 def _point_translate(p: Point, dx: float, dy: float) -> Point:

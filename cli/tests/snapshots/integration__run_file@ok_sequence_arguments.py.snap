@@ -2,7 +2,7 @@
 source: cli/tests/integration.rs
 ---
 STDOUT
-10
+10.0
 20.0
-30
+30.0
 STDERR
