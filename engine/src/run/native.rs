@@ -51,10 +51,6 @@ pub fn run_main(file: &Path, level: Level) -> Result<(), SpythonError> {
 
 /// Run doctests for the given files.
 pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), SpythonError> {
-    if files.is_empty() {
-        return Ok(());
-    }
-
     // A file that is not there is an error, the way it is for `run`. Silently
     // reporting no failures for a name the student mistyped is worse than
     // saying the name is wrong.
