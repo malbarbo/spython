@@ -226,6 +226,19 @@ fn help_names_the_program_in_its_usage() {
 }
 
 #[test]
+fn help_shows_the_help_of_the_command_it_names() {
+    let (out, err, success) = run_spython_native(&["help", "run"], Path::new("."));
+    assert!(success, "stderr: {err}");
+    let (expected, _, _) = run_spython_native(&["run", "--help"], Path::new("."));
+    assert_eq!(out, expected);
+
+    // A name that is not a command is not a file to run either.
+    let (out, err, success) = run_spython_native(&["help", "nosuch"], Path::new("."));
+    assert!(success, "stderr: {err}");
+    assert!(out.contains("Usage: spython COMMAND ..."), "stdout: {out}");
+}
+
+#[test]
 fn bare_level_starts_repl() {
     // `spython -l N` with no file or subcommand starts the REPL at level N
     // (the level flag is routed into an injected `repl`).

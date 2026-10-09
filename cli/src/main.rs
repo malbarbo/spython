@@ -79,7 +79,11 @@ enum Command {
     },
     /// Show help information
     #[bpaf(command)]
-    Help,
+    Help {
+        /// Command to show the help of
+        #[bpaf(positional("COMMAND"), optional)]
+        command: Option<String>,
+    },
 }
 
 /// The parser, with the two shorthands the students use most as alternatives
@@ -100,6 +104,19 @@ fn cli() -> bpaf::OptionParser<Option<Command>> {
         .version(engine::version_short().as_str())
         .descr("A student version of Python with type checking and teaching levels")
         .footer("Levels: 0=functions, 1=selection, 2=user types, 3=repetition, 4=classes, 5=full")
+}
+
+/// Print what `parser` answers to `args`, which ask it for its help.
+fn show_help<T>(parser: bpaf::OptionParser<T>, args: &[&str]) -> ExitCode {
+    let Err(err) = parser.run_inner(bpaf::Args::from(args).set_name("spython")) else {
+        return ExitCode::SUCCESS;
+    };
+    err.print_message(80);
+    if err.exit_code() == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn main() -> ExitCode {
@@ -126,12 +143,12 @@ fn main() -> ExitCode {
         level: None,
         file: None,
     }) {
-        Command::Help => {
-            if let Err(err) = cli().run_inner(bpaf::Args::from(&["--help"]).set_name("spython")) {
-                err.print_message(80);
-            }
-            return ExitCode::SUCCESS;
-        }
+        Command::Help { command: None } => return show_help(cli(), &["--help"]),
+        // The commands alone, without the shorthands, so that a name that is
+        // not a command lists the commands and does not run as a file.
+        Command::Help {
+            command: Some(name),
+        } => return show_help(crate::command().to_options(), &[&name, "--help"]),
         Command::Repl { file, level } => {
             let cfg = config::load();
             run_interactive(file.as_deref(), level.unwrap_or(cfg.level), cfg.theme)

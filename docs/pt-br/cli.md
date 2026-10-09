@@ -356,7 +356,7 @@ spython format < arquivo.py
 | `spython check arquivo` | Verifica os tipos sem executar |
 | `spython test arquivos` | Executa os doctests |
 | `spython format [--check] caminhos` | Formata o código, ou diz o que não está formatado |
-| `spython help` | Exibe ajuda |
+| `spython help [comando]` | Exibe a ajuda do programa ou de um comando |
 
 # Opções
 

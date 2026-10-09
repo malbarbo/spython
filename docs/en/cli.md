@@ -355,7 +355,7 @@ spython format < file.py
 | `spython check file` | Check the types without running |
 | `spython test files` | Run doctests |
 | `spython format [--check] paths` | Format code, or say what is not formatted |
-| `spython help` | Show help |
+| `spython help [command]` | Show help, of the program or of a command |
 
 # Options
 
