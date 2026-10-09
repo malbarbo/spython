@@ -415,10 +415,13 @@ fn highlight_python(line: &str, commands: &[(&'static str, bool)], t: &Palette) 
     while let Some(&c) = b.get(i) {
         match c {
             b'#' => {
+                // The input can hold more than one line, and the next one is
+                // code again.
+                let start = i;
+                i = cut(line, i..).find('\n').map_or(b.len(), |n| i + n);
                 out.push_str(t.comment);
-                out.push_str(cut(line, i..));
+                out.push_str(cut(line, start..i));
                 out.push_str(RESET);
-                return out;
             }
             b'\'' | b'"' => {
                 let start = i;
@@ -723,5 +726,17 @@ mod tests {
         // And so does the last line itself with the cursor back in it: the
         // key is being pressed to correct `y`, not to run the two lines.
         assert_eq!(enter_action("x = 1\ny = 2", 10), Some(0));
+    }
+
+    #[test]
+    fn a_comment_ends_at_the_end_of_its_line() {
+        let t = &ONE_DARK;
+        let out = highlight_python("x = 1  # one\nif x:", &[], t);
+        let comment = format!("{}# one{RESET}\n", t.comment);
+        assert!(out.contains(&comment), "got: {out:?}");
+        assert!(
+            out.ends_with(&format!("{}if{RESET} x:", t.keyword)),
+            "got: {out:?}"
+        );
     }
 }
