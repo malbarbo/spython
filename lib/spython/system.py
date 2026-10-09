@@ -20,9 +20,6 @@ try:
 except ImportError:
     _open_printer = None
 
-# The image of a data URI or of a file, with the size of the original, which
-# a bitmap keeps so the scene draws it with no decode, and the svg of the
-# scene of an image.
 from _spython_scene import load_bitmap, load_image, to_svg as scene_svg  # type: ignore[import-not-found]
 
 

@@ -274,6 +274,7 @@ class _Text(Image):
         self.font: Font = font
 
 
+# A bitmap keeps the decoded image, so the scene draws it with no new decode.
 class _Bitmap(Image):
     def __init__(self, box: _Box, loaded: object) -> None:
         self.box: _Box = box
