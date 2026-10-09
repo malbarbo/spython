@@ -824,7 +824,7 @@ def circle(radius: float, *style_args: Style) -> Image:
 def line(x: float, y: float, *style_args: Style) -> Image:
     s: Style = _make_style(*style_args)
     return _fix_position(
-        _Path(s, [_MoveTo(Point(0.0, 0.0)), _LineTo(Point(float(x), float(y)))], False)
+        _Path(s, [_MoveTo(Point(0.0, 0.0)), _LineTo(Point(x, y))], False)
     )
 
 
@@ -996,7 +996,7 @@ def polygon(
         if isinstance(p, Point):
             pts.append(p)
         else:
-            pts.append(Point(float(p[0]), float(p[1])))
+            pts.append(Point(p[0], p[1]))
     return _fix_position(_points_to_path(pts, _make_style(*style_args)))
 
 
@@ -1483,8 +1483,8 @@ def place_line(
                 _Path(
                     s,
                     [
-                        _MoveTo(Point(float(x1), float(y1))),
-                        _LineTo(Point(float(x2), float(y2))),
+                        _MoveTo(Point(x1, y1)),
+                        _LineTo(Point(x2, y2)),
                     ],
                     False,
                 ),
@@ -1507,7 +1507,7 @@ def place_polygon(
         if isinstance(p, Point):
             pts.append(p)
         else:
-            pts.append(Point(float(p[0]), float(p[1])))
+            pts.append(Point(p[0], p[1]))
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
@@ -1597,8 +1597,8 @@ def add_line(
             _Path(
                 s,
                 [
-                    _MoveTo(Point(float(x1), float(y1))),
-                    _LineTo(Point(float(x2), float(y2))),
+                    _MoveTo(Point(x1, y1)),
+                    _LineTo(Point(x2, y2)),
                 ],
                 False,
             ),
@@ -1616,7 +1616,7 @@ def add_polygon(
         if isinstance(p, Point):
             pts.append(p)
         else:
-            pts.append(Point(float(p[0]), float(p[1])))
+            pts.append(Point(p[0], p[1]))
     s: Style = _make_style(*style_args)
     return _fix_position(_Combination(img, _points_to_path(pts, s)))
 
