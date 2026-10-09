@@ -193,40 +193,51 @@ class Image:
 
 
 class _Box:
-    def __init__(
-        self, center: Point, width: float, height: float, angle: float
-    ) -> None:
+    """The image of a rectangle under an affine map. `x_axis` goes from the
+    middle of the left side to the middle of the right side, and `y_axis`
+    from the middle of the top side to the middle of the bottom side. A flip
+    makes the two axes a mirror of a rotation."""
+
+    def __init__(self, center: Point, x_axis: Point, y_axis: Point) -> None:
         self.center: Point = center
-        self.width: float = width
-        self.height: float = height
-        self.angle: float = angle
+        self.x_axis: Point = x_axis
+        self.y_axis: Point = y_axis
+
+
+def _box_of_size(w: float, h: float) -> _Box:
+    return _Box(Point(w / 2.0, h / 2.0), Point(w, 0.0), Point(0.0, h))
 
 
 def _box_translate(b: _Box, dx: float, dy: float) -> _Box:
-    return _Box(_point_translate(b.center, dx, dy), b.width, b.height, b.angle)
+    return _Box(_point_translate(b.center, dx, dy), b.x_axis, b.y_axis)
 
 
 def _box_box(b: _Box) -> tuple[Point, Point]:
-    hw: float = b.width / 2.0
-    hh: float = b.height / 2.0
-    dx: float = hw * abs(_cos_deg(b.angle)) + hh * abs(_sin_deg(b.angle))
-    dy: float = hw * abs(_sin_deg(b.angle)) + hh * abs(_cos_deg(b.angle))
+    dx: float = (abs(b.x_axis.x) + abs(b.y_axis.x)) / 2.0
+    dy: float = (abs(b.x_axis.y) + abs(b.y_axis.y)) / 2.0
     return (_point_translate(b.center, -dx, -dy), _point_translate(b.center, dx, dy))
 
 
 def _box_rotate(b: _Box, center: Point, angle: float) -> _Box:
+    origin: Point = Point(0.0, 0.0)
     return _Box(
-        _point_rotate(b.center, center, angle), b.width, b.height, b.angle + angle
+        _point_rotate(b.center, center, angle),
+        _point_rotate(b.x_axis, origin, angle),
+        _point_rotate(b.y_axis, origin, angle),
     )
 
 
 def _box_scale(b: _Box, x_factor: float, y_factor: float) -> _Box:
     c: Point = Point(b.center.x * x_factor, b.center.y * y_factor)
-    return _Box(c, b.width * x_factor, b.height * y_factor, b.angle)
+    return _Box(
+        c,
+        Point(b.x_axis.x * x_factor, b.x_axis.y * x_factor),
+        Point(b.y_axis.x * y_factor, b.y_axis.y * y_factor),
+    )
 
 
 def _box_flip(b: _Box, point_flip: _Callable[[Point], Point]) -> _Box:
-    return _Box(point_flip(b.center), b.width, b.height, -b.angle)
+    return _Box(point_flip(b.center), point_flip(b.x_axis), point_flip(b.y_axis))
 
 
 class _Path(Image):
@@ -254,32 +265,19 @@ class _Text(Image):
         style: Style,
         box: _Box,
         text: str,
-        flip_vertical: bool,
-        flip_horizontal: bool,
         font: Font,
     ) -> None:
         self.style: Style = style
         self.box: _Box = box
         self.text: str = text
-        self.flip_vertical: bool = flip_vertical
-        self.flip_horizontal: bool = flip_horizontal
         self.font: Font = font
 
 
 class _Bitmap(Image):
-    def __init__(
-        self,
-        box: _Box,
-        data_uri: str,
-        loaded: object,
-        flip_vertical: bool,
-        flip_horizontal: bool,
-    ) -> None:
+    def __init__(self, box: _Box, data_uri: str, loaded: object) -> None:
         self.box: _Box = box
         self.data_uri: str = data_uri
         self.loaded: object = loaded
-        self.flip_vertical: bool = flip_vertical
-        self.flip_horizontal: bool = flip_horizontal
 
 
 empty: Image = _Path(_style_none, [], True)
@@ -339,8 +337,6 @@ def _translate(img: Image, dx: float, dy: float) -> Image:
             img.style,
             _box_translate(img.box, dx, dy),
             img.text,
-            img.flip_vertical,
-            img.flip_horizontal,
             img.font,
         )
     if isinstance(img, _Bitmap):
@@ -348,8 +344,6 @@ def _translate(img: Image, dx: float, dy: float) -> Image:
             _box_translate(img.box, dx, dy),
             img.data_uri,
             img.loaded,
-            img.flip_vertical,
-            img.flip_horizontal,
         )
     return img
 
@@ -1180,7 +1174,7 @@ def text(
     css: str = _font._to_css(f)
     w, h = _system.text_metrics(txt, css)
     s: Style = _make_style(*style_args)
-    return _Text(s, _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), txt, False, False, f)
+    return _Text(s, _box_of_size(w, h), txt, f)
 
 
 # **************************
@@ -1195,9 +1189,7 @@ def bitmap(path: str) -> Image:
 def bitmap_data_uri(data_uri: str) -> Image:
     w, h = _system.bitmap_size(data_uri)
     loaded = _system.load_image(data_uri)
-    return _Bitmap(
-        _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), data_uri, loaded, False, False
-    )
+    return _Bitmap(_box_of_size(w, h), data_uri, loaded)
 
 
 # **************************
@@ -1228,8 +1220,6 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
             img.style,
             _box_rotate(img.box, center, angle),
             img.text,
-            img.flip_vertical,
-            img.flip_horizontal,
             img.font,
         )
     if isinstance(img, _Bitmap):
@@ -1237,8 +1227,6 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
             _box_rotate(img.box, center, angle),
             img.data_uri,
             img.loaded,
-            img.flip_vertical,
-            img.flip_horizontal,
         )
     return img
 
@@ -1270,8 +1258,6 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
             img.style,
             _box_scale(img.box, x_factor, y_factor),
             img.text,
-            img.flip_vertical,
-            img.flip_horizontal,
             img.font,
         )
     if isinstance(img, _Bitmap):
@@ -1279,44 +1265,32 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
             _box_scale(img.box, x_factor, y_factor),
             img.data_uri,
             img.loaded,
-            img.flip_vertical,
-            img.flip_horizontal,
         )
     return img
 
 
 def flip_horizontal(img: Image) -> Image:
-    return _fix_position(_flip(img, _point_flip_x, True, False))
+    return _fix_position(_flip(img, _point_flip_x))
 
 
 def flip_vertical(img: Image) -> Image:
-    return _fix_position(_flip(img, _point_flip_y, False, True))
+    return _fix_position(_flip(img, _point_flip_y))
 
 
-def _flip(
-    img: Image, point_flip: _Callable[[Point], Point], fh: bool, fv: bool
-) -> Image:
+def _flip(img: Image, point_flip: _Callable[[Point], Point]) -> Image:
     if isinstance(img, _Path):
         return _Path(
             img.style, [_cmd_flip(c, point_flip) for c in img.commands], img.closed
         )
     if isinstance(img, _Combination):
-        return _Combination(
-            _flip(img.a, point_flip, fh, fv), _flip(img.b, point_flip, fh, fv)
-        )
+        return _Combination(_flip(img.a, point_flip), _flip(img.b, point_flip))
     if isinstance(img, _Crop):
-        return _Crop(
-            _box_flip(img.box, point_flip), _flip(img.image, point_flip, fh, fv)
-        )
+        return _Crop(_box_flip(img.box, point_flip), _flip(img.image, point_flip))
     if isinstance(img, _Text):
-        new_fh: bool = (not img.flip_horizontal) if fh else img.flip_horizontal
-        new_fv: bool = (not img.flip_vertical) if fv else img.flip_vertical
         return _Text(
             img.style,
             _box_flip(img.box, point_flip),
             img.text,
-            new_fv,
-            new_fh,
             img.font,
         )
     if isinstance(img, _Bitmap):
@@ -1324,8 +1298,6 @@ def _flip(
             _box_flip(img.box, point_flip),
             img.data_uri,
             img.loaded,
-            (not img.flip_vertical) if fv else img.flip_vertical,
-            (not img.flip_horizontal) if fh else img.flip_horizontal,
         )
     return img
 
@@ -1346,9 +1318,7 @@ def color_frame(img: Image, color: _Color) -> Image:
 def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
     w = _positive(float(w))
     h = _positive(float(h))
-    return _Crop(
-        _Box(Point(w / 2.0, h / 2.0), w, h, 0.0), _translate(img, -float(x), -float(y))
-    )
+    return _Crop(_box_of_size(w, h), _translate(img, -float(x), -float(y)))
 
 
 def crop_align(

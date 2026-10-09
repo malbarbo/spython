@@ -16,8 +16,8 @@ pub(crate) mod _spython_scene {
         PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
     use sinteract::scene::{
-        Bitmap, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path, PathBuilder,
-        PathStyle, RotatedRect, Scene, Text, TextSpec,
+        Bitmap, ClipPath, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path,
+        PathBuilder, PathStyle, RotatedRect, Sampling, Scene, Text, TextSpec,
     };
 
     /// The image in `data_uri`, which a `_Bitmap` keeps, so a frame draws it
@@ -71,9 +71,19 @@ pub(crate) mod _spython_scene {
                 draw(&*image.get_attr("b", vm)?, scene, vm)?;
             }
             "_Crop" => {
-                let rect = rotated_rect(&*image.get_attr("box", vm)?, false, false, vm)?;
+                let m = affine(&*image.get_attr("box", vm)?, vm)?;
+                let corner = |x: f32, y: f32| apply(m, x, y);
+                let (x0, y0) = corner(-0.5, -0.5);
+                let (x1, y1) = corner(0.5, -0.5);
+                let (x2, y2) = corner(0.5, 0.5);
+                let (x3, y3) = corner(-0.5, 0.5);
+                let clip = ClipPath::builder(FillRule::default(), x0, y0)
+                    .line_to(x1, y1)
+                    .line_to(x2, y2)
+                    .line_to(x3, y3)
+                    .build();
                 let inside = image.get_attr("image", vm)?;
-                scene.clip(rect, |clip| draw(&inside, clip, vm))?;
+                scene.clip(clip, |clip| draw(&inside, clip, vm))?;
             }
             "_Text" => {
                 if let Some(text) = text(image, vm)? {
@@ -81,14 +91,16 @@ pub(crate) mod _spython_scene {
                 }
             }
             "_Bitmap" => {
-                let flip_h = image.get_attr("flip_horizontal", vm)?.try_to_bool(vm)?;
-                let flip_v = image.get_attr("flip_vertical", vm)?.try_to_bool(vm)?;
-                let rect = rotated_rect(&*image.get_attr("box", vm)?, flip_h, flip_v, vm)?;
+                let transform = affine(&*image.get_attr("box", vm)?, vm)?;
                 let loaded = image.get_attr("loaded", vm)?;
                 let loaded = loaded
                     .downcast_ref::<PyLoadedImage>()
                     .ok_or_else(|| vm.new_type_error("a bitmap needs the image of load_image"))?;
-                scene.add_bitmap(Bitmap::fit(loaded.image.clone(), rect));
+                scene.add_bitmap(Bitmap {
+                    image: loaded.image.clone(),
+                    transform,
+                    sampling: Sampling::Smooth,
+                });
             }
             _ => return Err(vm.new_type_error(format!("cannot draw a {class}"))),
         }
@@ -183,9 +195,7 @@ pub(crate) mod _spython_scene {
     fn text(image: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Text>> {
         let style = Style::read(&*image.get_attr("style", vm)?, vm)?;
         let font = image.get_attr("font", vm)?;
-        let flip_h = image.get_attr("flip_horizontal", vm)?.try_to_bool(vm)?;
-        let flip_v = image.get_attr("flip_vertical", vm)?.try_to_bool(vm)?;
-        let rect = rotated_rect(&*image.get_attr("box", vm)?, flip_h, flip_v, vm)?;
+        let transform = affine(&*image.get_attr("box", vm)?, vm)?;
         let spec = TextSpec {
             size: float(&font, "size", vm)? as f32,
             family: string(&font, "family", vm)?.into(),
@@ -201,9 +211,17 @@ pub(crate) mod _spython_scene {
             },
             text: string(image, "text", vm)?,
         };
-        let Some(mut text) = spec.fit(rect) else {
+        // The unit rectangle gives the affine that shrinks the text to a unit
+        // box, which the affine of the box then takes to the canvas.
+        let unit = RotatedRect {
+            w: 1.0,
+            h: 1.0,
+            ..RotatedRect::default()
+        };
+        let Some(mut text) = spec.fit(unit) else {
             return Ok(None);
         };
+        text.transform = compose(transform, text.transform);
         let path_style = style.path_style();
         text.fill = path_style.fill;
         text.stroke = path_style.stroke;
@@ -212,22 +230,35 @@ pub(crate) mod _spython_scene {
         Ok(Some(text))
     }
 
-    /// The rectangle of a `_Box`. A flip mirrors it.
-    fn rotated_rect(
-        b: &PyObject,
-        flip_h: bool,
-        flip_v: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<RotatedRect> {
-        let center = b.get_attr("center", vm)?;
-        let sign = |flip: bool| if flip { -1.0 } else { 1.0 };
-        Ok(RotatedRect {
-            cx: float(&center, "x", vm)? as f32,
-            cy: float(&center, "y", vm)? as f32,
-            w: (float(b, "width", vm)? * sign(flip_h)) as f32,
-            h: (float(b, "height", vm)? * sign(flip_v)) as f32,
-            angle_deg: float(b, "angle", vm)? as f32,
-        })
+    /// The affine of a `_Box`, which takes the unit square centred on the
+    /// origin to the box.
+    fn affine(b: &PyObject, vm: &VirtualMachine) -> PyResult<[f32; 6]> {
+        let point = |name: &'static str| -> PyResult<(f32, f32)> {
+            let p = b.get_attr(name, vm)?;
+            Ok((float(&p, "x", vm)? as f32, float(&p, "y", vm)? as f32))
+        };
+        let (cx, cy) = point("center")?;
+        let (ux, uy) = point("x_axis")?;
+        let (vx, vy) = point("y_axis")?;
+        Ok([ux, uy, vx, vy, cx, cy])
+    }
+
+    /// The affine that applies `inner` and then `outer`.
+    fn compose(outer: [f32; 6], inner: [f32; 6]) -> [f32; 6] {
+        let [a, b, c, d, _, _] = outer;
+        let (e, f) = apply(outer, inner[4], inner[5]);
+        [
+            a * inner[0] + c * inner[1],
+            b * inner[0] + d * inner[1],
+            a * inner[2] + c * inner[3],
+            b * inner[2] + d * inner[3],
+            e,
+            f,
+        ]
+    }
+
+    fn apply(m: [f32; 6], x: f32, y: f32) -> (f32, f32) {
+        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
     }
 
     /// A `Style` of `spython.style`, with a default for each attribute left
