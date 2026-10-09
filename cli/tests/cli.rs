@@ -2894,6 +2894,26 @@ fn format_fails_on_a_file_it_cannot_read() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn format_goes_on_after_a_file_it_cannot_write() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let dir = new_dir_with("format", &[("a.py", UNFORMATTED), ("b.py", UNFORMATTED)]);
+    let a = dir.join("a.py");
+    std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o444)).expect("chmod a.py");
+    // Root writes a file whatever its mode.
+    if std::fs::OpenOptions::new().write(true).open(&a).is_ok() {
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
+    let (_, err, success) = run_spython_native(&["format", "."], &dir);
+    assert!(!success, "stderr: {err}");
+    assert!(err.contains("cannot format './a.py'"), "stderr: {err}");
+    assert_eq!(file_in(&dir, "b.py"), FORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn format_reads_stdin_and_writes_stdout() {
     let (out, err, success) = run_format_stdin(&[], UNFORMATTED);

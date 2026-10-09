@@ -10,8 +10,8 @@ use super::format_source;
 /// what stdin holds and write it to stdout. `check` writes nothing, and fails
 /// naming the files that are not formatted already.
 ///
-/// A file the formatter turns down does not stop the others, and the run
-/// fails at the end all the same.
+/// A file the formatter turns down or that cannot be written does not stop
+/// the others, and the run fails at the end all the same.
 pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
     if paths.is_empty() {
         return run_stdin(check);
@@ -41,9 +41,8 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
         }
         if check {
             unformatted.push(file);
-        } else {
-            std::fs::write(&file, formatted)
-                .map_err(|err| SpythonError::FileWrite { path: file, err })?;
+        } else if let Err(err) = std::fs::write(&file, formatted) {
+            rejected.push((file, err.to_string()));
         }
     }
     if rejected.is_empty() && unformatted.is_empty() {

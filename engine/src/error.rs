@@ -10,9 +10,6 @@ pub enum SpythonError {
     /// there or because the filesystem turned the read down.
     FileRead { path: PathBuf, err: std::io::Error },
 
-    /// A file the user named that could not be written.
-    FileWrite { path: PathBuf, err: std::io::Error },
-
     /// A path that names something other than a file, such as a directory.
     PathIsNotAFile { path: PathBuf },
 
@@ -51,9 +48,6 @@ pub fn show_error(err: &SpythonError) {
     match err {
         SpythonError::FileRead { path, err } => {
             eprintln!("spython: cannot read '{}': {err}", path.display());
-        }
-        SpythonError::FileWrite { path, err } => {
-            eprintln!("spython: cannot write '{}': {err}", path.display());
         }
         SpythonError::PathIsNotAFile { path } => {
             eprintln!("spython: '{}' is not a file", path.display());
