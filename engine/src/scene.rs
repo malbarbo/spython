@@ -10,6 +10,7 @@ pub(crate) use _spython_scene::draw;
 
 #[rustpython_vm::pymodule(name = "_spython_scene")]
 pub(crate) mod _spython_scene {
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use rustpython_vm::builtins::PyStrRef;
@@ -90,7 +91,7 @@ pub(crate) mod _spython_scene {
     /// the nesting limit of sinteract drops nothing.
     pub(crate) fn draw(image: &PyObject, scene: &mut Scene, vm: &VirtualMachine) -> PyResult<()> {
         let mut runs = Vec::new();
-        walk(image, &None, &mut runs, vm)?;
+        walk(image, &mut runs, vm)?;
         for (region, leaves) in runs {
             let Some(region) = region else {
                 leaves.into_iter().for_each(|leaf| leaf.add_to(scene));
@@ -133,51 +134,57 @@ pub(crate) mod _spython_scene {
     }
 
     /// Append the elements of `image` to `runs`, which groups the elements
-    /// in a row that share a region, in drawing order.
+    /// in a row that share a region, in drawing order. The walk keeps the
+    /// nodes still to visit on a stack of its own, so an image of any depth
+    /// fits in the native stack.
     fn walk(
         image: &PyObject,
-        region: &Region,
         runs: &mut Vec<(Region, Vec<Leaf>)>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let class = image.class().name().to_owned();
-        let leaf = match class.as_str() {
-            "_Path" => path(image, vm)?.map(Leaf::Path),
-            "_Combination" => {
-                walk(&*image.get_attr("a", vm)?, region, runs, vm)?;
-                walk(&*image.get_attr("b", vm)?, region, runs, vm)?;
-                None
+        let mut pending = vec![(image.to_owned(), Rc::new(None))];
+        while let Some((image, region)) = pending.pop() {
+            let class = image.class().name().to_owned();
+            let leaf = match class.as_str() {
+                "_Path" => path(&image, vm)?.map(Leaf::Path),
+                "_Combination" => {
+                    // The stack gives back the last node first, and `a`
+                    // draws before `b`.
+                    pending.push((image.get_attr("b", vm)?, Rc::clone(&region)));
+                    pending.push((image.get_attr("a", vm)?, Rc::clone(&region)));
+                    None
+                }
+                "_Crop" => {
+                    let corners = corners(affine(&*image.get_attr("box", vm)?, vm)?);
+                    let inside = Rc::new(intersect(&region, &corners));
+                    pending.push((image.get_attr("image", vm)?, inside));
+                    None
+                }
+                "_Text" => text(&image, vm)?.map(Leaf::Text),
+                "_Bitmap" => {
+                    let transform = affine(&*image.get_attr("box", vm)?, vm)?;
+                    let loaded = image.get_attr("loaded", vm)?;
+                    let loaded = loaded.downcast_ref::<PyLoadedImage>().ok_or_else(|| {
+                        vm.new_type_error("a bitmap needs the image of load_image")
+                    })?;
+                    Some(Leaf::Bitmap(Bitmap {
+                        image: loaded.image.clone(),
+                        transform,
+                        sampling: Sampling::Smooth,
+                    }))
+                }
+                _ => return Err(vm.new_type_error(format!("cannot draw a {class}"))),
+            };
+            let Some(leaf) = leaf else {
+                continue;
+            };
+            if region.as_ref().as_ref().is_some_and(Vec::is_empty) {
+                continue;
             }
-            "_Crop" => {
-                let corners = corners(affine(&*image.get_attr("box", vm)?, vm)?);
-                let inside = intersect(region, &corners);
-                walk(&*image.get_attr("image", vm)?, &inside, runs, vm)?;
-                None
+            match runs.last_mut() {
+                Some((last, leaves)) if last == region.as_ref() => leaves.push(leaf),
+                _ => runs.push((region.as_ref().clone(), vec![leaf])),
             }
-            "_Text" => text(image, vm)?.map(Leaf::Text),
-            "_Bitmap" => {
-                let transform = affine(&*image.get_attr("box", vm)?, vm)?;
-                let loaded = image.get_attr("loaded", vm)?;
-                let loaded = loaded
-                    .downcast_ref::<PyLoadedImage>()
-                    .ok_or_else(|| vm.new_type_error("a bitmap needs the image of load_image"))?;
-                Some(Leaf::Bitmap(Bitmap {
-                    image: loaded.image.clone(),
-                    transform,
-                    sampling: Sampling::Smooth,
-                }))
-            }
-            _ => return Err(vm.new_type_error(format!("cannot draw a {class}"))),
-        };
-        let Some(leaf) = leaf else {
-            return Ok(());
-        };
-        if region.as_ref().is_some_and(Vec::is_empty) {
-            return Ok(());
-        }
-        match runs.last_mut() {
-            Some((last, leaves)) if last == region => leaves.push(leaf),
-            _ => runs.push((region.clone(), vec![leaf])),
         }
         Ok(())
     }

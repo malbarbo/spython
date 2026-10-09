@@ -1020,6 +1020,23 @@ fn run_and_test_import_beside_the_target_of_a_symlink() {
 }
 
 #[test]
+fn to_svg_draws_a_scene_of_many_placed_images() {
+    let source = indoc! {r##"
+        from spython.image import Image, circle, empty_scene, place_image, to_svg, fill, red
+
+        scene: Image = empty_scene(500, 500)
+        for i in range(5000):
+            scene = place_image(scene, i % 500, 250, circle(3, fill(red)))
+        print(to_svg(scene).count('fill="#ff0000"'))
+    "##};
+    let dir = new_dir_with("deep_scene", &[("main.py", source)]);
+    let (out, err, success) = run_spython_native(&["run", "--level", "5", "main.py"], &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "5000\n");
+}
+
+#[test]
 fn check_ignores_a_virtual_env_that_is_not_there() {
     let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);
     let output = spython()
