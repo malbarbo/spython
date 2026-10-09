@@ -998,6 +998,27 @@ fn show_svg_writes_in_order_with_print() {
     assert_eq!(out, "first\n<svg/>\nlast\n");
 }
 
+/// CPython puts the directory of a script in `sys.path[0]` once its
+/// symlinks resolve, and the checker looks there too.
+#[cfg(unix)]
+#[test]
+fn run_and_test_import_beside_the_target_of_a_symlink() {
+    let main = "from helpers import one\n\n\ndef f() -> int:\n    \"\"\"\n    >>> f()\n    1\n    \"\"\"\n    return one()\n\n\nprint(f())\n";
+    let helpers = "def one() -> int:\n    return 1\n";
+    let dir = new_dir_with(
+        "symlink",
+        &[("lib/main.py", main), ("lib/helpers.py", helpers)],
+    );
+    std::fs::create_dir(dir.join("app")).expect("create app");
+    std::os::unix::fs::symlink("../lib/main.py", dir.join("app/main.py")).expect("symlink");
+    let (run_out, run_err, run_ok) = run_spython_native(&["run", "app/main.py"], &dir);
+    let (test_out, test_err, test_ok) = run_spython_native(&["test", "app/main.py"], &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(run_ok, "stderr: {run_err}");
+    assert_eq!(run_out, "1\n");
+    assert!(test_ok, "stdout: {test_out}, stderr: {test_err}");
+}
+
 #[test]
 fn check_ignores_a_virtual_env_that_is_not_there() {
     let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);

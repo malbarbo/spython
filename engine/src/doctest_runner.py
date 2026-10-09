@@ -353,14 +353,15 @@ def _directory_of(path):
     return path[:cut] or "/"
 
 
-def _run_file(path, source, verbose=False):
+def _run_file(path, source, verbose=False, directory=None):
     """Run the doctests of *source*, which is what the file *path* holds, and
     return the number of failures. A file that exits or raises before its
     tests run counts as one.
 
     The source runs in a module of its own, so that a ``__main__`` guard in it
-    stays shut, and with its own directory ahead of the path, so that its
-    imports resolve the way they do when the file runs on its own.
+    stays shut, and with *directory* ahead of the path, so that its imports
+    resolve the way they do when the file runs on its own. Without
+    *directory*, the directory of *path* goes there.
 
     ``types`` is imported here and not at the top of the file to keep the top
     to ``sys`` and builtins, which is what makes the runner work on every
@@ -375,7 +376,7 @@ def _run_file(path, source, verbose=False):
     modules = dict(_sys.modules)
     path_before = list(_sys.path)
     try:
-        _sys.path.insert(0, _directory_of(path))
+        _sys.path.insert(0, directory or _directory_of(path))
         module = types.ModuleType("__doctest__")
         module.__file__ = path
         keep_source(path, source)
@@ -407,7 +408,8 @@ def _run_file(path, source, verbose=False):
 
 
 def _main(argv):
-    """Run the doctests of the files named in *argv*, one module each.
+    """Run the doctests of the files named in *argv*, one module each. Each
+    name comes before the directory its imports resolve from.
 
     A leading ``--verbose`` reports the examples that pass as well, and with
     more than one file each name is printed before its tests.  The return
@@ -416,11 +418,12 @@ def _main(argv):
     verbose = bool(argv) and argv[0] == "--verbose"
     if verbose:
         argv = argv[1:]
+    files = list(zip(argv[::2], argv[1::2]))
     total = 0
-    for path in argv:
-        if len(argv) > 1:
+    for path, directory in files:
+        if len(files) > 1:
             print(path, flush=True)
         with open(path) as f:
             source = f.read()
-        total += _run_file(path, source, verbose)
+        total += _run_file(path, source, verbose, directory)
     return total

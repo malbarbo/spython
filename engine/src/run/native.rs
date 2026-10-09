@@ -29,18 +29,21 @@ pub fn check_and_read(file: &Path, level: Level) -> Result<Script, SpythonError>
     Ok(Script {
         source: read_file(file)?,
         name: file.to_string_lossy().into_owned(),
-        dir: parent_dir(file),
+        dir: import_dir(file)?,
         modules,
     })
 }
 
-/// The directory a file's imports resolve from, which is the one it sits in,
-/// and the working directory for a bare name.
-fn parent_dir(file: &Path) -> String {
-    match file.parent() {
-        Some(dir) if !dir.as_os_str().is_empty() => dir.to_string_lossy().into_owned(),
-        _ => ".".to_owned(),
-    }
+/// The directory a file's imports resolve from, which is the one it sits in
+/// once its symlinks resolve. CPython puts that directory in `sys.path[0]`,
+/// and the checker looks there too.
+fn import_dir(file: &Path) -> Result<String, SpythonError> {
+    let path = dunce::canonicalize(file).map_err(|err| SpythonError::FileRead {
+        path: file.to_path_buf(),
+        err,
+    })?;
+    let dir = path.parent().unwrap_or(&path);
+    Ok(dir.to_string_lossy().into_owned())
 }
 
 /// Type-check a Python script and run it.
@@ -62,7 +65,10 @@ pub fn run_test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Sp
     if verbose {
         argv.push("--verbose".to_owned());
     }
-    argv.extend(files.iter().map(|file| file.to_string_lossy().into_owned()));
+    for file in files {
+        argv.push(file.to_string_lossy().into_owned());
+        argv.push(import_dir(file)?);
+    }
 
     let script = format!("{DOCTEST_RUNNER}\n{TEST_MAIN}");
     if run_source_with_argv(&script, TEST_NAME, ".", argv).is_err() {
