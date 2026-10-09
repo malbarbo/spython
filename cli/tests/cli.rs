@@ -2883,6 +2883,18 @@ fn format_fails_on_a_path_that_does_not_exist() {
 }
 
 #[test]
+fn format_fails_on_a_file_it_cannot_read() {
+    let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
+    std::fs::write(dir.join("c.py"), b"\xff\n").expect("write c.py");
+    let (_, err, success) = run_spython_native(&["format", "."], &dir);
+    assert!(!success, "stderr: {err}");
+    assert!(err.contains("cannot read './c.py'"), "stderr: {err}");
+    // The files are all read before any file is written.
+    assert_eq!(file_in(&dir, "a.py"), UNFORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn format_reads_stdin_and_writes_stdout() {
     let (out, err, success) = run_format_stdin(&[], UNFORMATTED);
     assert!(success, "stderr: {err}");

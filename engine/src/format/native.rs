@@ -16,16 +16,19 @@ pub fn run(check: bool, paths: &[PathBuf]) -> Result<(), SpythonError> {
     if paths.is_empty() {
         return run_stdin(check);
     }
-    // Every path is walked before any file is written, so a path that does
-    // not exist leaves the files of the others as they were.
+    // Every path is walked and every file read before any file is written,
+    // so a path that does not exist or a file that cannot be read leaves the
+    // others as they were.
     let mut files = Vec::new();
     for path in paths {
-        files.extend(python_files(path)?);
+        for file in python_files(path)? {
+            let source = read_file(&file)?;
+            files.push((file, source));
+        }
     }
     let mut rejected = Vec::new();
     let mut unformatted = Vec::new();
-    for file in files {
-        let source = read_file(&file)?;
+    for (file, source) in files {
         let formatted = match format_source(&source) {
             Ok(formatted) => formatted,
             Err(message) => {
