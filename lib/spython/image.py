@@ -1299,8 +1299,18 @@ def crop_align(
 ) -> Image:
     cw = _positive(float(cw))
     ch = _positive(float(ch))
-    _, dx = _x_place_dx(x_place, width(img), cw)
-    _, dy = _y_place_dy(y_place, height(img), ch)
+    # The offset is negative when the crop is larger than the image, which
+    # puts the image at the right or bottom of the crop.
+    dx: float = width(img) - cw
+    if x_place == LEFT:
+        dx = 0.0
+    elif x_place == CENTER:
+        dx = dx / 2.0
+    dy: float = height(img) - ch
+    if y_place == TOP:
+        dy = 0.0
+    elif y_place == MIDDLE:
+        dy = dy / 2.0
     return crop(img, dx, dy, cw, ch)
 
 
