@@ -64,7 +64,10 @@ enum Command {
         #[bpaf(external(level_arg), fallback(Level::Functions))]
         level: Level,
         /// Python files to run doctests from
-        #[bpaf(positional("FILE"), many)]
+        #[bpaf(
+            positional("FILE"),
+            some("expected `FILE`, pass `--help` for usage information")
+        )]
         files: Vec<PathBuf>,
     },
     /// Format Python files (reads stdin if no path is given)

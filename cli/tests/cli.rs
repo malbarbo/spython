@@ -376,6 +376,13 @@ fn test_gives_each_file_the_modules_of_its_own_directory() {
 }
 
 #[test]
+fn test_without_files_fails() {
+    let (_, err, success) = run_spython_native(&["test"], Path::new("."));
+    assert!(!success, "stderr: {err}");
+    assert!(err.contains("expected `FILE`"), "stderr: {err}");
+}
+
+#[test]
 fn test_no_doctests() {
     let (out, err, success) = run_test(&["no_tests.py"], &[]);
     assert!(success);
