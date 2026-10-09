@@ -85,44 +85,181 @@ pub(crate) mod _spython_scene {
     #[pyclass]
     impl PyLoadedImage {}
 
-    /// Put `image` into `scene`.
+    /// Put `image` into `scene`. A crop inside another becomes one clip of
+    /// the two boxes together, so no clip of the scene holds another, and
+    /// the nesting limit of sinteract drops nothing.
     pub(crate) fn draw(image: &PyObject, scene: &mut Scene, vm: &VirtualMachine) -> PyResult<()> {
-        let class = image.class().name().to_owned();
-        match class.as_str() {
-            "_Path" => {
-                if let Some(path) = path(image, vm)? {
-                    scene.add_path(path);
-                }
+        let mut runs = Vec::new();
+        walk(image, &None, &mut runs, vm)?;
+        for (region, leaves) in runs {
+            let Some(region) = region else {
+                leaves.into_iter().for_each(|leaf| leaf.add_to(scene));
+                continue;
+            };
+            let Some((&(x, y), rest)) = region.split_first() else {
+                continue;
+            };
+            let mut clip = ClipPath::builder(FillRule::default(), x as f32, y as f32);
+            for &(x, y) in rest {
+                clip = clip.line_to(x as f32, y as f32);
             }
+            scene.clip(clip.build(), |inner| {
+                leaves.into_iter().for_each(|leaf| leaf.add_to(inner));
+            });
+        }
+        Ok(())
+    }
+
+    /// The area that the crops around an element leave visible, as the
+    /// corners of a convex polygon. `None` is no crop, and no corners is an
+    /// area with nothing in it.
+    type Region = Option<Vec<(f64, f64)>>;
+
+    /// An element of the scene, before it goes into a clip.
+    enum Leaf {
+        Path(Path),
+        Text(Text),
+        Bitmap(Bitmap),
+    }
+
+    impl Leaf {
+        fn add_to(self, scene: &mut Scene) {
+            match self {
+                Leaf::Path(path) => scene.add_path(path),
+                Leaf::Text(text) => scene.add_text(text),
+                Leaf::Bitmap(bitmap) => scene.add_bitmap(bitmap),
+            }
+        }
+    }
+
+    /// Append the elements of `image` to `runs`, which groups the elements
+    /// in a row that share a region, in drawing order.
+    fn walk(
+        image: &PyObject,
+        region: &Region,
+        runs: &mut Vec<(Region, Vec<Leaf>)>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let class = image.class().name().to_owned();
+        let leaf = match class.as_str() {
+            "_Path" => path(image, vm)?.map(Leaf::Path),
             "_Combination" => {
-                draw(&*image.get_attr("a", vm)?, scene, vm)?;
-                draw(&*image.get_attr("b", vm)?, scene, vm)?;
+                walk(&*image.get_attr("a", vm)?, region, runs, vm)?;
+                walk(&*image.get_attr("b", vm)?, region, runs, vm)?;
+                None
             }
             "_Crop" => {
-                let clip = ClipPath::from_transform(affine(&*image.get_attr("box", vm)?, vm)?);
-                let inside = image.get_attr("image", vm)?;
-                scene.clip(clip, |clip| draw(&inside, clip, vm))?;
+                let corners = corners(affine(&*image.get_attr("box", vm)?, vm)?);
+                let inside = intersect(region, &corners);
+                walk(&*image.get_attr("image", vm)?, &inside, runs, vm)?;
+                None
             }
-            "_Text" => {
-                if let Some(text) = text(image, vm)? {
-                    scene.add_text(text);
-                }
-            }
+            "_Text" => text(image, vm)?.map(Leaf::Text),
             "_Bitmap" => {
                 let transform = affine(&*image.get_attr("box", vm)?, vm)?;
                 let loaded = image.get_attr("loaded", vm)?;
                 let loaded = loaded
                     .downcast_ref::<PyLoadedImage>()
                     .ok_or_else(|| vm.new_type_error("a bitmap needs the image of load_image"))?;
-                scene.add_bitmap(Bitmap {
+                Some(Leaf::Bitmap(Bitmap {
                     image: loaded.image.clone(),
                     transform,
                     sampling: Sampling::Smooth,
-                });
+                }))
             }
             _ => return Err(vm.new_type_error(format!("cannot draw a {class}"))),
+        };
+        let Some(leaf) = leaf else {
+            return Ok(());
+        };
+        if region.as_ref().is_some_and(Vec::is_empty) {
+            return Ok(());
+        }
+        match runs.last_mut() {
+            Some((last, leaves)) if last == region => leaves.push(leaf),
+            _ => runs.push((region.clone(), vec![leaf])),
         }
         Ok(())
+    }
+
+    /// The corners of the box of `m`, in the convention of
+    /// [`ClipPath::from_transform`].
+    fn corners(m: [f32; 6]) -> [(f64, f64); 4] {
+        let [a, b, c, d, e, f] = m.map(f64::from);
+        [(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)]
+            .map(|(u, v)| (a * u + c * v + e, b * u + d * v + f))
+    }
+
+    /// How far a point may be outside a box and still count as inside, so
+    /// a box that matches the region up to rounding does not cut it.
+    const INSIDE_TOLERANCE: f64 = 1.0e-3;
+
+    /// The part of `region` inside the box with `corners`. A box with no
+    /// area, or one that is not finite, leaves nothing.
+    fn intersect(region: &Region, corners: &[(f64, f64); 4]) -> Region {
+        let finite = corners.iter().all(|&(x, y)| x.is_finite() && y.is_finite());
+        let area = cross(corners[0], corners[1], corners[2]);
+        if !finite || area == 0.0 {
+            return Some(Vec::new());
+        }
+        // The sign makes the distance to an edge positive inside the box,
+        // whichever way its corners turn.
+        let sign = area.signum();
+        let edges = || {
+            corners
+                .iter()
+                .copied()
+                .zip(corners.iter().copied().cycle().skip(1))
+        };
+        let distance = |(p, q): ((f64, f64), (f64, f64)), r: (f64, f64)| {
+            sign * cross(p, q, r) / (q.0 - p.0).hypot(q.1 - p.1)
+        };
+        let Some(region) = region else {
+            return Some(corners.to_vec());
+        };
+        let contains = |r: (f64, f64)| edges().all(|e| distance(e, r) >= -INSIDE_TOLERANCE);
+        if region.iter().all(|&r| contains(r)) {
+            return Some(region.clone());
+        }
+        // Sutherland-Hodgman. The box is convex, so each of its edges cuts
+        // away what lies outside it.
+        let mut out = region.clone();
+        for edge in edges() {
+            let points = std::mem::take(&mut out);
+            let sides = points
+                .iter()
+                .copied()
+                .zip(points.iter().copied().cycle().skip(1));
+            for (p, q) in sides {
+                let (dp, dq) = (distance(edge, p), distance(edge, q));
+                if dp >= 0.0 {
+                    out.push(p);
+                }
+                if (dp >= 0.0) != (dq >= 0.0) {
+                    let t = dp / (dp - dq);
+                    out.push((p.0 + t * (q.0 - p.0), p.1 + t * (q.1 - p.1)));
+                }
+            }
+            // A corner on the edge comes back as itself and as the point
+            // where the edge cuts the side.
+            let same =
+                |p: (f64, f64), q: (f64, f64)| (p.0 - q.0).hypot(p.1 - q.1) < INSIDE_TOLERANCE;
+            out.dedup_by(|p, q| same(*p, *q));
+            while let [first, .., last] = out[..]
+                && same(first, last)
+            {
+                out.pop();
+            }
+        }
+        if out.len() < 3 {
+            out.clear();
+        }
+        Some(out)
+    }
+
+    /// Twice the signed area of the triangle `p`, `q`, `r`.
+    fn cross(p: (f64, f64), q: (f64, f64), r: (f64, f64)) -> f64 {
+        (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
     }
 
     /// The path of a `_Path`, or `None` when its commands do not start with
