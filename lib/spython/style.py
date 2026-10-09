@@ -83,6 +83,18 @@ class Style:
         self.attrs: list[_Attr] = attrs
 
 
+def _scale(style: Style, factor: float) -> Style:
+    """`style` for a shape scaled by `factor`. A stroke with no width of its
+    own stays one pixel wide, as an outline does in 2htdp."""
+    attrs: list[_Attr] = []
+    for a in style.attrs:
+        if isinstance(a, _StrokeWidth):
+            attrs.append(_StrokeWidth(a.value * factor))
+        else:
+            attrs.append(a)
+    return Style(attrs)
+
+
 # Public API
 
 none: Style = Style([])

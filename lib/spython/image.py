@@ -19,6 +19,7 @@ from spython.style import (
     join as _join,
     stroke as _stroke,
     none as _style_none,
+    _scale as _style_scale,
 )
 from spython import system as _system
 
@@ -1222,8 +1223,10 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
     x_factor = _positive(x_factor)
     y_factor = _positive(y_factor)
     if isinstance(img, _Path):
+        # The path takes the scale point by point, but its stroke has one
+        # width, so the width takes the mean of the two factors, as in 2htdp.
         return _Path(
-            img.style,
+            _style_scale(img.style, (x_factor + y_factor) / 2.0),
             [_cmd_scale(c, x_factor, y_factor) for c in img.commands],
             img.closed,
         )
