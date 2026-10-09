@@ -1,3 +1,4 @@
+from collections.abc import Sequence as _Sequence
 from enum import Enum
 
 from spython.color import Color as _Color
@@ -51,7 +52,7 @@ class _StrokeOpacity:
 
 
 class _StrokeDashArray:
-    def __init__(self, values: list[float]) -> None:
+    def __init__(self, values: _Sequence[float]) -> None:
         self.values: list[float] = [max(0.0, v) for v in values]
 
 
@@ -125,7 +126,7 @@ def stroke(
     *,
     width: float | None = None,
     opacity: float | None = None,
-    dash_array: list[int] | None = None,
+    dash_array: _Sequence[float] | None = None,
     linecap: LineCap | None = None,
     linejoin: LineJoin | None = None,
 ) -> Style:
