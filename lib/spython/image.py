@@ -721,15 +721,39 @@ def _cmd_scale(cmd: _PathCmd, xf: float, yf: float) -> _PathCmd:
             Point(cmd.end.x * xf, cmd.end.y * yf),
         )
     if isinstance(cmd, _ArcTo):
-        return _ArcTo(
-            cmd.rx * xf,
-            cmd.ry * yf,
-            cmd.rotation,
-            cmd.large_arc,
-            cmd.sweep,
-            Point(cmd.end.x * xf, cmd.end.y * yf),
-        )
+        return _arc_scale(cmd, xf, yf)
     return cmd
+
+
+def _arc_scale(cmd: _ArcTo, xf: float, yf: float) -> _ArcTo:
+    # A rotated ellipse scaled along x and y is an ellipse with other axes.
+    # The axes are the eigenvectors of A = M M^T, where M takes the unit
+    # circle to the scaled ellipse.
+    ux: float = cmd.rx * _cos_deg(cmd.rotation) * xf
+    uy: float = cmd.rx * _sin_deg(cmd.rotation) * yf
+    vx: float = -cmd.ry * _sin_deg(cmd.rotation) * xf
+    vy: float = cmd.ry * _cos_deg(cmd.rotation) * yf
+    a: float = ux * ux + vx * vx
+    b: float = ux * uy + vx * vy
+    d: float = uy * uy + vy * vy
+    rotation: float = _math.degrees(0.5 * _math.atan2(2.0 * b, a - d))
+    # Of the four axis directions, take the one closest to the old rotation,
+    # so an arc that is not rotated stays that way.
+    rotation += 90.0 * round((cmd.rotation - rotation) / 90.0)
+
+    def radius(angle: float) -> float:
+        c: float = _cos_deg(angle)
+        s: float = _sin_deg(angle)
+        return _math.sqrt(max(a * c * c + 2.0 * b * s * c + d * s * s, 0.0))
+
+    return _ArcTo(
+        radius(rotation),
+        radius(rotation + 90.0),
+        rotation,
+        cmd.large_arc,
+        cmd.sweep,
+        Point(cmd.end.x * xf, cmd.end.y * yf),
+    )
 
 
 def _cmd_flip(cmd: _PathCmd, pf: _Callable[[Point], Point]) -> _PathCmd:
