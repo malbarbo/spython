@@ -536,6 +536,11 @@ fn skip_string(b: &[u8], mut i: usize) -> usize {
         if c == quote {
             return i + 1;
         }
+        // A string that does not close ends with its line, as it does for
+        // the interpreter. A newline after a `\` never gets here.
+        if c == b'\n' {
+            return i;
+        }
         i += 1;
     }
     len
@@ -738,5 +743,21 @@ mod tests {
             out.ends_with(&format!("{}if{RESET} x:", t.keyword)),
             "got: {out:?}"
         );
+    }
+
+    #[test]
+    fn a_string_in_single_quotes_ends_at_the_end_of_its_line() {
+        let t = &ONE_DARK;
+        let out = highlight_python("s = 'one\nif x:", &[], t);
+        let string = format!("{}'one{RESET}\n", t.string);
+        assert!(out.contains(&string), "got: {out:?}");
+        assert!(
+            out.ends_with(&format!("{}if{RESET} x:", t.keyword)),
+            "got: {out:?}"
+        );
+        // A backslash before the newline carries the string on.
+        let out = highlight_python("s = 'one\\\ntwo'", &[], t);
+        let string = format!("{}'one\\\ntwo'{RESET}", t.string);
+        assert!(out.ends_with(&string), "got: {out:?}");
     }
 }
