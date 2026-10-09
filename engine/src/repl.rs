@@ -147,6 +147,7 @@ impl Repl {
                 }
             }
         });
+        flush_output(interp);
         if let Ok(Loaded::Ran) = loaded {
             self.accumulated_source = source.to_owned();
         }
@@ -162,7 +163,7 @@ impl Repl {
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
         let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__, _source)\n");
         let (interp, _) = self.live();
-        interp.enter(|vm| {
+        let ran = interp.enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let run = scope
                 .globals
@@ -179,7 +180,9 @@ impl Repl {
                     Err(Failed)
                 }
             }
-        })
+        });
+        flush_output(interp);
+        ran
     }
 
     /// The teaching level.
@@ -331,6 +334,7 @@ impl Repl {
             }
         });
         let elapsed = start.elapsed();
+        flush_output(interp);
 
         if ran.done == statements.len() && ran.exit.is_none() {
             self.append_source(&code);
@@ -356,6 +360,20 @@ impl Repl {
         }
         Err(Failed)
     }
+}
+
+/// Write out what `sys.stdout` and `sys.stderr` hold. Away from a terminal
+/// both keep a buffer, and what the REPL prints itself would come out ahead
+/// of the output of the inputs before it.
+fn flush_output(interp: &vm::Interpreter) {
+    interp.enter(|vm| {
+        for name in ["stdout", "stderr"] {
+            if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
+                // A stream the program closed or broke has nothing to write.
+                let _ = vm.call_method(&stream, "flush", ());
+            }
+        }
+    });
 }
 
 /// How far an input went: the number of its top-level statements that ran to

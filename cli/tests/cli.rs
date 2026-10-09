@@ -3110,6 +3110,19 @@ fn repl_type_error_points_into_the_input() {
 }
 
 #[test]
+fn repl_writes_the_output_of_an_input_before_what_comes_next() {
+    // Over a pipe Python keeps its output in a buffer, and `:level` answers
+    // from the REPL itself.
+    let (out, err, success) = run_repl("print(1)\n:level\n1 + 1\n:level\n");
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1\nlevel 0 - Functions\n2\nlevel 0 - Functions\n");
+
+    let (out, err, success) = run_repl_after_file(":level\n", 0, "print(1)\n");
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1\nlevel 0 - Functions\n");
+}
+
+#[test]
 fn repl_annotated_function_ok() {
     let (out, err, success) = run_repl("def f(x: int) -> int:\n    return x * 2\n\nf(3)\n");
     assert!(success);
