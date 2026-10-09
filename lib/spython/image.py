@@ -573,13 +573,13 @@ def _arc_box(
     theta_x: float = _math.atan2(-ry * sin_phi, rx * cos_phi)
     theta_y: float = _math.atan2(ry * cos_phi, rx * sin_phi)
     for k in [-1, 0, 1, 2]:
-        theta: float = theta_x + float(k) * _math.pi
+        theta: float = theta_x + k * _math.pi
         if _angle_in_range(theta, theta1, dtheta):
             px, _ = _ellipse_point(cx, cy, rx, ry, cos_phi, sin_phi, theta)
             min_x = min(min_x, px)
             max_x = max(max_x, px)
     for k in [-1, 0, 1, 2]:
-        theta = theta_y + float(k) * _math.pi
+        theta = theta_y + k * _math.pi
         if _angle_in_range(theta, theta1, dtheta):
             _, py = _ellipse_point(cx, cy, rx, ry, cos_phi, sin_phi, theta)
             min_y = min(min_y, py)
@@ -813,8 +813,8 @@ def _y_place_dy(y_place: YPlace, ha: float, hb: float) -> tuple[float, float]:
 
 
 def rectangle(w: float, h: float, *style_args: Style) -> Image:
-    w = _positive(float(w))
-    h = _positive(float(h))
+    w = _positive(w)
+    h = _positive(h)
     s: Style = _make_style(*style_args)
     return _Path(
         s,
@@ -833,8 +833,8 @@ def square(side: float, *style_args: Style) -> Image:
 
 
 def ellipse(w: float, h: float, *style_args: Style) -> Image:
-    w = _positive(float(w))
-    h = _positive(float(h))
+    w = _positive(w)
+    h = _positive(h)
     rx: float = w / 2.0
     ry: float = h / 2.0
     s: Style = _make_style(*style_args)
@@ -850,8 +850,7 @@ def ellipse(w: float, h: float, *style_args: Style) -> Image:
 
 
 def circle(radius: float, *style_args: Style) -> Image:
-    r: float = float(radius)
-    return ellipse(2.0 * r, 2.0 * r, *style_args)
+    return ellipse(2.0 * radius, 2.0 * radius, *style_args)
 
 
 def line(x: float, y: float, *style_args: Style) -> Image:
@@ -867,22 +866,21 @@ def line(x: float, y: float, *style_args: Style) -> Image:
 
 
 def triangle(side: float, *style_args: Style) -> Image:
-    side = _positive(float(side))
+    side = _positive(side)
     h: float = side * _SQRT3_2
     s: Style = _make_style(*style_args)
     return _points_to_path([Point(side / 2.0, 0.0), Point(side, h), Point(0.0, h)], s)
 
 
 def right_triangle(side1: float, side2: float, *style_args: Style) -> Image:
-    side1 = _positive(float(side1))
-    side2 = _positive(float(side2))
+    side1 = _positive(side1)
+    side2 = _positive(side2)
     s: Style = _make_style(*style_args)
     return _points_to_path([Point(0.0, 0.0), Point(0.0, side2), Point(side1, side2)], s)
 
 
 def isosceles_triangle(side_length: float, angle: float, *style_args: Style) -> Image:
-    side_length = _positive(float(side_length))
-    angle = float(angle)
+    side_length = _positive(side_length)
     hangle: float = angle / 2.0
     s: Style = _make_style(*style_args)
     return _fix_position(
@@ -924,9 +922,9 @@ def _solve_angle(opposite: float, adj1: float, adj2: float) -> float:
 def triangle_sss(
     side_a: float, side_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(float(side_a))
-    side_b = _positive(float(side_b))
-    side_c = _positive(float(side_c))
+    side_a = _positive(side_a)
+    side_b = _positive(side_b)
+    side_c = _positive(side_c)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
 
@@ -934,9 +932,8 @@ def triangle_sss(
 def triangle_sas(
     side_a: float, angle_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(float(side_a))
-    side_c = _positive(float(side_c))
-    angle_b = float(angle_b)
+    side_a = _positive(side_a)
+    side_c = _positive(side_c)
     side_b: float = _solve_side(side_a, side_c, angle_b)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
@@ -945,9 +942,8 @@ def triangle_sas(
 def triangle_ssa(
     side_a: float, side_b: float, angle_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(float(side_a))
-    side_b = _positive(float(side_b))
-    angle_c = float(angle_c)
+    side_a = _positive(side_a)
+    side_b = _positive(side_b)
     side_c: float = _solve_side(side_a, side_b, angle_c)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
@@ -956,9 +952,7 @@ def triangle_ssa(
 def triangle_aas(
     angle_a: float, angle_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_c = _positive(float(side_c))
-    angle_a = float(angle_a)
-    angle_b = float(angle_b)
+    side_c = _positive(side_c)
     angle_c: float = 180.0 - angle_a - angle_b
     ratio: float = side_c / _sin_deg(angle_c)
     side_b: float = ratio * _sin_deg(angle_b)
@@ -968,19 +962,15 @@ def triangle_aas(
 def triangle_ass(
     angle_a: float, side_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_b = _positive(float(side_b))
-    side_c = _positive(float(side_c))
-    return _triangle_from_sides_angle(
-        side_b, side_c, float(angle_a), _make_style(*style_args)
-    )
+    side_b = _positive(side_b)
+    side_c = _positive(side_c)
+    return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
 
 
 def triangle_asa(
     angle_a: float, side_b: float, angle_c: float, *style_args: Style
 ) -> Image:
-    side_b = _positive(float(side_b))
-    angle_a = float(angle_a)
-    angle_c = float(angle_c)
+    side_b = _positive(side_b)
     angle_b: float = 180.0 - angle_a - angle_c
     ratio: float = side_b / _sin_deg(angle_b)
     side_c: float = ratio * _sin_deg(angle_c)
@@ -990,9 +980,7 @@ def triangle_asa(
 def triangle_saa(
     side_a: float, angle_b: float, angle_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(float(side_a))
-    angle_b = float(angle_b)
-    angle_c = float(angle_c)
+    side_a = _positive(side_a)
     angle_a: float = 180.0 - angle_b - angle_c
     ratio: float = side_a / _sin_deg(angle_a)
     side_b: float = ratio * _sin_deg(angle_b)
@@ -1001,8 +989,7 @@ def triangle_saa(
 
 
 def rhombus(side_length: float, angle: float, *style_args: Style) -> Image:
-    side_length = _positive(float(side_length))
-    angle = float(angle)
+    side_length = _positive(side_length)
     h: float = 2.0 * side_length * _cos_deg(angle / 2.0)
     w: float = 2.0 * side_length * _sin_deg(angle / 2.0)
     s: Style = _make_style(*style_args)
@@ -1037,13 +1024,12 @@ def star_polygon(
     side_length: float, side_count: int, step_count: int, *style_args: Style
 ) -> Image:
     side_count = max(1, side_count)
-    scf: float = float(side_count)
     step_count = max(1, step_count)
-    radius: float = _positive(float(side_length)) / (2.0 * _sin_deg(180.0 / scf))
-    alpha: float = 90.0 + 180.0 / scf if side_count % 2 == 0 else -90.0
+    radius: float = _positive(side_length) / (2.0 * _sin_deg(180.0 / side_count))
+    alpha: float = 90.0 + 180.0 / side_count if side_count % 2 == 0 else -90.0
     pts: list[Point] = []
     for i in range(side_count):
-        theta: float = alpha + 360.0 * float(i * step_count % side_count) / scf
+        theta: float = alpha + 360.0 * (i * step_count % side_count) / side_count
         pts.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
     s: Style = _make_style(*style_args)
     return _fix_position(_points_to_path(pts, s))
@@ -1057,13 +1043,13 @@ def radial_star(
     point_count: int, inner_radius: float, outer_radius: float, *style_args: Style
 ) -> Image:
     point_count = max(2, point_count)
-    inner_radius = _positive(float(inner_radius))
-    outer_radius = _positive(float(outer_radius))
-    alpha: float = 90.0 + 180.0 / float(point_count) if point_count % 2 == 0 else -90.0
+    inner_radius = _positive(inner_radius)
+    outer_radius = _positive(outer_radius)
+    alpha: float = 90.0 + 180.0 / point_count if point_count % 2 == 0 else -90.0
     pts: list[Point] = []
     for i in range(point_count):
-        theta1: float = alpha + 360.0 * float(i * 2) / float(2 * point_count)
-        theta2: float = alpha + 360.0 * float(i * 2 + 1) / float(2 * point_count)
+        theta1: float = alpha + 360.0 * (i * 2) / (2 * point_count)
+        theta2: float = alpha + 360.0 * (i * 2 + 1) / (2 * point_count)
         pts.append(
             Point(outer_radius * _cos_deg(theta1), outer_radius * _sin_deg(theta1))
         )
@@ -1078,17 +1064,16 @@ def pulled_regular_polygon(
     side_length: float, side_count: int, pull: float, angle: float, *style_args: Style
 ) -> Image:
     side_count = max(3, side_count)
-    scf: float = float(side_count)
-    radius: float = _positive(float(side_length)) / (2.0 * _sin_deg(180.0 / scf))
-    alpha: float = 90.0 + 180.0 / scf if side_count % 2 == 0 else -90.0
+    radius: float = _positive(side_length) / (2.0 * _sin_deg(180.0 / side_count))
+    alpha: float = 90.0 + 180.0 / side_count if side_count % 2 == 0 else -90.0
     vertices: list[Point] = []
     for i in range(side_count):
-        theta: float = alpha + 360.0 * float(i) / scf
+        theta: float = alpha + 360.0 * i / side_count
         vertices.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
     if len(vertices) == 0:
         return empty
     first: Point = vertices[0]
-    edges: list[_CubicTo] = _pulled_edges(vertices, first, float(pull), float(angle))
+    edges: list[_CubicTo] = _pulled_edges(vertices, first, pull, angle)
     s: Style = _make_style(*style_args)
     return _fix_position(_Path(s, [_MoveTo(first)] + edges, True))
 
@@ -1128,9 +1113,7 @@ def _edge_cubic(fr: Point, to: Point, pull: float, angle: float) -> _CubicTo:
 
 
 def wedge(radius: float, angle: float, *style_args: Style) -> Image:
-    return _fix_position(
-        _wedge_path(float(radius), float(angle), _make_style(*style_args))
-    )
+    return _fix_position(_wedge_path(radius, angle, _make_style(*style_args)))
 
 
 def _wedge_path(radius: float, angle: float, style: Style) -> Image:
@@ -1166,7 +1149,7 @@ def text(
     if size is not None:
         f = Font(
             family=f.family,
-            size=float(size),
+            size=size,
             style=f.style,
             weight=f.weight,
             underline=f.underline,
@@ -1198,7 +1181,7 @@ def bitmap_data_uri(data_uri: str) -> Image:
 
 
 def rotate(img: Image, angle: float) -> Image:
-    return _fix_position(_rotate_around(img, center(img), -float(angle)))
+    return _fix_position(_rotate_around(img, center(img), -angle))
 
 
 def _rotate_around(img: Image, center: Point, angle: float) -> Image:
@@ -1236,8 +1219,8 @@ def scale(img: Image, factor: float) -> Image:
 
 
 def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
-    x_factor = _positive(float(x_factor))
-    y_factor = _positive(float(y_factor))
+    x_factor = _positive(x_factor)
+    y_factor = _positive(y_factor)
     if isinstance(img, _Path):
         return _Path(
             img.style,
@@ -1316,16 +1299,16 @@ def color_frame(img: Image, color: _Color) -> Image:
 
 
 def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
-    w = _positive(float(w))
-    h = _positive(float(h))
-    return _Crop(_box_of_size(w, h), _translate(img, -float(x), -float(y)))
+    w = _positive(w)
+    h = _positive(h)
+    return _Crop(_box_of_size(w, h), _translate(img, -x, -y))
 
 
 def crop_align(
     img: Image, x_place: XPlace, y_place: YPlace, cw: float, ch: float
 ) -> Image:
-    cw = _positive(float(cw))
-    ch = _positive(float(ch))
+    cw = _positive(cw)
+    ch = _positive(ch)
     # The offset is negative when the crop is larger than the image, which
     # puts the image at the right or bottom of the crop.
     dx: float = width(img) - cw
@@ -1400,16 +1383,16 @@ def overlay(
 ) -> Image:
     if len(images) < 2:
         raise TypeError("overlay expects at least 2 images")
-    dx: float = float(x_offset)
-    dy: float = float(y_offset)
     result: Image = images[0]
     for img in images[1:]:
-        result = _overlay_aligned(result, _translate(img, dx, dy), x_place, y_place)
+        result = _overlay_aligned(
+            result, _translate(img, x_offset, y_offset), x_place, y_place
+        )
     return result
 
 
 def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
-    return _fix_position(_Combination(_translate(bottom, float(x), float(y)), top))
+    return _fix_position(_Combination(_translate(bottom, x, y), top))
 
 
 def underlay(
@@ -1421,16 +1404,16 @@ def underlay(
 ) -> Image:
     if len(images) < 2:
         raise TypeError("underlay expects at least 2 images")
-    dx: float = float(x_offset)
-    dy: float = float(y_offset)
     result: Image = images[0]
     for img in images[1:]:
-        result = _overlay_aligned(_translate(img, dx, dy), result, x_place, y_place)
+        result = _overlay_aligned(
+            _translate(img, x_offset, y_offset), result, x_place, y_place
+        )
     return result
 
 
 def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
-    return _fix_position(_Combination(bottom, _translate(top, float(x), float(y))))
+    return _fix_position(_Combination(bottom, _translate(top, x, y)))
 
 
 # **************************
@@ -1445,8 +1428,6 @@ def empty_scene(w: float, h: float) -> Image:
 
 
 def empty_scene_color(w: float, h: float, color: _Color) -> Image:
-    w = float(w)
-    h = float(h)
     frame_style: Style = _stroke(color, width=2.0)
     return crop(rectangle(w, h, frame_style), 0.0, 0.0, w, h)
 
@@ -1460,8 +1441,6 @@ def place_image(
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    x = float(x)
-    y = float(y)
     dx: float = 0.0
     if x_place == CENTER:
         dx = width(img) / -2.0
@@ -1500,8 +1479,8 @@ def place_images(
         else:
             scene = place_image(
                 scene,
-                float(p[0]),
-                float(p[1]),
+                p[0],
+                p[1],
                 images[i],
                 x_place=x_place,
                 y_place=y_place,
@@ -1569,13 +1548,7 @@ def place_curve(
     pull2: float,
     *style_args: Style,
 ) -> Image:
-    x1 = float(x1)
-    y1 = float(y1)
-    x2 = float(x2)
-    y2 = float(y2)
-    c1, c2 = _curve_controls(
-        x1, y1, float(angle1), float(pull1), x2, y2, float(angle2), float(pull2)
-    )
+    c1, c2 = _curve_controls(x1, y1, angle1, pull1, x2, y2, angle2, pull2)
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
@@ -1603,9 +1576,7 @@ def place_wedge(
         crop(
             _Combination(
                 scene,
-                _translate(
-                    _wedge_path(float(radius), float(angle), s), float(x), float(y)
-                ),
+                _translate(_wedge_path(radius, angle, s), x, y),
             ),
             0.0,
             0.0,
@@ -1616,7 +1587,7 @@ def place_wedge(
 
 
 def put_image(scene: Image, x: float, y: float, img: Image) -> Image:
-    return place_image(scene, float(x), height(scene) - float(y), img)
+    return place_image(scene, x, height(scene) - y, img)
 
 
 # **************************
@@ -1670,13 +1641,7 @@ def add_curve(
     pull2: float,
     *style_args: Style,
 ) -> Image:
-    x1 = float(x1)
-    y1 = float(y1)
-    x2 = float(x2)
-    y2 = float(y2)
-    c1, c2 = _curve_controls(
-        x1, y1, float(angle1), float(pull1), x2, y2, float(angle2), float(pull2)
-    )
+    c1, c2 = _curve_controls(x1, y1, angle1, pull1, x2, y2, angle2, pull2)
     s: Style = _make_style(*style_args)
     return _fix_position(
         _Combination(
@@ -1698,13 +1663,7 @@ def add_solid_curve(
     pull2: float,
     *style_args: Style,
 ) -> Image:
-    x1 = float(x1)
-    y1 = float(y1)
-    x2 = float(x2)
-    y2 = float(y2)
-    c1, c2 = _curve_controls(
-        x1, y1, float(angle1), float(pull1), x2, y2, float(angle2), float(pull2)
-    )
+    c1, c2 = _curve_controls(x1, y1, angle1, pull1, x2, y2, angle2, pull2)
     s: Style = _make_style(*style_args)
     return _fix_position(
         _Combination(
@@ -1721,7 +1680,7 @@ def add_wedge(
     return _fix_position(
         _Combination(
             img,
-            _translate(_wedge_path(float(radius), float(angle), s), float(x), float(y)),
+            _translate(_wedge_path(radius, angle, s), x, y),
         )
     )
 

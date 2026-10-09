@@ -100,7 +100,7 @@ def fill(
 ) -> Style:
     attrs: list[_Attr] = [_Fill(c)]
     if opacity is not None:
-        attrs.append(_FillOpacity(max(0.0, min(1.0, float(opacity)))))
+        attrs.append(_FillOpacity(max(0.0, min(1.0, opacity))))
     if rule is not None:
         attrs.append(_FillRule(rule))
     return Style(attrs)
@@ -117,9 +117,9 @@ def stroke(
 ) -> Style:
     attrs: list[_Attr] = [_Stroke(c)]
     if width is not None:
-        attrs.append(_StrokeWidth(max(0.0, float(width))))
+        attrs.append(_StrokeWidth(max(0.0, width)))
     if opacity is not None:
-        attrs.append(_StrokeOpacity(max(0.0, min(1.0, float(opacity)))))
+        attrs.append(_StrokeOpacity(max(0.0, min(1.0, opacity))))
     if dash_array is not None:
         attrs.append(_StrokeDashArray([max(0, v) for v in dash_array]))
     if linecap is not None:
