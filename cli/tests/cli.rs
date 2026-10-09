@@ -915,6 +915,37 @@ fn check_resolves_the_imports_of_a_doctest_in_a_package() {
 }
 
 #[test]
+fn check_follows_an_import_that_only_a_doctest_makes() {
+    let main = indoc! {r#"
+        def f() -> None:
+            """
+            >>> from helpers import dobro
+            >>> dobro(2)
+            4
+            """
+    "#};
+    let helpers = "def dobro(x: int) -> int:\n    return 2 * x\n";
+    let dir = new_dir_with(
+        "doctest_import",
+        &[("main.py", main), ("helpers.py", helpers)],
+    );
+    let (_, err, success) = run_spython_native(&["test", "main.py"], &dir);
+    assert!(success, "the doctest should have run, got: {err}");
+    assert!(err.contains("2 tests, 2 successes"), "got: {err}");
+
+    // The module the doctest imports is checked too.
+    let broken = format!("{helpers}\n\ndef g() -> int:\n    return \"x\"\n");
+    std::fs::write(dir.join("helpers.py"), broken).expect("write the test file");
+    let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!success, "check should have refused, got: {err}");
+    assert!(
+        err.contains("--> helpers.py:6:12"),
+        "expected the error in helpers.py, got: {err}"
+    );
+}
+
+#[test]
 fn check_ignores_a_virtual_env_that_is_not_there() {
     let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);
     let output = spython()

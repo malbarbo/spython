@@ -363,9 +363,21 @@ pub fn check_file_doctests(
 pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet<File>) {
     let parsed = parsed_module(db, db.program_file(file).python_file(db));
     let module = parsed.load(db);
+    visit_imports(db, file, module.suite(), seen);
 
+    // A doctest imports from where its file does, when `spython test` runs it.
+    let source = ruff_db::source::source_text(db, file);
+    for snippet in doctests::extract_doctests(module.syntax(), source.as_str()).snippets {
+        if let Ok(snippet) = ruff_python_parser::parse_module(&snippet.code) {
+            visit_imports(db, file, snippet.suite(), seen);
+        }
+    }
+}
+/// Collect the first-party files that the imports in `body` name, with the
+/// files they import, as [`collect_import_files`] does.
+fn visit_imports(db: &ProjectDatabase, file: File, body: &[Stmt], seen: &mut HashSet<File>) {
     let mut imports = Imports(Vec::new());
-    imports.visit_body(module.suite());
+    imports.visit_body(body);
     for stmt in imports.0 {
         match stmt {
             Stmt::Import(import) => {
