@@ -1241,8 +1241,9 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
             scale_xy(img.image, x_factor, y_factor),
         )
     if isinstance(img, _Text):
+        # The stroke of a text is as wide as the stroke of a path.
         return _Text(
-            img.style,
+            _style_scale(img.style, (x_factor + y_factor) / 2.0),
             _box_scale(img.box, x_factor, y_factor),
             img.text,
             img.font,
