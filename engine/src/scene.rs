@@ -10,11 +10,15 @@ pub(crate) use _spython_scene::draw;
 
 #[rustpython_vm::pymodule(name = "_spython_scene")]
 pub(crate) mod _spython_scene {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use rustpython_vm::builtins::PyStrRef;
     use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::{
         PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
+    use sinteract::renderer::Renderer;
+    use sinteract::renderer::svg::SvgRenderer;
     use sinteract::scene::{
         Bitmap, ClipPath, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path,
         PathBuilder, PathStyle, Sampling, Scene, Text, TextSpec,
@@ -32,6 +36,10 @@ pub(crate) mod _spython_scene {
         Ok(PyLoadedImage { image })
     }
 
+    /// The number in the id prefix of the next svg. The page puts every svg
+    /// of a run into one HTML document, so two svgs must not share an id.
+    static NEXT_SVG: AtomicUsize = AtomicUsize::new(0);
+
     /// The svg of `image`, an `Image` of `spython.image`, on a scene of
     /// `width` by `height`.
     #[pyfunction]
@@ -43,7 +51,10 @@ pub(crate) mod _spython_scene {
     ) -> PyResult<String> {
         let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
         draw(&image, &mut scene, vm)?;
-        Ok(sinteract::renderer::svg::render_to_svg(&scene))
+        let prefix = format!("s{}-", NEXT_SVG.fetch_add(1, Ordering::Relaxed));
+        let mut renderer = SvgRenderer::with_id_prefix(&prefix).expect("a valid id prefix");
+        let Ok(_) = renderer.render(&scene);
+        Ok(renderer.into_string())
     }
 
     /// An image that [`load_image`] loaded. Python only passes it along.

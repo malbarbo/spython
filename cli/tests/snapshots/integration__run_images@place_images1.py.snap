@@ -3,9 +3,9 @@ source: cli/tests/integration.rs
 ---
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24" height="24" viewBox="0 0 24 24">
   <defs>
-    <clipPath id="c0"><path d="M0 0 L24 0 L24 24 L0 24"/></clipPath>
+    <clipPath id="s0-c0"><path d="M0 0 L24 0 L24 24 L0 24"/></clipPath>
   </defs>
-  <g clip-path="url(#c0)">
+  <g clip-path="url(#s0-c0)">
     <path d="M0 0 L24 0 L24 24 L0 24 Z" fill="#daa520"/>
     <path d="M22 20 C22 22.209139 20.209139 24 18 24 C15.790861 24 14 22.209139 14 20 C14 17.790861 15.790861 16 18 16 C20.209139 16 22 17.790861 22 20 Z" fill="#ffffff"/>
     <path d="M4 6 C4 8.209139 2.209139 10 0.00000000000000024492937 10 C-2.209139 10 -4 8.209139 -4 6 C-4 3.790861 -2.209139 2 -0.00000000000000073478806 2 C2.209139 2 4 3.790861 4 6 Z" fill="#ffffff"/>
