@@ -3,7 +3,8 @@
 //! is measured here, the same way on both.
 //!
 //! Each function that a target answers carries the name of the import it
-//! wraps, and Python reaches them through the `_spython_ffi` built-in module.
+//! wraps, and Python reaches them through the `_spython_ffi` and
+//! `_spython_scene` built-in modules.
 //! Both targets answer every one of them, under the name and with the meaning
 //! written here.
 
@@ -18,8 +19,8 @@ pub use target::draw_svg;
 /// reads keys, so a native run never has one.
 pub use target::get_key_event;
 
-/// A data URI that holds the PNG, JPEG, GIF or WebP at the path, or the
-/// message of the error. The page reads no file.
+/// The bytes of the file at the path, or the message of the error. The page
+/// reads no file.
 pub use target::load_bitmap;
 
 /// The width and the height of the box around the text. sinteract measures,

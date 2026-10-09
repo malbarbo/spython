@@ -56,26 +56,6 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
         },
     );
 
-    let load_bitmap_fn = vm.new_function(
-        "load_bitmap",
-        |path: String, vm: &vm::VirtualMachine| -> vm::PyResult {
-            let data_uri = host::load_bitmap(&path).map_err(|e| vm.new_runtime_error(e))?;
-            Ok(vm.ctx.new_str(data_uri).into())
-        },
-    );
-
-    let bitmap_size_fn = vm.new_function(
-        "bitmap_size",
-        |data_uri: String, vm: &vm::VirtualMachine| -> vm::PyResult {
-            let (width, height) =
-                crate::bitmap::bitmap_size(&data_uri).map_err(|e| vm.new_value_error(e))?;
-            let elements = vec![
-                vm.ctx.new_float(width).into(),
-                vm.ctx.new_float(height).into(),
-            ];
-            Ok(vm.ctx.new_tuple(elements).into())
-        },
-    );
     // The doctest runner takes the docstrings from here, so that it runs
     // the examples the checker has read.
     let doctest_docstrings_fn = vm.new_function(
@@ -123,8 +103,6 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     set("show_svg", show_svg_fn.into());
     set("get_key_event", get_key_event_fn.into());
     set("text_metrics", text_metrics_fn.into());
-    set("load_bitmap", load_bitmap_fn.into());
-    set("bitmap_size", bitmap_size_fn.into());
     set("doctest_docstrings", doctest_docstrings_fn.into());
     set("keep_source", keep_source_fn.into());
     #[cfg(test)]

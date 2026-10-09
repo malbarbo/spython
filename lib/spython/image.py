@@ -1165,12 +1165,12 @@ def text(
 
 
 def bitmap(path: str) -> Image:
-    return bitmap_data_uri(_system.load_bitmap(path))
+    loaded, w, h = _system.load_bitmap(path)
+    return _Bitmap(_box_of_size(w, h), loaded)
 
 
 def bitmap_data_uri(data_uri: str) -> Image:
-    w, h = _system.bitmap_size(data_uri)
-    loaded = _system.load_image(data_uri)
+    loaded, w, h = _system.load_image(data_uri)
     return _Bitmap(_box_of_size(w, h), loaded)
 
 

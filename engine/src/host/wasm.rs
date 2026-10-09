@@ -18,7 +18,7 @@ pub fn draw_svg(svg: &str) {
 }
 
 /// The page reads no file.
-pub fn load_bitmap(_path: &str) -> Result<String, String> {
+pub fn load_bitmap(_path: &str) -> Result<Vec<u8>, String> {
     Err("load_bitmap is not available in the browser".to_owned())
 }
 

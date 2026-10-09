@@ -16,8 +16,6 @@ try:
         show_svg,
         get_key_event,
         text_metrics,
-        load_bitmap,
-        bitmap_size,
     )  # type: ignore[import-not-found]
 except ImportError:
 
@@ -44,12 +42,6 @@ except ImportError:
                     pass
         return 14.0
 
-    def load_bitmap(path: str) -> str:
-        raise RuntimeError("load_bitmap is not available in native mode")
-
-    def bitmap_size(data_uri: str) -> tuple[float, float]:
-        raise RuntimeError("bitmap_size is not available in native mode")
-
 
 # Opens a printer of images in the terminal, or gives None when the terminal
 # shows no graphics.
@@ -58,9 +50,10 @@ try:
 except ImportError:
     _open_printer = None
 
-# The image of a data URI, which a bitmap keeps so the scene draws it with
-# no decode, and the svg of the scene of an image.
-from _spython_scene import load_image, to_svg as scene_svg  # type: ignore[import-not-found]
+# The image of a data URI or of a file, with the size of the original, which
+# a bitmap keeps so the scene draws it with no decode, and the svg of the
+# scene of an image.
+from _spython_scene import load_bitmap, load_image, to_svg as scene_svg  # type: ignore[import-not-found]
 
 
 def install_displayhook() -> None:

@@ -17,6 +17,7 @@ pub(crate) mod _spython_scene {
     use rustpython_vm::{
         PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine, pyclass,
     };
+    use sinteract::asset::{ImageError, decode_data_uri};
     use sinteract::renderer::Renderer;
     use sinteract::renderer::svg::SvgRenderer;
     use sinteract::scene::{
@@ -24,16 +25,31 @@ pub(crate) mod _spython_scene {
         PathBuilder, PathStyle, Sampling, Scene, Text, TextSpec,
     };
 
-    /// The image in `data_uri`. A `_Bitmap` keeps it, so a frame draws it
-    /// with no decode. An image larger than the limit of sinteract shrinks.
+    /// The image in `data_uri`, with the width and the height of the
+    /// original. A `_Bitmap` keeps the image, so a frame draws it with no
+    /// decode. An image larger than the limit of sinteract shrinks, and
+    /// shows at the size of the original.
     #[pyfunction]
-    fn load_image(data_uri: PyStrRef, vm: &VirtualMachine) -> PyResult<PyLoadedImage> {
+    fn load_image(data_uri: PyStrRef, vm: &VirtualMachine) -> PyResult<(PyLoadedImage, f64, f64)> {
         let blob = data_uri
             .to_str()
-            .and_then(crate::bitmap::decode_data_uri)
+            .and_then(decode_data_uri)
             .ok_or_else(|| vm.new_value_error("a bitmap needs a data URI in base64"))?;
-        let image = Image::load(blob).map_err(|e| vm.new_value_error(e.to_string()))?;
-        Ok(PyLoadedImage { image })
+        loaded(blob).map_err(|e| vm.new_value_error(e.to_string()))
+    }
+
+    /// The image in the file at `path`, as [`load_image`] gives it.
+    #[pyfunction]
+    fn load_bitmap(path: String, vm: &VirtualMachine) -> PyResult<(PyLoadedImage, f64, f64)> {
+        let blob = crate::host::load_bitmap(&path).map_err(|e| vm.new_runtime_error(e))?;
+        loaded(blob).map_err(|e| vm.new_runtime_error(format!("{path}: {e}")))
+    }
+
+    /// The image in `blob`, with the width and the height of the original.
+    fn loaded(blob: Vec<u8>) -> Result<(PyLoadedImage, f64, f64), ImageError> {
+        let (image, head) = Image::load_with_head(blob)?;
+        let size = (f64::from(head.width), f64::from(head.height));
+        Ok((PyLoadedImage { image }, size.0, size.1))
     }
 
     /// The number in the id prefix of the next svg. The page puts every svg
