@@ -38,7 +38,9 @@ test-images:
 
 check:
 	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy -p spython --all-targets --features wasm-backend -- -D warnings
 	cargo clippy --target $(WASM_TARGET) -p wasm -- -D warnings
+	cargo clippy --target $(WASM_TARGET) -p wasm --features wasm-backend -- -D warnings
 	cargo fmt -- --check
 	ruff format --check lib/spython/
 	deno fmt --check wasm/tests/ wasm/spython.ts
