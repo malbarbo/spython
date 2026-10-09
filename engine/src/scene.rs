@@ -17,7 +17,7 @@ pub(crate) mod _spython_scene {
     };
     use sinteract::scene::{
         Bitmap, ClipPath, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path,
-        PathBuilder, PathStyle, RotatedRect, Sampling, Scene, Text, TextSpec,
+        PathBuilder, PathStyle, Sampling, Scene, Text, TextSpec,
     };
 
     /// The image in `data_uri`, which a `_Bitmap` keeps, so a frame draws it
@@ -71,17 +71,7 @@ pub(crate) mod _spython_scene {
                 draw(&*image.get_attr("b", vm)?, scene, vm)?;
             }
             "_Crop" => {
-                let m = affine(&*image.get_attr("box", vm)?, vm)?;
-                let corner = |x: f32, y: f32| apply(m, x, y);
-                let (x0, y0) = corner(-0.5, -0.5);
-                let (x1, y1) = corner(0.5, -0.5);
-                let (x2, y2) = corner(0.5, 0.5);
-                let (x3, y3) = corner(-0.5, 0.5);
-                let clip = ClipPath::builder(FillRule::default(), x0, y0)
-                    .line_to(x1, y1)
-                    .line_to(x2, y2)
-                    .line_to(x3, y3)
-                    .build();
+                let clip = ClipPath::from_transform(affine(&*image.get_attr("box", vm)?, vm)?);
                 let inside = image.get_attr("image", vm)?;
                 scene.clip(clip, |clip| draw(&inside, clip, vm))?;
             }
@@ -211,17 +201,9 @@ pub(crate) mod _spython_scene {
             },
             text: string(image, "text", vm)?,
         };
-        // The unit rectangle gives the affine that shrinks the text to a unit
-        // box, which the affine of the box then takes to the canvas.
-        let unit = RotatedRect {
-            w: 1.0,
-            h: 1.0,
-            ..RotatedRect::default()
-        };
-        let Some(mut text) = spec.fit(unit) else {
+        let Some(mut text) = spec.fit_transform(transform) else {
             return Ok(None);
         };
-        text.transform = compose(transform, text.transform);
         let path_style = style.path_style();
         text.fill = path_style.fill;
         text.stroke = path_style.stroke;
@@ -241,24 +223,6 @@ pub(crate) mod _spython_scene {
         let (ux, uy) = point("x_axis")?;
         let (vx, vy) = point("y_axis")?;
         Ok([ux, uy, vx, vy, cx, cy])
-    }
-
-    /// The affine that applies `inner` and then `outer`.
-    fn compose(outer: [f32; 6], inner: [f32; 6]) -> [f32; 6] {
-        let [a, b, c, d, _, _] = outer;
-        let (e, f) = apply(outer, inner[4], inner[5]);
-        [
-            a * inner[0] + c * inner[1],
-            b * inner[0] + d * inner[1],
-            a * inner[2] + c * inner[3],
-            b * inner[2] + d * inner[3],
-            e,
-            f,
-        ]
-    }
-
-    fn apply(m: [f32; 6], x: f32, y: f32) -> (f32, f32) {
-        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
     }
 
     /// A `Style` of `spython.style`, with a default for each attribute left
