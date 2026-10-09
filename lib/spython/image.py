@@ -1715,8 +1715,8 @@ def to_svg(img: Image) -> str:
     return _system.scene_svg(img, w, h)
 
 
-# The size of `img` in whole pixels, which the scene of `to_svg` and of a
-# display take.
+# The size of `img` in whole pixels. `to_svg` and a display build a scene of
+# this size.
 def _canvas_size(img: Image) -> tuple[float, float]:
     mn, mx = _box(img)
     return (

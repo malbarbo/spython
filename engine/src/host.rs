@@ -24,8 +24,8 @@ pub use target::get_key_event;
 pub use target::load_bitmap;
 
 /// The width and the height of the box around the text. sinteract measures,
-/// with the fonts it embeds and draws with, so a text has the same size on
-/// every target. A size that cannot draw measures nothing.
+/// with the fonts that it embeds and uses to draw, so a text has the same
+/// size on every target. A size that cannot draw measures nothing.
 pub fn text_metrics(text: &str, font_css: &str) -> (f64, f64) {
     let font = CssFont::parse(font_css);
     match sinteract::text::measure(font.family, font.weight, font.style, font.size, text) {

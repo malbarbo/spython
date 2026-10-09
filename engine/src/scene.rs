@@ -73,7 +73,8 @@ pub(crate) mod _spython_scene {
         Ok(renderer.into_string())
     }
 
-    /// An image that [`load_image`] loaded. Python only passes it along.
+    /// The image that [`load_image`] or [`load_bitmap`] returns. Python only
+    /// passes it along.
     #[pyattr]
     #[pyclass(name = "LoadedImage")]
     #[derive(Debug, PyPayload)]
