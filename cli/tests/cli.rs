@@ -130,10 +130,25 @@ fn run_spython_wasm(args: &[&str], cwd: &Path) -> (String, String, bool) {
 /// lets dual-run compare diagnostic bodies without caring about paths.
 #[cfg(feature = "wasm-backend")]
 fn normalize_diagnostic_paths(s: &str) -> String {
-    use std::sync::OnceLock;
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"[\w./-]+\.py").unwrap());
-    re.replace_all(s, "<file>.py").into_owned()
+    let in_path = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-');
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find(in_path) {
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        let path = &tail[..tail.find(|c| !in_path(c)).unwrap_or(tail.len())];
+        // Up to the last `.py` of the path, which needs a name before it.
+        match path.rfind(".py") {
+            Some(end) if end > 0 => {
+                out.push_str("<file>.py");
+                out.push_str(&path[end + 3..]);
+            }
+            _ => out.push_str(path),
+        }
+        rest = &tail[path.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn run_test(files: &[&str], extra_args: &[&str]) -> (String, String, bool) {

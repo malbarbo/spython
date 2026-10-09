@@ -4701,7 +4701,6 @@ dependencies = [
  "engine",
  "indoc",
  "insta",
- "regex",
  "rustyline",
 ]
 
