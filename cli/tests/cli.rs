@@ -1002,7 +1002,10 @@ fn check_ignores_a_virtual_env_that_is_not_there() {
         output.status.success(),
         "the file should have run, got: {err}"
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
+    assert_eq!(
+        normalize_output(&String::from_utf8_lossy(&output.stdout)),
+        "1\n"
+    );
 }
 
 /// A file under `cli/tests`, named the way both backends are given it: the
