@@ -1618,8 +1618,8 @@ mod tests {
 
     #[test]
     fn raise_cause_is_visited() {
-        // `from <list>` at level 3 (lambda still forbidden) — the lambda
-        // hides inside the cause expression.
+        // At level 3 a lambda is forbidden, and this one hides in the cause of
+        // the raise.
         let diags = check(
             "def f() -> None:\n    raise ValueError from (lambda: 0)()\n",
             Level::Repetition,
@@ -1631,8 +1631,8 @@ mod tests {
 
     #[test]
     fn match_pattern_value_is_visited() {
-        // F541 is level-independent; a MatchValue with an empty f-string
-        // should be flagged via the new visit_pattern → visit_expr path.
+        // F541 does not depend on the level, and it finds the value of a case
+        // only if the checker visits the pattern.
         let diags = check(
             "def f(x: object) -> None:\n    match x:\n        case f\"\":\n            pass\n",
             Level::Full,
@@ -1761,7 +1761,7 @@ mod tests {
     #[test]
     fn unused_walker_records_subscript_target_reads() {
         // `a` is only read by `a[0] = 1` — the Subscript target's value is a
-        // load of `a`. With the fix, `a` is not flagged unused.
+        // load of `a`.
         let diags = check(
             "def f(arr: list[int]) -> None:\n    a: list[int] = arr\n    a[0] = 1\n",
             Level::Repetition,

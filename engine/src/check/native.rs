@@ -66,9 +66,8 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     for f in &user_files {
         diagnostics.extend(check_file_doctests(&db, *f, &root, level));
     }
-    // An error stops the file; a warning is printed and the file goes on. The
-    // in-memory check the page runs has always drawn the line here, and this is
-    // where the one over the filesystem draws it too.
+    // An error stops the file; a warning is printed and the file goes on, as in
+    // the in-memory check the page runs.
     if diagnostics.iter().any(|d| d.severity() == Severity::Error) {
         return Err(SpythonError::TypeErrors(Box::new(TypeErrors {
             db,

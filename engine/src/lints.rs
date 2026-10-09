@@ -165,8 +165,8 @@ declare_lint! {
 }
 
 declare_lint! {
-    /// Forbids constructs like `global`, `nonlocal`, `with`, `try`, `async`,
-    /// `yield`, `del` at all teaching levels.
+    /// Forbids `global`, `nonlocal`, `with`, `try`, `async`, `await`, `yield`
+    /// and `del` below level 5.
     pub(crate) static FORBIDDEN_CONSTRUCT = {
         summary: "construct not allowed",
         status: LintStatus::stable("0.0.0"),
