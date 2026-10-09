@@ -70,7 +70,10 @@ fn python_files(path: &Path) -> Result<Vec<PathBuf>, SpythonError> {
         // A file the command line names is formatted whatever its name, as
         // `run` and `check` take it.
         let named = entry.depth() == 0 && entry.file_type().is_file();
-        if named || entry.path().extension().is_some_and(|ext| ext == "py") {
+        // A directory, or a link to one, can have a name that ends in `.py`.
+        let python =
+            entry.path().extension().is_some_and(|ext| ext == "py") && entry.path().is_file();
+        if named || python {
             files.push(entry.into_path());
         }
     }

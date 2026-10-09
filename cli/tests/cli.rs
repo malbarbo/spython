@@ -2807,6 +2807,19 @@ fn format_recurses_into_directories() {
 }
 
 #[test]
+fn format_recurses_into_a_directory_named_like_a_python_file() {
+    let dir = new_dir_with(
+        "format",
+        &[("a.py/m.py", UNFORMATTED), ("c.py", UNFORMATTED)],
+    );
+    let (out, err, success) = run_spython_native(&["format", "."], &dir);
+    assert!(success, "stdout: {out}\nstderr: {err}");
+    assert_eq!(file_in(&dir, "a.py/m.py"), FORMATTED);
+    assert_eq!(file_in(&dir, "c.py"), FORMATTED);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn format_writes_a_named_file_whatever_its_name() {
     let dir = new_dir_with("format", &[("a.txt", UNFORMATTED)]);
     let (out, err, success) = run_spython_native(&["format", "a.txt"], &dir);
