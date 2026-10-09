@@ -23,7 +23,7 @@ fn main() {
         format!("{y:04}-{m:02}-{d:02}")
     };
 
-    let libs_version = "rustpython 0.5.0, ty/ruff 0.16.4";
+    let libs_version = "rustpython 0.5.0 and ty/ruff 0.16.4";
 
     println!("cargo::rustc-env=BUILD_DATE={build_date}");
     println!("cargo::rustc-env=GIT_HASH={git_hash}");
