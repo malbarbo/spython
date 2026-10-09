@@ -219,6 +219,13 @@ fn bare_file_shorthand_after_dashdash() {
 }
 
 #[test]
+fn help_names_the_program_in_its_usage() {
+    let (out, err, success) = run_spython_native(&["help"], Path::new("."));
+    assert!(success, "stderr: {err}");
+    assert!(out.contains("Usage: spython "), "stdout: {out}");
+}
+
+#[test]
 fn bare_level_starts_repl() {
     // `spython -l N` with no file or subcommand starts the REPL at level N
     // (the level flag is routed into an injected `repl`).
