@@ -275,9 +275,8 @@ class _Text(Image):
 
 
 class _Bitmap(Image):
-    def __init__(self, box: _Box, data_uri: str, loaded: object) -> None:
+    def __init__(self, box: _Box, loaded: object) -> None:
         self.box: _Box = box
-        self.data_uri: str = data_uri
         self.loaded: object = loaded
 
 
@@ -343,7 +342,6 @@ def _translate(img: Image, dx: float, dy: float) -> Image:
     if isinstance(img, _Bitmap):
         return _Bitmap(
             _box_translate(img.box, dx, dy),
-            img.data_uri,
             img.loaded,
         )
     return img
@@ -1173,7 +1171,7 @@ def bitmap(path: str) -> Image:
 def bitmap_data_uri(data_uri: str) -> Image:
     w, h = _system.bitmap_size(data_uri)
     loaded = _system.load_image(data_uri)
-    return _Bitmap(_box_of_size(w, h), data_uri, loaded)
+    return _Bitmap(_box_of_size(w, h), loaded)
 
 
 # **************************
@@ -1209,7 +1207,6 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
     if isinstance(img, _Bitmap):
         return _Bitmap(
             _box_rotate(img.box, center, angle),
-            img.data_uri,
             img.loaded,
         )
     return img
@@ -1251,7 +1248,6 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
     if isinstance(img, _Bitmap):
         return _Bitmap(
             _box_scale(img.box, x_factor, y_factor),
-            img.data_uri,
             img.loaded,
         )
     return img
@@ -1284,7 +1280,6 @@ def _flip(img: Image, point_flip: _Callable[[Point], Point]) -> Image:
     if isinstance(img, _Bitmap):
         return _Bitmap(
             _box_flip(img.box, point_flip),
-            img.data_uri,
             img.loaded,
         )
     return img

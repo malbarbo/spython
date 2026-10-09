@@ -24,7 +24,7 @@ pub(crate) mod _spython_scene {
         PathBuilder, PathStyle, Sampling, Scene, Text, TextSpec,
     };
 
-    /// The image in `data_uri`, which a `_Bitmap` keeps, so a frame draws it
+    /// The image in `data_uri`. A `_Bitmap` keeps it, so a frame draws it
     /// with no decode. An image larger than the limit of sinteract shrinks.
     #[pyfunction]
     fn load_image(data_uri: PyStrRef, vm: &VirtualMachine) -> PyResult<PyLoadedImage> {
