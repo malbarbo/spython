@@ -231,8 +231,8 @@ def _box_scale(b: _Box, x_factor: float, y_factor: float) -> _Box:
     c: Point = Point(b.center.x * x_factor, b.center.y * y_factor)
     return _Box(
         c,
-        Point(b.x_axis.x * x_factor, b.x_axis.y * x_factor),
-        Point(b.y_axis.x * y_factor, b.y_axis.y * y_factor),
+        Point(b.x_axis.x * x_factor, b.x_axis.y * y_factor),
+        Point(b.y_axis.x * x_factor, b.y_axis.y * y_factor),
     )
 
 
