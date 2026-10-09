@@ -51,8 +51,8 @@ class _StrokeOpacity:
 
 
 class _StrokeDashArray:
-    def __init__(self, values: list[int]) -> None:
-        self.values: list[int] = [max(0, v) for v in values]
+    def __init__(self, values: list[float]) -> None:
+        self.values: list[float] = [max(0.0, v) for v in values]
 
 
 class _StrokeLineCap:
@@ -90,6 +90,8 @@ def _scale(style: Style, factor: float) -> Style:
     for a in style.attrs:
         if isinstance(a, _StrokeWidth):
             attrs.append(_StrokeWidth(a.value * factor))
+        elif isinstance(a, _StrokeDashArray):
+            attrs.append(_StrokeDashArray([v * factor for v in a.values]))
         else:
             attrs.append(a)
     return Style(attrs)

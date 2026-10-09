@@ -1224,7 +1224,8 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
     y_factor = _positive(y_factor)
     if isinstance(img, _Path):
         # The path takes the scale point by point, but its stroke has one
-        # width, so the width takes the mean of the two factors, as in 2htdp.
+        # width and one dash, so they take the mean of the two factors, as the
+        # width does in 2htdp.
         return _Path(
             _style_scale(img.style, (x_factor + y_factor) / 2.0),
             [_cmd_scale(c, x_factor, y_factor) for c in img.commands],
