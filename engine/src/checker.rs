@@ -174,6 +174,24 @@ impl Checker<'_> {
         }
     }
 
+    /// Returns `true` if `cls` is a subclass of `Enum`, directly or not,
+    /// `false` otherwise.
+    fn is_enum_class(&self, cls: &StmtClassDef) -> bool {
+        let Some(ty) = cls.inferred_type(self.model) else {
+            return false;
+        };
+        let db = self.model.db();
+        let env = self.model.program_environment();
+        let enum_ty = KnownClass::Enum.to_subclass_of(db, &env);
+        // A class with a base that ty cannot resolve is assignable to the
+        // type of every class, and no class subclasses both `int` and `str`,
+        // so the second test keeps such a class out.
+        let int_ty = KnownClass::Int.to_subclass_of(db, &env);
+        let str_ty = KnownClass::Str.to_subclass_of(db, &env);
+        ty.is_assignable_to(db, &env, enum_ty)
+            && !(ty.is_assignable_to(db, &env, int_ty) && ty.is_assignable_to(db, &env, str_ty))
+    }
+
     /// Reject an arithmetic operand whose inferred type is `bool`. Only
     /// applies at teaching levels 0–3.
     fn reject_bool_arith_operand(&mut self, expr: &Expr) {
@@ -791,7 +809,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     }
                     // Skip annotation check for Enum subclasses — Enum
                     // members don't need (and shouldn't have) annotations.
-                    if is_enum_class(cls) {
+                    if self.is_enum_class(cls) {
                         self.check_enum_member_names(cls);
                     } else {
                         self.check_class_body(cls);
@@ -1139,19 +1157,6 @@ fn has_decorator_named(decorators: &[Decorator], names: &[&str]) -> bool {
         Expr::Name(n) => names.contains(&n.id.as_str()),
         Expr::Attribute(a) => names.contains(&a.attr.as_str()),
         _ => false,
-    })
-}
-
-/// Returns true if the class directly subclasses `Enum`, `IntEnum`,
-/// `StrEnum`, `Flag`, or `IntFlag` (matched by base name only — students
-/// don't typically alias these).
-fn is_enum_class(cls: &StmtClassDef) -> bool {
-    cls.arguments.as_ref().is_some_and(|args| {
-        args.args.iter().any(|arg| {
-            matches!(arg, Expr::Name(name)
-                if matches!(name.id.as_str(),
-                    "Enum" | "IntEnum" | "StrEnum" | "Flag" | "IntFlag"))
-        })
     })
 }
 
