@@ -29,13 +29,44 @@ fn main() {
     println!("cargo::rustc-env=GIT_HASH={git_hash}");
     println!("cargo::rustc-env=LIBS_VERSION={libs_version}");
 
-    println!("cargo::rerun-if-changed=../.git/HEAD");
-    println!("cargo::rerun-if-changed=../.git/refs/");
     // Cargo takes a missing file for changed and would run this script at
-    // every build. Git writes packed-refs only at its first gc.
-    if std::path::Path::new("../.git/packed-refs").exists() {
-        println!("cargo::rerun-if-changed=../.git/packed-refs");
+    // every build, so it watches only the files git names. In a worktree
+    // `.git` is a file, HEAD is under the worktree and the refs are not.
+    println!("cargo::rerun-if-changed=build.rs");
+    for path in git_paths() {
+        if std::path::Path::new(&path).exists() {
+            println!("cargo::rerun-if-changed={path}");
+        }
     }
+}
+
+/// The files that change when HEAD moves: HEAD itself, the refs, and the
+/// refs packed by a gc. None outside a git repository.
+fn git_paths() -> Vec<String> {
+    let Some(output) = Command::new("git")
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "HEAD",
+            "--git-common-dir",
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+    else {
+        return Vec::new();
+    };
+    let output = String::from_utf8_lossy(&output.stdout);
+    let mut lines = output.lines();
+    let (Some(head), Some(common)) = (lines.next(), lines.next()) else {
+        return Vec::new();
+    };
+    vec![
+        head.to_owned(),
+        format!("{common}/refs"),
+        format!("{common}/packed-refs"),
+    ]
 }
 
 /// Convert days since 1970-01-01 to (year, month, day).
