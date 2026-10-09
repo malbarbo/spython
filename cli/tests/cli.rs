@@ -878,6 +878,43 @@ fn check_refuses_a_module_from_site_packages() {
 }
 
 #[test]
+fn check_resolves_the_imports_of_a_doctest_in_a_package() {
+    // A module under a package imports from the directory of the main file,
+    // and so do its doctests.
+    for import in ["from pkg.other import dobro", "from .other import dobro"] {
+        let util = formatdoc! {r#"
+            {import}
+
+
+            def quadruplo(x: int) -> int:
+                """
+                >>> dobro("a")
+                """
+                return dobro(dobro(x))
+        "#};
+        let dir = new_dir_with(
+            "doctest_package",
+            &[
+                ("main.py", "from pkg.util import quadruplo\n"),
+                ("pkg/__init__.py", ""),
+                (
+                    "pkg/other.py",
+                    "def dobro(x: int) -> int:\n    return 2 * x\n",
+                ),
+                ("pkg/util.py", util.as_str()),
+            ],
+        );
+        let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!success, "check should have refused {import:?}, got: {err}");
+        assert!(
+            err.contains("in doctest of quadruplo: Argument to function `dobro` is incorrect"),
+            "expected the type error of the doctest with {import:?}, got: {err}"
+        );
+    }
+}
+
+#[test]
 fn check_ignores_a_virtual_env_that_is_not_there() {
     let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);
     let output = spython()

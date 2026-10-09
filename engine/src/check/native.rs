@@ -64,7 +64,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     // Validate and type-check doctests inside each user file's docstrings.
     let user_files = user_files(&db, files.iter().copied());
     for f in &user_files {
-        diagnostics.extend(check_file_doctests(&db, *f, level));
+        diagnostics.extend(check_file_doctests(&db, *f, &root, level));
     }
     // An error stops the file; a warning is printed and the file goes on. The
     // in-memory check the page runs has always drawn the line here, and this is
@@ -77,7 +77,11 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     }
     print_type_errors(&db, &diagnostics, color_stderr());
 
-    Ok(modules_beside(&db, main_file, user_files))
+    Ok(modules_beside(
+        &db,
+        &root,
+        user_files.into_iter().filter(|f| *f != main_file),
+    ))
 }
 
 /// Build a ty ProjectDatabase for the given file.

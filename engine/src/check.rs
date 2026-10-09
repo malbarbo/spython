@@ -11,9 +11,7 @@ use ruff_db::diagnostic::{
 };
 use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
-use ruff_db::system::{
-    InMemorySystem, MemoryFileSystem, System, SystemPath, SystemPathBuf, WritableSystem,
-};
+use ruff_db::system::{InMemorySystem, MemoryFileSystem, System, SystemPath, SystemPathBuf};
 use ruff_python_ast::name::Name;
 use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_python_ast::{ExprRef, Stmt};
@@ -145,10 +143,21 @@ where
 /// own, out of reach of the source's own path, and are not included, so the
 /// checker reads them to resolve names and reports nothing about them.
 fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectDatabase, File) {
+    in_memory_project_at(SystemPath::new(USER_FILE), source, modules)
+}
+/// The [`in_memory_project`] that holds `source` at `file_path`. A path under
+/// [`MODULE_ROOT`] makes `source` one of the modules, so its imports resolve
+/// as they do for the file it stands for, the relative ones included.
+fn in_memory_project_at(
+    file_path: &SystemPath,
+    source: &str,
+    modules: &[(String, String)],
+) -> (ProjectDatabase, File) {
     let cwd = SystemPathBuf::from(SOURCE_DIR);
     let system = InMemorySystem::from_memory_fs(MemoryFileSystem::with_current_directory(&cwd));
     system
-        .write_file(SystemPath::new(USER_FILE), source)
+        .fs()
+        .write_file_all(file_path, source)
         .expect("writing to in-memory filesystem should never fail");
     for (path, module_source) in modules {
         // `write_file_all`, not `write_file`: a module under a package needs
@@ -164,17 +173,17 @@ fn in_memory_project(source: &str, modules: &[(String, String)]) -> (ProjectData
     let lib_root = spython_lib::write_into(&system, SystemPath::new(LIB_PARENT));
 
     let mut roots = Vec::new();
-    if !modules.is_empty() {
+    if !modules.is_empty() || file_path.starts_with(MODULE_ROOT) {
         roots.push(SystemPathBuf::from(MODULE_ROOT));
     }
     let mut db = project_database(cwd, roots, vec![lib_root], system)
         .expect("building ProjectDatabase with in-memory system should never fail");
 
-    let file_path = SystemPathBuf::from(USER_FILE);
-    let user_file = system_path_to_file(&db, &file_path)
-        .expect("user.py should be resolvable after writing it to the in-memory filesystem");
+    let user_file = system_path_to_file(&db, file_path)
+        .expect("the source should be resolvable after writing it to the in-memory filesystem");
 
-    db.project().set_included_paths(&mut db, vec![file_path]);
+    db.project()
+        .set_included_paths(&mut db, vec![file_path.to_path_buf()]);
     (db, user_file)
 }
 /// Type-check `source` entirely in memory (no OS filesystem access).
@@ -203,7 +212,12 @@ fn check_in_memory(
     // Doctests are code too — validate prompt format and type-check snippets.
     // Skip in REPL context, where incremental input doesn't have docstrings.
     if repl_input.is_none() {
-        diagnostics.extend(check_file_doctests(&db, user_file, level));
+        diagnostics.extend(check_file_doctests(
+            &db,
+            user_file,
+            SystemPath::new(SOURCE_DIR),
+            level,
+        ));
     }
 
     let has_errors = diagnostics
@@ -243,35 +257,35 @@ fn user_files(db: &ProjectDatabase, files: impl Iterator<Item = File>) -> Vec<Fi
     files.sort_by_key(|f| f.path(db).as_str().to_owned());
     files
 }
-/// The files among `files` that `main_file` can name, keyed by their path
-/// relative to the directory it sits in -- the form [`in_memory_project`]
-/// takes its modules in.
+/// The files among `files` that a file in `root` can name, keyed by their
+/// path relative to `root` -- the form [`in_memory_project`] takes its
+/// modules in.
 ///
 /// An in-memory check cannot reach the real directory, so what the source
-/// imports has to travel as text. `main_file` itself is left out, and so is
-/// a file outside its directory: there is no relative name that would reach
-/// it, so writing it would not help the resolver either. Sorted, because
-/// `files` often comes from a `HashSet`.
+/// imports has to travel as text. A file outside `root` is left out: there
+/// is no relative name that would reach it, so writing it would not help the
+/// resolver either. Sorted, because `files` often comes from a `HashSet`.
 pub fn modules_beside(
     db: &ProjectDatabase,
-    main_file: File,
+    root: &SystemPath,
     files: impl IntoIterator<Item = File>,
 ) -> Vec<(String, String)> {
-    let Some(root) = main_file.path(db).as_system_path().and_then(|p| p.parent()) else {
-        return Vec::new();
-    };
     let mut modules: Vec<(String, String)> = files
         .into_iter()
-        .filter(|f| *f != main_file)
         .filter_map(|f| {
-            let path = f.path(db).as_system_path()?;
-            let relative = path.strip_prefix(root).ok()?;
+            let relative = relative_path(db, f, root)?;
             let source = ruff_db::source::source_text(db, f);
-            Some((relative.as_str().to_owned(), source.to_string()))
+            Some((relative, source.to_string()))
         })
         .collect();
     modules.sort();
     modules
+}
+/// The path of `file` relative to `root`, or `None` when `file` is not
+/// under `root`.
+fn relative_path(db: &ProjectDatabase, file: File, root: &SystemPath) -> Option<String> {
+    let path = file.path(db).as_system_path()?;
+    Some(path.strip_prefix(root).ok()?.as_str().to_owned())
 }
 /// Type-check and format-check doctests inside a file's docstrings.
 ///
@@ -283,7 +297,15 @@ pub fn modules_beside(
 ///
 /// Doctest diagnostics complement the ordinary file-level check; callers
 /// should append this to their existing diagnostic list.
-pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Vec<Diagnostic> {
+///
+/// `root` is the directory of the main file, which the imports of every file
+/// resolve from.
+pub fn check_file_doctests(
+    db: &ProjectDatabase,
+    file: File,
+    root: &SystemPath,
+    level: Level,
+) -> Vec<Diagnostic> {
     let parsed = parsed_module(db, db.program_file(file).python_file(db));
     let module = parsed.load(db);
     let source = ruff_db::source::source_text(db, file);
@@ -307,12 +329,21 @@ pub fn check_file_doctests(db: &ProjectDatabase, file: File, level: Level) -> Ve
 
     // A doctest can name what the file around it imports, so the check gets
     // the file's first-party imports as the modules to resolve against --
-    // the same in-memory project the REPL checks its inputs in.
+    // the same in-memory project the REPL checks its inputs in. The doctests
+    // take the place of the file, under the same path.
     let mut transitive: HashSet<File> = HashSet::new();
     collect_import_files(db, file, &mut transitive);
-    let modules = modules_beside(db, file, transitive);
+    transitive.remove(&file);
+    let modules = modules_beside(db, root, transitive);
 
-    let (scratch, syn_file) = in_memory_project(&syn_source, &modules);
+    let (scratch, syn_file) = match relative_path(db, file, root) {
+        Some(relative) => in_memory_project_at(
+            &SystemPathBuf::from(format!("{MODULE_ROOT}/{relative}")),
+            &syn_source,
+            &modules,
+        ),
+        None => in_memory_project(&syn_source, &modules),
+    };
 
     let mut raw = annotation_check(&scratch, level, None);
     raw.extend(scratch.check());
