@@ -1,5 +1,6 @@
 import math as _math
 from collections.abc import Callable as _Callable
+from collections.abc import Sequence as _Sequence
 from enum import Enum as _Enum
 
 from spython import font as _font
@@ -178,8 +179,8 @@ def arc_to(
     return _ArcTo(rx, ry, rotation, large_arc, sweep, Point(x, y))
 
 
-def path(commands: list[_PathCmd], closed: bool, *style_args: Style) -> "Image":
-    return _fix_position(_Path(_make_style(*style_args), commands, closed))
+def path(commands: _Sequence[_PathCmd], closed: bool, *style_args: Style) -> "Image":
+    return _fix_position(_Path(_make_style(*style_args), list(commands), closed))
 
 
 # **************************
@@ -987,7 +988,9 @@ def regular_polygon(side_length: float, side_count: int, *style_args: Style) -> 
     return star_polygon(side_length, side_count, 1, *style_args)
 
 
-def polygon(points: list[Point | tuple[float, float]], *style_args: Style) -> Image:
+def polygon(
+    points: _Sequence[Point | tuple[float, float]], *style_args: Style
+) -> Image:
     pts: list[Point] = []
     for p in points:
         if isinstance(p, Point):

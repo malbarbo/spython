@@ -1,0 +1,8 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+10
+20.0
+30
+STDERR
