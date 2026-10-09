@@ -11,37 +11,7 @@ def now_ms() -> int:
     return int(_time.time() * 1000)
 
 
-try:
-    from _spython_ffi import (
-        show_svg,
-        get_key_event,
-        text_metrics,
-    )  # type: ignore[import-not-found]
-except ImportError:
-
-    def show_svg(svg: str) -> None:
-        print(svg)
-
-    def get_key_event() -> tuple[int, str, bool, bool, bool, bool, bool] | None:
-        return None
-
-    # A guess from the size, since there is no font engine here. A character
-    # is 0.6 of the size wide, and a line is the size high.
-    def text_metrics(text: str, font_css: str) -> tuple[float, float]:
-        size: float = _font_size(font_css)
-        return (len(text) * size * 0.6, size)
-
-    # The size in pixels the css says. Without one the size is 14, what a
-    # `Font` starts with.
-    def _font_size(font_css: str) -> float:
-        for part in font_css.split():
-            if part.endswith("px"):
-                try:
-                    return float(part[:-2])
-                except ValueError:
-                    pass
-        return 14.0
-
+from _spython_ffi import get_key_event, show_svg, text_metrics  # type: ignore[import-not-found]
 
 # Opens a printer of images in the terminal, or gives None when the terminal
 # shows no graphics.
