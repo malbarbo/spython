@@ -27,6 +27,7 @@ use ty_project::{Db, ProjectDatabase, ProjectMetadata};
 use ty_python_core::{global_scope, place_table};
 use ty_python_semantic::Db as _;
 use ty_python_semantic::lint::Level as TyLevel;
+use ty_python_semantic::types::Type;
 use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::{Level, checker, doctests, spython_lib};
@@ -592,29 +593,15 @@ pub(crate) fn infer_expression_type(
     };
 
     let model = SemanticModel::new(&db, program_file);
+    let env = model.program_environment();
     let ty = ExprRef::from(expr_node).inferred_type(&model)?;
-    let type_str = ty.display(&db, &model.program_environment()).to_string();
-    Some(simplify_type_display(&type_str))
-}
-/// Simplify ty's type display for student-friendly output.
-///
-/// Converts `Literal[10]` → `int`, `Literal["hello"]` → `str`, etc.
-fn simplify_type_display(s: &str) -> String {
-    if let Some(inner) = s.strip_prefix("Literal[").and_then(|s| s.strip_suffix(']')) {
-        // Determine the base type from the literal value.
-        if inner == "True" || inner == "False" {
-            return "bool".to_owned();
-        }
-        if inner.starts_with('"') || inner.starts_with('\'') {
-            return "str".to_owned();
-        }
-        if inner.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
-            return "int".to_owned();
-        }
-        // Unknown literal — return as-is.
-        return s.to_owned();
-    }
-    s.to_owned()
+    // A student wants `int` for `1`, but a function would show as a
+    // `Callable` instead of its `def` once promoted.
+    let ty = match ty {
+        Type::FunctionLiteral(_) => ty,
+        _ => ty.promote(&db, &env),
+    };
+    Some(ty.display(&db, &env).to_string())
 }
 /// Where a diagnostic starts.
 ///
@@ -831,6 +818,33 @@ mod repl_check_tests {
         assert_eq!(
             infer_expression_type("import helpers", "helpers.helper(1)", &helpers()),
             Some("int".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_type_shows_the_class_of_each_literal_in_it() {
+        let session = "b = len(input()) > 0";
+        for (expr, expected) in [
+            ("1", "int"),
+            ("1 if b else \"a\"", "int | str"),
+            ("True if b else 1", "int"),
+            ("\"a\" if b else None", "str | None"),
+            ("(1, \"a\")", "tuple[int, str]"),
+            ("b\"x\"", "bytes"),
+        ] {
+            assert_eq!(
+                infer_expression_type(session, expr, &[]).as_deref(),
+                Some(expected),
+                "{expr}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_function_shows_as_its_def() {
+        assert_eq!(
+            infer_expression_type("", "len", &[]).as_deref(),
+            Some("def len(obj: Sized, /) -> int")
         );
     }
 }

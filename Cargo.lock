@@ -3557,7 +3557,7 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 [[package]]
 name = "ruff_annotate_snippets"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "anstyle",
  "memchr",
@@ -3567,7 +3567,7 @@ dependencies = [
 [[package]]
 name = "ruff_cache"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "char_str",
  "filetime",
@@ -3581,7 +3581,7 @@ dependencies = [
 [[package]]
 name = "ruff_db"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "anstyle",
  "arc-swap",
@@ -3624,7 +3624,7 @@ dependencies = [
 [[package]]
 name = "ruff_diagnostics"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "get-size2 0.10.3",
  "is-macro",
@@ -3635,7 +3635,7 @@ dependencies = [
 [[package]]
 name = "ruff_formatter"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "drop_bomb",
  "ruff_cache",
@@ -3651,7 +3651,7 @@ dependencies = [
 [[package]]
 name = "ruff_index"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "get-size2 0.10.3",
  "ruff_macros",
@@ -3661,7 +3661,7 @@ dependencies = [
 [[package]]
 name = "ruff_macros"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "heck",
  "itertools 0.15.0",
@@ -3675,7 +3675,7 @@ dependencies = [
 [[package]]
 name = "ruff_memory_usage"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "get-size2 0.10.3",
 ]
@@ -3683,7 +3683,7 @@ dependencies = [
 [[package]]
 name = "ruff_notebook"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "anyhow",
  "rand 0.10.2",
@@ -3699,12 +3699,12 @@ dependencies = [
 [[package]]
 name = "ruff_options_metadata"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -3728,7 +3728,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_formatter"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "anyhow",
  "clap",
@@ -3757,7 +3757,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_literal"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "bitflags 2.13.1",
  "icu_properties",
@@ -3768,7 +3768,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
@@ -3790,7 +3790,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_stdlib"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "bitflags 2.13.1",
  "unicode-ident",
@@ -3799,7 +3799,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "itertools 0.15.0",
  "ruff_source_file",
@@ -3811,7 +3811,7 @@ dependencies = [
 [[package]]
 name = "ruff_ranged_value"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "get-size2 0.10.3",
  "ruff_db",
@@ -3824,7 +3824,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "get-size2 0.10.3",
  "memchr",
@@ -3835,7 +3835,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "get-size2 0.10.3",
  "serde",
@@ -5130,7 +5130,7 @@ checksum = "8464ec13c3691491391d9fce00f6416c9a48e46972f72d7865688be2080192c9"
 [[package]]
 name = "ty_combine"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "ordermap",
  "ruff_db",
@@ -5141,7 +5141,7 @@ dependencies = [
 [[package]]
 name = "ty_module_resolver"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "anyhow",
  "camino",
@@ -5165,7 +5165,7 @@ dependencies = [
 [[package]]
 name = "ty_project"
 version = "0.0.0"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -5211,7 +5211,7 @@ dependencies = [
 [[package]]
 name = "ty_python_core"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "bitflags 2.13.1",
  "bitvec",
@@ -5242,7 +5242,7 @@ dependencies = [
 [[package]]
 name = "ty_python_semantic"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "bitflags 2.13.1",
  "char_str",
@@ -5284,7 +5284,7 @@ dependencies = [
 [[package]]
 name = "ty_site_packages"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "camino",
  "colored",
@@ -5305,7 +5305,7 @@ dependencies = [
 [[package]]
 name = "ty_static"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "ruff_macros",
 ]
@@ -5313,7 +5313,7 @@ dependencies = [
 [[package]]
 name = "ty_vendored"
 version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#c7ecf84b4f5220eff02dd7d50e4f72dcd81f18b1"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
 dependencies = [
  "path-slash",
  "ruff_db",
