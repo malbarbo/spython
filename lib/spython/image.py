@@ -274,6 +274,13 @@ class _Path(Image):
         self.closed: bool = closed
 
 
+class _Line(Image):
+    def __init__(self, style: Style, start: Point, end: Point) -> None:
+        self.style: Style = style
+        self.start: Point = start
+        self.end: Point = end
+
+
 class _Combination(Image):
     def __init__(self, a: Image, b: Image) -> None:
         self.a: Image = a
@@ -355,6 +362,12 @@ def _translate(img: Image, dx: float, dy: float) -> Image:
         return _Path(
             img.style, [_cmd_translate(c, dx, dy) for c in img.commands], img.closed
         )
+    if isinstance(img, _Line):
+        return _Line(
+            img.style,
+            _point_translate(img.start, dx, dy),
+            _point_translate(img.end, dx, dy),
+        )
     if isinstance(img, _Combination):
         return _Combination(_translate(img.a, dx, dy), _translate(img.b, dx, dy))
     if isinstance(img, _Crop):
@@ -403,6 +416,14 @@ def _drawn_box(img: Image) -> tuple[Point, Point] | None:
         first = img.commands[0]
         p: Point = _cmd_endpoint(first)
         return _path_box(img.commands, 1, p, p.x, p.y, p.x, p.y)
+    if isinstance(img, _Line):
+        # Half a pixel on each side is what a pen of width 1 covers, so the
+        # ends sit on the centers of pixels whatever the transformation.
+        start, end = img.start, img.end
+        return (
+            Point(min(start.x, end.x) - 0.5, min(start.y, end.y) - 0.5),
+            Point(max(start.x, end.x) + 0.5, max(start.y, end.y) + 0.5),
+        )
     if isinstance(img, _Combination):
         a = _drawn_box(img.a)
         b = _drawn_box(img.b)
@@ -903,10 +924,10 @@ def circle(radius: float, *style_args: Style) -> Image:
 
 
 def line(x: float, y: float, *style_args: Style) -> Image:
+    # As in 2htdp, a line takes one more column and one more row than the
+    # distance between its ends, so a thin line fits on the canvas.
     s: Style = _make_style(*style_args)
-    return _fix_position(
-        _Path(s, [_MoveTo(Point(0.0, 0.0)), _LineTo(Point(x, y))], False)
-    )
+    return _fix_position(_Line(s, Point(0.0, 0.0), Point(x, y)))
 
 
 # **************************
@@ -1262,6 +1283,12 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
         return _Path(
             img.style, [_cmd_rotate(c, center, angle) for c in img.commands], img.closed
         )
+    if isinstance(img, _Line):
+        return _Line(
+            img.style,
+            _point_rotate(img.start, center, angle),
+            _point_rotate(img.end, center, angle),
+        )
     if isinstance(img, _Combination):
         return _Combination(
             _rotate_around(img.a, center, angle), _rotate_around(img.b, center, angle)
@@ -1293,6 +1320,12 @@ def scale(img: Image, factor: float) -> Image:
 
 def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
     _positive(x_factor=x_factor, y_factor=y_factor)
+    # The half pixel around a line keeps its size, so the scaled line no
+    # longer starts at 0.
+    return _fix_position(_scale_parts(img, x_factor, y_factor))
+
+
+def _scale_parts(img: Image, x_factor: float, y_factor: float) -> Image:
     if isinstance(img, _Path):
         # The path takes the scale point by point, but its stroke has one
         # width and one dash, so they take the mean of the two factors, as the
@@ -1302,14 +1335,21 @@ def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
             [_cmd_scale(c, x_factor, y_factor) for c in img.commands],
             img.closed,
         )
+    if isinstance(img, _Line):
+        return _Line(
+            _style_scale(img.style, (x_factor + y_factor) / 2.0),
+            Point(img.start.x * x_factor, img.start.y * y_factor),
+            Point(img.end.x * x_factor, img.end.y * y_factor),
+        )
     if isinstance(img, _Combination):
         return _Combination(
-            scale_xy(img.a, x_factor, y_factor), scale_xy(img.b, x_factor, y_factor)
+            _scale_parts(img.a, x_factor, y_factor),
+            _scale_parts(img.b, x_factor, y_factor),
         )
     if isinstance(img, _Crop):
         return _Crop(
             _box_scale(img.box, x_factor, y_factor),
-            scale_xy(img.image, x_factor, y_factor),
+            _scale_parts(img.image, x_factor, y_factor),
         )
     if isinstance(img, _Text):
         # The stroke of a text is as wide as the stroke of a path.
@@ -1340,6 +1380,8 @@ def _flip(img: Image, point_flip: _Callable[[Point], Point]) -> Image:
         return _Path(
             img.style, [_cmd_flip(c, point_flip) for c in img.commands], img.closed
         )
+    if isinstance(img, _Line):
+        return _Line(img.style, point_flip(img.start), point_flip(img.end))
     if isinstance(img, _Combination):
         return _Combination(_flip(img.a, point_flip), _flip(img.b, point_flip))
     if isinstance(img, _Crop):

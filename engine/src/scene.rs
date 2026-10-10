@@ -147,6 +147,7 @@ pub(crate) mod _spython_scene {
             let class = image.class().name().to_owned();
             let leaf = match class.as_str() {
                 "_Path" => path(&image, vm)?.map(Leaf::Path),
+                "_Line" => Some(Leaf::Path(line(&image, vm)?)),
                 "_Combination" => {
                     // The stack gives back the last node first, and `a`
                     // draws before `b`.
@@ -280,21 +281,7 @@ pub(crate) mod _spython_scene {
         if first.class().name().to_owned() != "_MoveTo" {
             return Ok(None);
         }
-        // A thin outline on a half pixel covers one row of pixels, and on a
-        // whole pixel it blurs over two.
-        let snap = |v: f64| {
-            if style.aligned() {
-                (v + FP_EPSILON).floor() + 0.5
-            } else {
-                v
-            }
-        };
-        let point = |p: PyObjectRef| -> PyResult<(f32, f32)> {
-            Ok((
-                snap(float(&p, "x", vm)?) as f32,
-                snap(float(&p, "y", vm)?) as f32,
-            ))
-        };
+        let point = pixel_point(&style, vm);
         let (x, y) = point(first.get_attr("p", vm)?)?;
         let mut path_style = style.path_style();
         path_style.closed = image.get_attr("closed", vm)?.try_to_bool(vm)?;
@@ -303,6 +290,39 @@ pub(crate) mod _spython_scene {
             builder = segment(builder, cmd, &point, vm)?;
         }
         Ok(Some(builder.build()))
+    }
+
+    /// The path of a `_Line`, from one end to the other.
+    fn line(image: &PyObject, vm: &VirtualMachine) -> PyResult<Path> {
+        let style = Style::read(&*image.get_attr("style", vm)?, vm)?;
+        let point = pixel_point(&style, vm);
+        let (x, y) = point(image.get_attr("start", vm)?)?;
+        let (end_x, end_y) = point(image.get_attr("end", vm)?)?;
+        Ok(Path::builder(style.path_style(), x, y)
+            .line_to(end_x, end_y)
+            .build())
+    }
+
+    /// Reads a point for a path with `style`. A thin outline on a half pixel
+    /// covers one row of pixels, and on a whole pixel it blurs over two, so
+    /// an aligned style puts the point on the center of its pixel.
+    fn pixel_point<'a>(
+        style: &'a Style,
+        vm: &'a VirtualMachine,
+    ) -> impl Fn(PyObjectRef) -> PyResult<(f32, f32)> + 'a {
+        let snap = |v: f64| {
+            if style.aligned() {
+                (v + FP_EPSILON).floor() + 0.5
+            } else {
+                v
+            }
+        };
+        move |p: PyObjectRef| {
+            Ok((
+                snap(float(&p, "x", vm)?) as f32,
+                snap(float(&p, "y", vm)?) as f32,
+            ))
+        }
     }
 
     /// `builder` with the segment of `cmd` appended.
