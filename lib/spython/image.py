@@ -878,12 +878,20 @@ def ellipse(w: float, h: float, *style_args: Style) -> Image:
     rx: float = w / 2.0
     ry: float = h / 2.0
     s: Style = _make_style(*style_args)
+
+    def arc(end: Point) -> _ArcTo:
+        return _ArcTo(rx, ry, 0.0, False, True, end)
+
+    # A quarter arc ends away from where it starts even when the width or the
+    # height is 0, so the box keeps the other side.
     return _Path(
         s,
         [
             _MoveTo(Point(w, ry)),
-            _ArcTo(rx, ry, 0.0, False, True, Point(0.0, ry)),
-            _ArcTo(rx, ry, 0.0, False, True, Point(w, ry)),
+            arc(Point(rx, h)),
+            arc(Point(0.0, ry)),
+            arc(Point(rx, 0.0)),
+            arc(Point(w, ry)),
         ],
         True,
     )
