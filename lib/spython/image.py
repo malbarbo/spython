@@ -383,12 +383,13 @@ def _box(img: Image) -> tuple[Point, Point]:
 
 def _drawn_box(img: Image) -> tuple[Point, Point] | None:
     """The box of what `img` draws, or `None` when `img` is made only of
-    paths with no commands. A part with nothing in it adds nothing to the box
+    paths that draw nothing. A part with nothing in it adds nothing to the box
     of a combination, wherever a translation left it."""
     if isinstance(img, _Path):
-        if len(img.commands) == 0:
+        box = _system.path_box(img.commands)
+        if box is None:
             return None
-        x0, y0, x1, y1 = _system.path_box(img.commands)
+        x0, y0, x1, y1 = box
         return (Point(x0, y0), Point(x1, y1))
     if isinstance(img, _Line):
         # Half a pixel on each side is what a pen of width 1 covers, so the

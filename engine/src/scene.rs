@@ -13,7 +13,7 @@ pub(crate) mod _spython_scene {
     use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use kurbo::{BezPath, ParamCurveExtrema, Rect, SvgArc, Vec2};
+    use kurbo::{BezPath, ParamCurveExtrema, SvgArc, Vec2};
     use rustpython_vm::builtins::PyStrRef;
     use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::{
@@ -75,39 +75,45 @@ pub(crate) mod _spython_scene {
         Ok(renderer.into_string())
     }
 
-    /// The box around the path of `commands` as the least x, the least y,
-    /// the greatest x and the greatest y. An arc counts as the cubics that
-    /// sinteract draws for it, so the box fits the drawing.
+    /// The box around what the path of `commands` draws, as the least x,
+    /// the least y, the greatest x and the greatest y, or `None` when it
+    /// draws nothing. As in sinteract, a path draws nothing unless it starts
+    /// with a move, a move draws nothing unless a segment leaves it, and an
+    /// arc draws as cubics, so the box fits the drawing.
     #[pyfunction]
-    fn path_box(commands: PyObjectRef, vm: &VirtualMachine) -> PyResult<(f64, f64, f64, f64)> {
+    fn path_box(
+        commands: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<(f64, f64, f64, f64)>> {
+        let at = |cmd: &PyObject, name: &'static str| -> PyResult<kurbo::Point> {
+            let p = cmd.get_attr(name, vm)?;
+            Ok(kurbo::Point::new(float(&p, "x", vm)?, float(&p, "y", vm)?))
+        };
+        let commands = vm.extract_elements_with(&commands, Ok)?;
+        let Some((first, rest)) = commands.split_first() else {
+            return Ok(None);
+        };
+        if first.class().name().to_owned() != "_MoveTo" {
+            return Ok(None);
+        }
         let mut path = BezPath::new();
-        for cmd in vm.extract_elements_with(&commands, Ok)? {
-            let at = |name: &'static str| -> PyResult<kurbo::Point> {
-                let p = cmd.get_attr(name, vm)?;
-                Ok(kurbo::Point::new(float(&p, "x", vm)?, float(&p, "y", vm)?))
-            };
+        path.move_to(at(first, "p")?);
+        for cmd in rest {
             let class = cmd.class().name().to_owned();
-            let end = at(match class.as_str() {
-                "_MoveTo" | "_LineTo" => "p",
-                _ => "end",
-            })?;
-            // A path that starts with a segment other than a move starts at
-            // the end of that segment.
-            let Some(from) = path.elements().last().and_then(|el| el.end_point()) else {
-                path.move_to(end);
-                continue;
-            };
             match class.as_str() {
-                "_MoveTo" => path.move_to(end),
-                "_LineTo" => path.line_to(end),
-                "_QuadTo" => path.quad_to(at("control")?, end),
-                "_CubicTo" => path.curve_to(at("c1")?, at("c2")?, end),
+                "_MoveTo" => path.move_to(at(cmd, "p")?),
+                "_LineTo" => path.line_to(at(cmd, "p")?),
+                "_QuadTo" => path.quad_to(at(cmd, "control")?, at(cmd, "end")?),
+                "_CubicTo" => path.curve_to(at(cmd, "c1")?, at(cmd, "c2")?, at(cmd, "end")?),
                 "_ArcTo" => {
+                    let end = at(cmd, "end")?;
                     let arc = SvgArc {
-                        from,
+                        from: path
+                            .current_position()
+                            .expect("the path starts with a move"),
                         to: end,
-                        radii: Vec2::new(float(&cmd, "rx", vm)?, float(&cmd, "ry", vm)?),
-                        x_rotation: float(&cmd, "rotation", vm)?.to_radians(),
+                        radii: Vec2::new(float(cmd, "rx", vm)?, float(cmd, "ry", vm)?),
+                        x_rotation: float(cmd, "rotation", vm)?.to_radians(),
                         large_arc: cmd.get_attr("large_arc", vm)?.try_to_bool(vm)?,
                         sweep: cmd.get_attr("sweep", vm)?.try_to_bool(vm)?,
                     };
@@ -123,16 +129,12 @@ pub(crate) mod _spython_scene {
                 _ => return Err(vm.new_type_error(format!("cannot measure a {class}"))),
             }
         }
-        // A move adds its point even when no segment leaves it.
-        let mut points = path.elements().iter().filter_map(|el| el.end_point());
-        let Some(first) = points.next() else {
-            return Ok((0.0, 0.0, 0.0, 0.0));
-        };
-        let rect = points.fold(Rect::from_points(first, first), |rect, p| rect.union_pt(p));
+        // The box of a segment holds the point where the segment starts.
         let rect = path
             .segments()
-            .fold(rect, |rect, seg| rect.union(seg.bounding_box()));
-        Ok((rect.x0, rect.y0, rect.x1, rect.y1))
+            .map(|seg| seg.bounding_box())
+            .reduce(|a, b| a.union(b));
+        Ok(rect.map(|rect| (rect.x0, rect.y0, rect.x1, rect.y1)))
     }
 
     /// The image that [`load_image`] or [`load_bitmap`] returns. Python only
