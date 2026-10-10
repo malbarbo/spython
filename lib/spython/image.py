@@ -91,6 +91,13 @@ def _non_negative(**measures: float) -> None:
             raise ValueError(f"{name} must not be negative, got {value}")
 
 
+def _positive(**measures: float) -> None:
+    """Raises `ValueError` if one of `measures` is 0 or negative."""
+    for name, value in measures.items():
+        if value <= 0:
+            raise ValueError(f"{name} must be positive, got {value}")
+
+
 def _mid(a: float, b: float) -> float:
     return (a - b) / 2.0
 
@@ -1210,12 +1217,12 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
 
 
 def scale(img: Image, factor: float) -> Image:
-    _non_negative(factor=factor)
+    _positive(factor=factor)
     return scale_xy(img, factor, factor)
 
 
 def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
-    _non_negative(x_factor=x_factor, y_factor=y_factor)
+    _positive(x_factor=x_factor, y_factor=y_factor)
     if isinstance(img, _Path):
         # The path takes the scale point by point, but its stroke has one
         # width and one dash, so they take the mean of the two factors, as the

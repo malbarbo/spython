@@ -8,6 +8,7 @@ from spython.image import (
     empty,
     rectangle,
     scale,
+    scale_xy,
     square,
     star_polygon,
     wedge,
@@ -34,3 +35,5 @@ show(lambda: star_polygon(-10, 5, 2, fill(black)))
 show(lambda: wedge(-10, 90, fill(black)))
 show(lambda: crop(empty, -5, -5, 10, -1))
 show(lambda: scale(empty, -2))
+show(lambda: scale(empty, 0))
+show(lambda: scale_xy(empty, 1, 0))

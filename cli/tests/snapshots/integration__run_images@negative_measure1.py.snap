@@ -10,4 +10,6 @@ h must not be negative, got -1
 side_length must not be negative, got -10
 radius must not be negative, got -10
 h must not be negative, got -1
-factor must not be negative, got -2
+factor must be positive, got -2
+factor must be positive, got 0
+y_factor must be positive, got 0
