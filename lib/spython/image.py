@@ -1186,20 +1186,19 @@ def _wedge_path(radius: float, angle: float, style: Style) -> Image:
     # A wedge of 360 is the whole circle.
     if not 0 < angle <= 360:
         raise ValueError(f"angle must be greater than 0 and at most 360, got {angle}")
-    x1: float = radius
-    y1: float = 0.0
-    x2: float = radius * _cos_deg(angle)
-    y2: float = -radius * _sin_deg(angle)
-    large_arc: bool = angle > 180.0
-    return _Path(
-        style,
-        [
-            _MoveTo(Point(0.0, 0.0)),
-            _LineTo(Point(x1, y1)),
-            _ArcTo(radius, radius, 0.0, large_arc, False, Point(x2, y2)),
-        ],
-        True,
-    )
+    r: float = radius
+    arcs: list[_PathCmd]
+    if angle == 360:
+        # An arc that ends where it starts draws nothing, so a full turn takes
+        # two halves.
+        arcs = [
+            _ArcTo(r, r, 0.0, False, False, Point(-r, 0.0)),
+            _ArcTo(r, r, 0.0, False, False, Point(r, 0.0)),
+        ]
+    else:
+        end: Point = Point(r * _cos_deg(angle), -r * _sin_deg(angle))
+        arcs = [_ArcTo(r, r, 0.0, angle > 180.0, False, end)]
+    return _Path(style, [_MoveTo(Point(0.0, 0.0)), _LineTo(Point(r, 0.0))] + arcs, True)
 
 
 # **************************
