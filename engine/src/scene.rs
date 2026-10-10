@@ -492,9 +492,12 @@ pub(crate) mod _spython_scene {
         }
 
         /// Returns `true` if the path draws a thin outline on half pixels,
-        /// `false` otherwise.
+        /// `false` otherwise. A width of 1 is the width an outline has by
+        /// default, so it draws the same.
         fn aligned(&self) -> bool {
-            self.stroke.is_some() && self.fill.is_none() && self.stroke_width.is_none()
+            self.stroke.is_some()
+                && self.fill.is_none()
+                && self.stroke_width.is_none_or(|w| w == 1.0)
         }
 
         fn path_style(&self) -> PathStyle {
