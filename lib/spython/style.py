@@ -1,6 +1,7 @@
 from collections.abc import Sequence as _Sequence
 from enum import Enum
 
+from spython._check import _between, _non_negative
 from spython.color import Color as _Color
 
 
@@ -28,7 +29,7 @@ class _Fill:
 
 class _FillOpacity:
     def __init__(self, value: float) -> None:
-        self.value: float = max(0.0, min(1.0, value))
+        self.value: float = value
 
 
 class _FillRule:
@@ -43,17 +44,17 @@ class _Stroke:
 
 class _StrokeWidth:
     def __init__(self, value: float) -> None:
-        self.value: float = max(0.0, value)
+        self.value: float = value
 
 
 class _StrokeOpacity:
     def __init__(self, value: float) -> None:
-        self.value: float = max(0.0, min(1.0, value))
+        self.value: float = value
 
 
 class _StrokeDashArray:
     def __init__(self, values: _Sequence[float]) -> None:
-        self.values: list[float] = [max(0.0, v) for v in values]
+        self.values: list[float] = list(values)
 
 
 class _StrokeLineCap:
@@ -115,6 +116,7 @@ def fill(
 ) -> Style:
     attrs: list[_Attr] = [_Fill(c)]
     if opacity is not None:
+        _between(0.0, 1.0, opacity=opacity)
         attrs.append(_FillOpacity(opacity))
     if rule is not None:
         attrs.append(_FillRule(rule))
@@ -132,10 +134,14 @@ def stroke(
 ) -> Style:
     attrs: list[_Attr] = [_Stroke(c)]
     if width is not None:
+        _non_negative(width=width)
         attrs.append(_StrokeWidth(width))
     if opacity is not None:
+        _between(0.0, 1.0, opacity=opacity)
         attrs.append(_StrokeOpacity(opacity))
     if dash_array is not None:
+        for value in dash_array:
+            _non_negative(dash_array=value)
         attrs.append(_StrokeDashArray(dash_array))
     if linecap is not None:
         attrs.append(_StrokeLineCap(linecap))

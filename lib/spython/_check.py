@@ -16,6 +16,16 @@ def _positive(**measures: float) -> None:
             raise ValueError(f"{name} must be positive, got {value}")
 
 
+def _between(low: float, high: float, **values: float) -> None:
+    """Raises `ValueError` if one of `values` is less than `low` or greater
+    than `high`."""
+    for name, value in values.items():
+        if not low <= value <= high:
+            raise ValueError(
+                f"{name} must be between {low:g} and {high:g}, got {value}"
+            )
+
+
 def _at_least(minimum: int, **counts: int) -> None:
     """Raises `ValueError` if one of `counts` is less than `minimum`."""
     for name, value in counts.items():

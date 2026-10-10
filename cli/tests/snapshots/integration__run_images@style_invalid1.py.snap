@@ -1,0 +1,12 @@
+---
+source: cli/tests/integration.rs
+---
+ok
+ok
+opacity must be between 0 and 1, got 50
+opacity must be between 0 and 1, got -0.5
+opacity must be between 0 and 1, got 1.5
+ok
+width must not be negative, got -2
+ok
+dash_array must not be negative, got -2
