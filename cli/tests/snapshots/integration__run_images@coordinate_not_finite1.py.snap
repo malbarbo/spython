@@ -1,0 +1,19 @@
+---
+source: cli/tests/integration.rs
+---
+x must be a finite number, got nan
+angle must be a finite number, got nan
+angle must be a finite number, got inf
+x must be a finite number, got -inf
+x_offset must be a finite number, got nan
+y must be a finite number, got inf
+x must be a finite number, got nan
+x must be a finite number, got nan
+x must be a finite number, got inf
+y must be a finite number, got nan
+y must be a finite number, got nan
+x must be a finite number, got inf
+x must be a finite number, got nan
+x2 must be a finite number, got inf
+pull1 must be a finite number, got nan
+x must be a finite number, got nan

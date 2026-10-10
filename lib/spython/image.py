@@ -21,7 +21,7 @@ from spython.style import (
     _scale as _style_scale,
 )
 from spython import system as _system
-from spython._check import _angle_below, _at_least, _non_negative, _positive
+from spython._check import _angle_below, _at_least, _finite, _non_negative, _positive
 
 
 class XPlace(_Enum):
@@ -147,20 +147,24 @@ _PathCmd = _MoveTo | _LineTo | _QuadTo | _CubicTo | _ArcTo
 
 
 def move_to(x: float, y: float) -> _MoveTo:
+    _finite(x=x, y=y)
     return _MoveTo(Point(x, y))
 
 
 def line_to(x: float, y: float) -> _LineTo:
+    _finite(x=x, y=y)
     return _LineTo(Point(x, y))
 
 
 def quad_to(cx: float, cy: float, x: float, y: float) -> _QuadTo:
+    _finite(cx=cx, cy=cy, x=x, y=y)
     return _QuadTo(Point(cx, cy), Point(x, y))
 
 
 def cubic_to(
     c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float
 ) -> _CubicTo:
+    _finite(c1x=c1x, c1y=c1y, c2x=c2x, c2y=c2y, x=x, y=y)
     return _CubicTo(Point(c1x, c1y), Point(c2x, c2y), Point(x, y))
 
 
@@ -173,6 +177,7 @@ def arc_to(
     x: float,
     y: float,
 ) -> _ArcTo:
+    _finite(rx=rx, ry=ry, rotation=rotation, x=x, y=y)
     return _ArcTo(rx, ry, rotation, large_arc, sweep, Point(x, y))
 
 
@@ -640,6 +645,7 @@ def circle(radius: float, *style_args: Style) -> Image:
 def line(x: float, y: float, *style_args: Style) -> Image:
     # As in 2htdp, a line takes one more column and one more row than the
     # distance between its ends, so a thin line fits on the canvas.
+    _finite(x=x, y=y)
     s: Style = _make_style(*style_args)
     return _fix_position(_Line(s, Point(0.0, 0.0), Point(x, y)))
 
@@ -820,6 +826,7 @@ def polygon(
             pts.append(p)
         else:
             pts.append(Point(p[0], p[1]))
+        _finite(x=pts[-1].x, y=pts[-1].y)
     return _fix_position(_points_to_path(pts, _make_style(*style_args)))
 
 
@@ -989,6 +996,7 @@ def bitmap_data_uri(data_uri: str) -> Image:
 
 
 def rotate(img: Image, angle: float) -> Image:
+    _finite(angle=angle)
     return _fix_position(_rotate_around(img, center(img), -angle))
 
 
@@ -1129,6 +1137,7 @@ def color_frame(img: Image, color: _Color) -> Image:
 
 
 def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
+    _finite(x=x, y=y)
     _non_negative(w=w, h=h)
     return _Crop(_box_of_size(w, h), _translate(img, -x, -y))
 
@@ -1211,6 +1220,7 @@ def overlay(
 ) -> Image:
     if len(images) < 2:
         raise TypeError("overlay expects at least 2 images")
+    _finite(x_offset=x_offset, y_offset=y_offset)
     result: Image = images[0]
     for img in images[1:]:
         result = _overlay_aligned(
@@ -1220,6 +1230,7 @@ def overlay(
 
 
 def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
+    _finite(x=x, y=y)
     return _fix_position(_Combination(_translate(bottom, x, y), top))
 
 
@@ -1232,6 +1243,7 @@ def underlay(
 ) -> Image:
     if len(images) < 2:
         raise TypeError("underlay expects at least 2 images")
+    _finite(x_offset=x_offset, y_offset=y_offset)
     result: Image = images[0]
     for img in images[1:]:
         result = _overlay_aligned(
@@ -1241,6 +1253,7 @@ def underlay(
 
 
 def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
+    _finite(x=x, y=y)
     return _fix_position(_Combination(bottom, _translate(top, x, y)))
 
 
@@ -1269,6 +1282,7 @@ def place_image(
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
+    _finite(x=x, y=y)
     dx: float = 0.0
     if x_place == CENTER:
         dx = width(img) / -2.0
@@ -1319,6 +1333,7 @@ def place_images(
 def place_line(
     scene: Image, x1: float, y1: float, x2: float, y2: float, *style_args: Style
 ) -> Image:
+    _finite(x1=x1, y1=y1, x2=x2, y2=y2)
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
@@ -1352,6 +1367,7 @@ def place_polygon(
             pts.append(p)
         else:
             pts.append(Point(p[0], p[1]))
+        _finite(x=pts[-1].x, y=pts[-1].y)
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
@@ -1399,6 +1415,7 @@ def place_curve(
 def place_wedge(
     scene: Image, x: float, y: float, radius: float, angle: float, *style_args: Style
 ) -> Image:
+    _finite(x=x, y=y)
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
@@ -1426,6 +1443,7 @@ def put_image(scene: Image, x: float, y: float, img: Image) -> Image:
 def add_line(
     img: Image, x1: float, y1: float, x2: float, y2: float, *style_args: Style
 ) -> Image:
+    _finite(x1=x1, y1=y1, x2=x2, y2=y2)
     s: Style = _make_style(*style_args)
     return _fix_position(
         _Combination(
@@ -1453,6 +1471,7 @@ def add_polygon(
             pts.append(p)
         else:
             pts.append(Point(p[0], p[1]))
+        _finite(x=pts[-1].x, y=pts[-1].y)
     s: Style = _make_style(*style_args)
     return _fix_position(_Combination(img, _points_to_path(pts, s)))
 
@@ -1504,6 +1523,7 @@ def add_solid_curve(
 def add_wedge(
     img: Image, x: float, y: float, radius: float, angle: float, *style_args: Style
 ) -> Image:
+    _finite(x=x, y=y)
     s: Style = _make_style(*style_args)
     return _fix_position(
         _Combination(
@@ -1523,6 +1543,16 @@ def _curve_controls(
     angle2: float,
     pull2: float,
 ) -> tuple[Point, Point]:
+    _finite(
+        x1=x1,
+        y1=y1,
+        angle1=angle1,
+        pull1=pull1,
+        x2=x2,
+        y2=y2,
+        angle2=angle2,
+        pull2=pull2,
+    )
     dist: float = _math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
     c1: Point = Point(
         x1 + pull1 * dist * _cos_deg(angle1), y1 - pull1 * dist * _sin_deg(angle1)
