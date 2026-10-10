@@ -1829,6 +1829,11 @@ def to_svg(img: Image) -> str:
     return _system.scene_svg(img, w, h)
 
 
+def _to_repl_svg(img: Image) -> str:
+    w, h = _repl_canvas_size(img)
+    return _system.scene_svg(img, w, h)
+
+
 # The size of `img` in whole pixels. `to_svg` and a display build a scene of
 # this size.
 def _canvas_size(img: Image) -> tuple[float, float]:
@@ -1837,3 +1842,11 @@ def _canvas_size(img: Image) -> tuple[float, float]:
         float(_math.ceil(round(mx.x - mn.x, 6))),
         float(_math.ceil(round(mx.y - mn.y, 6))),
     )
+
+
+# The canvas of `img` in the REPL, with one more column and one more row,
+# where a thin outline on the right or bottom edge draws its line. DrRacket
+# shows an image the same way.
+def _repl_canvas_size(img: Image) -> tuple[float, float]:
+    w, h = _canvas_size(img)
+    return (w + 1.0, h + 1.0)

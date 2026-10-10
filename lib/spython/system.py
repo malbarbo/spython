@@ -32,20 +32,20 @@ def install_displayhook() -> None:
 
     def _displayhook(value: object) -> None:
         nonlocal printer, opened
-        from spython.image import Image as _Image, _canvas_size, to_svg as _to_svg
+        from spython.image import Image as _Image, _repl_canvas_size, _to_repl_svg
 
         if not isinstance(value, _Image):
             _original_displayhook(value)
             return
         if _open_printer is None:
-            show_svg(_to_svg(value))
+            show_svg(_to_repl_svg(value))
         else:
             if not opened:
                 printer = _open_printer()
                 opened = True
             # A terminal with no graphics, or one that a display holds,
             # prints the image as any other value.
-            if printer is None or not printer.show(value, *_canvas_size(value)):  # type: ignore[attr-defined]
+            if printer is None or not printer.show(value, *_repl_canvas_size(value)):  # type: ignore[attr-defined]
                 _original_displayhook(value)
                 return
         builtins._ = value  # type: ignore[attr-defined]

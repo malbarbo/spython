@@ -240,6 +240,15 @@ Deno.test("an image at the prompt goes to the page as an svg", async () => {
   destroy(ctx);
 });
 
+Deno.test("the prompt draws an image with one more column and row", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  run(ctx, "from spython.image import rectangle, stroke, black");
+  const r = run(ctx, "rectangle(40, 20, stroke(black))");
+  assertEquals(r.result, REPL_OK);
+  assertEquals(r.svgs[0].includes('width="41" height="21"'), true, r.svgs[0]);
+  destroy(ctx);
+});
+
 Deno.test("multiple runs", async () => {
   const ctx = await newRepl("", { level: 5 });
   const r1 = run(ctx, "1 + 2");
