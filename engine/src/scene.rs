@@ -113,7 +113,8 @@ pub(crate) mod _spython_scene {
                     };
                     match kurbo::Arc::from_svg_arc(&arc) {
                         Some(arc) => {
-                            let tolerance = arc_tolerance(arc.radii.x.max(arc.radii.y));
+                            let tolerance =
+                                sinteract::scene::arc_tolerance(arc.radii.x.max(arc.radii.y));
                             path.extend(arc.append_iter(tolerance));
                         }
                         None => path.line_to(end),
@@ -132,12 +133,6 @@ pub(crate) mod _spython_scene {
             .segments()
             .fold(rect, |rect, seg| rect.union(seg.bounding_box()));
         Ok((rect.x0, rect.y0, rect.x1, rect.y1))
-    }
-
-    /// The tolerance that sinteract takes to turn an arc of `radius` into
-    /// cubics. It grows with the radius, so one turn takes at most 64 cubics.
-    fn arc_tolerance(radius: f64) -> f64 {
-        0.1f64.max(1.1163 * radius / 64f64.powi(6))
     }
 
     /// The image that [`load_image`] or [`load_bitmap`] returns. Python only
