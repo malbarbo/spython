@@ -1,0 +1,15 @@
+---
+source: cli/tests/integration.rs
+---
+no side can be longer than the sum of the other two, got 1, 1 and 10
+no side can be longer than the sum of the other two, got 10, 1 and 1
+ok
+angle_a + angle_b must be less than 180, got 200
+angle_a + angle_b must be less than 180, got 180
+angle_a must be greater than 0 and less than 180, got -30
+ok
+angle_a + angle_c must be less than 180, got 240
+angle_a must be greater than 0 and less than 180, got 0
+ok
+angle_b + angle_c must be less than 180, got 180
+ok

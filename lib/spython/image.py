@@ -924,6 +924,17 @@ def _triangle_from_sides_angle(
     )
 
 
+def _two_angles(**angles: float) -> None:
+    """Raises `ValueError` if two angles of a triangle leave no positive third
+    angle."""
+    _angle_below(180.0, **angles)
+    (name1, angle1), (name2, angle2) = angles.items()
+    if angle1 + angle2 >= 180:
+        raise ValueError(
+            f"{name1} + {name2} must be less than 180, got {angle1 + angle2}"
+        )
+
+
 def _solve_side(a: float, b: float, angle_c: float) -> float:
     return _math.sqrt(a * a + b * b - 2.0 * a * b * _cos_deg(angle_c))
 
@@ -942,6 +953,12 @@ def triangle_sss(
     side_a: float, side_b: float, side_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_a=side_a, side_b=side_b, side_c=side_c)
+    # Sides where one equals the sum of the other two make a flat triangle.
+    if side_a > side_b + side_c or side_b > side_a + side_c or side_c > side_a + side_b:
+        raise ValueError(
+            "no side can be longer than the sum of the other two, "
+            f"got {side_a}, {side_b} and {side_c}"
+        )
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
 
@@ -970,6 +987,7 @@ def triangle_aas(
     angle_a: float, angle_b: float, side_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_c=side_c)
+    _two_angles(angle_a=angle_a, angle_b=angle_b)
     angle_c: float = 180.0 - angle_a - angle_b
     ratio: float = side_c / _sin_deg(angle_c)
     side_b: float = ratio * _sin_deg(angle_b)
@@ -988,6 +1006,7 @@ def triangle_asa(
     angle_a: float, side_b: float, angle_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_b=side_b)
+    _two_angles(angle_a=angle_a, angle_c=angle_c)
     angle_b: float = 180.0 - angle_a - angle_c
     ratio: float = side_b / _sin_deg(angle_b)
     side_c: float = ratio * _sin_deg(angle_c)
@@ -998,6 +1017,7 @@ def triangle_saa(
     side_a: float, angle_b: float, angle_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_a=side_a)
+    _two_angles(angle_b=angle_b, angle_c=angle_c)
     angle_a: float = 180.0 - angle_b - angle_c
     ratio: float = side_a / _sin_deg(angle_a)
     side_b: float = ratio * _sin_deg(angle_b)
