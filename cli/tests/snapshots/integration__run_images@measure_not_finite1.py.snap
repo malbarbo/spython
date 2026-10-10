@@ -1,0 +1,9 @@
+---
+source: cli/tests/integration.rs
+---
+w must be a finite number, got nan
+h must be a finite number, got inf
+factor must be a finite number, got inf
+size must be a finite number, got inf
+width must be a finite number, got nan
+dash_array must be a finite number, got -inf
