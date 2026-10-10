@@ -98,6 +98,13 @@ def _positive(**measures: float) -> None:
             raise ValueError(f"{name} must be positive, got {value}")
 
 
+def _at_least(minimum: int, **counts: int) -> None:
+    """Raises `ValueError` if one of `counts` is less than `minimum`."""
+    for name, value in counts.items():
+        if value < minimum:
+            raise ValueError(f"{name} must be at least {minimum}, got {value}")
+
+
 def _angle_below(limit: float, **angles: float) -> None:
     """Raises `ValueError` if one of `angles` is not between 0 and `limit`,
     both excluded."""
@@ -1062,8 +1069,14 @@ def star_polygon(
     side_length: float, side_count: int, step_count: int, *style_args: Style
 ) -> Image:
     _non_negative(side_length=side_length)
-    side_count = max(1, side_count)
-    step_count = max(1, step_count)
+    _at_least(3, side_count=side_count)
+    _at_least(1, step_count=step_count)
+    # Counts with a common divisor visit only some of the vertices.
+    if _math.gcd(side_count, step_count) != 1:
+        raise ValueError(
+            "side_count and step_count must have no common divisor, "
+            f"got {side_count} and {step_count}"
+        )
     radius: float = side_length / (2.0 * _sin_deg(180.0 / side_count))
     alpha: float = 90.0 + 180.0 / side_count if side_count % 2 == 0 else -90.0
     pts: list[Point] = []
@@ -1081,7 +1094,7 @@ def star(side_length: float, *style_args: Style) -> Image:
 def radial_star(
     point_count: int, inner_radius: float, outer_radius: float, *style_args: Style
 ) -> Image:
-    point_count = max(2, point_count)
+    _at_least(2, point_count=point_count)
     _non_negative(inner_radius=inner_radius, outer_radius=outer_radius)
     alpha: float = 90.0 + 180.0 / point_count if point_count % 2 == 0 else -90.0
     pts: list[Point] = []
@@ -1102,15 +1115,13 @@ def pulled_regular_polygon(
     side_length: float, side_count: int, pull: float, angle: float, *style_args: Style
 ) -> Image:
     _non_negative(side_length=side_length)
-    side_count = max(3, side_count)
+    _at_least(3, side_count=side_count)
     radius: float = side_length / (2.0 * _sin_deg(180.0 / side_count))
     alpha: float = 90.0 + 180.0 / side_count if side_count % 2 == 0 else -90.0
     vertices: list[Point] = []
     for i in range(side_count):
         theta: float = alpha + 360.0 * i / side_count
         vertices.append(Point(radius * _cos_deg(theta), radius * _sin_deg(theta)))
-    if len(vertices) == 0:
-        return empty
     first: Point = vertices[0]
     edges: list[_CubicTo] = _pulled_edges(vertices, first, pull, angle)
     s: Style = _make_style(*style_args)

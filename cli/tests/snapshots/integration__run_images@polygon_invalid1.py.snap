@@ -1,0 +1,14 @@
+---
+source: cli/tests/integration.rs
+---
+side_count must be at least 3, got 2
+side_count must be at least 3, got -3
+ok
+side_count and step_count must have no common divisor, got 6 and 2
+step_count must be at least 1, got 0
+side_count and step_count must have no common divisor, got 5 and 5
+ok
+point_count must be at least 2, got 1
+ok
+side_count must be at least 3, got 2
+ok
