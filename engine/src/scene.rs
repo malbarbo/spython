@@ -1,7 +1,7 @@
 //! The `_spython_scene` module: the [`Scene`] of an `Image` of
-//! `spython.image`, the svg that sinteract writes of it, and the images that a
-//! bitmap keeps. Every target builds the scene the same way, so an image
-//! looks the same on the page and in a window.
+//! `spython.image`, the svg that sinteract writes of it, the images that a
+//! bitmap keeps, and the box of a path. Every target builds the scene the
+//! same way, so an image looks the same on the page and in a window.
 
 pub(crate) use _spython_scene::module_def;
 // Only a display draws a scene of its own, and the page has none.
@@ -13,6 +13,7 @@ pub(crate) mod _spython_scene {
     use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use kurbo::{BezPath, ParamCurveExtrema, Rect, SvgArc, Vec2};
     use rustpython_vm::builtins::PyStrRef;
     use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::{
@@ -72,6 +73,71 @@ pub(crate) mod _spython_scene {
         let mut renderer = SvgRenderer::with_id_prefix(&prefix).expect("a valid id prefix");
         let Ok(_) = renderer.render(&scene);
         Ok(renderer.into_string())
+    }
+
+    /// The box around the path of `commands` as the least x, the least y,
+    /// the greatest x and the greatest y. An arc counts as the cubics that
+    /// sinteract draws for it, so the box fits the drawing.
+    #[pyfunction]
+    fn path_box(commands: PyObjectRef, vm: &VirtualMachine) -> PyResult<(f64, f64, f64, f64)> {
+        let mut path = BezPath::new();
+        for cmd in vm.extract_elements_with(&commands, Ok)? {
+            let at = |name: &'static str| -> PyResult<kurbo::Point> {
+                let p = cmd.get_attr(name, vm)?;
+                Ok(kurbo::Point::new(float(&p, "x", vm)?, float(&p, "y", vm)?))
+            };
+            let class = cmd.class().name().to_owned();
+            let end = at(match class.as_str() {
+                "_MoveTo" | "_LineTo" => "p",
+                _ => "end",
+            })?;
+            // A path that starts with a segment other than a move starts at
+            // the end of that segment.
+            let Some(from) = path.elements().last().and_then(|el| el.end_point()) else {
+                path.move_to(end);
+                continue;
+            };
+            match class.as_str() {
+                "_MoveTo" => path.move_to(end),
+                "_LineTo" => path.line_to(end),
+                "_QuadTo" => path.quad_to(at("control")?, end),
+                "_CubicTo" => path.curve_to(at("c1")?, at("c2")?, end),
+                "_ArcTo" => {
+                    let arc = SvgArc {
+                        from,
+                        to: end,
+                        radii: Vec2::new(float(&cmd, "rx", vm)?, float(&cmd, "ry", vm)?),
+                        x_rotation: float(&cmd, "rotation", vm)?.to_radians(),
+                        large_arc: cmd.get_attr("large_arc", vm)?.try_to_bool(vm)?,
+                        sweep: cmd.get_attr("sweep", vm)?.try_to_bool(vm)?,
+                    };
+                    match kurbo::Arc::from_svg_arc(&arc) {
+                        Some(arc) => {
+                            let tolerance = arc_tolerance(arc.radii.x.max(arc.radii.y));
+                            path.extend(arc.append_iter(tolerance));
+                        }
+                        None => path.line_to(end),
+                    }
+                }
+                _ => return Err(vm.new_type_error(format!("cannot measure a {class}"))),
+            }
+        }
+        // A move adds its point even when no segment leaves it.
+        let mut points = path.elements().iter().filter_map(|el| el.end_point());
+        let Some(first) = points.next() else {
+            return Ok((0.0, 0.0, 0.0, 0.0));
+        };
+        let rect = points.fold(Rect::from_points(first, first), |rect, p| rect.union_pt(p));
+        let rect = path
+            .segments()
+            .fold(rect, |rect, seg| rect.union(seg.bounding_box()));
+        Ok((rect.x0, rect.y0, rect.x1, rect.y1))
+    }
+
+    /// The tolerance that sinteract takes to turn an arc of `radius` into
+    /// cubics. It grows with the radius, so one turn takes at most 64 cubics.
+    fn arc_tolerance(radius: f64) -> f64 {
+        0.1f64.max(1.1163 * radius / 64f64.powi(6))
     }
 
     /// The image that [`load_image`] or [`load_bitmap`] returns. Python only

@@ -11,12 +11,12 @@ error[invalid-argument-type]: Argument to function `square` is incorrect
 5 |     return square(50.0, red)
   |                         ^^^ Expected `Style`, found `Color`
 info: Function defined here
-   --> <lib>/image.py:892:5
+   --> <lib>/image.py:636:5
     |
-892 | def square(side: float, *style_args: Style) -> Image:
+636 | def square(side: float, *style_args: Style) -> Image:
     |     ^^^^^^              ------------------ Parameter declared here
-893 |     _non_negative(side=side)
-894 |     return rectangle(side, side, *style_args)
+637 |     _non_negative(side=side)
+638 |     return rectangle(side, side, *style_args)
     |
 
 Found 1 error.
