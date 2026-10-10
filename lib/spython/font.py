@@ -1,5 +1,7 @@
 from enum import Enum
 
+from spython._check import _non_negative
+
 
 class FontStyle(Enum):
     NORMAL = "normal"
@@ -33,6 +35,7 @@ class Font:
         weight: FontWeight = FontWeight.REGULAR,
         underline: bool = False,
     ) -> None:
+        _non_negative(size=size)
         self.family: str = family
         self.size: float = size
         self.style: FontStyle = style

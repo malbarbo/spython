@@ -1,0 +1,7 @@
+---
+source: cli/tests/integration.rs
+---
+0.0
+size must not be negative, got -12
+size must not be negative, got -1
+size must not be negative, got -3.5
