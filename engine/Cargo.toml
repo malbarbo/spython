@@ -31,8 +31,6 @@ sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "maste
 workspace = true
 
 [dependencies]
-# The box of a path, with each arc as the cubics that sinteract draws.
-kurbo = { version = "0.13", default-features = false, features = ["std"] }
 # The macros of the modules that build a scene and hold the display.
 rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false }
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
