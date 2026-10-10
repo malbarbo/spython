@@ -387,15 +387,30 @@ def _fix_position(img: Image) -> Image:
 
 
 def _box(img: Image) -> tuple[Point, Point]:
+    box = _drawn_box(img)
+    if box is None:
+        return (Point(0.0, 0.0), Point(0.0, 0.0))
+    return box
+
+
+def _drawn_box(img: Image) -> tuple[Point, Point] | None:
+    """The box of what `img` draws, or `None` when `img` is made only of
+    paths with no commands. A part with nothing in it adds nothing to the box
+    of a combination, wherever a translation left it."""
     if isinstance(img, _Path):
         if len(img.commands) == 0:
-            return (Point(0.0, 0.0), Point(0.0, 0.0))
+            return None
         first = img.commands[0]
         p: Point = _cmd_endpoint(first)
         return _path_box(img.commands, 1, p, p.x, p.y, p.x, p.y)
     if isinstance(img, _Combination):
-        amn, amx = _box(img.a)
-        bmn, bmx = _box(img.b)
+        a = _drawn_box(img.a)
+        b = _drawn_box(img.b)
+        if a is None:
+            return b
+        if b is None:
+            return a
+        (amn, amx), (bmn, bmx) = a, b
         return (
             Point(min(amn.x, bmn.x), min(amn.y, bmn.y)),
             Point(max(amx.x, bmx.x), max(amx.y, bmx.y)),
@@ -406,7 +421,7 @@ def _box(img: Image) -> tuple[Point, Point]:
         return _box_box(img.box)
     if isinstance(img, _Bitmap):
         return _box_box(img.box)
-    return (Point(0.0, 0.0), Point(0.0, 0.0))
+    return None
 
 
 def _path_box(
