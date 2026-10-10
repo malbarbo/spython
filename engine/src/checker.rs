@@ -1134,8 +1134,8 @@ impl<'a> Visitor<'a> for Checker<'_> {
     }
 }
 
-/// Returns true if `op` is an arithmetic operator (`+`, `-`, `*`, `/`,
-/// `//`, `%`, `**`). Bitwise and matrix operators are excluded.
+/// Returns `true` if `op` is an arithmetic operator (`+`, `-`, `*`, `/`,
+/// `//`, `%`, `**`), `false` otherwise. A bitwise or matrix operator is not.
 fn is_arithmetic_op(op: Operator) -> bool {
     matches!(
         op,
@@ -1149,9 +1149,9 @@ fn is_arithmetic_op(op: Operator) -> bool {
     )
 }
 
-/// Returns true if `decorators` contains a bare-name or attribute decorator
-/// whose final identifier matches one of `names`. Matches both `@override`
-/// and `@typing.override`, etc.
+/// Returns `true` if `decorators` contains a bare-name or attribute decorator
+/// whose final identifier matches one of `names`, `false` otherwise. Matches
+/// both `@override` and `@typing.override`, etc.
 fn has_decorator_named(decorators: &[Decorator], names: &[&str]) -> bool {
     decorators.iter().any(|d| match &d.expression {
         Expr::Name(n) => names.contains(&n.id.as_str()),

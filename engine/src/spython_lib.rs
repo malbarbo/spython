@@ -33,7 +33,8 @@ pub fn write_into<S: WritableSystem>(system: &S, root: &SystemPath) -> SystemPat
     lib_root
 }
 
-/// Returns true if `path` points inside the embedded spython lib.
+/// Returns `true` if `path` points inside the embedded spython lib, `false`
+/// otherwise.
 pub fn is_lib_path(path: &SystemPath) -> bool {
     let s = path.as_str().replace('\\', "/");
     s.contains(&format!("/{LIB_DIR}/spython/"))

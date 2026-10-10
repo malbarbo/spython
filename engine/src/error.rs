@@ -80,8 +80,8 @@ pub fn show_error(err: &SpythonError) {
     }
 }
 
-/// Whether what goes to stderr takes colour, which the diagnostics ask before
-/// they are printed.
+/// Returns `true` if what goes to stderr takes colour, `false` otherwise.
+/// The diagnostics ask before they are printed.
 ///
 /// The page decides for itself: it renders the codes and asks for them by
 /// hand.
@@ -89,13 +89,14 @@ pub fn color_stderr() -> bool {
     use_color(std::io::stderr().is_terminal())
 }
 
-/// Whether what goes to stdout takes colour, which the reader asks before it
-/// highlights what the student is typing.
+/// Returns `true` if what goes to stdout takes colour, `false` otherwise.
+/// The reader asks before it highlights what the student is typing.
 pub fn color_stdout() -> bool {
     use_color(std::io::stdout().is_terminal())
 }
 
-/// The one rule, for a stream that is or is not a terminal. A terminal wants
+/// Returns `true` if a stream takes colour, `false` otherwise. Both streams
+/// follow this one rule, with `is_terminal` for the stream. A terminal wants
 /// colour, and a redirected stream keeps the codes out of the file it is
 /// being read into.
 ///
@@ -108,9 +109,9 @@ fn use_color(is_terminal: bool) -> bool {
     !env_is_set("NO_COLOR") && (env_is_set("FORCE_COLOR") || is_terminal)
 }
 
-/// Whether the environment holds `name` with something in it. An empty value
-/// is not an answer: no-color.org says so of `NO_COLOR`, and `FORCE_COLOR`
-/// reads the same way here.
+/// Returns `true` if the environment holds `name` with something in it,
+/// `false` otherwise. An empty value is not an answer. No-color.org says so
+/// of `NO_COLOR`, and `FORCE_COLOR` reads the same way here.
 fn env_is_set(name: &str) -> bool {
     std::env::var_os(name).is_some_and(|value| !value.is_empty())
 }

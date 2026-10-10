@@ -60,8 +60,8 @@ pub(crate) fn indent_at(src: &str, cursor: usize) -> usize {
     indent_after(parsed.tokens(), above).max(indent_below(src, cursor))
 }
 
-/// Whether the reader has to go on reading, for a caller with no parse in
-/// hand.
+/// Returns `true` if the reader has to go on reading, `false` otherwise.
+/// It serves a caller with no parse in hand.
 fn incomplete(src: &str) -> bool {
     is_incomplete(&parse_unchecked_source(src, PySourceType::Python), src)
 }
@@ -94,7 +94,8 @@ fn indent_below(src: &str, cursor: usize) -> usize {
         .unwrap_or(0)
 }
 
-/// Whether the reader has to go on reading before this input can run.
+/// Returns `true` if the reader has to go on reading before this input can
+/// run, `false` otherwise.
 ///
 /// Where the input ends is not where it stops, and the text alone does not
 /// say — a bracket inside a comment closes nothing.
@@ -263,15 +264,16 @@ fn enclosing_indent(src: &str, starts: &[usize], indent: usize) -> usize {
         .unwrap_or(0)
 }
 
-/// Whether the string the error is over is written with three quotes. The
-/// error is reported from where the string opens, `rb'''` and all.
+/// Returns `true` if the string under the error is written with three
+/// quotes, `false` otherwise. The parser reports the error from where the
+/// string opens, `rb'''` and all.
 fn is_triple_quoted(text: &str) -> bool {
     let quotes = text.trim_start_matches(char::is_alphabetic);
     quotes.starts_with("\"\"\"") || quotes.starts_with("'''")
 }
 
-/// Whether the line is the last one its block can have: nothing follows a
-/// `return` or a `pass` at the same indentation.
+/// Returns `true` if the line is the last one its block can have, `false`
+/// otherwise. Nothing follows a `return` or a `pass` at the same indentation.
 fn leaves_block(line: &str) -> bool {
     matches!(
         line.split_whitespace().next(),
@@ -279,8 +281,9 @@ fn leaves_block(line: &str) -> bool {
     )
 }
 
-/// Whether nothing of the input comes after `at`. A comment and a blank line
-/// are not something: they are what the user typed before going on.
+/// Returns `true` if nothing of the input comes after `at`, `false`
+/// otherwise. A comment and a blank line do not count. They are what the
+/// user typed before going on.
 fn ends_there(tokens: &Tokens, at: TextSize) -> bool {
     tokens
         .iter()
@@ -288,7 +291,7 @@ fn ends_there(tokens: &Tokens, at: TextSize) -> bool {
         .all(|t| t.range().start() < at)
 }
 
-/// Whether the token is input and not layout.
+/// Returns `true` if the token is input and not layout, `false` otherwise.
 fn is_code(kind: TokenKind) -> bool {
     !matches!(
         kind,
@@ -301,8 +304,9 @@ fn is_code(kind: TokenKind) -> bool {
     )
 }
 
-/// Whether the user ended the input with a line that says nothing, which is
-/// how a block is closed and how a prompt waiting for one is given up on.
+/// Returns `true` if the user ended the input with a line that says nothing,
+/// `false` otherwise. Such a line closes a block, and it gives up a prompt
+/// that waits for one.
 fn ends_with_blank_line(src: &str) -> bool {
     src.rsplit_once('\n')
         .is_some_and(|(_, last)| last.trim().is_empty())
@@ -317,7 +321,8 @@ fn end_of_text(src: &str) -> TextSize {
 mod tests {
     use super::*;
 
-    /// The tests ask about a string; only `ready_state` has a parse in hand.
+    /// Returns `true` if `src` is unfinished, `false` otherwise. The tests ask
+    /// about a string, and only `ready_state` has a parse in hand.
     fn is_incomplete(src: &str) -> bool {
         super::is_incomplete(&parse_unchecked_source(src, PySourceType::Python), src)
     }
