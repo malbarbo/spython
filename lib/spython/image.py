@@ -98,6 +98,16 @@ def _positive(**measures: float) -> None:
             raise ValueError(f"{name} must be positive, got {value}")
 
 
+def _angle_below(limit: float, **angles: float) -> None:
+    """Raises `ValueError` if one of `angles` is not between 0 and `limit`,
+    both excluded."""
+    for name, value in angles.items():
+        if not 0 < value < limit:
+            raise ValueError(
+                f"{name} must be greater than 0 and less than {limit:g}, got {value}"
+            )
+
+
 def _mid(a: float, b: float) -> float:
     return (a - b) / 2.0
 
@@ -889,6 +899,7 @@ def right_triangle(side1: float, side2: float, *style_args: Style) -> Image:
 
 def isosceles_triangle(side_length: float, angle: float, *style_args: Style) -> Image:
     _non_negative(side_length=side_length)
+    _angle_below(360.0, angle=angle)
     hangle: float = angle / 2.0
     s: Style = _make_style(*style_args)
     return _fix_position(
@@ -939,6 +950,7 @@ def triangle_sas(
     side_a: float, angle_b: float, side_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_a=side_a, side_c=side_c)
+    _angle_below(180.0, angle_b=angle_b)
     side_b: float = _solve_side(side_a, side_c, angle_b)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
@@ -948,6 +960,7 @@ def triangle_ssa(
     side_a: float, side_b: float, angle_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_a=side_a, side_b=side_b)
+    _angle_below(180.0, angle_c=angle_c)
     side_c: float = _solve_side(side_a, side_b, angle_c)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
@@ -967,6 +980,7 @@ def triangle_ass(
     angle_a: float, side_b: float, side_c: float, *style_args: Style
 ) -> Image:
     _non_negative(side_b=side_b, side_c=side_c)
+    _angle_below(180.0, angle_a=angle_a)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
 
 
@@ -993,6 +1007,7 @@ def triangle_saa(
 
 def rhombus(side_length: float, angle: float, *style_args: Style) -> Image:
     _non_negative(side_length=side_length)
+    _angle_below(180.0, angle=angle)
     h: float = 2.0 * side_length * _cos_deg(angle / 2.0)
     w: float = 2.0 * side_length * _sin_deg(angle / 2.0)
     s: Style = _make_style(*style_args)
@@ -1122,18 +1137,20 @@ def wedge(radius: float, angle: float, *style_args: Style) -> Image:
 
 def _wedge_path(radius: float, angle: float, style: Style) -> Image:
     _non_negative(radius=radius)
+    # A wedge of 360 is the whole circle.
+    if not 0 < angle <= 360:
+        raise ValueError(f"angle must be greater than 0 and at most 360, got {angle}")
     x1: float = radius
     y1: float = 0.0
     x2: float = radius * _cos_deg(angle)
     y2: float = -radius * _sin_deg(angle)
-    large_arc: bool = abs(angle) > 180.0
-    sweep_flag: bool = angle < 0.0
+    large_arc: bool = angle > 180.0
     return _Path(
         style,
         [
             _MoveTo(Point(0.0, 0.0)),
             _LineTo(Point(x1, y1)),
-            _ArcTo(radius, radius, 0.0, large_arc, sweep_flag, Point(x2, y2)),
+            _ArcTo(radius, radius, 0.0, large_arc, False, Point(x2, y2)),
         ],
         True,
     )
