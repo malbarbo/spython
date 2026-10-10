@@ -257,7 +257,8 @@ class _Line(Image):
 
 
 class _Combination(Image):
-    def __init__(self, a: Image, b: Image) -> None:
+    def __init__(self, drawn: tuple[Point, Point] | None, a: Image, b: Image) -> None:
+        self.drawn: tuple[Point, Point] | None = drawn
         self.a: Image = a
         self.b: Image = b
 
@@ -344,7 +345,13 @@ def _translate(img: Image, dx: float, dy: float) -> Image:
             _point_translate(img.end, dx, dy),
         )
     if isinstance(img, _Combination):
-        return _Combination(_translate(img.a, dx, dy), _translate(img.b, dx, dy))
+        drawn = img.drawn
+        if drawn is not None:
+            drawn = (
+                _point_translate(drawn[0], dx, dy),
+                _point_translate(drawn[1], dx, dy),
+            )
+        return _Combination(drawn, _translate(img.a, dx, dy), _translate(img.b, dx, dy))
     if isinstance(img, _Crop):
         return _Crop(_box_translate(img.box, dx, dy), _translate(img.image, dx, dy))
     if isinstance(img, _Text):
@@ -400,17 +407,7 @@ def _drawn_box(img: Image) -> tuple[Point, Point] | None:
             Point(max(start.x, end.x) + 0.5, max(start.y, end.y) + 0.5),
         )
     if isinstance(img, _Combination):
-        a = _drawn_box(img.a)
-        b = _drawn_box(img.b)
-        if a is None:
-            return b
-        if b is None:
-            return a
-        (amn, amx), (bmn, bmx) = a, b
-        return (
-            Point(min(amn.x, bmn.x), min(amn.y, bmn.y)),
-            Point(max(amx.x, bmx.x), max(amx.y, bmx.y)),
-        )
+        return img.drawn
     if isinstance(img, _Crop):
         return _box_box(img.box)
     if isinstance(img, _Text):
@@ -418,6 +415,21 @@ def _drawn_box(img: Image) -> tuple[Point, Point] | None:
     if isinstance(img, _Bitmap):
         return _box_box(img.box)
     return None
+
+
+def _combination(a: Image, b: Image) -> Image:
+    """Draws `b` over `a`. The node keeps the box of the two, so the box of
+    a combination does not walk the tree under it."""
+    amb = _drawn_box(a)
+    bmb = _drawn_box(b)
+    if amb is None or bmb is None:
+        return _Combination(bmb if amb is None else amb, a, b)
+    (amn, amx), (bmn, bmx) = amb, bmb
+    drawn = (
+        Point(min(amn.x, bmn.x), min(amn.y, bmn.y)),
+        Point(max(amx.x, bmx.x), max(amx.y, bmx.y)),
+    )
+    return _Combination(drawn, a, b)
 
 
 # **************************
@@ -1013,7 +1025,7 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
             _point_rotate(img.end, center, angle),
         )
     if isinstance(img, _Combination):
-        return _Combination(
+        return _combination(
             _rotate_around(img.a, center, angle), _rotate_around(img.b, center, angle)
         )
     if isinstance(img, _Crop):
@@ -1065,7 +1077,7 @@ def _scale_parts(img: Image, x_factor: float, y_factor: float) -> Image:
             Point(img.end.x * x_factor, img.end.y * y_factor),
         )
     if isinstance(img, _Combination):
-        return _Combination(
+        return _combination(
             _scale_parts(img.a, x_factor, y_factor),
             _scale_parts(img.b, x_factor, y_factor),
         )
@@ -1106,7 +1118,7 @@ def _flip(img: Image, point_flip: _Callable[[Point], Point]) -> Image:
     if isinstance(img, _Line):
         return _Line(img.style, point_flip(img.start), point_flip(img.end))
     if isinstance(img, _Combination):
-        return _Combination(_flip(img.a, point_flip), _flip(img.b, point_flip))
+        return _combination(_flip(img.a, point_flip), _flip(img.b, point_flip))
     if isinstance(img, _Crop):
         return _Crop(_box_flip(img.box, point_flip), _flip(img.image, point_flip))
     if isinstance(img, _Text):
@@ -1176,7 +1188,7 @@ def combine(images: list[Image], op: _Callable[[Image, Image], Image]) -> Image:
 
 def _above_pair(a: Image, b: Image, x_place: XPlace) -> Image:
     dxa, dxb = _x_place_dx(x_place, width(a), width(b))
-    return _Combination(_translate(a, dxa, 0.0), _translate(b, dxb, height(a)))
+    return _combination(_translate(a, dxa, 0.0), _translate(b, dxb, height(a)))
 
 
 def above(*images: Image, x_place: XPlace = CENTER) -> Image:
@@ -1190,7 +1202,7 @@ def above(*images: Image, x_place: XPlace = CENTER) -> Image:
 
 def _beside_pair(a: Image, b: Image, y_place: YPlace) -> Image:
     dya, dyb = _y_place_dy(y_place, height(a), height(b))
-    return _Combination(_translate(a, 0.0, dya), _translate(b, width(a), dyb))
+    return _combination(_translate(a, 0.0, dya), _translate(b, width(a), dyb))
 
 
 def beside(*images: Image, y_place: YPlace = MIDDLE) -> Image:
@@ -1208,7 +1220,7 @@ def _overlay_aligned(
     dxa, dxb = _x_place_dx(x_place, width(top), width(bottom))
     dya, dyb = _y_place_dy(y_place, height(top), height(bottom))
     return _fix_position(
-        _Combination(_translate(bottom, dxb, dyb), _translate(top, dxa, dya))
+        _combination(_translate(bottom, dxb, dyb), _translate(top, dxa, dya))
     )
 
 
@@ -1232,7 +1244,7 @@ def overlay(
 
 def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
     _finite(x=x, y=y)
-    return _fix_position(_Combination(_translate(bottom, x, y), top))
+    return _fix_position(_combination(_translate(bottom, x, y), top))
 
 
 def underlay(
@@ -1255,7 +1267,7 @@ def underlay(
 
 def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
     _finite(x=x, y=y)
-    return _fix_position(_Combination(bottom, _translate(top, x, y)))
+    return _fix_position(_combination(bottom, _translate(top, x, y)))
 
 
 # **************************
@@ -1296,7 +1308,7 @@ def place_image(
         dy = -height(img)
     return _fix_position(
         crop(
-            _Combination(scene, _translate(img, x + dx, y + dy)),
+            _combination(scene, _translate(img, x + dx, y + dy)),
             0.0,
             0.0,
             width(scene),
@@ -1338,7 +1350,7 @@ def place_line(
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
-            _Combination(
+            _combination(
                 scene,
                 _Path(
                     s,
@@ -1372,7 +1384,7 @@ def place_polygon(
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
-            _Combination(scene, _points_to_path(pts, s)),
+            _combination(scene, _points_to_path(pts, s)),
             0.0,
             0.0,
             width(scene),
@@ -1397,7 +1409,7 @@ def place_curve(
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
-            _Combination(
+            _combination(
                 scene,
                 _Path(
                     s,
@@ -1420,7 +1432,7 @@ def place_wedge(
     s: Style = _make_style(*style_args)
     return _fix_position(
         crop(
-            _Combination(
+            _combination(
                 scene,
                 _translate(_wedge_path(radius, angle, s), x, y),
             ),
@@ -1447,7 +1459,7 @@ def add_line(
     _finite(x1=x1, y1=y1, x2=x2, y2=y2)
     s: Style = _make_style(*style_args)
     return _fix_position(
-        _Combination(
+        _combination(
             img,
             _Path(
                 s,
@@ -1474,7 +1486,7 @@ def add_polygon(
             pts.append(Point(p[0], p[1]))
         _finite(x=pts[-1].x, y=pts[-1].y)
     s: Style = _make_style(*style_args)
-    return _fix_position(_Combination(img, _points_to_path(pts, s)))
+    return _fix_position(_combination(img, _points_to_path(pts, s)))
 
 
 def add_curve(
@@ -1492,7 +1504,7 @@ def add_curve(
     c1, c2 = _curve_controls(x1, y1, angle1, pull1, x2, y2, angle2, pull2)
     s: Style = _make_style(*style_args)
     return _fix_position(
-        _Combination(
+        _combination(
             img,
             _Path(s, [_MoveTo(Point(x1, y1)), _CubicTo(c1, c2, Point(x2, y2))], False),
         )
@@ -1514,7 +1526,7 @@ def add_solid_curve(
     c1, c2 = _curve_controls(x1, y1, angle1, pull1, x2, y2, angle2, pull2)
     s: Style = _make_style(*style_args)
     return _fix_position(
-        _Combination(
+        _combination(
             img,
             _Path(s, [_MoveTo(Point(x1, y1)), _CubicTo(c1, c2, Point(x2, y2))], True),
         )
@@ -1527,7 +1539,7 @@ def add_wedge(
     _finite(x=x, y=y)
     s: Style = _make_style(*style_args)
     return _fix_position(
-        _Combination(
+        _combination(
             img,
             _translate(_wedge_path(radius, angle, s), x, y),
         )
