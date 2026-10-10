@@ -1,0 +1,10 @@
+---
+source: cli/tests/integration.rs
+---
+ok
+r must be between 0 and 255, got 300
+g must be between 0 and 255, got -1
+b must be between 0 and 255, got 256
+a must be between 0 and 1, got 1.5
+a must be between 0 and 1, got -0.1
+a must be between 0 and 1, got 2.0

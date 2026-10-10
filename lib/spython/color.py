@@ -1,11 +1,16 @@
+from spython._check import _between
+
+
 class Color:
     def __init__(
         self, r: int, g: int, b: int, a: float = 1.0, _none: bool = False
     ) -> None:
-        self.r: int = max(0, min(255, r))
-        self.g: int = max(0, min(255, g))
-        self.b: int = max(0, min(255, b))
-        self.a: float = max(0.0, min(1.0, a))
+        _between(0, 255, r=r, g=g, b=b)
+        _between(0.0, 1.0, a=a)
+        self.r: int = r
+        self.g: int = g
+        self.b: int = b
+        self.a: float = a
         self._none: bool = _none
 
 
