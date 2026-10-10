@@ -13,6 +13,7 @@ pub const LIB_DIR: &str = "_spython_lib";
 /// Files that make up `lib/spython/`, embedded at compile time.
 pub const FILES: &[(&str, &str)] = &[
     ("__init__.py", include_str!("../../lib/spython/__init__.py")),
+    ("_check.py", include_str!("../../lib/spython/_check.py")),
     ("color.py", include_str!("../../lib/spython/color.py")),
     ("font.py", include_str!("../../lib/spython/font.py")),
     ("image.py", include_str!("../../lib/spython/image.py")),
