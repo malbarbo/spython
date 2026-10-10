@@ -198,7 +198,7 @@ pub fn check_source(
 ) -> Result<Warnings, Box<TypeErrors>> {
     check_in_memory(source, level, in_repl.then_some(TextSize::default()), &[])
 }
-/// Type-check `source` against `modules` -- the first-party files it imports.
+/// Type-check `source` against `modules`, the first-party files it imports.
 /// `repl_input` is where the REPL input starts in `source`, and `None` for a
 /// file.
 fn check_in_memory(
@@ -211,7 +211,8 @@ fn check_in_memory(
 
     let mut diagnostics = annotation_check(&db, level, repl_input);
     diagnostics.extend(db.check());
-    // Doctests are code too — validate prompt format and type-check snippets.
+    // Doctests are code too, so validate the prompts and type-check the
+    // snippets.
     // Skip in REPL context, where incremental input doesn't have docstrings.
     if repl_input.is_none() {
         diagnostics.extend(check_file_doctests(
@@ -260,8 +261,8 @@ fn user_files(db: &ProjectDatabase, files: impl Iterator<Item = File>) -> Vec<Fi
     files
 }
 /// The files among `files` that a file in `root` can name, keyed by their
-/// path relative to `root` -- the form [`in_memory_project`] takes its
-/// modules in.
+/// path relative to `root`. [`in_memory_project`] takes its modules in that
+/// form.
 ///
 /// An in-memory check cannot reach the real directory, so what the source
 /// imports has to travel as text. A file outside `root` is left out: there
@@ -293,7 +294,7 @@ fn relative_path(db: &ProjectDatabase, file: File, root: &SystemPath) -> Option<
 ///
 /// Returns diagnostics for:
 /// * malformed lines (`>>>x`, `...x`, a line to the left of its `>>>`) and
-///   doctests inside a function, which never run — always reported;
+///   doctests inside a function, which never run. The check always reports these;
 /// * annotation rules / level restrictions / ty type errors found inside the
 ///   doctest snippets, remapped to the original docstring locations.
 ///
@@ -485,7 +486,7 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
 /// Type-check a REPL input in the context of previously accumulated source.
 ///
 /// Checks `accumulated + "\n" + new_input` for cross-reference correctness,
-/// resolving imports against `modules` -- the first-party files the session
+/// resolving imports against `modules`, the first-party files the session
 /// started from, which are not on any filesystem the checker can see.
 /// Diagnostics about the input are printed with their line numbers relative
 /// to it; diagnostics about the accumulated source are dropped, and so are
@@ -605,7 +606,7 @@ pub(crate) fn infer_expression_type(
 }
 /// Where a diagnostic starts.
 ///
-/// `None` for one that carries no range -- ty reports an unreadable file that
+/// `None` for one that carries no range. ty reports an unreadable file that
 /// way. It is nowhere in particular, which is not the same as being at the
 /// start, and the caller has to keep the two apart.
 fn diagnostic_start(diag: &Diagnostic) -> Option<TextSize> {

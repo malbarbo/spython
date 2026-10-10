@@ -867,7 +867,7 @@ fn remap_range_within_line(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyntheticLine {
     /// A line copied verbatim from the original source (or a trailing newline
-    /// we added). Diagnostics here are dropped — they are already reported
+    /// we added). Diagnostics here are dropped, as they are already reported
     /// against the real file.
     Original,
     /// A scaffold line for snippet `usize`: blank separator, `def` header, or
@@ -1048,7 +1048,7 @@ pub fn remap_diagnostics(
         }
         // ty's parse errors can point at EOF (a byte position one past the
         // last newline). `byte_to_line` then returns an index past
-        // `map.lines`, so clamp to the last real line — which is always one
+        // `map.lines`, so clamp to the last real line. That line is always one
         // of the appended doctest body / scaffold lines for `prim_start >=
         // original_len`.
         let line_idx = byte_to_line(prim_start).min(map.lines.len().saturating_sub(1));

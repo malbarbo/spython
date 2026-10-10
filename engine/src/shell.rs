@@ -282,14 +282,14 @@ fn code_start(input: &str) -> Option<usize> {
 /// stands.
 ///
 /// This is the whole of the question a reader asks on Enter, and both readers
-/// ask it here -- the one in the terminal and the one the browser calls
+/// ask it here, the one in the terminal and the one the browser calls
 /// through `repl_ready` (see SimpleCode's ENGINE.md).
 pub fn ready_state(input: &str, cursor: usize) -> i32 {
     let Some(start) = code_start(input) else {
         return -1;
     };
     let src = &input[start..];
-    // A cursor before the Python is not in it at all -- Enter pressed inside
+    // A cursor before the Python is not in it at all. Enter pressed inside
     // `:time` opens the line the code asks for, the way it would from the
     // end. Clamping to 0 instead answers for a cursor at its start.
     crate::input::ready_state(src, cursor.checked_sub(start).unwrap_or(src.len()))

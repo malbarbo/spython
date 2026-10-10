@@ -18,9 +18,9 @@ pub const INDENT: usize = 4;
 /// arrives here on its own.
 ///
 /// `cursor` is a byte offset into `src`, as `repl_complete` already takes
-/// one. One that falls inside a character -- which is what a host counting in
-/// another unit sends -- moves back to the boundary before it: slicing at it
-/// panics instead, and a panic is the end of the session.
+/// one. A host that counts in another unit can send one that falls inside a
+/// character, and that one moves back to the boundary before it. Slicing at
+/// it would panic, and a panic is the end of the session.
 ///
 /// Input that no line could finish is run, so that the user is given the
 /// error instead of a prompt that will not let go of them.
@@ -48,7 +48,7 @@ pub fn ready_state(src: &str, cursor: usize) -> i32 {
 /// The two halves answer different things. Above the cursor the tokens say
 /// which block is open, which is a floor: a line out of it is not in the
 /// block at all. Below it only the indentation as written counts, and it is
-/// a floor too -- a line shallower than the code under it closes a block that
+/// a floor too. A line shallower than the code under it closes a block that
 /// code still needs open. So the answer is the deeper of the two, and where
 /// they disagree it is the one that closes nothing.
 ///
@@ -98,15 +98,15 @@ fn indent_below(src: &str, cursor: usize) -> usize {
 /// run, `false` otherwise.
 ///
 /// Where the input ends is not where it stops, and the text alone does not
-/// say — a bracket inside a comment closes nothing.
+/// say. A bracket inside a comment closes nothing.
 ///
 /// The kind of error does not say it either. `x = ` and `x = )` are the same
 /// `ExpectedExpression`, as the parser reports where it wanted a value. What
 /// tells them apart is whether any of the input is left after that: if none
 /// is, there was nothing to reject.
 ///
-/// A wrong `true` is the costly one — it hangs the prompt on a stray `)`, and
-/// only Ctrl-C gets out — so an error that says neither is taken as finished.
+/// A wrong `true` is the costly one. It hangs the prompt on a stray `)`, and
+/// only Ctrl-C gets out, so an error that says neither is taken as finished.
 fn is_incomplete(parsed: &Parsed<ModModule>, src: &str) -> bool {
     // The parser recovers from a bad token and goes on, so the errors after
     // the first are about what it made of the rest. Only the first one says
@@ -157,7 +157,7 @@ fn is_incomplete(parsed: &Parsed<ModModule>, src: &str) -> bool {
 /// ends a block, and level with the line it follows otherwise.
 ///
 /// Read from the tokens, so a colon or a bracket inside a comment or a string
-/// is text. A bracket is worth one level however many are opened at once —
+/// is text. A bracket is worth one level however many are opened at once, so
 /// `print(f(` is a line to indent, not two.
 fn indent_after(tokens: &Tokens, src: &str) -> usize {
     let line_start = src.rfind('\n').map_or(0, |i| i + 1);
@@ -536,7 +536,7 @@ mod tests {
 
     /// Every prefix of a valid program is unfinished, by construction. The
     /// REPL only ever asks about whole lines, so those are the prefixes that
-    /// have to read as unfinished — one that does not ends the input early
+    /// have to read as unfinished. One that does not ends the input early
     /// and answers a syntax error the user has not made yet.
     #[test]
     fn every_line_prefix_of_a_valid_program_reads_as_unfinished() {

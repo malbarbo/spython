@@ -4,7 +4,7 @@
 //!
 //! Why: the lib is embedded into the binary via `include_str!`, so writing
 //! it to a real cache directory just so ty's `OsSystem`-backed resolver can
-//! find it is wasted I/O — and a shared cache directory races between
+//! find it is wasted I/O. A shared cache directory also races between
 //! concurrent `spython` subprocesses (e.g. parallel `cargo test` workers
 //! on Windows CI), causing one process's resolver to see a missing or
 //! half-written `spython/` package.
@@ -52,7 +52,7 @@ impl OverlaySystem {
         let pkg_dir = lib_root.join("spython");
         let mem = MemoryFileSystem::new();
         // Errors writing the in-memory FS shouldn't happen, but if they
-        // somehow do the lib just won't resolve — type errors will surface
+        // somehow do the lib just won't resolve. Type errors will surface
         // at the call site as unresolved-import, which is louder than a
         // silent miscompile.
         let _ = mem.create_directory_all(&pkg_dir);
@@ -169,7 +169,7 @@ impl System for OverlaySystem {
 
     fn as_writable(&self) -> Option<&dyn WritableSystem> {
         // The embedded lib is read-only and we don't want callers writing
-        // through the overlay anyway — they'd bypass our routing.
+        // through the overlay anyway, since they'd bypass our routing.
         None
     }
 

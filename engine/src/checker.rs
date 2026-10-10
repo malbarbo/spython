@@ -142,7 +142,7 @@ impl Checker<'_> {
 
     /// Check that `expr` (used in a boolean context) has type `bool`.
     ///
-    /// Skips `and`/`or`/`not` — their operands are checked individually as
+    /// Skips `and`/`or`/`not`. Their operands are checked individually as
     /// they are each in a boolean context, so reporting on the compound
     /// expression would be redundant. Only applies at levels 0–3.
     fn check_bool_ctx(&mut self, expr: &Expr) {
@@ -205,7 +205,7 @@ impl Checker<'_> {
         let env = self.model.program_environment();
         let bool_ty = KnownClass::Bool.to_instance(db, &env);
         // `Any`/`Unknown` are gradual types and are assignable to *every*
-        // type — including `bool` — so `is_assignable_to(bool)` alone would
+        // type, `bool` included, so `is_assignable_to(bool)` alone would
         // misfire on operands ty cannot infer (e.g. `(-1) ** i`, which ty
         // types as `Any`). A genuine `bool`/`Literal[bool]` is assignable to
         // `bool` but never to a disjoint type like `str`, whereas a gradual
@@ -359,7 +359,7 @@ impl Checker<'_> {
     /// `list` for now) that appear without a type parameter. Recurses into
     /// `Subscript` slices, union (`BinOp`), tuple, and starred expressions so
     /// nested annotations like `dict[str, list]` and `int | list` are
-    /// checked. Does NOT call `visit_expr` — annotations are type
+    /// checked. Does NOT call `visit_expr`, because annotations are type
     /// expressions, not runtime expressions, so the expression-level lints
     /// shouldn't fire here.
     fn check_annotation(&mut self, expr: &Expr) {
@@ -372,7 +372,7 @@ impl Checker<'_> {
                 );
             }
             Expr::Subscript(sub) => {
-                // `list[...]` is fine — don't flag the bare `list` here.
+                // `list[...]` is fine, so don't flag the bare `list` here.
                 // Other generic bases (e.g. `dict`) recurse normally so a
                 // nested bare `list` still fires. The slice is always
                 // recursed into.
@@ -475,7 +475,7 @@ impl Checker<'_> {
     }
 
     /// Members of an `Enum` subclass must be `UPPER_CASE`. Method
-    /// definitions on the enum class are skipped — they're regular
+    /// definitions on the enum class are skipped. They're regular
     /// functions and follow the usual snake_case rule.
     fn check_enum_member_names(&mut self, cls: &StmtClassDef) {
         for stmt in &cls.body {
@@ -613,7 +613,7 @@ impl Checker<'_> {
         }
     }
 
-    /// F541: an f-string with no interpolations is just a regular string —
+    /// F541: an f-string with no interpolations is just a regular string, and
     /// the `f` prefix is misleading.
     fn check_f_string_placeholders(&mut self, expr: &ruff_python_ast::ExprFString) {
         let has_placeholder = expr.value.f_strings().any(|fs| {
@@ -674,8 +674,8 @@ impl Checker<'_> {
 
     /// Flag function/class definitions whose name was already defined by an
     /// earlier function/class in the same body. `@overload` stubs and
-    /// synthetic doctest functions are ignored. Caller decides when this
-    /// runs — currently only at teaching levels 0–3.
+    /// synthetic doctest functions are ignored. The caller decides when this
+    /// runs, which is only at teaching levels 0–3.
     ///
     /// In the REPL a definition from an earlier input does not count, so a
     /// new input can replace a function or a class.
@@ -710,7 +710,7 @@ impl Checker<'_> {
         }
     }
 
-    /// SIM103: `if cond: return True else: return False` (or the inverse) —
+    /// SIM103: `if cond: return True else: return False` (or the inverse) is
     /// just `return cond` or `return not cond`.
     fn check_needless_bool(&mut self, if_stmt: &ruff_python_ast::StmtIf) {
         let [else_clause] = if_stmt.elif_else_clauses.as_slice() else {
@@ -807,7 +807,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                             }
                         }
                     }
-                    // Skip annotation check for Enum subclasses — Enum
+                    // Skip annotation check for Enum subclasses. Enum
                     // members don't need (and shouldn't have) annotations.
                     if self.is_enum_class(cls) {
                         self.check_enum_member_names(cls);
@@ -1384,7 +1384,7 @@ impl<'a> Visitor<'a> for UnusedWalker<'a> {
                     self.visit_expr(v);
                 }
                 // Skip the annotation: we don't track whether type names are
-                // "used" — that's the type checker's concern.
+                // "used", as that's the type checker's concern.
             }
             Stmt::AugAssign(a) => {
                 // `x += 1` reads then writes x. The target's `Name` carries
@@ -1705,7 +1705,7 @@ mod tests {
 
     #[test]
     fn aug_assign_subscript_slice_is_visited() {
-        // x[lambda: 0] += 1 — slice contains a forbidden lambda at level 3.
+        // In x[lambda: 0] += 1, the slice contains a forbidden lambda at level 3.
         // (Aug assign and subscript indexing are both allowed at level 3.)
         let diags = check(
             "def f(x: list[int]) -> None:\n    x[(lambda: 0)()] += 1\n",
@@ -1781,7 +1781,7 @@ mod tests {
 
     #[test]
     fn unused_walker_records_subscript_target_reads() {
-        // `a` is only read by `a[0] = 1` — the Subscript target's value is a
+        // `a` is only read by `a[0] = 1`. The Subscript target's value is a
         // load of `a`.
         let diags = check(
             "def f(arr: list[int]) -> None:\n    a: list[int] = arr\n    a[0] = 1\n",
@@ -1990,7 +1990,7 @@ mod tests {
 
     #[test]
     fn methods_with_same_name_in_class_body_is_flagged() {
-        // Use Repetition (3) — methods in a class are forbidden there
+        // Use Repetition (3). Methods in a class are forbidden there
         // (FORBIDDEN_CLASS_METHOD also fires) but the redefinition check
         // still applies because we walk the class body regardless. At
         // level 4+ redefinition is intentionally allowed.
@@ -2091,8 +2091,8 @@ mod tests {
 
     #[test]
     fn bare_assign_with_unknown_rhs_is_flagged() {
-        // `undefined_name` is unresolved, so the RHS — and therefore `x` —
-        // has type `Unknown`.
+        // `undefined_name` is unresolved, so the RHS and therefore `x` have
+        // type `Unknown`.
         let diags = check(
             "def f() -> None:\n    x = undefined_name\n    return None\n",
             Level::Repetition,
@@ -2121,7 +2121,7 @@ mod tests {
 
     #[test]
     fn module_level_assign_with_unknown_rhs_is_not_flagged() {
-        // "em locais" — only function-scoped assignments are flagged.
+        // "em locais" means that only function-scoped assignments are flagged.
         let diags = check("x = undefined_name\n", Level::Repetition);
         assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
     }
@@ -2154,8 +2154,8 @@ mod tests {
 
     #[test]
     fn overload_decorated_functions_are_not_flagged() {
-        // Lowest level where the redefinition check runs — exercises the
-        // @overload exemption rather than the level guard.
+        // Lowest level where the redefinition check runs, so the test
+        // exercises the @overload exemption rather than the level guard.
         let diags = check(
             "from typing import overload\n\n@overload\ndef f(x: int) -> int: ...\n@overload\ndef f(x: str) -> str: ...\ndef f(x: object) -> object:\n    return x\n",
             Level::Functions,

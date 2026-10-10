@@ -314,7 +314,7 @@ declare_lint! {
     /// function calls and string/ellipsis literals) at teaching levels 0–3.
     ///
     /// ## Why is this bad?
-    /// An expression statement like `x + 1` has no effect — the value is
+    /// An expression statement like `x + 1` has no effect. The value is
     /// computed and thrown away. It usually means the student forgot an
     /// assignment or a `print`. Calls are allowed because they may have side
     /// effects, and string literals are allowed as docstrings.
@@ -337,8 +337,8 @@ declare_lint! {
     /// Rejects default values on function parameters at teaching levels 0–3.
     ///
     /// ## Why is this bad?
-    /// Default arguments add subtle behavior — especially mutable defaults
-    /// that are shared between calls — and hide which values a function
+    /// Default arguments add subtle behavior, especially mutable defaults
+    /// that are shared between calls, and hide which values a function
     /// actually needs. At the teaching levels, students should pass every
     /// argument explicitly.
     ///
@@ -364,7 +364,7 @@ declare_lint! {
     /// student code harder to read and inconsistent with most Python libraries.
     ///
     /// Methods explicitly decorated with `@override` or `@overload` are
-    /// exempt — those are defined elsewhere with the original name.
+    /// exempt, as they are defined elsewhere with the original name.
     ///
     /// ## Example
     /// ```python
@@ -420,7 +420,7 @@ declare_lint! {
     /// ## Why is this bad?
     /// PEP 8 recommends lowercase parameter names, matching variable and
     /// function naming. Methods explicitly decorated with `@override` are
-    /// exempt — the parameter names there mirror the parent class.
+    /// exempt, as the parameter names there mirror the parent class.
     ///
     /// ## Example
     /// ```python
@@ -526,7 +526,7 @@ declare_lint! {
     /// `x == True`).
     ///
     /// ## Why is this bad?
-    /// Comparing a boolean to `True` is redundant — write `x` instead of
+    /// Comparing a boolean to `True` is redundant. Write `x` instead of
     /// `x == True`, and `not x` instead of `x == False`.
     pub(crate) static TRUE_FALSE_COMPARISON = {
         summary: "comparison to `True` / `False` is redundant",
@@ -691,7 +691,7 @@ declare_lint! {
     /// catch bugs at the use sites.
     ///
     /// Variables that already carry an annotation (`x: int = ...`) are
-    /// exempt — the annotation supplies the type.
+    /// exempt, as the annotation supplies the type.
     ///
     /// ## Example
     /// ```python
