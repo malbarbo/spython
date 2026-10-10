@@ -84,8 +84,11 @@ def _point_flip_y(p: Point) -> Point:
 # **************************
 
 
-def _positive(n: float) -> float:
-    return max(0.0, n)
+def _non_negative(**measures: float) -> None:
+    """Raises `ValueError` if one of `measures` is negative."""
+    for name, value in measures.items():
+        if value < 0:
+            raise ValueError(f"{name} must not be negative, got {value}")
 
 
 def _mid(a: float, b: float) -> float:
@@ -812,8 +815,7 @@ def _y_place_dy(y_place: YPlace, ha: float, hb: float) -> tuple[float, float]:
 
 
 def rectangle(w: float, h: float, *style_args: Style) -> Image:
-    w = _positive(w)
-    h = _positive(h)
+    _non_negative(w=w, h=h)
     s: Style = _make_style(*style_args)
     return _Path(
         s,
@@ -828,12 +830,12 @@ def rectangle(w: float, h: float, *style_args: Style) -> Image:
 
 
 def square(side: float, *style_args: Style) -> Image:
+    _non_negative(side=side)
     return rectangle(side, side, *style_args)
 
 
 def ellipse(w: float, h: float, *style_args: Style) -> Image:
-    w = _positive(w)
-    h = _positive(h)
+    _non_negative(w=w, h=h)
     rx: float = w / 2.0
     ry: float = h / 2.0
     s: Style = _make_style(*style_args)
@@ -849,6 +851,7 @@ def ellipse(w: float, h: float, *style_args: Style) -> Image:
 
 
 def circle(radius: float, *style_args: Style) -> Image:
+    _non_negative(radius=radius)
     return ellipse(2.0 * radius, 2.0 * radius, *style_args)
 
 
@@ -865,21 +868,20 @@ def line(x: float, y: float, *style_args: Style) -> Image:
 
 
 def triangle(side: float, *style_args: Style) -> Image:
-    side = _positive(side)
+    _non_negative(side=side)
     h: float = side * _SQRT3_2
     s: Style = _make_style(*style_args)
     return _points_to_path([Point(side / 2.0, 0.0), Point(side, h), Point(0.0, h)], s)
 
 
 def right_triangle(side1: float, side2: float, *style_args: Style) -> Image:
-    side1 = _positive(side1)
-    side2 = _positive(side2)
+    _non_negative(side1=side1, side2=side2)
     s: Style = _make_style(*style_args)
     return _points_to_path([Point(0.0, 0.0), Point(0.0, side2), Point(side1, side2)], s)
 
 
 def isosceles_triangle(side_length: float, angle: float, *style_args: Style) -> Image:
-    side_length = _positive(side_length)
+    _non_negative(side_length=side_length)
     hangle: float = angle / 2.0
     s: Style = _make_style(*style_args)
     return _fix_position(
@@ -921,9 +923,7 @@ def _solve_angle(opposite: float, adj1: float, adj2: float) -> float:
 def triangle_sss(
     side_a: float, side_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(side_a)
-    side_b = _positive(side_b)
-    side_c = _positive(side_c)
+    _non_negative(side_a=side_a, side_b=side_b, side_c=side_c)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
 
@@ -931,8 +931,7 @@ def triangle_sss(
 def triangle_sas(
     side_a: float, angle_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(side_a)
-    side_c = _positive(side_c)
+    _non_negative(side_a=side_a, side_c=side_c)
     side_b: float = _solve_side(side_a, side_c, angle_b)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
@@ -941,8 +940,7 @@ def triangle_sas(
 def triangle_ssa(
     side_a: float, side_b: float, angle_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(side_a)
-    side_b = _positive(side_b)
+    _non_negative(side_a=side_a, side_b=side_b)
     side_c: float = _solve_side(side_a, side_b, angle_c)
     angle_a: float = _solve_angle(side_a, side_b, side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
@@ -951,7 +949,7 @@ def triangle_ssa(
 def triangle_aas(
     angle_a: float, angle_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_c = _positive(side_c)
+    _non_negative(side_c=side_c)
     angle_c: float = 180.0 - angle_a - angle_b
     ratio: float = side_c / _sin_deg(angle_c)
     side_b: float = ratio * _sin_deg(angle_b)
@@ -961,15 +959,14 @@ def triangle_aas(
 def triangle_ass(
     angle_a: float, side_b: float, side_c: float, *style_args: Style
 ) -> Image:
-    side_b = _positive(side_b)
-    side_c = _positive(side_c)
+    _non_negative(side_b=side_b, side_c=side_c)
     return _triangle_from_sides_angle(side_b, side_c, angle_a, _make_style(*style_args))
 
 
 def triangle_asa(
     angle_a: float, side_b: float, angle_c: float, *style_args: Style
 ) -> Image:
-    side_b = _positive(side_b)
+    _non_negative(side_b=side_b)
     angle_b: float = 180.0 - angle_a - angle_c
     ratio: float = side_b / _sin_deg(angle_b)
     side_c: float = ratio * _sin_deg(angle_c)
@@ -979,7 +976,7 @@ def triangle_asa(
 def triangle_saa(
     side_a: float, angle_b: float, angle_c: float, *style_args: Style
 ) -> Image:
-    side_a = _positive(side_a)
+    _non_negative(side_a=side_a)
     angle_a: float = 180.0 - angle_b - angle_c
     ratio: float = side_a / _sin_deg(angle_a)
     side_b: float = ratio * _sin_deg(angle_b)
@@ -988,7 +985,7 @@ def triangle_saa(
 
 
 def rhombus(side_length: float, angle: float, *style_args: Style) -> Image:
-    side_length = _positive(side_length)
+    _non_negative(side_length=side_length)
     h: float = 2.0 * side_length * _cos_deg(angle / 2.0)
     w: float = 2.0 * side_length * _sin_deg(angle / 2.0)
     s: Style = _make_style(*style_args)
@@ -1022,9 +1019,10 @@ def polygon(
 def star_polygon(
     side_length: float, side_count: int, step_count: int, *style_args: Style
 ) -> Image:
+    _non_negative(side_length=side_length)
     side_count = max(1, side_count)
     step_count = max(1, step_count)
-    radius: float = _positive(side_length) / (2.0 * _sin_deg(180.0 / side_count))
+    radius: float = side_length / (2.0 * _sin_deg(180.0 / side_count))
     alpha: float = 90.0 + 180.0 / side_count if side_count % 2 == 0 else -90.0
     pts: list[Point] = []
     for i in range(side_count):
@@ -1042,8 +1040,7 @@ def radial_star(
     point_count: int, inner_radius: float, outer_radius: float, *style_args: Style
 ) -> Image:
     point_count = max(2, point_count)
-    inner_radius = _positive(inner_radius)
-    outer_radius = _positive(outer_radius)
+    _non_negative(inner_radius=inner_radius, outer_radius=outer_radius)
     alpha: float = 90.0 + 180.0 / point_count if point_count % 2 == 0 else -90.0
     pts: list[Point] = []
     for i in range(point_count):
@@ -1062,8 +1059,9 @@ def radial_star(
 def pulled_regular_polygon(
     side_length: float, side_count: int, pull: float, angle: float, *style_args: Style
 ) -> Image:
+    _non_negative(side_length=side_length)
     side_count = max(3, side_count)
-    radius: float = _positive(side_length) / (2.0 * _sin_deg(180.0 / side_count))
+    radius: float = side_length / (2.0 * _sin_deg(180.0 / side_count))
     alpha: float = 90.0 + 180.0 / side_count if side_count % 2 == 0 else -90.0
     vertices: list[Point] = []
     for i in range(side_count):
@@ -1116,11 +1114,11 @@ def wedge(radius: float, angle: float, *style_args: Style) -> Image:
 
 
 def _wedge_path(radius: float, angle: float, style: Style) -> Image:
-    r: float = _positive(radius)
-    x1: float = r
+    _non_negative(radius=radius)
+    x1: float = radius
     y1: float = 0.0
-    x2: float = r * _cos_deg(angle)
-    y2: float = -r * _sin_deg(angle)
+    x2: float = radius * _cos_deg(angle)
+    y2: float = -radius * _sin_deg(angle)
     large_arc: bool = abs(angle) > 180.0
     sweep_flag: bool = angle < 0.0
     return _Path(
@@ -1128,7 +1126,7 @@ def _wedge_path(radius: float, angle: float, style: Style) -> Image:
         [
             _MoveTo(Point(0.0, 0.0)),
             _LineTo(Point(x1, y1)),
-            _ArcTo(r, r, 0.0, large_arc, sweep_flag, Point(x2, y2)),
+            _ArcTo(radius, radius, 0.0, large_arc, sweep_flag, Point(x2, y2)),
         ],
         True,
     )
@@ -1212,12 +1210,12 @@ def _rotate_around(img: Image, center: Point, angle: float) -> Image:
 
 
 def scale(img: Image, factor: float) -> Image:
+    _non_negative(factor=factor)
     return scale_xy(img, factor, factor)
 
 
 def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
-    x_factor = _positive(x_factor)
-    y_factor = _positive(y_factor)
+    _non_negative(x_factor=x_factor, y_factor=y_factor)
     if isinstance(img, _Path):
         # The path takes the scale point by point, but its stroke has one
         # width and one dash, so they take the mean of the two factors, as the
@@ -1298,16 +1296,14 @@ def color_frame(img: Image, color: _Color) -> Image:
 
 
 def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
-    w = _positive(w)
-    h = _positive(h)
+    _non_negative(w=w, h=h)
     return _Crop(_box_of_size(w, h), _translate(img, -x, -y))
 
 
 def crop_align(
     img: Image, x_place: XPlace, y_place: YPlace, cw: float, ch: float
 ) -> Image:
-    cw = _positive(cw)
-    ch = _positive(ch)
+    _non_negative(cw=cw, ch=ch)
     # The offset is negative when the crop is larger than the image, which
     # puts the image at the right or bottom of the crop.
     dx: float = width(img) - cw
