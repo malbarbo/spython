@@ -11,7 +11,7 @@ def now_ms() -> int:
     return int(_time.time() * 1000)
 
 
-from _spython_ffi import get_key_event, show_svg, text_metrics  # type: ignore[import-not-found]
+from _spython_ffi import get_key_event, show_svg  # type: ignore[import-not-found]
 
 # Opens a printer of images in the terminal, or gives None when the terminal
 # shows no graphics.
@@ -20,7 +20,7 @@ try:
 except ImportError:
     _open_printer = None
 
-from _spython_scene import load_bitmap, load_image, to_svg as scene_svg  # type: ignore[import-not-found]
+from _spython_scene import load_bitmap, load_image, text_metrics, to_svg as scene_svg  # type: ignore[import-not-found]
 
 
 def install_displayhook() -> None:

@@ -3,7 +3,6 @@ from collections.abc import Callable as _Callable
 from collections.abc import Sequence as _Sequence
 from enum import Enum as _Enum
 
-from spython import font as _font
 from spython.font import Font, FontStyle, FontWeight
 from spython.color import Color as _Color
 from spython.color import *  # noqa: F401,F403 — re-export all colors
@@ -1154,8 +1153,7 @@ def text(
             weight=f.weight,
             underline=f.underline,
         )
-    css: str = _font._to_css(f)
-    w, h = _system.text_metrics(txt, css)
+    w, h = _system.text_metrics(txt, f)
     s: Style = _make_style(*style_args)
     return _Text(s, _box_of_size(w, h), txt, f)
 

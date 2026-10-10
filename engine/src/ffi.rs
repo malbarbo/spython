@@ -44,18 +44,6 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
             }
         });
 
-    let text_metrics_fn = vm.new_function(
-        "text_metrics",
-        |text: String, font_css: String, vm: &vm::VirtualMachine| -> PyObjectRef {
-            let (width, height) = host::text_metrics(&text, &font_css);
-            let elements = vec![
-                vm.ctx.new_float(width).into(),
-                vm.ctx.new_float(height).into(),
-            ];
-            vm.ctx.new_tuple(elements).into()
-        },
-    );
-
     // The doctest runner takes the docstrings from here, so that it runs
     // the examples the checker has read.
     let doctest_docstrings_fn = vm.new_function(
@@ -102,7 +90,6 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
     };
     set("show_svg", show_svg_fn.into());
     set("get_key_event", get_key_event_fn.into());
-    set("text_metrics", text_metrics_fn.into());
     set("doctest_docstrings", doctest_docstrings_fn.into());
     set("keep_source", keep_source_fn.into());
     #[cfg(test)]

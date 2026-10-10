@@ -353,26 +353,46 @@ pub(crate) mod _spython_scene {
     /// The `_FP_EPSILON` of `spython.image`.
     const FP_EPSILON: f64 = 1.0e-10;
 
+    /// The width and the height of the box around `text` in `font`. sinteract
+    /// measures with the fonts that it draws with, so a text has the same
+    /// size on every target. A size that cannot draw measures nothing.
+    #[pyfunction]
+    fn text_metrics(text: String, font: PyObjectRef, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+        let spec = text_spec(&font, text, vm)?;
+        let metrics =
+            sinteract::text::measure(&spec.family, spec.weight, spec.style, spec.size, &spec.text);
+        Ok(metrics.map_or((0.0, 0.0), |m| {
+            (f64::from(m.width()), f64::from(m.height()))
+        }))
+    }
+
+    /// `text` in `font`, a `Font` of `spython.font`. The measure and the
+    /// drawing of a text both read the font here, so the box they get is the
+    /// same.
+    fn text_spec(font: &PyObject, text: String, vm: &VirtualMachine) -> PyResult<TextSpec> {
+        Ok(TextSpec {
+            size: float(font, "size", vm)? as f32,
+            family: string(font, "family", vm)?.into(),
+            weight: match enum_value(font, "weight", vm)?.as_str() {
+                "lighter" => 300,
+                "bold" => 700,
+                _ => 400,
+            },
+            style: match enum_value(font, "style", vm)?.as_str() {
+                "italic" => FontStyle::Italic,
+                "oblique" => FontStyle::Oblique,
+                _ => FontStyle::Normal,
+            },
+            text,
+        })
+    }
+
     /// The text of a `_Text`, or `None` when it draws nothing.
     fn text(image: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Text>> {
         let style = Style::read(&*image.get_attr("style", vm)?, vm)?;
         let font = image.get_attr("font", vm)?;
         let transform = affine(&*image.get_attr("box", vm)?, vm)?;
-        let spec = TextSpec {
-            size: float(&font, "size", vm)? as f32,
-            family: string(&font, "family", vm)?.into(),
-            weight: match enum_value(&font, "weight", vm)?.as_str() {
-                "lighter" => 300,
-                "bold" => 700,
-                _ => 400,
-            },
-            style: match enum_value(&font, "style", vm)?.as_str() {
-                "italic" => FontStyle::Italic,
-                "oblique" => FontStyle::Oblique,
-                _ => FontStyle::Normal,
-            },
-            text: string(image, "text", vm)?,
-        };
+        let spec = text_spec(&font, string(image, "text", vm)?, vm)?;
         let Some(mut text) = spec.fit_transform(transform) else {
             return Ok(None);
         };
