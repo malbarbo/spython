@@ -770,6 +770,12 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     self.forbidden(func.range(), "`async def`", Level::Full);
                 }
                 self.check_function(func);
+                // A default runs where the `def` is, not inside the function.
+                for parameter in &func.parameters {
+                    if let Some(default) = parameter.default() {
+                        self.visit_expr(default);
+                    }
+                }
                 let synthetic = crate::doctests::is_synthetic_fn_name(func.name.as_str());
                 if !synthetic {
                     self.check_function_name(func);
@@ -1633,6 +1639,22 @@ mod tests {
             let diags = check(source, Level::Full);
             assert_eq!(count(&diags, "unavailable-module"), 0, "{source}");
         }
+    }
+
+    // -- The parameter defaults of a def are visited -------------------------
+
+    #[test]
+    fn parameter_defaults_are_visited() {
+        let diags = check(
+            "def f(x: str = f\"a\", *, y: bool = (1 == True)) -> str:\n    return x\n",
+            Level::Full,
+        );
+        assert_eq!(
+            count(&diags, "f-string-missing-placeholders"),
+            1,
+            "{diags:?}"
+        );
+        assert_eq!(count(&diags, "true-false-comparison"), 1, "{diags:?}");
     }
 
     // -- Stmt::Raise.cause is visited ----------------------------------------
