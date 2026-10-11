@@ -11,10 +11,6 @@
 /// WASM, and on `sys.stdout` natively.
 pub use target::draw_svg;
 
-/// The bytes of the file at the path, or the message of the error. The page
-/// reads no file.
-pub use target::load_bitmap;
-
 #[cfg(target_arch = "wasm32")]
 #[path = "host/wasm.rs"]
 mod target;

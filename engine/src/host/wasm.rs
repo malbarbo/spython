@@ -18,8 +18,3 @@ pub fn draw_svg(svg: &str, _vm: &VirtualMachine) -> PyResult<()> {
     }
     Ok(())
 }
-
-/// The page reads no file.
-pub fn load_bitmap(_path: &str) -> Result<Vec<u8>, String> {
-    Err("load_bitmap is not available in the browser".to_owned())
-}

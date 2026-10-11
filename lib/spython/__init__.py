@@ -211,7 +211,7 @@ from spython.image import (
     pulled_regular_polygon,
     wedge,
     text,
-    bitmap,
+    bitmap_data_uri,
     width,
     height,
     dimension,

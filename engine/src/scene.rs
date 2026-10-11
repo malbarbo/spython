@@ -37,13 +37,6 @@ pub(crate) mod _spython_scene {
         loaded(blob).map_err(|e| vm.new_value_error(e.to_string()))
     }
 
-    /// The image in the file at `path`, as [`load_image`] gives it.
-    #[pyfunction]
-    fn load_bitmap(path: String, vm: &VirtualMachine) -> PyResult<(PyLoadedImage, f64, f64)> {
-        let blob = crate::host::load_bitmap(&path).map_err(|e| vm.new_runtime_error(e))?;
-        loaded(blob).map_err(|e| vm.new_runtime_error(format!("{path}: {e}")))
-    }
-
     /// The image in `blob`, with the width and the height of the original.
     fn loaded(blob: Vec<u8>) -> Result<(PyLoadedImage, f64, f64), ImageError> {
         let (image, head) = Image::load_with_head(blob)?;
@@ -134,7 +127,7 @@ pub(crate) mod _spython_scene {
         Ok(bounds.get())
     }
 
-    /// The image that [`load_image`] or [`load_bitmap`] returns. Python only
+    /// The image that [`load_image`] returns. Python only
     /// passes it along.
     #[pyattr]
     #[pyclass(name = "LoadedImage")]

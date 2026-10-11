@@ -12,8 +12,3 @@ pub fn draw_svg(svg: &str, vm: &VirtualMachine) -> PyResult<()> {
     }
     Ok(())
 }
-
-/// Read the file at `path`.
-pub fn load_bitmap(path: &str) -> Result<Vec<u8>, String> {
-    std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))
-}

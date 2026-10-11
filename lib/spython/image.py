@@ -993,11 +993,6 @@ def text(
 # **************************
 
 
-def bitmap(path: str) -> Image:
-    loaded, w, h = _system.load_bitmap(path)
-    return _Bitmap(_box_of_size(w, h), loaded)
-
-
 def bitmap_data_uri(data_uri: str) -> Image:
     loaded, w, h = _system.load_image(data_uri)
     return _Bitmap(_box_of_size(w, h), loaded)

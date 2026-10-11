@@ -21,7 +21,6 @@ except ImportError:
     _open_printer = None
 
 from _spython_scene import (  # type: ignore[import-not-found]
-    load_bitmap,
     load_image,
     path_box,
     text_metrics,
