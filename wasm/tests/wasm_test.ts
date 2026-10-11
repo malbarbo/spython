@@ -719,3 +719,25 @@ Deno.test("a stop ends animate", async () => {
   assertEquals(r.stderr.includes("KeyboardInterrupt"), true, r.stderr);
   destroy(ctx);
 });
+
+// A Stop on the page stays on until the next run, so the `finally` of the
+// World never closes its display, and the run has to.
+Deno.test("a World after a stop opens a session of its own", async () => {
+  const ctx = await newRepl(WORLD, { level: 5 });
+  const advance = ctx.room.advance.bind(ctx.room);
+  let stopped = false;
+  ctx.room.advance = (until) => {
+    advance(until);
+    if (!stopped && ctx.room.frames.length === 2) {
+      stopped = true;
+      ctx.interruptCtrl.set(true);
+    }
+  };
+  const first = run(ctx, "World(0, draw).on_tick(tick).run()");
+  assertEquals(first.result, REPL_ERROR);
+  ctx.interruptCtrl.set(false);
+  const second = run(ctx, "World(0, draw).on_tick(tick).stop_when(done).run()");
+  assertEquals(second.stderr, "");
+  assertEquals(second.frames.length, 4);
+  destroy(ctx);
+});

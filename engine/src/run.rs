@@ -134,6 +134,7 @@ fn run_source_with_argv(
         keep_source(vm, &filename, &source);
         vm.run_string(scope, &source, &filename).map(drop)
     });
+    crate::display::close_frames();
     if code == 0 {
         Ok(())
     } else {

@@ -19,8 +19,6 @@ MAX_TICK_RATE: int = MS_PER_SECOND // KEY_POLL_PERIOD_MS
 # of key.
 CLOSE: int = 3
 
-TITLE: str = "spython"
-
 
 class World[S]:
     def __init__(self, state: S, to_image: Callable[[S], Image]) -> None:
@@ -58,7 +56,7 @@ class World[S]:
         return self
 
     def run(self) -> None:
-        display = Display(TITLE)
+        display = Display()
         try:
             self._show_on(display)
             self._loop(display)
@@ -121,7 +119,7 @@ def _show(display: object, image: Image) -> None:
 
 
 def animate(create_image: Callable[[int], Image]) -> None:
-    display = Display(TITLE)
+    display = Display()
     try:
         period_ms: int = MS_PER_SECOND // DEFAULT_TICK_RATE
         frame: int = 0

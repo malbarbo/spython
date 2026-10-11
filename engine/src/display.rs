@@ -6,12 +6,22 @@
 
 pub(crate) use _spython_display::module_def;
 
+/// Ends the display of a world that a run left open. On the page a Stop
+/// stays on until the next run, so it also stops the `finally` of the world
+/// that would close the display.
+pub(crate) fn close_frames() {
+    // The terminal of a world keeps no rows under the frame.
+    let _ = _spython_display::FRAMES.with_borrow_mut(|frames| frames.close());
+}
+
 #[rustpython_vm::pymodule(name = "_spython_display")]
 mod _spython_display {
-    use std::thread::{self, ThreadId};
+    use std::cell::RefCell;
+    use std::thread;
     use std::time::{Duration, Instant};
 
     use rustpython_vm::builtins::PyType;
+    #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::common::lock::PyMutex;
     use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::types::Constructor;
@@ -88,33 +98,39 @@ mod _spython_display {
         }
     }
 
+    thread_local! {
+        /// The display of the worlds of a run, on the thread that runs
+        /// Python, since a window of winit stays on the thread that made it.
+        pub(super) static FRAMES: RefCell<Frames> =
+            RefCell::new(Frames::new("spython", stage_options));
+    }
+
+    /// The page shows a world in a session, the only display it has.
+    fn stage_options() -> StageOptions {
+        StageOptions {
+            #[cfg(not(target_arch = "wasm32"))]
+            terminal: TerminalOptions {
+                keep_last_frame: true,
+                ..TerminalOptions::default()
+            },
+            ..StageOptions::default()
+        }
+    }
+
+    /// The display of a world. The first `show` opens a window, and the
+    /// terminal when no window opens, or the session when a server runs
+    /// the program. The terminal keeps the last frame on screen after the
+    /// close.
     #[pyattr]
     #[pyclass(name = "Display")]
     #[derive(Debug, PyPayload)]
-    pub struct PyDisplay {
-        inner: PyMutex<OnThread<Frames>>,
-    }
+    pub struct PyDisplay;
 
     impl Constructor for PyDisplay {
-        type Args = (String,);
+        type Args = ();
 
-        /// The display of a world, with `title` on its window. The first
-        /// `show` opens a window, and the terminal when no window opens,
-        /// or the session when a server runs the program. The terminal
-        /// keeps the last frame on screen after the close.
-        fn py_new(_cls: &Py<PyType>, (title,): Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            // The page shows a world in a session, the only display it has.
-            let frames = Frames::new(title, || StageOptions {
-                #[cfg(not(target_arch = "wasm32"))]
-                terminal: TerminalOptions {
-                    keep_last_frame: true,
-                    ..TerminalOptions::default()
-                },
-                ..StageOptions::default()
-            });
-            Ok(PyDisplay {
-                inner: PyMutex::new(OnThread::new(frames)),
-            })
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(PyDisplay)
         }
     }
 
@@ -132,19 +148,19 @@ mod _spython_display {
             let end = Instant::now() + Duration::from_millis(ms);
             let event = loop {
                 let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
-                let mut inner = self.inner.lock();
-                let frames = inner.get_mut();
-                if !frames.is_open() {
-                    // No world shows a frame, so there is nothing to wait
-                    // for but the time.
-                    thread::sleep(deadline.saturating_duration_since(Instant::now()));
-                } else {
-                    match frames.wait_event(deadline, |e| eprintln!("spython: {e}")) {
-                        FrameEvent::Timeout => {}
-                        event => break event,
+                let event = FRAMES.with_borrow_mut(|frames| {
+                    if frames.is_open() {
+                        frames.wait_event(deadline, |e| eprintln!("spython: {e}"))
+                    } else {
+                        // No world shows a frame, so there is nothing to
+                        // wait for but the time.
+                        thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                        FrameEvent::Timeout
                     }
+                });
+                if event != FrameEvent::Timeout {
+                    break event;
                 }
-                drop(inner);
                 if Instant::now() >= end {
                     return Ok(vm.ctx.none());
                 }
@@ -184,10 +200,8 @@ mod _spython_display {
         ) -> PyResult<()> {
             let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
             draw(&image, &mut scene, vm)?;
-            self.inner
-                .lock()
-                .get_mut()
-                .show(scene)
+            FRAMES
+                .with_borrow_mut(|frames| frames.show(scene))
                 .map_err(|e| vm.new_runtime_error(e.to_string()))
         }
 
@@ -195,55 +209,7 @@ mod _spython_display {
         /// nothing.
         #[pymethod]
         fn close(&self) {
-            // The terminal of a world keeps no rows under the frame.
-            let _ = self.inner.lock().get_mut().close();
-        }
-    }
-
-    /// A value that stays on the thread that made it. A window of winit is
-    /// not `Send`, and a pyclass has to be, so each access checks the
-    /// thread.
-    struct OnThread<T> {
-        owner: ThreadId,
-        value: T,
-    }
-
-    // SAFETY: `get_mut` and `drop` are the only ways to the value, and both
-    // assert that they run on `owner`.
-    unsafe impl<T> Send for OnThread<T> {}
-    unsafe impl<T> Sync for OnThread<T> {}
-
-    impl<T> OnThread<T> {
-        fn new(value: T) -> Self {
-            Self {
-                owner: thread::current().id(),
-                value,
-            }
-        }
-
-        fn get_mut(&mut self) -> &mut T {
-            self.assert_owner();
-            &mut self.value
-        }
-
-        fn assert_owner(&self) {
-            assert_eq!(
-                thread::current().id(),
-                self.owner,
-                "a Display is used on the thread that opened it"
-            );
-        }
-    }
-
-    impl<T> Drop for OnThread<T> {
-        fn drop(&mut self) {
-            self.assert_owner();
-        }
-    }
-
-    impl<T> std::fmt::Debug for OnThread<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("OnThread").finish_non_exhaustive()
+            super::close_frames();
         }
     }
 }

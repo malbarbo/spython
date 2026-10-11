@@ -147,6 +147,7 @@ impl Repl {
                 }
             }
         });
+        crate::display::close_frames();
         flush_output(interp);
         if let Ok(Loaded::Ran) = loaded {
             self.accumulated_source = source.to_owned();
@@ -334,6 +335,7 @@ impl Repl {
             }
         });
         let elapsed = start.elapsed();
+        crate::display::close_frames();
         flush_output(interp);
 
         if ran.done == statements.len() && ran.exit.is_none() {
