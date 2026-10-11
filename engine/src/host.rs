@@ -11,11 +11,6 @@
 /// WASM, and on `sys.stdout` natively.
 pub use target::draw_svg;
 
-/// The kind of the event waiting on the page, the name of the key and the
-/// modifiers that are on, or nothing when no event waits. Only the browser
-/// reads keys, so a native run never has one.
-pub use target::get_key_event;
-
 /// The bytes of the file at the path, or the message of the error. The page
 /// reads no file.
 pub use target::load_bitmap;

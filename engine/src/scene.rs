@@ -3,10 +3,8 @@
 //! bitmap keeps, and the box of a path. Every target builds the scene the
 //! same way, so an image looks the same on the page and in a window.
 
-pub(crate) use _spython_scene::module_def;
-// Only a display draws a scene of its own, and the page has none.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use _spython_scene::draw;
+pub(crate) use _spython_scene::module_def;
 
 #[rustpython_vm::pymodule(name = "_spython_scene")]
 pub(crate) mod _spython_scene {

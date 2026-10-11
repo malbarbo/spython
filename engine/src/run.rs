@@ -94,11 +94,8 @@ fn new_interpreter_with_argv(argv: Vec<String>) -> vm::Interpreter {
     let builder = InterpreterBuilder::new().settings(settings).init_stdlib();
     let scene = crate::scene::module_def(&builder.ctx);
     let builder = builder.add_native_module(scene);
-    #[cfg(not(target_arch = "wasm32"))]
-    let builder = {
-        let display = crate::display::module_def(&builder.ctx);
-        builder.add_native_module(display)
-    };
+    let display = crate::display::module_def(&builder.ctx);
+    let builder = builder.add_native_module(display);
     let interp = builder.interpreter();
     // The library is frozen, and its code takes the name of its module for
     // a file name.

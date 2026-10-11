@@ -3,6 +3,7 @@ import {
   assertMatch,
   assertStringIncludes,
 } from "jsr:@std/assert";
+import { FakeRoom, type Step } from "./room.ts";
 import { makeWasi } from "./wasi.ts";
 
 // --- WASM exports interface ---
@@ -80,13 +81,6 @@ function makeEnv(
       const b = new Uint8Array(getBuffer() as ArrayBuffer);
       svgs.push(decoder.decode(b.slice(ptr, ptr + len)));
     },
-    get_key_event: (
-      _key_ptr: number,
-      _key_len: number,
-      _mods_ptr: number,
-    ): number => {
-      return 3; // KEYNONE (no event)
-    },
   };
   return { imports };
 }
@@ -99,9 +93,12 @@ interface WasmContext {
   stderr: string[];
   svgs: string[];
   interruptCtrl: InterruptControl;
+  // The frames of the worlds, which go to the room of a session.
+  room: FakeRoom;
 }
 
-async function loadWasm(): Promise<WasmContext> {
+// `steps` is what the player does in a world.
+async function loadWasm(steps: Step[] = []): Promise<WasmContext> {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const svgs: string[] = [];
@@ -115,6 +112,10 @@ async function loadWasm(): Promise<WasmContext> {
 
   let exports: WasmExports;
 
+  // The engine reads the time through WASI, and a wait moves it on, so a
+  // world runs its ticks without burning wall-clock time.
+  const room = new FakeRoom(steps);
+
   const wasi = makeWasi({
     getBuffer: () => exports.memory.buffer,
     write: (fd, text) => {
@@ -122,6 +123,9 @@ async function loadWasm(): Promise<WasmContext> {
       else stdout.push(text);
     },
     env: ["RUST_BACKTRACE=1"],
+    now: () => room.ms,
+    advance: (until) => room.advance(until),
+    session: room.pipe,
   });
 
   const interruptCtrl: InterruptControl = {
@@ -140,7 +144,7 @@ async function loadWasm(): Promise<WasmContext> {
 
   exports = instance.exports as unknown as WasmExports;
 
-  return { exports, stdout, stderr, svgs, interruptCtrl };
+  return { exports, stdout, stderr, svgs, interruptCtrl, room };
 }
 
 // --- Helper ---
@@ -151,9 +155,9 @@ interface ReplContext extends WasmContext {
 
 async function newRepl(
   source = "",
-  options: { level?: number } = {},
+  options: { level?: number; steps?: Step[] } = {},
 ): Promise<ReplContext> {
-  const ctx = await loadWasm();
+  const ctx = await loadWasm(options.steps);
   const [codePtr, codeLen] = encodeString(ctx.exports, source);
   const config = options.level !== undefined ? `level=${options.level}` : "";
   const [cfgPtr, cfgLen] = encodeString(ctx.exports, config);
@@ -166,10 +170,17 @@ async function newRepl(
 function run(
   ctx: ReplContext,
   input: string,
-): { result: number; stdout: string; stderr: string; svgs: string[] } {
+): {
+  result: number;
+  stdout: string;
+  stderr: string;
+  svgs: string[];
+  frames: Uint8Array[];
+} {
   ctx.stdout.length = 0;
   ctx.stderr.length = 0;
   ctx.svgs.length = 0;
+  ctx.room.frames.length = 0;
   const [ptr, len] = encodeString(ctx.exports, input);
   const result = ctx.exports.repl_run(ctx.repl, ptr, len);
   ctx.exports.string_deallocate(ptr, len);
@@ -178,6 +189,7 @@ function run(
     stdout: ctx.stdout.join(""),
     stderr: ctx.stderr.join(""),
     svgs: [...ctx.svgs],
+    frames: [...ctx.room.frames],
   };
 }
 
@@ -593,4 +605,90 @@ Deno.test("panic handler intercepts Rust panics", async () => {
     true,
     `expected formatted panic message in stderr, got: ${stderr}`,
   );
+});
+
+// --- Worlds ---
+
+const WORLD = `from spython import Image, World, circle, fill, red
+
+
+def draw(n: int) -> Image:
+    return circle(10 + n, fill(red))
+
+
+def tick(n: int) -> int:
+    return n + 1
+
+
+def done(n: int) -> bool:
+    return n == 3
+
+
+def key(n: int, k: str) -> int:
+    print(k)
+    return n + 1
+`;
+
+Deno.test("a World ticks until stop_when, in a session", async () => {
+  const ctx = await newRepl(WORLD, { level: 5 });
+  const r = run(ctx, "World(0, draw).on_tick(tick).stop_when(done).run()");
+  assertEquals(r.stderr, "");
+  assertEquals(r.result, REPL_OK);
+  // The first state and one per tick, the last one drawn by the close.
+  assertEquals(r.frames.length, 4);
+  assertEquals(r.svgs.length, 0, "a world draws no svg");
+  destroy(ctx);
+});
+
+Deno.test("a World takes the keys of the room", async () => {
+  const ctx = await newRepl(WORLD, {
+    level: 5,
+    steps: [
+      { type: "press", key: "a" },
+      { type: "down", key: "ArrowLeft" },
+      { type: "up", key: "Enter" },
+    ],
+  });
+  const r = run(
+    ctx,
+    "World(0, draw).on_key_down(key).on_key_up(key).stop_when(done).run()",
+  );
+  assertEquals(r.stderr, "");
+  // A press alone stands for a down too.
+  assertEquals(r.stdout, "a\nArrowLeft\nEnter\n");
+  destroy(ctx);
+});
+
+Deno.test("a close ends a World", async () => {
+  const ctx = await newRepl(WORLD, {
+    level: 5,
+    steps: [{ type: "down", key: "a" }, "close"],
+  });
+  const r = run(ctx, "World(0, draw).on_key_down(key).run()");
+  assertEquals(r.stderr, "");
+  assertEquals(r.result, REPL_OK);
+  assertEquals(r.stdout, "a\n");
+  destroy(ctx);
+});
+
+Deno.test("a close ends animate", async () => {
+  const ctx = await newRepl(WORLD, { level: 5, steps: ["close"] });
+  const r = run(ctx, "from spython import animate\nanimate(draw)");
+  assertEquals(r.stderr, "");
+  assertEquals(r.frames.length >= 1, true);
+  destroy(ctx);
+});
+
+Deno.test("a stop ends animate", async () => {
+  const ctx = await newRepl(WORLD, { level: 5 });
+  // The stop comes after a few frames of the room.
+  const advance = ctx.room.advance.bind(ctx.room);
+  ctx.room.advance = (until) => {
+    advance(until);
+    if (ctx.room.frames.length === 3) ctx.interruptCtrl.set(true);
+  };
+  const r = run(ctx, "from spython import animate\nanimate(draw)");
+  assertEquals(r.result, REPL_ERROR);
+  assertEquals(r.stderr.includes("KeyboardInterrupt"), true, r.stderr);
+  destroy(ctx);
 });

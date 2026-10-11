@@ -1,6 +1,6 @@
 //! The `_spython_display` module: the display that a World draws into, over
 //! [`sinteract::display::Frames`], which is a window, the terminal, or a
-//! session with a server, and a printer of images in the terminal. Both draw
+//! session with a server, and natively a printer of images in the terminal. Both draw
 //! the [`Scene`] that [`crate::scene::draw`] builds, so Python never holds a
 //! scene that is half built.
 
@@ -16,9 +16,9 @@ mod _spython_display {
     use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine, pyclass};
-    use sinteract::display::{
-        FrameEvent, Frames, PrintError, Printer, StageOptions, TerminalOptions,
-    };
+    use sinteract::display::{FrameEvent, Frames, StageOptions};
+    #[cfg(not(target_arch = "wasm32"))]
+    use sinteract::display::{PrintError, Printer, TerminalOptions};
     use sinteract::scene::Scene;
 
     use crate::scene::draw;
@@ -34,7 +34,9 @@ mod _spython_display {
     const SIGNAL_PERIOD: Duration = Duration::from_millis(100);
 
     /// A printer of images at the cursor, or `None` when the terminal shows
-    /// no graphics or stdout is not a terminal.
+    /// no graphics or stdout is not a terminal. The page draws an svg
+    /// instead, so it has no printer.
+    #[cfg(not(target_arch = "wasm32"))]
     #[pyfunction]
     fn open_printer(vm: &VirtualMachine) -> Option<PyObjectRef> {
         let printer = Printer::new().ok()?;
@@ -45,6 +47,7 @@ mod _spython_display {
     }
 
     /// Prints one image after another in the terminal.
+    #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     #[pyclass(name = "Printer")]
     #[derive(PyPayload)]
@@ -52,12 +55,14 @@ mod _spython_display {
         inner: PyMutex<Printer>,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl std::fmt::Debug for PyPrinter {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str("Printer")
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[pyclass]
     impl PyPrinter {
         /// Print `image` at the cursor, on a scene of `width` by `height`.
@@ -98,7 +103,9 @@ mod _spython_display {
         /// or the session when a server runs the program. The terminal
         /// keeps the last frame on screen after the close.
         fn py_new(_cls: &Py<PyType>, (title,): Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            // The page shows a world in a session, the only display it has.
             let frames = Frames::new(title, || StageOptions {
+                #[cfg(not(target_arch = "wasm32"))]
                 terminal: TerminalOptions {
                     keep_last_frame: true,
                     ..TerminalOptions::default()

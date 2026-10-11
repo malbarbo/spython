@@ -92,7 +92,6 @@ async function loadWasm(args: string[]): Promise<WasmExports> {
   const env: WebAssembly.ModuleImports = {
     check_interrupt: (): number => 0,
     draw_svg: (): void => {},
-    get_key_event: (): number => 3,
   };
 
   const instance = await WebAssembly.instantiate(module, {

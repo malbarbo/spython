@@ -13,10 +13,8 @@ use crate::host;
 #[cfg(test)]
 pub(crate) static REPL_ATEXIT_RAN: AtomicBool = AtomicBool::new(false);
 
-/// Register the `_spython_ffi` module with native `show_svg` and `get_key_event` functions.
+/// Register the `_spython_ffi` module with the native `show_svg` function.
 pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
-    use rustpython::vm::PyObjectRef;
-
     let show_svg_fn = vm.new_function(
         "show_svg",
         |svg: String, vm: &vm::VirtualMachine| -> vm::PyResult {
@@ -24,25 +22,6 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
             Ok(vm.ctx.none())
         },
     );
-
-    let get_key_event_fn =
-        vm.new_function("get_key_event", |vm: &vm::VirtualMachine| -> PyObjectRef {
-            match host::get_key_event() {
-                None => vm.ctx.none(),
-                Some((event_type, key, mods)) => {
-                    let elements = vec![
-                        vm.ctx.new_int(event_type).into(),
-                        vm.ctx.new_str(key).into(),
-                        vm.ctx.new_bool(mods[0]).into(), // alt
-                        vm.ctx.new_bool(mods[1]).into(), // ctrl
-                        vm.ctx.new_bool(mods[2]).into(), // shift
-                        vm.ctx.new_bool(mods[3]).into(), // meta
-                        vm.ctx.new_bool(mods[4]).into(), // repeat
-                    ];
-                    vm.ctx.new_tuple(elements).into()
-                }
-            }
-        });
 
     // The doctest runner takes the docstrings from here, so that it runs
     // the examples the checker has read.
@@ -89,7 +68,6 @@ pub(crate) fn register_ffi_module(vm: &vm::VirtualMachine) {
             .expect("a fresh dict takes a name");
     };
     set("show_svg", show_svg_fn.into());
-    set("get_key_event", get_key_event_fn.into());
     set("doctest_docstrings", doctest_docstrings_fn.into());
     set("keep_source", keep_source_fn.into());
     #[cfg(test)]

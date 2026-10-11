@@ -1,12 +1,9 @@
 from collections.abc import Callable
 
-from spython.image import Image, _canvas_size, to_svg
-from spython.system import get_key_event, now_ms, show_svg, sleep
+from _spython_display import Display  # type: ignore[import-not-found]
 
-try:
-    from _spython_display import Display  # type: ignore[import-not-found]
-except ImportError:
-    Display = None
+from spython.image import Image, _canvas_size
+from spython.system import now_ms
 
 KEYPRESS: int = 0
 KEYDOWN: int = 1
@@ -61,40 +58,6 @@ class World[S]:
         return self
 
     def run(self) -> None:
-        if Display is not None:
-            self._run_on_display()
-            return
-        self._show()
-        next_tick_at: int = now_ms() + MS_PER_SECOND // self.rate
-        while True:
-            now: int = now_ms()
-            if now >= next_tick_at:
-                if self.on_tick_fn is not None:
-                    self.state = self.on_tick_fn(self.state)
-                    self._show()
-                next_tick_at = _next_deadline(
-                    next_tick_at, now, MS_PER_SECOND // self.rate
-                )
-
-            event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
-                get_key_event()
-            )
-            # event[2..6]: alt, ctrl, shift, meta, repeat
-            if event is not None and self._on_key(event[0], event[1]):
-                self._show()
-
-            if self.stop_when_fn is not None and self.stop_when_fn(self.state):
-                self._show()
-                return
-
-            wait_ms: int = min(next_tick_at - now_ms(), KEY_POLL_PERIOD_MS)
-            if wait_ms > 0:
-                sleep(wait_ms)
-
-    def _show(self) -> None:
-        show_svg(to_svg(self.to_image(self.state)))
-
-    def _run_on_display(self) -> None:
         display = Display(TITLE)
         try:
             self._show_on(display)
@@ -158,24 +121,6 @@ def _show(display: object, image: Image) -> None:
 
 
 def animate(create_image: Callable[[int], Image]) -> None:
-    if Display is not None:
-        _animate_on_display(create_image)
-        return
-    period_ms: int = MS_PER_SECOND // DEFAULT_TICK_RATE
-    next_frame_at: int = now_ms()
-    frame: int = 0
-    while True:
-        show_svg(to_svg(create_image(frame)))
-        next_frame_at += period_ms
-        wait_ms: int = next_frame_at - now_ms()
-        if wait_ms > 0:
-            sleep(wait_ms)
-        else:
-            next_frame_at = now_ms()
-        frame += 1
-
-
-def _animate_on_display(create_image: Callable[[int], Image]) -> None:
     display = Display(TITLE)
     try:
         period_ms: int = MS_PER_SECOND // DEFAULT_TICK_RATE
