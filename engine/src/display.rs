@@ -1,5 +1,5 @@
-//! The `_spython_display` module: the stage that a World draws into, over
-//! [`sinteract::display::Stage`], which is a window, the terminal, or a
+//! The `_spython_display` module: the display that a World draws into, over
+//! [`sinteract::display::Frames`], which is a window, the terminal, or a
 //! session with a server, and a printer of images in the terminal. Both draw
 //! the [`Scene`] that [`crate::scene::draw`] builds, so Python never holds a
 //! scene that is half built.
@@ -16,29 +16,22 @@ mod _spython_display {
     use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine, pyclass};
-    use sinteract::display::{PrintError, Printer, Stage, StageEvent, TerminalOptions};
-    use sinteract::event::{InputEvent, Interrupt};
+    use sinteract::display::{
+        FrameEvent, Frames, PrintError, Printer, StageOptions, TerminalOptions,
+    };
     use sinteract::scene::Scene;
-    use sinteract::session::{PlayerRange, Target};
 
     use crate::scene::draw;
 
-    /// The kinds of event that `wait_event` returns, first in its tuple. A
-    /// key keeps the number of its [`KeyKind`](sinteract::event::KeyKind),
-    /// which `spython.world` reads.
-    const VSYNC: i32 = 3;
-    const CLOSE: i32 = 4;
-    const RESIZE: i32 = 5;
-    const MOUSE: i32 = 6;
-    const PAD: i32 = 7;
+    /// The kind of the close in what `wait_event` returns, first in its
+    /// tuple. A key keeps the number of its
+    /// [`KeyKind`](sinteract::event::KeyKind), which `spython.world` reads.
+    const CLOSE: i32 = 3;
 
     /// How long `wait_event` blocks before it runs the handlers of the
     /// signals that arrived. Python runs them between two bytecodes, and a
     /// window gets its Ctrl-C from the terminal that started the program.
     const SIGNAL_PERIOD: Duration = Duration::from_millis(100);
-
-    /// A World has one player, the user or player 1 of the server.
-    const PLAYERS: PlayerRange = PlayerRange::new(1, 1).expect("1 to 1 is a range");
 
     /// A printer of images at the cursor, or `None` when the terminal shows
     /// no graphics or stdout is not a terminal.
@@ -94,67 +87,66 @@ mod _spython_display {
     #[pyclass(name = "Display")]
     #[derive(Debug, PyPayload)]
     pub struct PyDisplay {
-        inner: PyMutex<OnThread<Stage>>,
+        inner: PyMutex<OnThread<Frames>>,
     }
 
     impl Constructor for PyDisplay {
-        type Args = (String, ArgIntoFloat, ArgIntoFloat);
+        type Args = (String,);
 
-        /// Open a window of `width` by `height`, and the terminal when no
-        /// window opens, or the session when a server runs the program.
-        /// The terminal keeps the last frame on screen after the close.
-        fn py_new(
-            _cls: &Py<PyType>,
-            (title, width, height): Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
-            let width = f64::from(width) as f32;
-            let height = f64::from(height) as f32;
-            let options = TerminalOptions {
-                keep_last_frame: true,
-                ..TerminalOptions::default()
-            };
-            let (stage, _players) = Stage::open(&title, width, height, PLAYERS, options)
-                .map_err(|e| vm.new_runtime_error(e.to_string()))?;
+        /// The display of a world, with `title` on its window. The first
+        /// `show` opens a window, and the terminal when no window opens,
+        /// or the session when a server runs the program. The terminal
+        /// keeps the last frame on screen after the close.
+        fn py_new(_cls: &Py<PyType>, (title,): Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            let frames = Frames::new(title, || StageOptions {
+                terminal: TerminalOptions {
+                    keep_last_frame: true,
+                    ..TerminalOptions::default()
+                },
+                ..StageOptions::default()
+            });
             Ok(PyDisplay {
-                inner: PyMutex::new(OnThread::new(stage)),
+                inner: PyMutex::new(OnThread::new(frames)),
             })
         }
     }
 
     #[pyclass(with(Constructor))]
     impl PyDisplay {
-        /// Block until the next event, and return it as `(kind, key, alt,
-        /// ctrl, shift, meta, repeat)`. Only a key fills the fields after
+        /// Wait at most `ms` milliseconds for a key or the close, and
+        /// return it as `(kind, key, alt, ctrl, shift, meta, repeat)`, or
+        /// `None` when the time runs out. Only a key fills the fields after
         /// the kind, and `repeat` is always `False`, because a repeat comes
-        /// as another press. A signal that arrives meanwhile runs its handler, so
-        /// Ctrl-C raises `KeyboardInterrupt`. A message that the session
-        /// drops goes to stderr, and the wait goes on.
+        /// as another press. A signal that arrives meanwhile runs its
+        /// handler, so Ctrl-C raises `KeyboardInterrupt`. A message that
+        /// the session drops goes to stderr, and the wait goes on.
         #[pymethod]
-        fn wait_event(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn wait_event(&self, ms: u64, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let end = Instant::now() + Duration::from_millis(ms);
             let event = loop {
-                let deadline = Instant::now() + SIGNAL_PERIOD;
-                match self.inner.lock().get_mut().wait(Some(deadline)) {
-                    Err(Interrupt::Timeout) => vm.check_signals()?,
-                    Ok(StageEvent::Error(e)) => eprintln!("spython: {e}"),
-                    event => break event,
+                let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
+                let mut inner = self.inner.lock();
+                let frames = inner.get_mut();
+                if !frames.is_open() {
+                    // No world shows a frame, so there is nothing to wait
+                    // for but the time.
+                    thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                } else {
+                    match frames.wait_event(deadline, |e| eprintln!("spython: {e}")) {
+                        FrameEvent::Timeout => {}
+                        event => break event,
+                    }
                 }
+                drop(inner);
+                if Instant::now() >= end {
+                    return Ok(vm.ctx.none());
+                }
+                vm.check_signals()?;
             };
             let (kind, key) = match event {
-                Ok(StageEvent::Tick) => (VSYNC, None),
-                Ok(StageEvent::Input { event, .. }) => match event {
-                    InputEvent::Key(k) => (k.kind as i32, Some(k)),
-                    InputEvent::Resize { .. } => (RESIZE, None),
-                    InputEvent::Mouse(_) => (MOUSE, None),
-                    InputEvent::Pad(_) => (PAD, None),
-                },
-                Err(Interrupt::Close) => (CLOSE, None),
-                Err(Interrupt::Read(e)) => return Err(vm.new_os_error(e.to_string())),
-                // A Wake needs a Sender, and a stage makes none. The loop
-                // above takes each Timeout and each Error.
-                Ok(StageEvent::Error(_)) | Err(Interrupt::Wake | Interrupt::Timeout) => {
-                    unreachable!("the loop above takes every other event")
-                }
+                FrameEvent::Key(k) => (k.kind as i32, Some(k)),
+                FrameEvent::Close => (CLOSE, None),
+                FrameEvent::Timeout => unreachable!("the loop above takes each Timeout"),
             };
             let (name, mods) = match key {
                 Some(k) => (k.key, k.modifiers),
@@ -173,9 +165,10 @@ mod _spython_display {
         }
 
         /// Show `image`, an `Image` of `spython.image`, on a scene of
-        /// `width` by `height`.
+        /// `width` by `height`, at the next frame of the display. The first
+        /// call opens the display.
         #[pymethod]
-        fn present(
+        fn show(
             &self,
             image: PyObjectRef,
             width: ArgIntoFloat,
@@ -187,14 +180,16 @@ mod _spython_display {
             self.inner
                 .lock()
                 .get_mut()
-                .present(Target::All, scene)
+                .show(scene)
                 .map_err(|e| vm.new_runtime_error(e.to_string()))
         }
 
-        /// End the session. A second call does nothing.
+        /// Show the last image, and end the display. A second call does
+        /// nothing.
         #[pymethod]
         fn close(&self) {
-            self.inner.lock().get_mut().close();
+            // The terminal of a world keeps no rows under the frame.
+            let _ = self.inner.lock().get_mut().close();
         }
     }
 

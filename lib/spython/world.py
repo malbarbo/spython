@@ -18,10 +18,9 @@ DEFAULT_TICK_RATE: int = 28
 MIN_TICK_RATE: int = 1
 MAX_TICK_RATE: int = MS_PER_SECOND // KEY_POLL_PERIOD_MS
 
-# The kinds of event that `Display.wait_event` returns after the three kinds
+# The kind of event that `Display.wait_event` returns after the three kinds
 # of key.
-VSYNC: int = 3
-CLOSE: int = 4
+CLOSE: int = 3
 
 TITLE: str = "spython"
 
@@ -96,47 +95,39 @@ class World[S]:
         show_svg(to_svg(self.to_image(self.state)))
 
     def _run_on_display(self) -> None:
-        w, h = _canvas_size(self.to_image(self.state))
-        display = Display(TITLE, w, h)
+        display = Display(TITLE)
         try:
+            self._show_on(display)
             self._loop(display)
         finally:
             display.close()
 
-    # The display sends a Vsync when it can show a frame, and a tick falls on
-    # the first Vsync after its time. Once stop_when holds, the last image
-    # goes out and the run ends. The terminal keeps it on screen.
+    # The world keeps its own clock, and shows its image when a tick or a key
+    # changes the state. The display draws the last image at its next frame.
+    # Once stop_when holds, the run ends, and the close draws the last image.
     def _loop(self, display: object) -> None:
-        next_tick_at: int = now_ms() + MS_PER_SECOND // self.rate
-        changed: bool = True
-        after_down: bool = False
-        while True:
-            event: tuple[int, str, bool, bool, bool, bool, bool] = display.wait_event()  # type: ignore[attr-defined]
-            kind: int = event[0]
-            if kind == CLOSE:
+        period_ms: int = MS_PER_SECOND // self.rate
+        next_tick_at: int = now_ms() + period_ms
+        while self.stop_when_fn is None or not self.stop_when_fn(self.state):
+            event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
+                display.wait_event(max(next_tick_at - now_ms(), 0))  # type: ignore[attr-defined]
+            )
+            if event is not None and event[0] == CLOSE:
                 return
-            if kind == VSYNC:
-                now: int = now_ms()
-                if now >= next_tick_at:
-                    if self.on_tick_fn is not None:
-                        self.state = self.on_tick_fn(self.state)
-                        changed = True
-                    next_tick_at = _next_deadline(
-                        next_tick_at, now, MS_PER_SECOND // self.rate
-                    )
-                if changed:
-                    _present(display, self.to_image(self.state))
-                    changed = False
-            else:
-                # A terminal that does not see a key go down sends a press
-                # alone, and the press stands for the down too.
-                if kind == KEYPRESS and not after_down:
-                    changed = self._on_key(KEYDOWN, event[1]) or changed
-                after_down = kind == KEYDOWN
-                changed = self._on_key(kind, event[1]) or changed
-            if self.stop_when_fn is not None and self.stop_when_fn(self.state):
-                _present(display, self.to_image(self.state))
-                return
+            changed: bool = False
+            now: int = now_ms()
+            if now >= next_tick_at:
+                if self.on_tick_fn is not None:
+                    self.state = self.on_tick_fn(self.state)
+                    changed = True
+                next_tick_at = _next_deadline(next_tick_at, now, period_ms)
+            if event is not None and self._on_key(event[0], event[1]):
+                changed = True
+            if changed:
+                self._show_on(display)
+
+    def _show_on(self, display: object) -> None:
+        _show(display, self.to_image(self.state))
 
     def _on_key(self, kind: int, key: str) -> bool:
         if self.on_key_down_fn is not None and kind == KEYDOWN:
@@ -161,9 +152,9 @@ def _next_deadline(deadline: int, now: int, period_ms: int) -> int:
     return deadline
 
 
-def _present(display: object, image: Image) -> None:
+def _show(display: object, image: Image) -> None:
     w, h = _canvas_size(image)
-    display.present(image, w, h)  # type: ignore[attr-defined]
+    display.show(image, w, h)  # type: ignore[attr-defined]
 
 
 def animate(create_image: Callable[[int], Image]) -> None:
@@ -185,20 +176,27 @@ def animate(create_image: Callable[[int], Image]) -> None:
 
 
 def _animate_on_display(create_image: Callable[[int], Image]) -> None:
-    w, h = _canvas_size(create_image(0))
-    display = Display(TITLE, w, h)
+    display = Display(TITLE)
     try:
         period_ms: int = MS_PER_SECOND // DEFAULT_TICK_RATE
-        next_frame_at: int = now_ms()
         frame: int = 0
         while True:
-            event: tuple[int, str, bool, bool, bool, bool, bool] = display.wait_event()
-            if event[0] == CLOSE:
+            _show(display, create_image(frame))
+            if _closed_before(display, now_ms() + period_ms):
                 return
-            now: int = now_ms()
-            if event[0] == VSYNC and now >= next_frame_at:
-                _present(display, create_image(frame))
-                frame += 1
-                next_frame_at = _next_deadline(next_frame_at, now, period_ms)
+            frame += 1
     finally:
         display.close()
+
+
+# Returns True if the display closes before `deadline`, False otherwise. The
+# keys that arrive meanwhile go unused.
+def _closed_before(display: object, deadline: int) -> bool:
+    while True:
+        event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
+            display.wait_event(max(deadline - now_ms(), 0))  # type: ignore[attr-defined]
+        )
+        if event is None:
+            return False
+        if event[0] == CLOSE:
+            return True
