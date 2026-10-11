@@ -35,6 +35,7 @@ interface WasmExports {
   format(ptr: number, len: number): number;
   cstr_deallocate(ptr: number): void;
   version(): number;
+  font_face(i: number): number;
 }
 
 // --- Memory helpers ---
@@ -605,6 +606,32 @@ Deno.test("panic handler intercepts Rust panics", async () => {
     true,
     `expected formatted panic message in stderr, got: ${stderr}`,
   );
+});
+
+Deno.test("font_face gives the faces of the frames", async () => {
+  const { exports } = await loadWasm();
+  const families = new Set<string>();
+  let i = 0;
+  for (let ptr; (ptr = exports.font_face(i)) !== 0; i++) {
+    const [bytes, bytesLen, family, familyLen, weight] = new Uint32Array(
+      exports.memory.buffer,
+      ptr,
+      6,
+    );
+    // A TrueType file starts with version 1.0.
+    assertEquals(
+      [...new Uint8Array(exports.memory.buffer, bytes, 4)],
+      [0, 1, 0, 0],
+    );
+    assertEquals(bytesLen > 0, true);
+    assertEquals(weight === 400 || weight === 700, true);
+    families.add(
+      decoder.decode(new Uint8Array(exports.memory.buffer, family, familyLen)),
+    );
+  }
+  // Four faces a family.
+  assertEquals(i, families.size * 4);
+  assertEquals(i > 0, true);
 });
 
 // --- Worlds ---

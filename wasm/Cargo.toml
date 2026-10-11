@@ -19,3 +19,5 @@ workspace = true
 
 [dependencies]
 engine = { path = "../engine" }
+# The fonts that the frames of a World draw with, which the page registers.
+sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master", default-features = false }
