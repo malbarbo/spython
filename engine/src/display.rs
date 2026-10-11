@@ -137,10 +137,9 @@ mod _spython_display {
     #[pyclass(with(Constructor))]
     impl PyDisplay {
         /// Wait at most `ms` milliseconds for a key or the close, and
-        /// return it as `(kind, key, alt, ctrl, shift, meta, repeat)`, or
-        /// `None` when the time runs out. Only a key fills the fields after
-        /// the kind, and `repeat` is always `False`, because a repeat comes
-        /// as another press. A signal that arrives meanwhile runs its
+        /// return it as `(kind, key, alt, ctrl, shift, meta)`, or `None`
+        /// when the time runs out. Only a key fills the fields after the
+        /// kind. A signal that arrives meanwhile runs its
         /// handler, so Ctrl-C raises `KeyboardInterrupt`. A message that
         /// the session drops goes to stderr, and the wait goes on.
         #[pymethod]
@@ -182,7 +181,6 @@ mod _spython_display {
                 vm.ctx.new_bool(mods.ctrl).into(),
                 vm.ctx.new_bool(mods.shift).into(),
                 vm.ctx.new_bool(mods.meta).into(),
-                vm.ctx.new_bool(false).into(),
             ];
             Ok(vm.ctx.new_tuple(elements).into())
         }

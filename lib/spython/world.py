@@ -70,8 +70,8 @@ class World[S]:
         period_ms: int = MS_PER_SECOND // self.rate
         next_tick_at: int = now_ms() + period_ms
         while self.stop_when_fn is None or not self.stop_when_fn(self.state):
-            event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
-                display.wait_event(max(next_tick_at - now_ms(), 0))  # type: ignore[attr-defined]
+            event: tuple[int, str, bool, bool, bool, bool] | None = display.wait_event(  # type: ignore[attr-defined]
+                max(next_tick_at - now_ms(), 0)
             )
             if event is not None and event[0] == CLOSE:
                 return
@@ -136,8 +136,8 @@ def animate(create_image: Callable[[int], Image]) -> None:
 # keys that arrive meanwhile go unused.
 def _closed_before(display: object, deadline: int) -> bool:
     while True:
-        event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
-            display.wait_event(max(deadline - now_ms(), 0))  # type: ignore[attr-defined]
+        event: tuple[int, str, bool, bool, bool, bool] | None = display.wait_event(  # type: ignore[attr-defined]
+            max(deadline - now_ms(), 0)
         )
         if event is None:
             return False
