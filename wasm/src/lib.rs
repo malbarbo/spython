@@ -2,7 +2,6 @@
 
 use engine::{Loaded, Repl, Shell, format_source, print_type_errors};
 use std::ffi::CString;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{alloc, ptr};
 
@@ -313,22 +312,5 @@ pub unsafe extern "C" fn format(ptr: *mut u8, len: usize) -> *mut std::ffi::c_ch
 /// last face it gives null. See ENGINE.md in simplecode.
 #[unsafe(no_mangle)]
 pub extern "C" fn font_face(i: u32) -> *const [u32; 6] {
-    static FACES: OnceLock<Vec<[u32; 6]>> = OnceLock::new();
-    let faces = FACES.get_or_init(|| {
-        sinteract::text::embedded_faces()
-            .map(|face| {
-                [
-                    face.bytes.as_ptr() as u32,
-                    face.bytes.len() as u32,
-                    face.family.as_ptr() as u32,
-                    face.family.len() as u32,
-                    u32::from(face.weight),
-                    u32::from(face.italic),
-                ]
-            })
-            .collect()
-    });
-    faces
-        .get(i as usize)
-        .map_or(ptr::null(), |face| face as *const [u32; 6])
+    sinteract::text::face_record(i).map_or(ptr::null(), |face| face as *const [u32; 6])
 }
