@@ -26,6 +26,17 @@ use std::time::{Duration, Instant};
 #[derive(Debug)]
 pub struct Failed;
 
+/// Why [`Repl::type_of`] has no type to give.
+#[derive(Debug, PartialEq, Eq)]
+pub enum NoType {
+    /// The checker has already printed why.
+    Shown,
+    /// The text is not one expression.
+    NotAnExpression,
+    /// The checker reads no type off the expression.
+    Unknown,
+}
+
 /// How a file that [`Repl::load`] ran came to its end.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Loaded {
@@ -185,10 +196,31 @@ impl Repl {
         self.exit_status
     }
 
-    /// The type `expr` would have, without running it, and `None` for an
-    /// expression the checker cannot read a type off.
-    pub fn type_of(&self, expr: &str) -> Option<String> {
-        infer_expression_type(&self.accumulated_source, expr, &self.modules)
+    /// The type `expr` would have, without running it. `expr` has to be one
+    /// expression on its own, or the history would answer for it.
+    pub fn type_of(&self, expr: &str) -> Result<String, NoType> {
+        let parsed = parse_unchecked_source(expr, PySourceType::Python);
+        if !parsed.has_valid_syntax() {
+            // The checker says where the syntax breaks. The first line of
+            // `expr` starts at column 0 and closes whatever the history left
+            // open, so the error is in `expr` there too.
+            let shown = !type_check_repl_input(
+                &self.accumulated_source,
+                expr,
+                self.level,
+                self.use_color,
+                &self.modules,
+            );
+            return Err(if shown {
+                NoType::Shown
+            } else {
+                NoType::NotAnExpression
+            });
+        }
+        if !matches!(parsed.suite().as_slice(), [ruff_python_ast::Stmt::Expr(_)]) {
+            return Err(NoType::NotAnExpression);
+        }
+        infer_expression_type(&self.accumulated_source, expr, &self.modules).ok_or(NoType::Unknown)
     }
 
     /// What the Tab key should do at `cursor`, over this session's names and
@@ -542,6 +574,17 @@ atexit.register(__test_mark_atexit_ran)\n";
         assert!(repl.run("x\n").is_err());
         assert!(repl.run("x = 2\n").is_ok());
         assert!(repl.run("assert x + 1 == 3\n").is_ok());
+    }
+
+    #[test]
+    fn type_of_answers_only_for_one_expression() {
+        let mut repl = Repl::new(Level::Full, false);
+        assert!(repl.run("\"abc\"\n").is_ok());
+        assert_eq!(repl.type_of("1"), Ok("int".to_owned()));
+        assert_eq!(repl.type_of("# c"), Err(NoType::NotAnExpression));
+        assert_eq!(repl.type_of("1; \"a\""), Err(NoType::NotAnExpression));
+        assert_eq!(repl.type_of("x = 1"), Err(NoType::NotAnExpression));
+        assert_eq!(repl.type_of("1 +"), Err(NoType::Shown));
     }
 
     #[test]

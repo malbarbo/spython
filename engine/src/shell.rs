@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::Level;
 use crate::completion::TabAction;
-use crate::repl::{Failed, Repl};
+use crate::repl::{Failed, NoType, Repl};
 
 /// What the terminal says when the session opens.
 pub fn welcome_message(level: Level) -> String {
@@ -168,11 +168,16 @@ impl Shell {
             }
             Builtin::Quit => Status::Quit,
             Builtin::Type => match self.repl.type_of(arg) {
-                Some(type_) => {
+                Ok(type_) => {
                     println!("{type_}");
                     Status::Ok
                 }
-                None => {
+                Err(NoType::Shown) => Status::Error,
+                Err(NoType::NotAnExpression) => {
+                    eprintln!("The :type command takes an expression.");
+                    Status::Error
+                }
+                Err(NoType::Unknown) => {
                     eprintln!("Could not infer type");
                     Status::Error
                 }

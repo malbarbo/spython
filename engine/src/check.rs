@@ -565,7 +565,6 @@ pub(crate) fn infer_expression_type(
     expr: &str,
     modules: &[(String, String)],
 ) -> Option<String> {
-    // Wrap the expression as the last statement so we can find it in the AST.
     let source = if accumulated.is_empty() {
         expr.to_owned()
     } else {
@@ -574,16 +573,13 @@ pub(crate) fn infer_expression_type(
 
     let (db, file) = in_memory_project(&source, modules);
 
-    // Parse and find the last expression statement.
     let program_file = db.program_file(file);
     let parsed = parsed_module(&db, program_file.python_file(&db));
     let module = parsed.load(&db);
-    let stmts = module.suite();
-    let last_stmt = stmts.last()?;
-
-    // The last statement should be an expression statement.
-    let expr_node = match last_stmt {
-        Stmt::Expr(expr_stmt) => &*expr_stmt.value,
+    // The last statement belongs to the history when `expr` holds none.
+    let expr_start = TextSize::try_from(source.len() - expr.len()).ok()?;
+    let expr_node = match module.suite().last()? {
+        Stmt::Expr(expr_stmt) if expr_stmt.range.start() == expr_start => &*expr_stmt.value,
         _ => return None,
     };
 
@@ -832,5 +828,10 @@ mod repl_check_tests {
             infer_expression_type("", "len", &[]).as_deref(),
             Some("def len(obj: Sized, /) -> int")
         );
+    }
+
+    #[test]
+    fn a_text_with_no_statement_gets_no_type_from_the_history() {
+        assert_eq!(infer_expression_type("\"abc\"", "# c", &[]), None);
     }
 }
