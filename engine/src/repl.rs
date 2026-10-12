@@ -59,11 +59,6 @@ pub struct Repl {
     /// file name of its own, as in the Python REPL, so that a traceback finds
     /// its lines.
     inputs: usize,
-    /// The places in the accumulated source of the `del` statements that make
-    /// the checker forget a name a statement that raised has changed. The
-    /// student never wrote them, so what the checker says about them stays
-    /// off the screen.
-    forgotten: Vec<TextRange>,
 }
 
 impl Repl {
@@ -85,7 +80,6 @@ impl Repl {
             use_color,
             modules: Vec::new(),
             exit_status: None,
-            forgotten: Vec::new(),
             inputs: 0,
         }
     }
@@ -243,7 +237,6 @@ impl Repl {
             self.level,
             self.use_color,
             &self.modules,
-            &self.forgotten,
         ) {
             return Err(Failed);
         }
@@ -326,11 +319,7 @@ impl Repl {
                 .iter()
                 .map(|name| format!("del {name}"))
                 .collect();
-            let dels = dels.join("\n");
-            self.append_source(&dels);
-            let end = self.accumulated_source.text_len();
-            let start = end - dels.text_len();
-            self.forgotten.push(TextRange::new(start, end));
+            self.append_source(&dels.join("\n"));
         }
         if let Some(status) = ran.exit {
             self.exit_status = Some(status);

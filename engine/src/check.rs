@@ -489,9 +489,7 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
 /// resolving imports against `modules`, the first-party files the session
 /// started from, which are not on any filesystem the checker can see.
 /// Diagnostics about the input are printed with their line numbers relative
-/// to it; diagnostics about the accumulated source are dropped, and so are
-/// the ones that fall in `unwritten`, the text in `accumulated` that the
-/// student never wrote.
+/// to it; diagnostics about the accumulated source are dropped.
 ///
 /// Returns `true` if the input passed type checking, `false` if errors were found.
 pub(crate) fn type_check_repl_input(
@@ -500,7 +498,6 @@ pub(crate) fn type_check_repl_input(
     level: Level,
     use_color: bool,
     modules: &[(String, String)],
-    unwritten: &[TextRange],
 ) -> bool {
     let accumulated = accumulated.trim_end_matches('\n');
     let new_input = new_input.trim_end_matches('\n');
@@ -543,10 +540,7 @@ pub(crate) fn type_check_repl_input(
             // No range means the diagnostic is about the check as a whole,
             // not about a line of history, so it stays.
             None => true,
-            Some(start) => {
-                !unwritten.iter().any(|range| range.contains(start))
-                    && input.range.contains_inclusive(start)
-            }
+            Some(start) => input.range.contains_inclusive(start),
         })
         .map(|diag| input.move_onto(diag))
         .collect();
@@ -687,7 +681,6 @@ mod repl_check_tests {
             Level::Full,
             false,
             &helpers(),
-            &[],
         ));
     }
 
@@ -703,7 +696,6 @@ mod repl_check_tests {
             Level::Full,
             false,
             &modules,
-            &[],
         ));
     }
 
@@ -720,7 +712,6 @@ mod repl_check_tests {
             Level::Full,
             false,
             &modules,
-            &[],
         ));
         // ...and the module is still what `user` names.
         assert!(type_check_repl_input(
@@ -729,7 +720,6 @@ mod repl_check_tests {
             Level::Full,
             false,
             &modules,
-            &[],
         ));
     }
 
@@ -740,7 +730,6 @@ mod repl_check_tests {
             "import helpers",
             Level::Full,
             false,
-            &[],
             &[],
         ));
     }
@@ -754,7 +743,7 @@ mod repl_check_tests {
             "import user",
         ] {
             assert!(
-                !type_check_repl_input("", import, Level::Full, false, &helpers(), &[]),
+                !type_check_repl_input("", import, Level::Full, false, &helpers()),
                 "{import}"
             );
             assert!(
@@ -774,7 +763,6 @@ mod repl_check_tests {
             Level::Full,
             false,
             &[],
-            &[],
         ));
     }
 
@@ -785,7 +773,6 @@ mod repl_check_tests {
             "undefined_name",
             Level::Full,
             false,
-            &[],
             &[],
         ));
     }
@@ -798,7 +785,6 @@ mod repl_check_tests {
             Level::Functions,
             false,
             &[],
-            &[],
         ));
     }
 
@@ -809,7 +795,6 @@ mod repl_check_tests {
             "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n",
             Level::Functions,
             false,
-            &[],
             &[],
         ));
     }
