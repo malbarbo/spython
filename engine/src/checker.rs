@@ -942,6 +942,9 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 self.visit_body(&try_stmt.body);
                 for handler in &try_stmt.handlers {
                     let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                    if let Some(type_) = &h.type_ {
+                        self.visit_expr(type_);
+                    }
                     self.visit_body(&h.body);
                 }
                 self.visit_body(&try_stmt.orelse);
@@ -1732,6 +1735,17 @@ mod tests {
             diags.contains(&"non-lowercase-variable-in-function".to_string()),
             "{diags:?}"
         );
+    }
+
+    // -- Stmt::Try handler types are visited ----------------------------------
+
+    #[test]
+    fn except_type_is_visited() {
+        let diags = check(
+            "def f(x: str) -> int:\n    try:\n        return int(x)\n    except (ValueError if x == None else TypeError):\n        return 0\n",
+            Level::Full,
+        );
+        assert!(diags.contains(&"none-comparison".to_string()), "{diags:?}");
     }
 
     // -- Stmt::ClassDef base classes / kwargs are visited --------------------
