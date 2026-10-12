@@ -12,3 +12,11 @@ pub fn draw_svg(svg: &str, vm: &VirtualMachine) -> PyResult<()> {
     }
     Ok(())
 }
+
+pub fn stopped() -> bool {
+    false
+}
+
+pub fn interruptible<R>(f: impl FnOnce() -> R) -> R {
+    f()
+}

@@ -7,7 +7,8 @@
 use crate::Level;
 use crate::completion::TabAction;
 use crate::ffi::register_ffi_module;
-use crate::run::{DOCTEST_RUNNER, keep_source, new_interpreter};
+use crate::host;
+use crate::run::{DOCTEST_RUNNER, interrupted, keep_source, new_interpreter};
 use crate::{infer_expression_type, type_check_repl_input};
 use ruff_python_ast::PySourceType;
 use ruff_python_ast::token::{TokenKind, Tokens};
@@ -127,28 +128,34 @@ impl Repl {
     ) -> Result<Loaded, Failed> {
         self.modules = modules;
         let (interp, scope) = self.live();
-        let loaded = interp.enter(|vm| {
-            if let Some(dir) = dir
-                && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
-            {
-                vm.print_exception(exc);
-                return Err(Failed);
-            }
-            keep_source(vm, name, source);
-            match vm.run_string(scope, source, name) {
-                Ok(_) => Ok(Loaded::Ran),
-                // Writes the message of an `exit("...")` that carries one.
-                Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.system_exit) => {
-                    Ok(Loaded::Exited(vm.handle_exit_exception(exc)))
-                }
-                Err(exc) => {
+        let mut stopped = false;
+        let loaded = host::interruptible(|| {
+            interp.enter(|vm| {
+                if let Some(dir) = dir
+                    && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
+                {
                     vm.print_exception(exc);
-                    Err(Failed)
+                    return Err(Failed);
                 }
-            }
+                keep_source(vm, name, source);
+                match vm.run_string(scope, source, name) {
+                    Ok(_) => Ok(Loaded::Ran),
+                    // Writes the message of an `exit("...")` that carries one.
+                    Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.system_exit) => {
+                        Ok(Loaded::Exited(vm.handle_exit_exception(exc)))
+                    }
+                    Err(exc) => {
+                        stopped = report(vm, exc);
+                        Err(Failed)
+                    }
+                }
+            })
         });
         crate::display::close_frames();
         flush_output(interp);
+        if stopped {
+            eprintln!("Interrupted.");
+        }
         if let Ok(Loaded::Ran) = loaded {
             self.accumulated_source = source.to_owned();
         }
@@ -164,25 +171,44 @@ impl Repl {
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
         let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__, _source)\n");
         let (interp, _) = self.live();
-        let ran = interp.enter(|vm| {
-            let scope = vm.new_scope_with_builtins();
-            let run = scope
-                .globals
-                .set_item(
-                    "_source",
-                    vm.ctx.new_str(self.accumulated_source.as_str()).into(),
-                    vm,
-                )
-                .and_then(|()| vm.run_string(scope, &code, "<doctest>"));
-            match run {
-                Ok(_) => Ok(()),
-                Err(exc) => {
-                    vm.print_exception(exc);
-                    Err(Failed)
+        // The runner swaps them for each example and puts them back in a
+        // `finally`, which a Stop that stays up interrupts in turn: the
+        // session went on printing into the capture of the stopped example.
+        let streams = interp.enter(|vm| {
+            ["stdout", "displayhook"].map(|name| vm.sys_module.get_attr(name, vm).ok())
+        });
+        let mut stopped = false;
+        let ran = host::interruptible(|| {
+            interp.enter(|vm| {
+                let scope = vm.new_scope_with_builtins();
+                let run = scope
+                    .globals
+                    .set_item(
+                        "_source",
+                        vm.ctx.new_str(self.accumulated_source.as_str()).into(),
+                        vm,
+                    )
+                    .and_then(|()| vm.run_string(scope, &code, "<doctest>"));
+                match run {
+                    Ok(_) => Ok(()),
+                    Err(exc) => {
+                        stopped = report(vm, exc);
+                        Err(Failed)
+                    }
+                }
+            })
+        });
+        interp.enter(|vm| {
+            for (name, value) in ["stdout", "displayhook"].into_iter().zip(streams) {
+                if let Some(value) = value {
+                    let _ = vm.sys_module.set_attr(name, value, vm);
                 }
             }
         });
         flush_output(interp);
+        if stopped {
+            eprintln!("Interrupted.");
+        }
         ran
     }
 
@@ -286,57 +312,63 @@ impl Repl {
         self.inputs += 1;
         let (interp, scope) = self.live();
         let start = Instant::now();
-        let ran = interp.enter(|vm| {
-            keep_source(vm, &name, &code);
-            // Every statement compiles before the first one runs, so a
-            // compile error leaves nothing half run, and the warnings come
-            // out ahead of the output.
-            let mut compiled = Vec::with_capacity(statements.len());
-            for &range in &statements {
-                let source = alone(&code, range);
-                match vm
-                    .compile(&source, vm::compiler::Mode::Single, name.as_str())
-                    .map_err(|err| err.into_pyexception(vm, Some(&source)))
-                {
-                    Ok(code_obj) => compiled.push(code_obj),
-                    Err(exc) => {
-                        vm.print_exception(exc);
+        let mut stopped = false;
+        let ran = host::interruptible(|| {
+            interp.enter(|vm| {
+                keep_source(vm, &name, &code);
+                // Every statement compiles before the first one runs, so a
+                // compile error leaves nothing half run, and the warnings come
+                // out ahead of the output.
+                let mut compiled = Vec::with_capacity(statements.len());
+                for &range in &statements {
+                    let source = alone(&code, range);
+                    match vm
+                        .compile(&source, vm::compiler::Mode::Single, name.as_str())
+                        .map_err(|err| err.into_pyexception(vm, Some(&source)))
+                    {
+                        Ok(code_obj) => compiled.push(code_obj),
+                        Err(exc) => {
+                            vm.print_exception(exc);
+                            return Ran {
+                                done: 0,
+                                exit: None,
+                                changed: Vec::new(),
+                            };
+                        }
+                    }
+                }
+                for (done, code_obj) in compiled.into_iter().enumerate() {
+                    let before = Snapshot::take(&scope.globals, vm);
+                    if let Err(exc) = vm.run_code_obj(code_obj, scope.clone()) {
+                        let changed = before.changed(&scope.globals);
+                        let exit = if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                            // Says what the status is, and writes the message of
+                            // an `exit("...")` that carries one.
+                            Some(vm.handle_exit_exception(exc))
+                        } else {
+                            stopped = report(vm, exc);
+                            None
+                        };
                         return Ran {
-                            done: 0,
-                            exit: None,
-                            changed: Vec::new(),
+                            done,
+                            exit,
+                            changed,
                         };
                     }
                 }
-            }
-            for (done, code_obj) in compiled.into_iter().enumerate() {
-                let before = Snapshot::take(&scope.globals, vm);
-                if let Err(exc) = vm.run_code_obj(code_obj, scope.clone()) {
-                    let changed = before.changed(&scope.globals);
-                    let exit = if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                        // Says what the status is, and writes the message of
-                        // an `exit("...")` that carries one.
-                        Some(vm.handle_exit_exception(exc))
-                    } else {
-                        vm.print_exception(exc);
-                        None
-                    };
-                    return Ran {
-                        done,
-                        exit,
-                        changed,
-                    };
+                Ran {
+                    done: statements.len(),
+                    exit: None,
+                    changed: Vec::new(),
                 }
-            }
-            Ran {
-                done: statements.len(),
-                exit: None,
-                changed: Vec::new(),
-            }
+            })
         });
         let elapsed = start.elapsed();
         crate::display::close_frames();
         flush_output(interp);
+        if stopped {
+            eprintln!("Interrupted.");
+        }
 
         if ran.done == statements.len() && ran.exit.is_none() {
             self.append_source(&code);
@@ -367,15 +399,29 @@ impl Repl {
 /// Write out what `sys.stdout` and `sys.stderr` hold. Away from a terminal
 /// both keep a buffer, and what the REPL prints itself would come out ahead
 /// of the output of the inputs before it.
-fn flush_output(interp: &vm::Interpreter) {
-    interp.enter(|vm| {
-        for name in ["stdout", "stderr"] {
-            if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
-                // A stream the program closed or broke has nothing to write.
-                let _ = vm.call_method(&stream, "flush", ());
+pub(crate) fn flush_output(interp: &vm::Interpreter) {
+    // The student's own stream may be Python that never returns.
+    host::interruptible(|| {
+        interp.enter(|vm| {
+            for name in ["stdout", "stderr"] {
+                if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
+                    // A stream the program closed or broke has nothing to write.
+                    let _ = vm.call_method(&stream, "flush", ());
+                }
             }
-        }
+        })
     });
+}
+
+/// Writes the traceback of `exc`, which the student's code raised, unless it
+/// ended a stopped run: then the caller says `Interrupted.`, after the output
+/// is flushed, and this says whether it has to.
+fn report(vm: &vm::VirtualMachine, exc: vm::builtins::PyBaseExceptionRef) -> bool {
+    if interrupted(vm, &exc) {
+        return true;
+    }
+    vm.print_exception(exc);
+    false
 }
 
 /// How far an input went: the number of its top-level statements that ran to
@@ -485,8 +531,19 @@ impl Drop for Repl {
         // then finalize the interpreter to release VM-owned resources.
         let scope = self.scope.take();
         if let Some(interp) = self.interp.take() {
-            interp.enter(|_| drop(scope));
-            let _ = interp.finalize(None);
+            // With a Stop still up, every atexit callback and `__del__` of
+            // the student would be interrupted, each with a traceback of its
+            // own. The page builds an instance for each load, and what is
+            // forgotten here goes with it.
+            if host::stopped() {
+                std::mem::forget(scope);
+                std::mem::forget(interp);
+                return;
+            }
+            host::interruptible(|| {
+                interp.enter(|_| drop(scope));
+                let _ = interp.finalize(None);
+            });
         } else {
             drop(scope);
         }
