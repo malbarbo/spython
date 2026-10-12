@@ -543,16 +543,7 @@ impl Checker<'_> {
     /// subscript targets (`self.x`, `a[0]`) are not name introductions.
     fn check_assign_target_names(&mut self, target: &Expr) {
         match target {
-            Expr::Name(n) => {
-                let name = n.id.as_str();
-                if !stdlib_str::is_lowercase(name) {
-                    self.push(
-                        &NON_LOWERCASE_VARIABLE_IN_FUNCTION,
-                        n.range(),
-                        format!("Variable `{name}` in function should be lowercase"),
-                    );
-                }
-            }
+            Expr::Name(n) => self.check_variable_name(n.id.as_str(), n.range()),
             Expr::Tuple(t) => t
                 .elts
                 .iter()
@@ -563,6 +554,17 @@ impl Checker<'_> {
                 .for_each(|v| self.check_assign_target_names(v)),
             Expr::Starred(s) => self.check_assign_target_names(&s.value),
             _ => {}
+        }
+    }
+
+    /// N806 for one name that a function binds.
+    fn check_variable_name(&mut self, name: &str, range: TextRange) {
+        if !stdlib_str::is_lowercase(name) {
+            self.push(
+                &NON_LOWERCASE_VARIABLE_IN_FUNCTION,
+                range,
+                format!("Variable `{name}` in function should be lowercase"),
+            );
         }
     }
 
@@ -944,6 +946,11 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
                     if let Some(type_) = &h.type_ {
                         self.visit_expr(type_);
+                    }
+                    if self.in_function
+                        && let Some(name) = &h.name
+                    {
+                        self.check_variable_name(name.as_str(), name.range());
                     }
                     self.visit_body(&h.body);
                 }
@@ -1746,6 +1753,18 @@ mod tests {
             Level::Full,
         );
         assert!(diags.contains(&"none-comparison".to_string()), "{diags:?}");
+    }
+
+    #[test]
+    fn except_name_check() {
+        let diags = check(
+            "def f(x: str) -> int:\n    try:\n        return int(x)\n    except ValueError as Err:\n        return 0\n",
+            Level::Full,
+        );
+        assert!(
+            diags.contains(&"non-lowercase-variable-in-function".to_string()),
+            "{diags:?}"
+        );
     }
 
     // -- Stmt::ClassDef base classes / kwargs are visited --------------------
