@@ -131,8 +131,8 @@ impl Repl {
         modules: Vec<(String, String)>,
     ) -> Result<Loaded, Failed> {
         self.modules = modules;
-        let (interp, scope) = self.live();
-        let loaded = interp.enter(|vm| {
+        let (_, scope) = self.live();
+        let loaded = self.enter(|vm| {
             if let Some(dir) = dir
                 && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
             {
@@ -152,8 +152,6 @@ impl Repl {
                 }
             }
         });
-        crate::display::close_frames();
-        flush_output(interp);
         if let Ok(Loaded::Ran) = loaded {
             self.accumulated_source = source.to_owned();
         }
@@ -239,6 +237,16 @@ impl Repl {
         )
     }
 
+    /// Run code of the student, then end the world it left open and write out
+    /// its output, in that order, so the output comes after the last frame.
+    fn enter<R>(&self, run: impl FnOnce(&vm::VirtualMachine) -> R) -> R {
+        let (interp, _) = self.live();
+        let result = interp.enter(run);
+        crate::display::close_frames();
+        flush_output(interp);
+        result
+    }
+
     /// Append successfully executed source to the accumulator.
     fn append_source(&mut self, source: &str) {
         if !self.accumulated_source.is_empty() {
@@ -284,59 +292,59 @@ impl Repl {
 
         let name = format!("<python-input-{}>", self.inputs);
         self.inputs += 1;
-        let (interp, scope) = self.live();
-        let start = Instant::now();
-        let ran = interp.enter(|vm| {
-            keep_source(vm, &name, &code);
-            // Every statement compiles before the first one runs, so a
-            // compile error leaves nothing half run, and the warnings come
-            // out ahead of the output.
-            let mut compiled = Vec::with_capacity(statements.len());
-            for &range in &statements {
-                let source = alone(&code, range);
-                match vm
-                    .compile(&source, vm::compiler::Mode::Single, name.as_str())
-                    .map_err(|err| err.into_pyexception(vm, Some(&source)))
-                {
-                    Ok(code_obj) => compiled.push(code_obj),
-                    Err(exc) => {
-                        vm.print_exception(exc);
-                        return Ran {
-                            done: 0,
-                            exit: None,
-                            changed: Vec::new(),
+        let (_, scope) = self.live();
+        let (ran, elapsed) = self.enter(|vm| {
+            let start = Instant::now();
+            let ran = 'ran: {
+                keep_source(vm, &name, &code);
+                // Every statement compiles before the first one runs, so a
+                // compile error leaves nothing half run, and the warnings come
+                // out ahead of the output.
+                let mut compiled = Vec::with_capacity(statements.len());
+                for &range in &statements {
+                    let source = alone(&code, range);
+                    match vm
+                        .compile(&source, vm::compiler::Mode::Single, name.as_str())
+                        .map_err(|err| err.into_pyexception(vm, Some(&source)))
+                    {
+                        Ok(code_obj) => compiled.push(code_obj),
+                        Err(exc) => {
+                            vm.print_exception(exc);
+                            break 'ran Ran {
+                                done: 0,
+                                exit: None,
+                                changed: Vec::new(),
+                            };
+                        }
+                    }
+                }
+                for (done, code_obj) in compiled.into_iter().enumerate() {
+                    let before = Snapshot::take(&scope.globals, vm);
+                    if let Err(exc) = vm.run_code_obj(code_obj, scope.clone()) {
+                        let changed = before.changed(&scope.globals);
+                        let exit = if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
+                            // Says what the status is, and writes the message of
+                            // an `exit("...")` that carries one.
+                            Some(vm.handle_exit_exception(exc))
+                        } else {
+                            vm.print_exception(exc);
+                            None
+                        };
+                        break 'ran Ran {
+                            done,
+                            exit,
+                            changed,
                         };
                     }
                 }
-            }
-            for (done, code_obj) in compiled.into_iter().enumerate() {
-                let before = Snapshot::take(&scope.globals, vm);
-                if let Err(exc) = vm.run_code_obj(code_obj, scope.clone()) {
-                    let changed = before.changed(&scope.globals);
-                    let exit = if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                        // Says what the status is, and writes the message of
-                        // an `exit("...")` that carries one.
-                        Some(vm.handle_exit_exception(exc))
-                    } else {
-                        vm.print_exception(exc);
-                        None
-                    };
-                    return Ran {
-                        done,
-                        exit,
-                        changed,
-                    };
+                Ran {
+                    done: statements.len(),
+                    exit: None,
+                    changed: Vec::new(),
                 }
-            }
-            Ran {
-                done: statements.len(),
-                exit: None,
-                changed: Vec::new(),
-            }
+            };
+            (ran, start.elapsed())
         });
-        let elapsed = start.elapsed();
-        crate::display::close_frames();
-        flush_output(interp);
 
         if ran.done == statements.len() && ran.exit.is_none() {
             self.append_source(&code);
