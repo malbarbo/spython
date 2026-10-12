@@ -18,7 +18,7 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_project::Db;
 use ty_python_semantic::lint::LintMetadata;
-use ty_python_semantic::types::KnownClass;
+use ty_python_semantic::types::{KnownClass, Type};
 use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::lints::{
@@ -172,6 +172,22 @@ impl Checker<'_> {
                 ),
             );
         }
+    }
+
+    /// Returns `true` if `expr` names a type, so that a subscript of it takes
+    /// type arguments, `false` otherwise.
+    fn is_type_form(&self, expr: &Expr) -> bool {
+        matches!(
+            expr.inferred_type(self.model),
+            Some(
+                Type::ClassLiteral(_)
+                    | Type::GenericAlias(_)
+                    | Type::SubclassOf(_)
+                    | Type::SpecialForm(_)
+                    | Type::KnownInstance(_)
+                    | Type::TypeAlias(_)
+            )
+        )
     }
 
     /// Returns `true` if `cls` is a subclass of `Enum`, directly or not,
@@ -1042,6 +1058,23 @@ impl<'a> Visitor<'a> for Checker<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
+        // In `dict[str, int]` the tuple holds the type arguments, and in
+        // `Callable[[int], int]` the list holds the parameters. Neither one is
+        // a literal.
+        if let Expr::Subscript(sub) = expr
+            && let Expr::Tuple(args) = sub.slice.as_ref()
+            && self.is_type_form(&sub.value)
+        {
+            self.visit_expr(&sub.value);
+            for arg in &args.elts {
+                match arg {
+                    Expr::List(params) => params.elts.iter().for_each(|e| self.visit_expr(e)),
+                    _ => self.visit_expr(arg),
+                }
+            }
+            return;
+        }
+
         // Forbidden constructs and expression-level lints.
         match expr {
             Expr::List(e) if self.level < Level::Repetition => self.push(
@@ -1756,6 +1789,33 @@ mod tests {
         );
         assert!(
             diags.contains(&"f-string-missing-placeholders".to_string()),
+            "{diags:?}"
+        );
+    }
+
+    #[test]
+    fn type_arguments_are_not_a_literal() {
+        let code = "from dataclasses import dataclass\n\
+from typing import Callable\n\n\
+@dataclass\nclass P[T, U]:\n    a: T\n    b: U\n\n\
+p = P[int, str](1, \"a\")\n\
+D = dict[str, int]\n\
+C = Callable[[int], int]\n";
+        let diags = check(code, Level::UserTypes);
+        assert_eq!(
+            count(&diags, "forbidden-collection-literal"),
+            0,
+            "{diags:?}"
+        );
+    }
+
+    #[test]
+    fn a_tuple_index_is_still_a_literal() {
+        let code = "def f(d: dict[tuple[int, int], int]) -> int:\n    return d[1, 2]\n";
+        let diags = check(code, Level::UserTypes);
+        assert_eq!(
+            count(&diags, "forbidden-collection-literal"),
+            1,
             "{diags:?}"
         );
     }
