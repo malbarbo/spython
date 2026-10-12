@@ -545,6 +545,15 @@ atexit.register(__test_mark_atexit_ran)\n";
     }
 
     #[test]
+    fn completion_leaves_out_a_name_with_a_surrogate() {
+        let mut repl = Repl::new(Level::Full, false);
+        let code = "class A:\n    x: int = 1\n\na = A()\nsetattr(a, \"\\ud800\", 1)\n";
+        assert!(repl.run(code).is_ok());
+        let action = repl.complete("a.", 2, &[]);
+        assert!(matches!(action, TabAction::Complete(2, ref c) if c == &["x"]));
+    }
+
+    #[test]
     fn a_name_a_statement_that_raised_has_left_alone_is_kept() {
         let mut repl = Repl::new(Level::Full, false);
         assert!(repl.run("x = 1\n").is_ok());

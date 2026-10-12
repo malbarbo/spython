@@ -140,7 +140,9 @@ pub fn complete(
 
     let mut result: Vec<String> = completions
         .into_iter()
-        .map(|s| s.expect_str().to_owned())
+        // A name with a surrogate, which `setattr` accepts, is not one the
+        // student can type.
+        .filter_map(|s| s.to_str().map(str::to_owned))
         .collect();
 
     // Add keyword completions for top-level (no dot).
