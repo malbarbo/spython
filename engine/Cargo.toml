@@ -45,3 +45,6 @@ ruff_macros = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-
 ruff_python_formatter = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
 ruff_python_stdlib = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
 ruff_python_parser = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
+# The setter of a field of a file, the one way to tell ty that a file of the
+# REPL changed. The version is the one ty uses.
+salsa = { version = "0.28.2", default-features = false }

@@ -8,7 +8,7 @@ use crate::Level;
 use crate::completion::TabAction;
 use crate::ffi::register_ffi_module;
 use crate::run::{DOCTEST_RUNNER, keep_source, new_interpreter};
-use crate::{infer_expression_type, type_check_repl_input};
+use crate::{ReplProject, infer_expression_type, type_check_repl_input};
 use ruff_python_ast::PySourceType;
 use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::parse_unchecked_source;
@@ -46,6 +46,12 @@ pub enum Loaded {
     Exited(u32),
 }
 
+/// The project of a session, which is made on the first check of a session
+/// that did not start from a file.
+fn project(project: &mut Option<ReplProject>) -> &mut ReplProject {
+    project.get_or_insert_with(|| ReplProject::new(&[]))
+}
+
 /// A REPL session and the interpreter it runs in.
 pub struct Repl {
     // `scope` is wrapped in `Option` so the `Drop` impl can take it and
@@ -59,11 +65,12 @@ pub struct Repl {
     /// Whether diagnostics carry ANSI colour. True on the page, which renders
     /// the codes; a terminal only wants them when stderr is one.
     use_color: bool,
-    /// The first-party files the accumulated source imports, each a path
-    /// relative to the directory it came from and its text. The checker runs
-    /// on an in-memory filesystem, so an input that names one of them only
-    /// resolves if it is here. Empty on the page, which has a single file.
-    modules: Vec<(String, String)>,
+    /// The project the inputs are checked in, made on the first check. It
+    /// holds the first-party files the accumulated source imports. The
+    /// checker runs on an in-memory filesystem, so an input that names one of
+    /// them only resolves if it is there. The page has a single file, so its
+    /// project holds none.
+    project: Option<ReplProject>,
     /// The status of the `exit()` that ended the session, if one has run.
     exit_status: Option<u32>,
     /// How many inputs have reached the interpreter. Each one runs under a
@@ -89,7 +96,7 @@ impl Repl {
             accumulated_source: String::new(),
             level,
             use_color,
-            modules: Vec::new(),
+            project: None,
             exit_status: None,
             inputs: 0,
         }
@@ -130,7 +137,7 @@ impl Repl {
         dir: Option<&str>,
         modules: Vec<(String, String)>,
     ) -> Result<Loaded, Failed> {
-        self.modules = modules;
+        self.project = Some(ReplProject::new(&modules));
         let (_, scope) = self.live();
         let loaded = self.enter(|vm| {
             if let Some(dir) = dir
@@ -193,18 +200,18 @@ impl Repl {
 
     /// The type `expr` would have, without running it. `expr` has to be one
     /// expression on its own, or the history would answer for it.
-    pub fn type_of(&self, expr: &str) -> Result<String, NoType> {
+    pub fn type_of(&mut self, expr: &str) -> Result<String, NoType> {
         let parsed = parse_unchecked_source(expr, PySourceType::Python);
         if !parsed.has_valid_syntax() {
             // The checker says where the syntax breaks. The first line of
             // `expr` starts at column 0 and closes whatever the history left
             // open, so the error is in `expr` there too.
             let shown = !type_check_repl_input(
+                project(&mut self.project),
                 &self.accumulated_source,
                 expr,
                 self.level,
                 self.use_color,
-                &self.modules,
             );
             return Err(if shown {
                 NoType::Shown
@@ -215,7 +222,8 @@ impl Repl {
         if !matches!(parsed.suite().as_slice(), [ruff_python_ast::Stmt::Expr(_)]) {
             return Err(NoType::NotAnExpression);
         }
-        infer_expression_type(&self.accumulated_source, expr, &self.modules).ok_or(NoType::Unknown)
+        infer_expression_type(project(&mut self.project), &self.accumulated_source, expr)
+            .ok_or(NoType::Unknown)
     }
 
     /// What the Tab key should do at `cursor`, over this session's names and
@@ -269,11 +277,11 @@ impl Repl {
         };
 
         if !type_check_repl_input(
+            project(&mut self.project),
             &self.accumulated_source,
             &code,
             self.level,
             self.use_color,
-            &self.modules,
         ) {
             return Err(Failed);
         }

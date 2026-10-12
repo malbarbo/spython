@@ -18,8 +18,8 @@ pub mod spython_lib;
 
 // What the frontends reach for. Everything else a module holds is reachable
 // by its own path, such as `engine::check::annotation_check`.
+pub(crate) use check::{ReplProject, infer_expression_type, type_check_repl_input};
 pub use check::{check_source, print_type_errors};
-pub(crate) use check::{infer_expression_type, type_check_repl_input};
 pub use checker::Level;
 pub use error::{SpythonError, color_stderr, color_stdout, read_file, show_error};
 pub use format::format_source;

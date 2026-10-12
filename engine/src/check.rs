@@ -9,6 +9,7 @@ use ruff_db::diagnostic::{
     Annotation, Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics, Span, SubDiagnostic,
     UnifiedFile,
 };
+use ruff_db::file_revision::FileRevision;
 use ruff_db::files::{File, system_path_to_file};
 use ruff_db::parsed::parsed_module;
 use ruff_db::system::{InMemorySystem, MemoryFileSystem, System, SystemPath, SystemPathBuf};
@@ -17,6 +18,7 @@ use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
 use ruff_python_ast::{ExprRef, Stmt};
 use ruff_ranged_value::RangedValue;
 use ruff_text_size::{TextRange, TextSize};
+use salsa::Setter;
 use ty_module_resolver::{
     FallibleStrategy, ImportingFile, ModuleName, SearchPathSettings, resolve_module,
 };
@@ -188,6 +190,53 @@ fn in_memory_project_at(
         .set_included_paths(&mut db, vec![file_path.to_path_buf()]);
     (db, user_file)
 }
+/// The in-memory project the REPL checks its inputs in. It lasts as long as
+/// the session, so what ty inferred about the standard library and the
+/// history stays from one input to the next.
+pub(crate) struct ReplProject {
+    db: ProjectDatabase,
+    user_file: File,
+    /// The revision of the last write. ty takes the time a file was
+    /// modified as its revision, and the clock of the page does not move
+    /// between two inputs, so the writes number the revisions themselves.
+    revision: u128,
+}
+
+impl ReplProject {
+    /// A project with `modules`, the first-party files the session started
+    /// from, each a path relative to the directory it came from and its text.
+    pub(crate) fn new(modules: &[(String, String)]) -> ReplProject {
+        let (db, user_file) = in_memory_project("", modules);
+        ReplProject {
+            db,
+            user_file,
+            revision: 0,
+        }
+    }
+
+    /// Write `text` to the file at `path`, and tell ty that it changed.
+    fn write(&mut self, path: &str, text: &str) -> File {
+        let path = SystemPath::new(path);
+        self.db
+            .system()
+            .as_writable()
+            .expect("the in-memory system is writable")
+            .write_file(path, text)
+            .expect("writing to in-memory filesystem should never fail");
+        let file = system_path_to_file(&self.db, path).expect("the file was just written");
+        // A revision equal to the one the file has would hide the change.
+        loop {
+            self.revision += 1;
+            if file.revision(&self.db) != FileRevision::new(self.revision) {
+                break;
+            }
+        }
+        file.set_revision(&mut self.db)
+            .to(FileRevision::new(self.revision));
+        file
+    }
+}
+
 /// Type-check `source` entirely in memory (no OS filesystem access).
 ///
 /// Used by the WASM shim, which has one file and nothing to import.
@@ -503,11 +552,11 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
 ///
 /// Returns `true` if the input passed type checking, `false` if errors were found.
 pub(crate) fn type_check_repl_input(
+    project: &mut ReplProject,
     accumulated: &str,
     new_input: &str,
     level: Level,
     use_color: bool,
-    modules: &[(String, String)],
 ) -> bool {
     let accumulated = accumulated.trim_end_matches('\n');
     let new_input = new_input.trim_end_matches('\n');
@@ -523,28 +572,22 @@ pub(crate) fn type_check_repl_input(
     let input_offset = combined.len() - new_input.len();
     let input_start = TextSize::try_from(input_offset).unwrap_or(TextSize::new(u32::MAX));
 
-    let te = match check_in_memory(&combined, level, Some(input_start), modules) {
-        Ok(_) => return true, // warnings don't block execution
-        Err(te) => te,
-    };
-    let user_file = system_path_to_file(&te.db, SystemPath::new(USER_FILE))
-        .expect("the user file was written before the check");
-    let input_path = SystemPath::new(INPUT_FILE);
-    te.db
-        .system()
-        .as_writable()
-        .expect("the in-memory system is writable")
-        .write_file(input_path, new_input)
-        .expect("writing to in-memory filesystem should never fail");
-    let input_file =
-        system_path_to_file(&te.db, input_path).expect("the input file was just written");
+    project.write(USER_FILE, &combined);
+    let diagnostics = check_project(&project.db, project.user_file, level, Some(input_start));
+    // Warnings don't block execution.
+    if !diagnostics
+        .iter()
+        .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error)
+    {
+        return true;
+    }
+    let input_file = project.write(INPUT_FILE, new_input);
     let input = Input {
-        user_file,
+        user_file: project.user_file,
         input_file,
         range: TextRange::new(input_start, TextSize::of(combined.as_str())),
     };
-    let in_input: Vec<Diagnostic> = te
-        .diagnostics
+    let in_input: Vec<Diagnostic> = diagnostics
         .iter()
         .filter(|diag| match diagnostic_start(diag) {
             // No range means the diagnostic is about the check as a whole,
@@ -561,19 +604,19 @@ pub(crate) fn type_check_repl_input(
         return true;
     }
 
-    print_type_errors(&te.db, &in_input, use_color);
+    print_type_errors(&project.db, &in_input, use_color);
 
     false
 }
 /// Infer the static type of a Python expression in the REPL context.
 ///
-/// Builds a source with `accumulated + "\n" + expr`, type-checks it against
-/// `modules` the way [`type_check_repl_input`] does, and returns the display
+/// Builds a source with `accumulated + "\n" + expr`, type-checks it in
+/// `project` the way [`type_check_repl_input`] does, and returns the display
 /// string of the inferred type for the expression.
 pub(crate) fn infer_expression_type(
+    project: &mut ReplProject,
     accumulated: &str,
     expr: &str,
-    modules: &[(String, String)],
 ) -> Option<String> {
     let source = if accumulated.is_empty() {
         expr.to_owned()
@@ -581,11 +624,12 @@ pub(crate) fn infer_expression_type(
         format!("{}\n{}", accumulated.trim_end_matches('\n'), expr)
     };
 
-    let (db, file) = in_memory_project(&source, modules);
+    let file = project.write(USER_FILE, &source);
+    let db = &project.db;
 
     let program_file = db.program_file(file);
-    let parsed = parsed_module(&db, program_file.python_file(&db));
-    let module = parsed.load(&db);
+    let parsed = parsed_module(db, program_file.python_file(db));
+    let module = parsed.load(db);
     // The last statement belongs to the history when `expr` holds none.
     let expr_start = TextSize::try_from(source.len() - expr.len()).ok()?;
     let expr_node = match module.suite().last()? {
@@ -593,16 +637,16 @@ pub(crate) fn infer_expression_type(
         _ => return None,
     };
 
-    let model = SemanticModel::new(&db, program_file);
+    let model = SemanticModel::new(db, program_file);
     let env = model.program_environment();
     let ty = ExprRef::from(expr_node).inferred_type(&model)?;
     // A student wants `int` for `1`, but a function would show as a
     // `Callable` instead of its `def` once promoted.
     let ty = match ty {
         Type::FunctionLiteral(_) => ty,
-        _ => ty.promote(&db, &env),
+        _ => ty.promote(db, &env),
     };
-    Some(ty.display(&db, &env).to_string())
+    Some(ty.display(db, &env).to_string())
 }
 /// Where a diagnostic starts.
 ///
@@ -672,6 +716,23 @@ impl Input {
 mod repl_check_tests {
     use super::*;
 
+    /// [`type_check_repl_input`] in a project of its own.
+    fn check_input(
+        accumulated: &str,
+        input: &str,
+        level: Level,
+        use_color: bool,
+        modules: &[(String, String)],
+    ) -> bool {
+        let mut project = ReplProject::new(modules);
+        type_check_repl_input(&mut project, accumulated, input, level, use_color)
+    }
+
+    /// [`infer_expression_type`] in a project of its own.
+    fn infer_type(accumulated: &str, expr: &str, modules: &[(String, String)]) -> Option<String> {
+        infer_expression_type(&mut ReplProject::new(modules), accumulated, expr)
+    }
+
     fn helpers() -> Vec<(String, String)> {
         vec![(
             "helpers.py".to_owned(),
@@ -681,7 +742,7 @@ mod repl_check_tests {
 
     #[test]
     fn input_resolves_a_module_the_session_started_from() {
-        assert!(type_check_repl_input(
+        assert!(check_input(
             "import helpers",
             "helpers.helper(1)",
             Level::Full,
@@ -696,7 +757,7 @@ mod repl_check_tests {
             "pkg/util.py".to_owned(),
             "def twice(x: int) -> int:\n    return x * 2\n".to_owned(),
         )];
-        assert!(type_check_repl_input(
+        assert!(check_input(
             "from pkg.util import twice",
             "twice(1)",
             Level::Full,
@@ -712,7 +773,7 @@ mod repl_check_tests {
             "def helper(x: int) -> int:\n    return x * 2\n".to_owned(),
         )];
         // The input is still what gets checked...
-        assert!(!type_check_repl_input(
+        assert!(!check_input(
             "import user",
             "undefined_name",
             Level::Full,
@@ -720,7 +781,7 @@ mod repl_check_tests {
             &modules,
         ));
         // ...and the module is still what `user` names.
-        assert!(type_check_repl_input(
+        assert!(check_input(
             "import user",
             "user.helper(1)",
             Level::Full,
@@ -731,13 +792,7 @@ mod repl_check_tests {
 
     #[test]
     fn a_module_the_session_never_saw_is_still_an_error() {
-        assert!(!type_check_repl_input(
-            "",
-            "import helpers",
-            Level::Full,
-            false,
-            &[],
-        ));
+        assert!(!check_input("", "import helpers", Level::Full, false, &[],));
     }
 
     #[test]
@@ -749,7 +804,7 @@ mod repl_check_tests {
             "import user",
         ] {
             assert!(
-                !type_check_repl_input("", import, Level::Full, false, &helpers()),
+                !check_input("", import, Level::Full, false, &helpers()),
                 "{import}"
             );
             assert!(
@@ -763,7 +818,7 @@ mod repl_check_tests {
     fn input_is_not_blamed_for_an_error_in_what_ran_before() {
         // The error is on line 1, which belongs to the accumulated source; the
         // input itself is fine, and is what the user can still fix.
-        assert!(type_check_repl_input(
+        assert!(check_input(
             "undefined_name",
             "1 + 1",
             Level::Full,
@@ -774,7 +829,7 @@ mod repl_check_tests {
 
     #[test]
     fn an_error_in_the_input_is_still_reported() {
-        assert!(!type_check_repl_input(
+        assert!(!check_input(
             "x: int = 1",
             "undefined_name",
             Level::Full,
@@ -785,7 +840,7 @@ mod repl_check_tests {
 
     #[test]
     fn input_can_replace_a_function_of_an_earlier_input() {
-        assert!(type_check_repl_input(
+        assert!(check_input(
             "def f() -> int:\n    return 1\n",
             "def f() -> int:\n    return 2\n",
             Level::Functions,
@@ -796,7 +851,7 @@ mod repl_check_tests {
 
     #[test]
     fn a_function_defined_twice_in_one_input_is_still_an_error() {
-        assert!(!type_check_repl_input(
+        assert!(!check_input(
             "x: int = 1",
             "def f() -> int:\n    return 1\n\ndef f() -> int:\n    return 2\n",
             Level::Functions,
@@ -808,7 +863,7 @@ mod repl_check_tests {
     #[test]
     fn a_type_is_inferred_through_a_module_the_session_started_from() {
         assert_eq!(
-            infer_expression_type("import helpers", "helpers.helper(1)", &helpers()),
+            infer_type("import helpers", "helpers.helper(1)", &helpers()),
             Some("int".to_owned())
         );
     }
@@ -825,7 +880,7 @@ mod repl_check_tests {
             ("b\"x\"", "bytes"),
         ] {
             assert_eq!(
-                infer_expression_type(session, expr, &[]).as_deref(),
+                infer_type(session, expr, &[]).as_deref(),
                 Some(expected),
                 "{expr}"
             );
@@ -835,14 +890,37 @@ mod repl_check_tests {
     #[test]
     fn a_function_shows_as_its_def() {
         assert_eq!(
-            infer_expression_type("", "len", &[]).as_deref(),
+            infer_type("", "len", &[]).as_deref(),
             Some("def len(obj: Sized, /) -> int")
         );
     }
 
     #[test]
     fn a_text_with_no_statement_gets_no_type_from_the_history() {
-        assert_eq!(infer_expression_type("\"abc\"", "# c", &[]), None);
+        assert_eq!(infer_type("\"abc\"", "# c", &[]), None);
+    }
+}
+
+#[cfg(test)]
+mod repl_project_tests {
+    use super::*;
+
+    #[test]
+    fn a_project_checks_each_input_against_the_history_it_is_given() {
+        let mut project = ReplProject::new(&[]);
+        let check = |project: &mut ReplProject, accumulated: &str, input: &str| {
+            type_check_repl_input(project, accumulated, input, Level::Full, false)
+        };
+        assert!(check(&mut project, "", "x = 1"));
+        assert!(!check(&mut project, "x = 1", "x + \"a\""));
+        assert!(check(&mut project, "x = \"b\"", "x + \"a\""));
+        assert_eq!(
+            infer_expression_type(&mut project, "x = \"b\"", "x").as_deref(),
+            Some("str")
+        );
+        assert!(!check(&mut project, "", "x"));
+        assert!(!check(&mut project, "", "y"));
+        assert!(check(&mut project, "y = 1", "y"));
     }
 }
 
@@ -875,11 +953,11 @@ mod reserved_name_tests {
     #[test]
     fn a_reserved_name_in_the_input_is_reported() {
         assert!(!type_check_repl_input(
+            &mut ReplProject::new(&[]),
             "",
             "__spython_doctest_0__ = 1",
             Level::Full,
             false,
-            &[]
         ));
     }
 }

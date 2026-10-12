@@ -1095,6 +1095,7 @@ dependencies = [
  "ruff_text_size",
  "rustpython",
  "rustpython-vm",
+ "salsa",
  "sinteract",
  "ty_module_resolver",
  "ty_project",
