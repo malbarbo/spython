@@ -208,21 +208,7 @@ fn check_in_memory(
     modules: &[(String, String)],
 ) -> Result<Warnings, Box<TypeErrors>> {
     let (db, user_file) = in_memory_project(source, modules);
-
-    let mut diagnostics = annotation_check(&db, level, repl_input);
-    diagnostics.extend(db.check());
-    // Doctests are code too, so validate the prompts and type-check the
-    // snippets.
-    // Skip in REPL context, where incremental input doesn't have docstrings.
-    if repl_input.is_none() {
-        diagnostics.extend(check_file_doctests(
-            &db,
-            user_file,
-            SystemPath::new(SOURCE_DIR),
-            level,
-        ));
-    }
-
+    let diagnostics = check_project(&db, user_file, level, repl_input);
     let has_errors = diagnostics
         .iter()
         .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error);
@@ -231,6 +217,30 @@ fn check_in_memory(
     } else {
         Ok(Warnings { db, diagnostics })
     }
+}
+/// What the checks find in `db`, whose user file is `user_file`.
+/// `repl_input` is where the REPL input starts in that file, and `None` for a
+/// file.
+fn check_project(
+    db: &ProjectDatabase,
+    user_file: File,
+    level: Level,
+    repl_input: Option<TextSize>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = annotation_check(db, level, repl_input);
+    diagnostics.extend(db.check());
+    // Doctests are code too, so validate the prompts and type-check the
+    // snippets.
+    // Skip in REPL context, where incremental input doesn't have docstrings.
+    if repl_input.is_none() {
+        diagnostics.extend(check_file_doctests(
+            db,
+            user_file,
+            SystemPath::new(SOURCE_DIR),
+            level,
+        ));
+    }
+    diagnostics
 }
 /// Run the annotation checker on all files registered in `db`.
 pub fn annotation_check(
