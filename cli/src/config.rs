@@ -11,7 +11,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            level: Level::Functions,
+            level: Level::Full,
             theme: Theme::Dark,
         }
     }

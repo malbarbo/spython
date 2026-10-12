@@ -206,18 +206,19 @@ fn bare_file_shorthand_runs() {
 
 #[test]
 fn bare_file_shorthand_passes_level() {
-    // `--level` flows to the injected `run`, so a level-1 `if` is accepted.
+    // `--level` flows to the injected `run`, so a level-0 `if` is refused,
+    // and the default of level 5 takes it.
     let dir = std::env::temp_dir();
     let file = dir.join("_spython_bare_level.py");
     std::fs::write(&file, "x: int = 3\nif x > 0:\n    print('ok')\n").expect("write the test file");
-    let (out, _err, ok_lvl1) =
-        run_spython_native(&["_spython_bare_level.py", "--level", "1"], &dir);
-    let (_o0, err0, ok_lvl0) = run_spython_native(&["_spython_bare_level.py"], &dir);
+    let (_o0, err0, ok_lvl0) =
+        run_spython_native(&["_spython_bare_level.py", "--level", "0"], &dir);
+    let (out, _err, ok_default) = run_spython_native(&["_spython_bare_level.py"], &dir);
     let _ = std::fs::remove_file(&file);
-    assert!(ok_lvl1, "level 1 should allow `if`: {out}");
-    assert_eq!(out, "ok\n");
-    assert!(!ok_lvl0, "level 0 (default) should reject `if`");
+    assert!(!ok_lvl0, "level 0 should reject `if`");
     assert!(err0.contains("forbidden-selection"), "stderr: {err0}");
+    assert!(ok_default, "level 5 (default) should allow `if`: {out}");
+    assert_eq!(out, "ok\n");
 }
 
 #[test]

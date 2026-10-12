@@ -74,7 +74,7 @@ definitions of a file into the REPL. `spython --help` lists the rest.
 
 A course introduces Python a piece at a time, and spython follows along. The
 `--level` option says how much of the language a program can use. The default
-is 0.
+is 5, the whole language.
 
 | Level | Name       | Adds                                                              |
 | ----- | ---------- | ----------------------------------------------------------------- |

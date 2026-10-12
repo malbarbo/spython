@@ -174,7 +174,7 @@ function parseArgs(argv: string[]): Parsed {
       message: `error: unsupported subcommand: ${first}\n`,
     };
   }
-  let level = 0;
+  let level = 5;
   let file: string | null = null;
   let i = 1;
   while (i < argv.length) {

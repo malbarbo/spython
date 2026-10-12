@@ -40,7 +40,7 @@ enum Command {
     /// Run a Python script
     #[bpaf(command)]
     Run {
-        #[bpaf(external(level_arg), fallback(Level::Functions))]
+        #[bpaf(external(level_arg), fallback(Level::Full))]
         level: Level,
         /// Python script to run
         #[bpaf(positional("FILE"))]
@@ -49,7 +49,7 @@ enum Command {
     /// Check the types of a Python file without running it
     #[bpaf(command)]
     Check {
-        #[bpaf(external(level_arg), fallback(Level::Functions))]
+        #[bpaf(external(level_arg), fallback(Level::Full))]
         level: Level,
         /// Python file to check
         #[bpaf(positional("FILE"))]
@@ -61,7 +61,7 @@ enum Command {
         /// Show all test attempts, not just failures
         #[bpaf(short, long)]
         verbose: bool,
-        #[bpaf(external(level_arg), fallback(Level::Functions))]
+        #[bpaf(external(level_arg), fallback(Level::Full))]
         level: Level,
         /// Python files to run doctests from
         #[bpaf(
@@ -93,7 +93,7 @@ enum Command {
 /// to a named subcommand: a leading `FILE` is a `run`, and bare options with
 /// no file are a `repl`. `None` is the bare `spython`, which is a `repl` too.
 fn cli() -> bpaf::OptionParser<Option<Command>> {
-    let level = level_arg().fallback(Level::Functions);
+    let level = level_arg().fallback(Level::Full);
     let file = bpaf::positional::<PathBuf>("FILE");
     let file_as_run = bpaf::construct!(Command::Run { level, file });
 

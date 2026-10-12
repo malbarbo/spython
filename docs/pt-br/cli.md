@@ -24,7 +24,7 @@ Olá mundo!
 
 ## Níveis de ensino
 
-O spython restringe as construções de Python disponíveis com base no nível de ensino. O nível padrão é 0 (mais restrito).
+O spython restringe as construções de Python disponíveis com base no nível de ensino. O nível padrão é 5, a linguagem inteira.
 
 | Nível | Nome      | Construções adicionadas                                              |
 |-------|-----------|----------------------------------------------------------------------|
@@ -350,7 +350,7 @@ spython format < arquivo.py
 
 | Comando | Descrição |
 |---------|-----------|
-| `spython` | Modo interativo (REPL) no nível 0 |
+| `spython` | Modo interativo (REPL) |
 | `spython repl [arquivo]` | Modo interativo (REPL) |
 | `spython run arquivo` | Executa o arquivo com verificação de tipos |
 | `spython check arquivo` | Verifica os tipos sem executar |
@@ -362,6 +362,6 @@ spython format < arquivo.py
 
 | Opção | Descrição |
 |-------|-----------|
-| `--level N` | Nível de ensino (0-5, padrão: 0) |
+| `--level N` | Nível de ensino (0-5, padrão: 5) |
 | `--verbose` | Mostra todos os testes (com `test`) |
 | `--version` | Exibe versão |

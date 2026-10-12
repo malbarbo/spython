@@ -24,7 +24,7 @@ Hello world!
 
 ## Teaching levels
 
-Spython restricts which Python constructs are available based on the teaching level. The default level is 0 (most restricted).
+Spython restricts which Python constructs are available based on the teaching level. The default level is 5, the whole language.
 
 | Level | Name       | Added constructs                                                      |
 |-------|------------|-----------------------------------------------------------------------|
@@ -349,7 +349,7 @@ spython format < file.py
 
 | Command | Description |
 |---------|-------------|
-| `spython` | Interactive mode (REPL) at level 0 |
+| `spython` | Interactive mode (REPL) |
 | `spython repl [file]` | Interactive mode (REPL) |
 | `spython run file` | Run the file with type checking |
 | `spython check file` | Check the types without running |
@@ -361,6 +361,6 @@ spython format < file.py
 
 | Option | Description |
 |--------|-------------|
-| `--level N` | Teaching level (0-5, default: 0) |
+| `--level N` | Teaching level (0-5, default: 5) |
 | `--verbose` | Show all tests (with `test`) |
 | `--version` | Print version |
