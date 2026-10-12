@@ -15,7 +15,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 
-use ruff_db::diagnostic::{Annotation, Diagnostic, Span};
+use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Span};
 use ruff_db::files::File;
 use ruff_python_ast::helpers::any_over_expr;
 use ruff_python_ast::visitor::{
@@ -39,16 +39,15 @@ fn text_size(offset: usize) -> TextSize {
 use crate::lints::{
     DOCTEST_DIRECTIVE, DOCTEST_INCONSISTENT_INDENTATION, DOCTEST_MALFORMED_PROMPT,
     DOCTEST_MULTIPLE_STATEMENTS, DOCTEST_NEVER_RUNS, DOCTEST_TEST_DICT, DOCTEST_UNDER_NAME_CHECK,
+    RESERVED_NAME,
 };
 
 /// Prefix/suffix used for synthetic doctest wrapper functions. The checker
 /// recognizes functions whose name matches `__spython_doctest_<N>__` and
 /// relaxes the `BARE_EXPRESSION` lint inside them (so `>>> x` is allowed).
 ///
-/// A student who (very implausibly) writes a real function named
-/// `__spython_doctest_0__` would have `BARE_EXPRESSION` suppressed inside it.
-/// The dunder convention makes accidental collisions unlikely enough that we
-/// accept the risk rather than thread an extra flag through the checker.
+/// The name starts with [`crate::checker::RESERVED_PREFIX`], so the checker rejects a
+/// function of the student with the same name.
 pub const SYNTHETIC_FN_PREFIX: &str = "__spython_doctest_";
 pub const SYNTHETIC_FN_SUFFIX: &str = "__";
 
@@ -1077,6 +1076,13 @@ pub fn remap_diagnostics(
                 };
                 (snippet, range)
             }
+            // The name of the function on a header line is one that the
+            // check of the doctests generates.
+            Some(SyntheticLine::SyntheticHeader(_))
+                if diag.id() == DiagnosticId::Lint(RESERVED_NAME.name()) =>
+            {
+                continue;
+            }
             Some(SyntheticLine::SyntheticHeader(idx)) => match snippets.get(idx) {
                 Some(snippet) => (snippet, snippet.anchor_range),
                 None => continue,
@@ -1661,6 +1667,13 @@ mod tests {
              \x20   assert _runner == _checker, (_src, _runner, _checker)\n"
         );
         assert!(crate::run::run_source(&script, "single_test.py", ".").is_ok());
+    }
+
+    #[test]
+    fn the_generated_names_are_reserved() {
+        use crate::checker::RESERVED_PREFIX;
+        assert!(SYNTHETIC_FN_PREFIX.starts_with(RESERVED_PREFIX));
+        assert!(MODULE_COPY_PREFIX.starts_with(RESERVED_PREFIX));
     }
 
     #[test]

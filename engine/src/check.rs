@@ -835,3 +835,41 @@ mod repl_check_tests {
         assert_eq!(infer_expression_type("\"abc\"", "# c", &[]), None);
     }
 }
+
+#[cfg(test)]
+mod reserved_name_tests {
+    use super::*;
+
+    fn ids(te: &TypeErrors) -> Vec<String> {
+        te.diagnostics
+            .iter()
+            .map(|d| d.id().as_str().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_names_the_doctests_generate_are_not_reported() {
+        let source = "total = 0\n\n\ndef f(x: int) -> int:\n    \"\"\"\n    >>> total = f(1)\n    >>> total\n    2\n    \"\"\"\n    return x + 1\n";
+        assert!(check_source(source, Level::Full, false).is_ok());
+    }
+
+    #[test]
+    fn a_reserved_name_in_a_doctest_is_reported() {
+        let source = "total = 0\n\n\ndef f(x: int) -> int:\n    \"\"\"\n    >>> total = __spython_module_total__\n    >>> total\n    0\n    \"\"\"\n    return x + 1\n";
+        let Err(te) = check_source(source, Level::Full, false) else {
+            panic!("a reserved name passed the check");
+        };
+        assert_eq!(ids(&te), ["reserved-name"]);
+    }
+
+    #[test]
+    fn a_reserved_name_in_the_input_is_reported() {
+        assert!(!type_check_repl_input(
+            "",
+            "__spython_doctest_0__ = 1",
+            Level::Full,
+            false,
+            &[]
+        ));
+    }
+}

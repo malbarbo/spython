@@ -217,6 +217,26 @@ declare_lint! {
 }
 
 declare_lint! {
+    /// ## What it does
+    /// Rejects a name that starts with `__spython_`.
+    ///
+    /// ## Why is this bad?
+    /// The check of the doctests of a file adds functions and variables with
+    /// that prefix, and a name of the program with the same prefix would be
+    /// taken for one of them.
+    ///
+    /// ## Example
+    /// ```python
+    /// __spython_doctest_0__ = 1    # error
+    /// ```
+    pub(crate) static RESERVED_NAME = {
+        summary: "name with the prefix that spython reserves",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
     /// Forbids `match` statements before level 2.
     pub(crate) static FORBIDDEN_MATCH = {
         summary: "`match` not allowed at this level",

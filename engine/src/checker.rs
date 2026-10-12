@@ -6,8 +6,10 @@
 use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span};
 use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
+use ruff_db::source::source_text;
 use std::collections::{HashMap, HashSet};
 
+use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_ast::visitor::{Visitor, walk_expr, walk_pattern, walk_stmt};
 use ruff_python_ast::{
     CmpOp, Comprehension, Decorator, Expr, ExprContext, Operator, Parameter, Parameters, Pattern,
@@ -30,9 +32,12 @@ use crate::lints::{
     LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
     MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
     NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
-    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, SHADOWED_MODULE, TRUE_FALSE_COMPARISON,
-    UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
+    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME, SHADOWED_MODULE,
+    TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
 };
+
+/// The start of the names that spython gives to the code it generates.
+pub(crate) const RESERVED_PREFIX: &str = "__spython_";
 
 /// The modules of the standard library the interpreter has.
 const AVAILABLE_MODULES: &[&str] = &["dataclasses", "enum", "math", "typing"];
@@ -109,6 +114,7 @@ pub fn check_file_annotations(
         diagnostics: Vec::new(),
     };
     checker.visit_body(module.suite());
+    checker.check_reserved_names(module.tokens(), &source_text(db, file));
     checker.diagnostics
 }
 
@@ -130,6 +136,30 @@ impl Checker<'_> {
     fn push(&mut self, lint: &LintMetadata, range: TextRange, message: String) {
         self.diagnostics
             .push(make_lint_diagnostic(lint, self.file, range, message));
+    }
+
+    /// Report every name in `tokens` that starts with [`RESERVED_PREFIX`].
+    /// A token covers every place a name can be, the attribute after a dot
+    /// and the code inside an f-string included.
+    fn check_reserved_names(&mut self, tokens: &Tokens, source: &str) {
+        for token in tokens {
+            if token.kind() != TokenKind::Name
+                || self.repl_input.is_some_and(|start| token.start() < start)
+            {
+                continue;
+            }
+            let name = &source[token.range()];
+            if name.starts_with(RESERVED_PREFIX) {
+                self.push(
+                    &RESERVED_NAME,
+                    token.range(),
+                    format!(
+                        "Names that start with `{RESERVED_PREFIX}` are reserved for spython; \
+                         rename `{name}`"
+                    ),
+                );
+            }
+        }
     }
 
     fn forbidden(&mut self, range: TextRange, label: &str, min_level: Level) {
@@ -1635,6 +1665,13 @@ mod tests {
 
     fn count(diags: &[String], id: &str) -> usize {
         diags.iter().filter(|d| d.as_str() == id).count()
+    }
+
+    #[test]
+    fn a_name_with_the_reserved_prefix_is_rejected_anywhere() {
+        let source = "__spython_a__ = 1\n\n\ndef __spython_f__(__spython_p: int) -> int:\n    return __spython_p\n\n\nclass C:\n    pass\n\n\nc = C()\nc.__spython_x = 1\ns = f\"{__spython_a__}\"\n_spython_y = 1\n__spython = 1\n";
+        let diags = check(source, Level::Full);
+        assert_eq!(count(&diags, "reserved-name"), 6, "{diags:?}");
     }
 
     #[test]
