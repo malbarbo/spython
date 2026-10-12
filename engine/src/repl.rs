@@ -186,31 +186,6 @@ impl Repl {
         ran
     }
 
-    /// The teaching level.
-    pub fn level(&self) -> Level {
-        self.level
-    }
-
-    /// Check the inputs that follow at `level`, if everything that has
-    /// already run survives it. Says whether it did; on `false` the level has
-    /// not moved and the diagnostics have been printed.
-    pub fn set_level(&mut self, level: Level) -> bool {
-        if !self.accumulated_source.is_empty()
-            && !type_check_repl_input(
-                "",
-                &self.accumulated_source,
-                level,
-                self.use_color,
-                &self.modules,
-                &self.forgotten,
-            )
-        {
-            return false;
-        }
-        self.level = level;
-        true
-    }
-
     /// The status of the `exit()` that ended the session, if one has run.
     pub fn exit_status(&self) -> Option<u32> {
         self.exit_status
@@ -571,14 +546,6 @@ atexit.register(__test_mark_atexit_ran)\n";
     }
 
     #[test]
-    fn a_comment_after_a_statement_that_ran_stays_with_it() {
-        let mut repl = Repl::new(Level::Full, false);
-        let input = "a: int = \"s\"; int(\"z\")  # type: ignore\n";
-        assert!(repl.run(input).is_err());
-        assert!(repl.set_level(Level::Full));
-    }
-
-    #[test]
     fn a_name_a_statement_that_raised_has_rebound_is_forgotten() {
         let mut repl = Repl::new(Level::Full, false);
         assert!(repl.run("x = 1\n").is_ok());
@@ -594,14 +561,6 @@ atexit.register(__test_mark_atexit_ran)\n";
         assert!(repl.run("x = 1\n").is_ok());
         assert!(repl.run("x = int(\"z\")\n").is_err());
         assert!(repl.run("assert x + 1 == 2\n").is_ok());
-    }
-
-    #[test]
-    fn a_forgotten_name_does_not_hold_the_level() {
-        let mut repl = Repl::new(Level::Repetition, false);
-        assert!(repl.run("x = 1\n").is_ok());
-        assert!(repl.run("for x in [2]:\n    int(\"z\")\n").is_err());
-        assert!(repl.set_level(Level::Functions));
     }
 
     #[test]
