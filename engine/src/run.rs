@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+use rustpython::vm::AsObject;
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt, vm};
 
 use crate::SpythonError;
@@ -124,22 +125,58 @@ fn run_source_with_argv(
     argv: Vec<String>,
 ) -> Result<(), SpythonError> {
     let interp = new_interpreter_with_argv(argv);
-    let source = source.to_owned();
-    let filename = filename.to_owned();
-    let dir = dir.to_owned();
-    let code = interp.run(move |vm| {
-        let scope = vm.new_scope_with_main()?;
-        register_ffi_module(vm);
-        vm.insert_sys_path(vm.new_pyobj(dir.as_str()))?;
-        keep_source(vm, &filename, &source);
-        vm.run_string(scope, &source, &filename).map(drop)
+    let ran = crate::host::interruptible(|| {
+        interp.enter(|vm| {
+            let scope = vm.new_scope_with_main()?;
+            register_ffi_module(vm);
+            vm.insert_sys_path(vm.new_pyobj(dir))?;
+            keep_source(vm, filename, source);
+            vm.run_string(scope, source, filename).map(drop)
+        })
     });
+    let stopped = match &ran {
+        Err(exc) => interp.enter(|vm| interrupted(vm, exc)),
+        Ok(()) => false,
+    };
     crate::display::close_frames();
+    if crate::host::stopped() {
+        // The Stop is still up, so the atexit callbacks and the `__del__`s
+        // that `finalize` runs would be interrupted in turn, each with a
+        // traceback of its own. A page runs one program in an instance, and
+        // what this forgets goes away with the instance.
+        crate::repl::flush_output(&interp);
+        std::mem::forget(interp);
+        if ran.is_ok() {
+            return Ok(());
+        }
+        eprintln!("Interrupted.");
+        return Err(SpythonError::ProgramFailed);
+    }
+    // `finalize` writes the traceback of what `ran` raised, and kills the
+    // process with SIGINT for a `KeyboardInterrupt`, so an interrupted run
+    // hands it nothing and says so itself, after the output it flushed.
+    let code = crate::host::interruptible(|| interp.finalize(ran.err().filter(|_| !stopped)));
+    if stopped {
+        eprintln!("Interrupted.");
+        return Err(SpythonError::ProgramFailed);
+    }
     if code == 0 {
         Ok(())
     } else {
         Err(SpythonError::ProgramFailed)
     }
+}
+
+/// Returns `true` if `exc`, which ended the code of the student, ended a run
+/// that the user stopped, `false` otherwise. A stopped run says
+/// `Interrupted.` instead of a traceback. Once the Stop of the page is up,
+/// any exception counts, since the Stop also breaks the code that runs after
+/// it. A `finally` is interrupted in turn, and a write to the session fails.
+/// Natively, and for a program that raises it itself, the exception is a
+/// `KeyboardInterrupt`. An `exit()` never counts.
+pub(crate) fn interrupted(vm: &vm::VirtualMachine, exc: &vm::builtins::PyBaseExceptionRef) -> bool {
+    !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+        && (crate::host::stopped() || exc.fast_isinstance(vm.ctx.exceptions.keyboard_interrupt))
 }
 
 #[cfg(test)]

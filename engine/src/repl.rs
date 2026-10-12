@@ -7,7 +7,8 @@
 use crate::Level;
 use crate::completion::TabAction;
 use crate::ffi::register_ffi_module;
-use crate::run::{DOCTEST_RUNNER, keep_source, new_interpreter};
+use crate::host;
+use crate::run::{DOCTEST_RUNNER, interrupted, keep_source, new_interpreter};
 use crate::{ReplProject, infer_expression_type, type_check_repl_input};
 use ruff_python_ast::PySourceType;
 use ruff_python_parser::parse_unchecked_source;
@@ -138,6 +139,7 @@ impl Repl {
     ) -> Result<Loaded, Failed> {
         self.project = Some(ReplProject::new(&modules));
         let (_, scope) = self.live();
+        let mut stopped = false;
         let loaded = self.enter(|vm| {
             if let Some(dir) = dir
                 && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
@@ -153,11 +155,14 @@ impl Repl {
                     Ok(Loaded::Exited(vm.handle_exit_exception(exc)))
                 }
                 Err(exc) => {
-                    vm.print_exception(exc);
+                    stopped = report(vm, exc);
                     Err(Failed)
                 }
             }
         });
+        if stopped {
+            eprintln!("Interrupted.");
+        }
         if let Ok(Loaded::Ran) = loaded {
             self.accumulated_source = source.to_owned();
         }
@@ -172,24 +177,46 @@ impl Repl {
     /// session and leave the definitions of the student as they are.
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
         let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__, _source)\n");
-        self.enter(|vm| {
-            let scope = vm.new_scope_with_builtins();
-            let run = scope
-                .globals
-                .set_item(
-                    "_source",
-                    vm.ctx.new_str(self.accumulated_source.as_str()).into(),
-                    vm,
-                )
-                .and_then(|()| vm.run_string(scope, &code, "<doctest>"));
-            match run {
-                Ok(_) => Ok(()),
-                Err(exc) => {
-                    vm.print_exception(exc);
-                    Err(Failed)
+        let (interp, _) = self.live();
+        // The runner swaps them for each example and puts them back in a
+        // `finally`. A Stop that stays up interrupts that `finally` too, and
+        // the session would go on printing into the capture of the example.
+        let streams = interp.enter(|vm| {
+            ["stdout", "displayhook"].map(|name| vm.sys_module.get_attr(name, vm).ok())
+        });
+        let mut stopped = false;
+        let ran = host::interruptible(|| {
+            interp.enter(|vm| {
+                let scope = vm.new_scope_with_builtins();
+                let run = scope
+                    .globals
+                    .set_item(
+                        "_source",
+                        vm.ctx.new_str(self.accumulated_source.as_str()).into(),
+                        vm,
+                    )
+                    .and_then(|()| vm.run_string(scope, &code, "<doctest>"));
+                match run {
+                    Ok(_) => Ok(()),
+                    Err(exc) => {
+                        stopped = report(vm, exc);
+                        Err(Failed)
+                    }
+                }
+            })
+        });
+        interp.enter(|vm| {
+            for (name, value) in ["stdout", "displayhook"].into_iter().zip(streams) {
+                if let Some(value) = value {
+                    let _ = vm.sys_module.set_attr(name, value, vm);
                 }
             }
-        })
+        });
+        self.finish();
+        if stopped {
+            eprintln!("Interrupted.");
+        }
+        ran
     }
 
     /// The status of the `exit()` that ended the session, if one has run.
@@ -241,14 +268,20 @@ impl Repl {
         )
     }
 
-    /// Run code of the student, then end the world it left open and write out
-    /// its output, in that order, so the output comes after the last frame.
+    /// Run code of the student, where a Stop interrupts it, then call
+    /// [`Repl::finish`].
     fn enter<R>(&self, run: impl FnOnce(&vm::VirtualMachine) -> R) -> R {
         let (interp, _) = self.live();
-        let result = interp.enter(run);
-        crate::display::close_frames();
-        flush_output(interp);
+        let result = host::interruptible(|| interp.enter(run));
+        self.finish();
         result
+    }
+
+    /// End the world that the code of the student left open and write out
+    /// its output, in that order, so the output comes after the last frame.
+    fn finish(&self) {
+        crate::display::close_frames();
+        flush_output(self.live().0);
     }
 
     /// Append successfully executed source to the accumulator.
@@ -297,6 +330,7 @@ impl Repl {
         let name = format!("<python-input-{}>", self.inputs);
         self.inputs += 1;
         let (_, scope) = self.live();
+        let mut stopped = false;
         let (ran, elapsed) = self.enter(|vm| {
             let start = Instant::now();
             let ran = 'ran: {
@@ -331,7 +365,7 @@ impl Repl {
                             // an `exit("...")` that carries one.
                             Some(vm.handle_exit_exception(exc))
                         } else {
-                            vm.print_exception(exc);
+                            stopped = report(vm, exc);
                             None
                         };
                         break 'ran Ran {
@@ -349,6 +383,9 @@ impl Repl {
             };
             (ran, start.elapsed())
         });
+        if stopped {
+            eprintln!("Interrupted.");
+        }
 
         if ran.done == statements.len() && ran.exit.is_none() {
             self.append_source(&code);
@@ -375,15 +412,30 @@ impl Repl {
 /// Write out what `sys.stdout` and `sys.stderr` hold. Away from a terminal
 /// both keep a buffer, and what the REPL prints itself would come out ahead
 /// of the output of the inputs before it.
-fn flush_output(interp: &vm::Interpreter) {
-    interp.enter(|vm| {
-        for name in ["stdout", "stderr"] {
-            if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
-                // A stream the program closed or broke has nothing to write.
-                let _ = vm.call_method(&stream, "flush", ());
+pub(crate) fn flush_output(interp: &vm::Interpreter) {
+    // The stream of the student may be Python that never returns.
+    host::interruptible(|| {
+        interp.enter(|vm| {
+            for name in ["stdout", "stderr"] {
+                if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
+                    // A stream the program closed or broke has nothing to write.
+                    let _ = vm.call_method(&stream, "flush", ());
+                }
             }
-        }
+        })
     });
+}
+
+/// Writes the traceback of `exc`, which the code of the student raised,
+/// unless `exc` ended a stopped run. Returns `true` if the run was stopped,
+/// and the caller then says `Interrupted.` after it flushes the output,
+/// `false` otherwise.
+fn report(vm: &vm::VirtualMachine, exc: vm::builtins::PyBaseExceptionRef) -> bool {
+    if interrupted(vm, &exc) {
+        return true;
+    }
+    vm.print_exception(exc);
+    false
 }
 
 /// How far an input went: the number of its top-level statements that ran to
@@ -472,8 +524,19 @@ impl Drop for Repl {
         // then finalize the interpreter to release VM-owned resources.
         let scope = self.scope.take();
         if let Some(interp) = self.interp.take() {
-            interp.enter(|_| drop(scope));
-            let _ = interp.finalize(None);
+            // With a Stop still up, every atexit callback and `__del__` of
+            // the student would be interrupted, each with a traceback of its
+            // own. The page builds an instance for each load, and what this
+            // forgets goes away with the instance.
+            if host::stopped() {
+                std::mem::forget(scope);
+                std::mem::forget(interp);
+                return;
+            }
+            host::interruptible(|| {
+                interp.enter(|_| drop(scope));
+                let _ = interp.finalize(None);
+            });
         } else {
             drop(scope);
         }

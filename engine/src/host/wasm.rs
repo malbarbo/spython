@@ -7,6 +7,7 @@ mod imports {
     #[link(wasm_import_module = "env")]
     unsafe extern "C" {
         pub fn draw_svg(ptr: *const u8, len: usize);
+        pub fn check_interrupt() -> i32;
     }
 }
 
@@ -17,4 +18,20 @@ pub fn draw_svg(svg: &str, _vm: &VirtualMachine) -> PyResult<()> {
         imports::draw_svg(svg.as_ptr(), svg.len());
     }
     Ok(())
+}
+
+pub fn stopped() -> bool {
+    unsafe { imports::check_interrupt() != 0 }
+}
+
+pub fn interruptible<R>(f: impl FnOnce() -> R) -> R {
+    /// Puts the switch back as it was, even when `f` panics.
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            rustpython_vm::vm::set_interruptible(self.0);
+        }
+    }
+    let _restore = Restore(rustpython_vm::vm::set_interruptible(true));
+    f()
 }

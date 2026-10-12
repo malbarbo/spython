@@ -264,6 +264,21 @@ fn ok_simple() {
     assert_eq!(out, "3\n");
 }
 
+/// A Ctrl-C, which Python raises as `KeyboardInterrupt`, says so in a word,
+/// as a Stop on the page does, after what the program printed.
+#[test]
+fn a_keyboard_interrupt_says_interrupted() {
+    let dir = new_dir_with(
+        "interrupt",
+        &[("main.py", "print(1)\nraise KeyboardInterrupt\n")],
+    );
+    let (out, err, success) = run_spython_cmd(&["run", "main.py"], dir.path());
+    assert_eq!(
+        (out.as_str(), err.as_str(), success),
+        ("1\n", "Interrupted.\n", false)
+    );
+}
+
 #[test]
 fn test_ok() {
     let (out, err, success) = run_test(&["ok.py"], &[]);

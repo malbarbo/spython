@@ -526,7 +526,126 @@ Deno.test("interrupt stops infinite loop", async () => {
   ctx.interruptCtrl.set(true);
   const r = run(ctx, "while True:\n    pass");
   assertEquals(r.result, REPL_ERROR);
-  assertMatch(r.stderr, /KeyboardInterrupt/);
+  assertEquals(r.stderr, "Interrupted.\n");
+  destroy(ctx);
+});
+
+// The Stop of the page stays up until its next run. Each of these stops a
+// run, then takes the Stop down, as the next run does, and checks that the
+// session left behind is whole: it prints, and the displayhook draws.
+function assertWhole(ctx: ReplContext): void {
+  ctx.interruptCtrl.set(false);
+  assertEquals(run(ctx, "print(1)").stdout, "1\n");
+  const image = run(
+    ctx,
+    "from spython import circle, fill, red\ncircle(5, fill(red))",
+  );
+  assertEquals([image.stderr, image.svgs.length], ["", 1]);
+}
+
+// Raises the Stop once the program has waited `n` times.
+function stopAfterWaits(ctx: WasmContext, n: number): void {
+  const advance = ctx.room.advance.bind(ctx.room);
+  let waits = 0;
+  ctx.room.advance = (until) => {
+    advance(until);
+    if (++waits === n) ctx.interruptCtrl.set(true);
+  };
+}
+
+// A session of `source`, with `before` run on the instance first.
+async function newReplAfter(
+  source: string,
+  before: (ctx: WasmContext) => void,
+): Promise<ReplContext> {
+  const ctx = await loadWasm();
+  before(ctx);
+  const [codePtr, codeLen] = encodeString(ctx.exports, source);
+  const [cfgPtr, cfgLen] = encodeString(ctx.exports, "level=5");
+  const repl = ctx.exports.repl_new(codePtr, codeLen, cfgPtr, cfgLen);
+  ctx.exports.string_deallocate(codePtr, codeLen);
+  ctx.exports.string_deallocate(cfgPtr, cfgLen);
+  return { ...ctx, repl };
+}
+
+const SPIN = `from spython.system import sleep
+
+
+def spin() -> None:
+    while True:
+        sleep(10)
+`;
+
+Deno.test("a stop before the load starts a whole session", async () => {
+  // A click right after Run: the Stop is up while the interpreter starts,
+  // which once panicked.
+  const ctx = await newReplAfter(
+    "while True:\n    pass\n",
+    (c) => c.interruptCtrl.set(true),
+  );
+  assertEquals(ctx.repl !== 0, true);
+  assertEquals(ctx.stderr.join(""), "Interrupted.\n");
+  assertWhole(ctx);
+  destroy(ctx);
+});
+
+Deno.test("a stop during a world of the file says Interrupted", async () => {
+  // The World's `finally` is interrupted too, and the file is replaced by
+  // an empty session in the same call.
+  const ctx = await newReplAfter(
+    WORLD + "\nWorld(0, draw).on_tick(tick).run()\n",
+    (c) => stopAfterWaits(c, 3),
+  );
+  assertEquals(ctx.repl !== 0, true);
+  assertEquals(ctx.stderr.join(""), "Interrupted.\n");
+  assertWhole(ctx);
+  destroy(ctx);
+});
+
+Deno.test("the output before a stop comes out ahead of Interrupted", async () => {
+  const ctx = await newRepl(SPIN, { level: 5 });
+  stopAfterWaits(ctx, 2);
+  const r = run(ctx, "print('before')\nspin()");
+  assertEquals([r.stdout, r.stderr], ["before\n", "Interrupted.\n"]);
+  assertWhole(ctx);
+  destroy(ctx);
+});
+
+Deno.test("a stop during a doctest leaves the streams of the session", async () => {
+  // The runner captures the output of each example and puts the stream back
+  // in a `finally`, which the Stop interrupts too.
+  const source = SPIN + `
+
+def f() -> None:
+    """
+    >>> spin()
+    """
+`;
+  const ctx = await newReplAfter(source, (c) => stopAfterWaits(c, 2));
+  assertEquals(ctx.repl !== 0, true);
+  // After the runner's own lines, which name the test it was in.
+  assertEquals(ctx.stderr.join(""), "Running tests...\n  f\nInterrupted.\n");
+  assertWhole(ctx);
+  destroy(ctx);
+});
+
+Deno.test("an exception whose str never returns still stops", async () => {
+  const ctx = await newRepl(SPIN, { level: 5 });
+  stopAfterWaits(ctx, 2);
+  const r = run(
+    ctx,
+    "class E(Exception):\n    def __str__(self) -> str:\n        spin()\n" +
+      "        return ''\n\nraise E()",
+  );
+  assertEquals(r.result, REPL_ERROR);
+  assertWhole(ctx);
+  destroy(ctx);
+});
+
+Deno.test("a KeyboardInterrupt of the program says Interrupted", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  const r = run(ctx, "raise KeyboardInterrupt");
+  assertEquals([r.result, r.stderr], [REPL_ERROR, "Interrupted.\n"]);
   destroy(ctx);
 });
 
@@ -734,7 +853,7 @@ Deno.test("a stop ends animate", async () => {
   };
   const r = run(ctx, "from spython import animate\nanimate(draw)");
   assertEquals(r.result, REPL_ERROR);
-  assertEquals(r.stderr.includes("KeyboardInterrupt"), true, r.stderr);
+  assertEquals(r.stderr, "Interrupted.\n");
   destroy(ctx);
 });
 
