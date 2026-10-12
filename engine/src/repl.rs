@@ -166,8 +166,7 @@ impl Repl {
     /// session and leave the definitions of the student as they are.
     pub fn run_doctests(&mut self) -> Result<(), Failed> {
         let code = format!("{DOCTEST_RUNNER}\nimport __main__\nrun_doctests(__main__, _source)\n");
-        let (interp, _) = self.live();
-        let ran = interp.enter(|vm| {
+        self.enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let run = scope
                 .globals
@@ -184,9 +183,7 @@ impl Repl {
                     Err(Failed)
                 }
             }
-        });
-        flush_output(interp);
-        ran
+        })
     }
 
     /// The status of the `exit()` that ended the session, if one has run.

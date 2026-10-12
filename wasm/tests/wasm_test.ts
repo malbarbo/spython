@@ -741,3 +741,39 @@ Deno.test("a World after a stop opens a session of its own", async () => {
   assertEquals(second.frames.length, 4);
   destroy(ctx);
 });
+
+Deno.test("a World after a stop in a doctest opens a session of its own", async () => {
+  const source = WORLD + `
+
+def spin() -> None:
+    """
+    >>> World(0, draw).on_tick(tick).run()
+    """
+`;
+  const ctx = await loadWasm();
+  const advance = ctx.room.advance.bind(ctx.room);
+  let stopped = false;
+  ctx.room.advance = (until) => {
+    advance(until);
+    if (!stopped && ctx.room.frames.length === 2) {
+      stopped = true;
+      ctx.interruptCtrl.set(true);
+    }
+  };
+  const [codePtr, codeLen] = encodeString(ctx.exports, source);
+  const [cfgPtr, cfgLen] = encodeString(ctx.exports, "level=5");
+  const repl = ctx.exports.repl_new(codePtr, codeLen, cfgPtr, cfgLen);
+  ctx.exports.string_deallocate(codePtr, codeLen);
+  ctx.exports.string_deallocate(cfgPtr, cfgLen);
+  assertEquals(stopped, true, "the doctest ran the World");
+  assertEquals(ctx.room.sessions, 1);
+  ctx.interruptCtrl.set(false);
+  const r = run(
+    { ...ctx, repl },
+    "World(0, draw).on_tick(tick).stop_when(done).run()",
+  );
+  assertEquals(r.stderr, "");
+  assertEquals(r.frames.length, 4);
+  assertEquals(ctx.room.sessions, 2);
+  ctx.exports.repl_destroy(repl);
+});

@@ -22,6 +22,8 @@ export class FakeRoom {
   ms = 0n;
   /** The scenes of the frames that the room showed, in order. */
   readonly frames: Uint8Array[] = [];
+  /** How many sessions the engine opened. */
+  sessions = 0;
   readonly #steps: Step[];
   readonly #every: number;
   #room: Room | null = null;
@@ -77,6 +79,7 @@ export class FakeRoom {
   }
 
   #open(): void {
+    this.sessions += 1;
     this.#toEngine = [];
     this.#hungUp = false;
     const room = new Room({
