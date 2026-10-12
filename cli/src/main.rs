@@ -31,8 +31,8 @@ enum Command {
     /// Start an interactive Python REPL (default)
     #[bpaf(command)]
     Repl {
-        #[bpaf(external(level_arg), optional)]
-        level: Option<Level>,
+        #[bpaf(external(level_arg), fallback(Level::Full))]
+        level: Level,
         /// Optional Python file to execute before the REPL starts
         #[bpaf(positional("FILE"))]
         file: Option<PathBuf>,
@@ -97,7 +97,7 @@ fn cli() -> bpaf::OptionParser<Option<Command>> {
     let file = bpaf::positional::<PathBuf>("FILE");
     let file_as_run = bpaf::construct!(Command::Run { level, file });
 
-    let level = level_arg().map(Some);
+    let level = level_arg().fallback(Level::Full);
     let file = bpaf::pure(None);
     let options_as_repl = bpaf::construct!(Command::Repl { level, file });
 
@@ -144,7 +144,7 @@ fn main() -> ExitCode {
     };
 
     let result = match command.unwrap_or(Command::Repl {
-        level: None,
+        level: Level::Full,
         file: None,
     }) {
         Command::Help { command: None } => return show_help(cli(), &["--help"]),
@@ -154,8 +154,7 @@ fn main() -> ExitCode {
             command: Some(name),
         } => return show_help(crate::command().to_options(), &[&name, "--help"]),
         Command::Repl { file, level } => {
-            let cfg = config::load();
-            run_interactive(file.as_deref(), level.unwrap_or(cfg.level), cfg.theme)
+            run_interactive(file.as_deref(), level, config::load().theme)
         }
         Command::Run { file, level } => run::run_main(&file, level),
         Command::Check { file, level } => check::check_file(&file, level).map(drop),
@@ -210,12 +209,6 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
     let theme = Rc::new(Cell::new(theme));
     let mut shell = Shell::new(repl);
     shell.add(
-        ":level",
-        Some("[0-5]"),
-        "Show or change the teaching level (0-5)",
-        level_action(),
-    );
-    shell.add(
         ":theme",
         Some("[light|dark]"),
         "Show or change the theme",
@@ -235,29 +228,6 @@ fn run_interactive(file: Option<&Path>, level: Level, theme: Theme) -> Result<()
     match shell.borrow().repl().exit_status() {
         None | Some(0) => Ok(()),
         Some(_) => Err(SpythonError::ProgramFailed),
-    }
-}
-
-/// `:level` on its own says which level the REPL is on; with a number it moves
-/// to that level, which everything that has already run has to survive.
-fn level_action() -> impl FnMut(&mut Repl, &str) -> Result<(), String> {
-    move |repl, arg| {
-        if arg.is_empty() {
-            println!("level {}", repl.level());
-            return Ok(());
-        }
-        let Some(level) = arg.parse::<u8>().ok().and_then(Level::from_u8) else {
-            return Err("Invalid level: must be 0-5".to_owned());
-        };
-        if !repl.set_level(level) {
-            return Err(format!(
-                "Cannot change to level {level}: \
-                 accumulated source has errors at that level."
-            ));
-        }
-        println!("level {level}");
-        config::save_level(level);
-        Ok(())
     }
 }
 

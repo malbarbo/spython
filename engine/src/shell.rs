@@ -6,8 +6,7 @@ use crate::Level;
 use crate::completion::TabAction;
 use crate::repl::{Failed, Repl};
 
-/// What the terminal says when the session opens. The level is written the
-/// way `:level` writes it, so the two agree.
+/// What the terminal says when the session opens.
 pub fn welcome_message(level: Level) -> String {
     format!(
         "Welcome to {}, level {level}.\nType ctrl-d or \":quit\" to exit.\n",
@@ -41,8 +40,8 @@ enum Action {
     Host(HostAction),
 }
 
-/// A command of the host's. It gets the repl, because a command such as
-/// `:level` changes what the next input is checked against.
+/// A command of the host's. It gets the repl, so that a command can change
+/// the session.
 type HostAction = Box<dyn FnMut(&mut Repl, &str) -> Result<(), String>>;
 
 /// What a command takes after its name.

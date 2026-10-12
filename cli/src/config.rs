@@ -1,19 +1,14 @@
 use crate::repl_reader::Theme;
-use engine::Level;
 use std::fs;
 use std::path::PathBuf;
 
 pub struct Config {
-    pub level: Level,
     pub theme: Theme,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config {
-            level: Level::Full,
-            theme: Theme::Dark,
-        }
+        Config { theme: Theme::Dark }
     }
 }
 
@@ -36,31 +31,16 @@ pub fn load() -> Config {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
-        match key.trim() {
-            "level" => {
-                if let Some(level) = value.trim().parse::<u8>().ok().and_then(Level::from_u8) {
-                    config.level = level;
-                }
-            }
-            "theme" => {
-                if let Some(theme) = Theme::parse(value.trim()) {
-                    config.theme = theme;
-                }
-            }
-            _ => {}
+        if key.trim() == "theme"
+            && let Some(theme) = Theme::parse(value.trim())
+        {
+            config.theme = theme;
         }
     }
     config
 }
 
-/// Save the level, leaving the rest of the file as it is.
-pub fn save_level(level: Level) {
-    save("level", &(level as u8).to_string());
-}
-
-/// Save the theme, leaving the rest of the file as it is. The level of the
-/// session stays out, since a `--level` on the command line holds only for
-/// that session.
+/// Save the theme, leaving the rest of the file as it is.
 pub fn save_theme(theme: Theme) {
     save("theme", theme.name());
 }

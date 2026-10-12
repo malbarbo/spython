@@ -387,7 +387,7 @@ Deno.test(":help lists the commands, on the page too", async () => {
   assertEquals(r.result, REPL_OK);
   assertStringIncludes(r.stdout, ":type <expression>");
   assertStringIncludes(r.stdout, ":quit");
-  // :level and :theme are the terminal's, and are not registered here.
+  // :theme is the terminal's, and is not registered here.
   assertEquals(r.stdout.includes(":theme"), false);
   destroy(ctx);
 });

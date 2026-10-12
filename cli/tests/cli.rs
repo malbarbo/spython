@@ -3178,7 +3178,7 @@ fn repl_time_command_evaluates_and_shows_elapsed() {
 fn repl_help_lists_the_commands_of_both_the_engine_and_the_terminal() {
     let (out, _, success) = run_repl(":help\n");
     assert!(success);
-    for command in [":help", ":quit", ":type", ":time", ":level", ":theme"] {
+    for command in [":help", ":quit", ":type", ":time", ":theme"] {
         assert!(out.contains(command), "{command} missing from :help: {out}");
     }
 }
@@ -3187,15 +3187,13 @@ fn repl_help_lists_the_commands_of_both_the_engine_and_the_terminal() {
 /// Linux, and elsewhere the test would write the real file.
 #[cfg(target_os = "linux")]
 #[test]
-fn repl_theme_keeps_a_level_from_the_command_line_out_of_the_config() {
+fn repl_theme_changes_only_its_own_line_of_the_config() {
     let dir = new_dir_with(
         "theme_config",
         &[("spython/config", "level=2\ntheme=dark\n")],
     );
     let mut command = spython();
-    command
-        .env("XDG_CONFIG_HOME", &dir)
-        .args(["repl", "--level", "5"]);
+    command.env("XDG_CONFIG_HOME", &dir).arg("repl");
     let (_, err, success) = run_with_stdin(&mut command, b":theme light\n");
     let config = std::fs::read_to_string(dir.join("spython/config"));
     let _ = std::fs::remove_dir_all(&dir);
@@ -3257,15 +3255,15 @@ fn repl_type_error_points_into_the_input() {
 
 #[test]
 fn repl_writes_the_output_of_an_input_before_what_comes_next() {
-    // Over a pipe Python keeps its output in a buffer, and `:level` answers
+    // Over a pipe Python keeps its output in a buffer, and `:type` answers
     // from the REPL itself.
-    let (out, err, success) = run_repl("print(1)\n:level\n1 + 1\n:level\n");
+    let (out, err, success) = run_repl("print(1)\n:type 1\n1 + 1\n:type 1\n");
     assert!(success, "stderr: {err}");
-    assert_eq!(out, "1\nlevel 0 - Functions\n2\nlevel 0 - Functions\n");
+    assert_eq!(out, "1\nint\n2\nint\n");
 
-    let (out, err, success) = run_repl_after_file(":level\n", 0, "print(1)\n");
+    let (out, err, success) = run_repl_after_file(":type 1\n", 0, "print(1)\n");
     assert!(success, "stderr: {err}");
-    assert_eq!(out, "1\nlevel 0 - Functions\n");
+    assert_eq!(out, "1\nint\n");
 }
 
 #[test]

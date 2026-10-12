@@ -54,8 +54,9 @@ change is more than one, and it becomes more than one commit.
 
 - A bare file on the command line means `run`, and bare options mean `repl`.
   `cli()` in `cli/src/main.rs` reads the three as alternatives.
-- The CLI saves the level and the theme in `config_dir()/spython/config`,
-  as `key=value` lines. `--level` wins over the file. See `cli/src/config.rs`.
+- The CLI saves the theme in `config_dir()/spython/config`, as a
+  `key=value` line. The level comes from `--level` alone, and is 5 without
+  it. See `cli/src/config.rs`.
 - A program can import `dataclasses`, `enum`, `math`, `typing`, `spython`,
   and the modules beside it. `AVAILABLE_MODULES` in `engine/src/checker.rs`
   holds the four from the standard library, and the `unavailable-module`

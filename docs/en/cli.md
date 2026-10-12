@@ -211,17 +211,6 @@ str
 Time: 5 ms
 ```
 
-`:level` — Shows or changes the teaching level:
-
-```
->>> :level
-level 0 - Functions
->>> :level 3
-level 3 - Repetition
-```
-
-If the code already entered is not compatible with the new level, the change is rejected.
-
 `:theme` — Shows or changes the syntax highlighting theme (`light` or `dark`):
 
 ```
@@ -231,7 +220,7 @@ dark
 light
 ```
 
-The theme and level preferences are saved to the user's configuration directory.
+The theme is saved to the user's configuration directory.
 
 `:quit` — Exits the REPL (or `Ctrl+d`).
 
