@@ -3939,7 +3939,6 @@ dependencies = [
  "num-complex",
  "num-rational",
  "num-traits",
- "parking_lot",
  "radium 1.1.1",
  "rustpython-literal",
  "rustpython-unicode",
