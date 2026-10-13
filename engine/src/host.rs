@@ -2,8 +2,8 @@
 //! through its `env` imports, and the operating system in `native`.
 //!
 //! Each function that a target answers carries the name of the import it
-//! wraps, and Python reaches them through the `_spython_ffi` and
-//! `_spython_scene` built-in modules.
+//! wraps, and Python reaches them through the `_spython_ffi` built-in
+//! module.
 //! Both targets answer every one of them, under the name and with the meaning
 //! written here.
 
