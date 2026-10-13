@@ -322,10 +322,7 @@ impl Checker<'_> {
         let params = &func.parameters;
         // Skip the first positional parameter in a method (the implicit
         // receiver: self/cls), unless decorated with @staticmethod.
-        let is_static = func
-            .decorator_list
-            .iter()
-            .any(|d| matches!(&d.expression, Expr::Name(n) if n.id.as_str() == "staticmethod"));
+        let is_static = has_decorator_named(&func.decorator_list, &["staticmethod"]);
         let is_classmethod = has_decorator_named(&func.decorator_list, &["classmethod"]);
         let mut skip_first = self.in_class && !is_static;
         let check_names = !has_decorator_named(&func.decorator_list, &["override"]);
