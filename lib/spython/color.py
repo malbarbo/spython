@@ -1,17 +1,28 @@
-from spython._check import _between
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
+import _spython_image as _native  # type: ignore[import-not-found]
 
-class Color:
-    def __init__(
-        self, r: int, g: int, b: int, a: float = 1.0, _none: bool = False
-    ) -> None:
-        _between(0, 255, r=r, g=g, b=b)
-        _between(0.0, 1.0, a=a)
-        self.r: int = r
-        self.g: int = g
-        self.b: int = b
-        self.a: float = a
-        self._none: bool = _none
+# The class lives in `_spython_image`, which ty cannot read, so ty reads this
+# declaration instead.
+if _TYPE_CHECKING:
+
+    class Color:
+        def __init__(self, r: int, g: int, b: int, a: float = 1.0) -> None: ...
+
+        @property
+        def r(self) -> int: ...
+
+        @property
+        def g(self) -> int: ...
+
+        @property
+        def b(self) -> int: ...
+
+        @property
+        def a(self) -> float: ...
+
+else:
+    Color = _native.Color
 
 
 def rgb(r: int, g: int, b: int) -> Color:
@@ -22,7 +33,7 @@ def rgba(r: int, g: int, b: int, a: float) -> Color:
     return Color(r, g, b, a)
 
 
-NONE: Color = Color(0, 0, 0, 0.0, _none=True)
+NONE: Color = Color(0, 0, 0, 0.0)
 
 aliceblue: Color = Color(240, 248, 255, 1.0)
 antiquewhite: Color = Color(250, 235, 215, 1.0)

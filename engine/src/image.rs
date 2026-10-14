@@ -9,12 +9,12 @@ pub(crate) use _spython_image::{PyImage, module_def};
 pub(crate) mod _spython_image {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use rustpython_vm::builtins::PyBaseExceptionRef;
-    use rustpython_vm::function::ArgIntoFloat;
-    use rustpython_vm::types::PyComparisonOp;
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyType};
+    use rustpython_vm::function::{ArgIntoFloat, OptionalArg};
+    use rustpython_vm::types::{Constructor, PyComparisonOp};
     use rustpython_vm::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-        pyclass,
+        AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine, pyclass,
     };
     use sinteract::image::{
         AngleSumError, AtLeast, Attribute, BitmapError, Color, CurveEnd, Factor, FactorError,
@@ -194,84 +194,250 @@ pub(crate) mod _spython_image {
         images.into_iter().map(|i| i.0.clone())
     }
 
-    /// A `Style` of `spython.style`.
-    fn style(style: &PyObject, vm: &VirtualMachine) -> PyResult<Style> {
-        let attributes = vm.extract_elements_with(&*style.get_attr("attrs", vm)?, |attr| {
-            let value = || attr.get_attr("value", vm);
-            let class = attr.class().name().to_owned();
-            Ok(match class.as_str() {
-                "_Fill" => Attribute::Fill(color(&*attr.get_attr("color", vm)?, vm)?),
-                "_FillOpacity" => Attribute::FillOpacity(opacity("opacity", &*value()?, vm)?),
-                "_FillRule" => Attribute::FillRule(match enum_value(&*value()?, vm)?.as_str() {
-                    "evenodd" => FillRule::EvenOdd,
-                    _ => FillRule::NonZero,
-                }),
-                "_Stroke" => Attribute::Stroke(color(&*attr.get_attr("color", vm)?, vm)?),
-                "_StrokeWidth" => Attribute::StrokeWidth(length("width", &*value()?, vm)?),
-                "_StrokeOpacity" => Attribute::StrokeOpacity(opacity("opacity", &*value()?, vm)?),
-                "_StrokeDashArray" => {
-                    let values = attr.get_attr("values", vm)?;
-                    let values =
-                        vm.extract_elements_with(&values, |v| length("dash_array", &v, vm))?;
-                    Attribute::StrokeDashArray(values.into())
-                }
-                "_StrokeLineCap" => {
-                    Attribute::StrokeLineCap(match enum_value(&*value()?, vm)?.as_str() {
-                        "round" => LineCap::Round,
-                        "square" => LineCap::Square,
-                        _ => LineCap::Butt,
-                    })
-                }
-                "_StrokeLineJoin" => {
-                    Attribute::StrokeLineJoin(match enum_value(&*value()?, vm)?.as_str() {
-                        "round" => LineJoin::Round,
-                        "bevel" => LineJoin::Bevel,
-                        _ => LineJoin::Miter,
-                    })
-                }
-                _ => return Err(vm.new_type_error(format!("unknown style {class}"))),
-            })
-        })?;
-        Ok(Style::new(attributes))
-    }
-
-    /// A `Color` of `spython.color`.
-    fn color(c: &PyObject, vm: &VirtualMachine) -> PyResult<Color> {
-        if c.get_attr("_none", vm)?.try_to_bool(vm)? {
-            return Ok(Color::NONE);
-        }
-        let channel = |name: &'static str| -> PyResult<u8> {
-            let v = c.get_attr(name, vm)?;
-            let n = v.try_index(vm)?;
-            u8::try_from(n.as_bigint()).map_err(|_| error(name, "be between 0 and 255", &v, vm))
-        };
-        let a = opacity("a", &*c.get_attr("a", vm)?, vm)?;
-        Ok(Color::rgba(channel("r")?, channel("g")?, channel("b")?, a))
-    }
-
-    /// A `Font` of `spython.font`.
-    fn font(f: &PyObject, vm: &VirtualMachine) -> PyResult<Font> {
-        let family = String::try_from_object(vm, f.get_attr("family", vm)?)?;
-        Ok(Font {
-            family: family.into(),
-            size: length("size", &*f.get_attr("size", vm)?, vm)?,
-            style: match enum_value(&*f.get_attr("style", vm)?, vm)?.as_str() {
-                "italic" => FontStyle::Italic,
-                "oblique" => FontStyle::Oblique,
-                _ => FontStyle::Normal,
-            },
-            weight: match enum_value(&*f.get_attr("weight", vm)?, vm)?.as_str() {
-                "lighter" => FontWeight::Light,
-                "bold" => FontWeight::Bold,
-                _ => FontWeight::Regular,
-            },
-            underline: f.get_attr("underline", vm)?.try_to_bool(vm)?,
-        })
-    }
-
-    /// The `value` of an `Enum`.
+    /// The `value` of an `Enum` of `spython`.
     fn enum_value(e: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
         String::try_from_object(vm, e.get_attr("value", vm)?)
+    }
+
+    /// The member of the `Enum` `name` of `spython.font` with `value`.
+    fn font_enum(name: &'static str, value: &str, vm: &VirtualMachine) -> PyResult {
+        let module = vm.import("spython.font", 0)?;
+        module.get_attr(name, vm)?.call((value.to_owned(),), vm)
+    }
+
+    // Color
+
+    #[pyattr]
+    #[pyclass(name = "Color")]
+    #[derive(Debug, PyPayload)]
+    pub struct PyColor(Color);
+
+    #[derive(FromArgs)]
+    pub struct ColorArgs {
+        #[pyarg(any)]
+        r: PyObjectRef,
+        #[pyarg(any)]
+        g: PyObjectRef,
+        #[pyarg(any)]
+        b: PyObjectRef,
+        #[pyarg(any, optional)]
+        a: OptionalArg<PyObjectRef>,
+    }
+
+    impl Constructor for PyColor {
+        type Args = ColorArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let channel = |name: &str, v: &PyObject| -> PyResult<u8> {
+                let n = v.try_index(vm)?;
+                u8::try_from(n.as_bigint()).map_err(|_| error(name, "be between 0 and 255", v, vm))
+            };
+            let (r, g, b) = (
+                channel("r", &args.r)?,
+                channel("g", &args.g)?,
+                channel("b", &args.b)?,
+            );
+            let a = match args.a {
+                OptionalArg::Present(a) => opacity("a", &a, vm)?,
+                OptionalArg::Missing => Opacity::OPAQUE,
+            };
+            Ok(PyColor(Color::rgba(r, g, b, a)))
+        }
+    }
+
+    #[pyclass(with(Constructor))]
+    impl PyColor {
+        #[pygetset]
+        fn r(&self) -> u8 {
+            self.0.r
+        }
+
+        #[pygetset]
+        fn g(&self) -> u8 {
+            self.0.g
+        }
+
+        #[pygetset]
+        fn b(&self) -> u8 {
+            self.0.b
+        }
+
+        #[pygetset]
+        fn a(&self) -> f64 {
+            self.0.a.get()
+        }
+    }
+
+    type ColorRef = PyRef<PyColor>;
+
+    // Font
+
+    #[pyattr]
+    #[pyclass(name = "Font")]
+    #[derive(Debug, PyPayload)]
+    pub struct PyFont(Font);
+
+    #[derive(FromArgs)]
+    pub struct FontArgs {
+        #[pyarg(named, optional)]
+        family: OptionalArg<String>,
+        #[pyarg(named, optional)]
+        size: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        style: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        weight: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        underline: OptionalArg<bool>,
+    }
+
+    impl Constructor for PyFont {
+        type Args = FontArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let mut font = Font::default();
+            if let OptionalArg::Present(family) = args.family {
+                font.family = family.into();
+            }
+            if let OptionalArg::Present(size) = args.size {
+                font.size = length("size", &size, vm)?;
+            }
+            if let OptionalArg::Present(style) = args.style {
+                font.style = match enum_value(&style, vm)?.as_str() {
+                    "italic" => FontStyle::Italic,
+                    "oblique" => FontStyle::Oblique,
+                    _ => FontStyle::Normal,
+                };
+            }
+            if let OptionalArg::Present(weight) = args.weight {
+                font.weight = match enum_value(&weight, vm)?.as_str() {
+                    "lighter" => FontWeight::Light,
+                    "bold" => FontWeight::Bold,
+                    _ => FontWeight::Regular,
+                };
+            }
+            if let OptionalArg::Present(underline) = args.underline {
+                font.underline = underline;
+            }
+            Ok(PyFont(font))
+        }
+    }
+
+    #[pyclass(with(Constructor))]
+    impl PyFont {
+        #[pygetset]
+        fn family(&self) -> String {
+            self.0.family.to_string()
+        }
+
+        #[pygetset]
+        fn size(&self) -> f64 {
+            self.0.size.get()
+        }
+
+        #[pygetset]
+        fn style(&self, vm: &VirtualMachine) -> PyResult {
+            let value = match self.0.style {
+                FontStyle::Normal => "normal",
+                FontStyle::Italic => "italic",
+                FontStyle::Oblique => "oblique",
+            };
+            font_enum("FontStyle", value, vm)
+        }
+
+        #[pygetset]
+        fn weight(&self, vm: &VirtualMachine) -> PyResult {
+            let value = match self.0.weight {
+                FontWeight::Light => "lighter",
+                FontWeight::Regular => "normal",
+                FontWeight::Bold => "bold",
+            };
+            font_enum("FontWeight", value, vm)
+        }
+
+        #[pygetset]
+        fn underline(&self) -> bool {
+            self.0.underline
+        }
+    }
+
+    // Style
+
+    #[pyattr]
+    #[pyclass(name = "Style")]
+    #[derive(Debug, PyPayload)]
+    pub struct PyStyle(Style);
+
+    #[pyclass]
+    impl PyStyle {}
+
+    type StyleRef = PyRef<PyStyle>;
+
+    #[pyfunction]
+    fn join(styles: Vec<StyleRef>) -> PyStyle {
+        PyStyle(Style::join(styles.iter().map(|s| &s.0)))
+    }
+
+    #[pyfunction]
+    fn fill(
+        c: ColorRef,
+        opacity: Option<PyObjectRef>,
+        rule: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStyle> {
+        let mut attributes = vec![Attribute::Fill(c.0)];
+        if let Some(v) = opacity {
+            attributes.push(Attribute::FillOpacity(self::opacity("opacity", &v, vm)?));
+        }
+        if let Some(rule) = rule {
+            attributes.push(Attribute::FillRule(match enum_value(&rule, vm)?.as_str() {
+                "evenodd" => FillRule::EvenOdd,
+                _ => FillRule::NonZero,
+            }));
+        }
+        Ok(PyStyle(Style::new(attributes)))
+    }
+
+    #[pyfunction]
+    fn stroke(
+        c: ColorRef,
+        width: Option<PyObjectRef>,
+        opacity: Option<PyObjectRef>,
+        dash_array: Option<Vec<PyObjectRef>>,
+        linecap: Option<PyObjectRef>,
+        linejoin: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStyle> {
+        let mut attributes = vec![Attribute::Stroke(c.0)];
+        if let Some(v) = width {
+            attributes.push(Attribute::StrokeWidth(length("width", &v, vm)?));
+        }
+        if let Some(v) = opacity {
+            attributes.push(Attribute::StrokeOpacity(self::opacity("opacity", &v, vm)?));
+        }
+        if let Some(values) = dash_array {
+            let values = values.iter().map(|v| length("dash_array", v, vm));
+            attributes.push(Attribute::StrokeDashArray(values.collect::<PyResult<_>>()?));
+        }
+        if let Some(cap) = linecap {
+            attributes.push(Attribute::StrokeLineCap(
+                match enum_value(&cap, vm)?.as_str() {
+                    "round" => LineCap::Round,
+                    "square" => LineCap::Square,
+                    _ => LineCap::Butt,
+                },
+            ));
+        }
+        if let Some(join) = linejoin {
+            attributes.push(Attribute::StrokeLineJoin(
+                match enum_value(&join, vm)?.as_str() {
+                    "round" => LineJoin::Round,
+                    "bevel" => LineJoin::Bevel,
+                    _ => LineJoin::Miter,
+                },
+            ));
+        }
+        Ok(PyStyle(Style::new(attributes)))
     }
 
     // Path
@@ -339,11 +505,11 @@ pub(crate) mod _spython_image {
     fn path(
         commands: Vec<PyRef<PyPathCmd>>,
         closed: bool,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let commands: Vec<PathCmd> = commands.iter().map(|c| c.0).collect();
-        image(Image::path(commands, closed, style(&s, vm)?), vm)
+        image(Image::path(commands, closed, s.0.clone()), vm)
     }
 
     // Shapes
@@ -357,74 +523,69 @@ pub(crate) mod _spython_image {
     fn rectangle(
         w: PyObjectRef,
         h: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
-        Ok(PyImage(Image::rectangle(w, h, style(&s, vm)?)))
+        Ok(PyImage(Image::rectangle(w, h, s.0.clone())))
     }
 
     #[pyfunction]
-    fn square(side: PyObjectRef, s: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn square(side: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let side = length("side", &side, vm)?;
-        Ok(PyImage(Image::square(side, style(&s, vm)?)))
+        Ok(PyImage(Image::square(side, s.0.clone())))
     }
 
     #[pyfunction]
     fn ellipse(
         w: PyObjectRef,
         h: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
-        image(Image::ellipse(w, h, style(&s, vm)?), vm)
+        image(Image::ellipse(w, h, s.0.clone()), vm)
     }
 
     #[pyfunction]
-    fn circle(radius: PyObjectRef, s: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn circle(radius: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let radius = length("radius", &radius, vm)?;
-        image(Image::circle(radius, style(&s, vm)?), vm)
+        image(Image::circle(radius, s.0.clone()), vm)
     }
 
     #[pyfunction]
-    fn line(
-        x: PyObjectRef,
-        y: PyObjectRef,
-        s: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyImage> {
+    fn line(x: PyObjectRef, y: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let (x, y) = (finite("x", &x, vm)?, finite("y", &y, vm)?);
-        Ok(PyImage(Image::line(x, y, style(&s, vm)?)))
+        Ok(PyImage(Image::line(x, y, s.0.clone())))
     }
 
     #[pyfunction]
-    fn triangle(side: PyObjectRef, s: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn triangle(side: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let side = length("side", &side, vm)?;
-        Ok(PyImage(Image::triangle(side, style(&s, vm)?)))
+        Ok(PyImage(Image::triangle(side, s.0.clone())))
     }
 
     #[pyfunction]
     fn right_triangle(
         side1: PyObjectRef,
         side2: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (side1, side2) = (length("side1", &side1, vm)?, length("side2", &side2, vm)?);
-        Ok(PyImage(Image::right_triangle(side1, side2, style(&s, vm)?)))
+        Ok(PyImage(Image::right_triangle(side1, side2, s.0.clone())))
     }
 
     #[pyfunction]
     fn isosceles_triangle(
         side_length: PyObjectRef,
         angle: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
         let angle = finite("angle", &angle, vm)?;
-        image(Image::isosceles_triangle(side, angle, style(&s, vm)?), vm)
+        image(Image::isosceles_triangle(side, angle, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -432,13 +593,13 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         side_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
         let b = length("side_b", &side_b, vm)?;
         let c = length("side_c", &side_c, vm)?;
-        Image::triangle_sss(a, b, c, style(&s, vm)?)
+        Image::triangle_sss(a, b, c, s.0.clone())
             .map(PyImage)
             .map_err(|e| match e {
                 TriangleSidesError::TooLong => {
@@ -460,13 +621,13 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         angle_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
         let angle_b = triangle_angle("angle_b", &angle_b, vm)?;
         let c = length("side_c", &side_c, vm)?;
-        image(Image::triangle_sas(a, angle_b, c, style(&s, vm)?), vm)
+        image(Image::triangle_sas(a, angle_b, c, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -474,13 +635,13 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         side_b: PyObjectRef,
         angle_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
         let b = length("side_b", &side_b, vm)?;
         let angle_c = triangle_angle("angle_c", &angle_c, vm)?;
-        image(Image::triangle_ssa(a, b, angle_c, style(&s, vm)?), vm)
+        image(Image::triangle_ssa(a, b, angle_c, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -488,13 +649,13 @@ pub(crate) mod _spython_image {
         angle_a: PyObjectRef,
         side_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let angle_a = triangle_angle("angle_a", &angle_a, vm)?;
         let b = length("side_b", &side_b, vm)?;
         let c = length("side_c", &side_c, vm)?;
-        image(Image::triangle_ass(angle_a, b, c, style(&s, vm)?), vm)
+        image(Image::triangle_ass(angle_a, b, c, s.0.clone()), vm)
     }
 
     /// The error of a triangle from the two angles `first` and `second`.
@@ -521,13 +682,13 @@ pub(crate) mod _spython_image {
         angle_a: PyObjectRef,
         angle_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = triangle_angle("angle_a", &angle_a, vm)?;
         let b = triangle_angle("angle_b", &angle_b, vm)?;
         let c = length("side_c", &side_c, vm)?;
-        Image::triangle_aas(a, b, c, style(&s, vm)?)
+        Image::triangle_aas(a, b, c, s.0.clone())
             .map(PyImage)
             .map_err(|e| angle_sum(e, ("angle_a", &angle_a), ("angle_b", &angle_b), vm))
     }
@@ -537,13 +698,13 @@ pub(crate) mod _spython_image {
         angle_a: PyObjectRef,
         side_b: PyObjectRef,
         angle_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = triangle_angle("angle_a", &angle_a, vm)?;
         let b = length("side_b", &side_b, vm)?;
         let c = triangle_angle("angle_c", &angle_c, vm)?;
-        Image::triangle_asa(a, b, c, style(&s, vm)?)
+        Image::triangle_asa(a, b, c, s.0.clone())
             .map(PyImage)
             .map_err(|e| angle_sum(e, ("angle_a", &angle_a), ("angle_c", &angle_c), vm))
     }
@@ -553,13 +714,13 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         angle_b: PyObjectRef,
         angle_c: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
         let b = triangle_angle("angle_b", &angle_b, vm)?;
         let c = triangle_angle("angle_c", &angle_c, vm)?;
-        Image::triangle_saa(a, b, c, style(&s, vm)?)
+        Image::triangle_saa(a, b, c, s.0.clone())
             .map(PyImage)
             .map_err(|e| angle_sum(e, ("angle_b", &angle_b), ("angle_c", &angle_c), vm))
     }
@@ -568,30 +729,30 @@ pub(crate) mod _spython_image {
     fn rhombus(
         side_length: PyObjectRef,
         angle: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
         let angle = finite("angle", &angle, vm)?;
-        image(Image::rhombus(side, angle, style(&s, vm)?), vm)
+        image(Image::rhombus(side, angle, s.0.clone()), vm)
     }
 
     #[pyfunction]
     fn regular_polygon(
         side_length: PyObjectRef,
         side_count: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
         let n = count("side_count", &side_count, vm)?;
-        image(Image::regular_polygon(side, n, style(&s, vm)?), vm)
+        image(Image::regular_polygon(side, n, s.0.clone()), vm)
     }
 
     #[pyfunction]
-    fn polygon(pts: Vec<PyObjectRef>, s: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn polygon(pts: Vec<PyObjectRef>, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let pts = points(pts, vm)?;
-        image(Image::polygon(&pts, style(&s, vm)?), vm)
+        image(Image::polygon(&pts, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -599,13 +760,13 @@ pub(crate) mod _spython_image {
         side_length: PyObjectRef,
         side_count: PyObjectRef,
         step_count: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
         let n = count("side_count", &side_count, vm)?;
         let step = count("step_count", &step_count, vm)?;
-        Image::star_polygon(side, n, step, style(&s, vm)?)
+        Image::star_polygon(side, n, step, s.0.clone())
             .map(PyImage)
             .map_err(|e| match e {
                 StarPolygonError::CommonDivisor => vm.new_value_error(format!(
@@ -618,9 +779,9 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn star(side_length: PyObjectRef, s: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn star(side_length: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        image(Image::star(side, style(&s, vm)?), vm)
+        image(Image::star(side, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -628,13 +789,13 @@ pub(crate) mod _spython_image {
         point_count: PyObjectRef,
         inner_radius: PyObjectRef,
         outer_radius: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let n = count("point_count", &point_count, vm)?;
         let inner = length("inner_radius", &inner_radius, vm)?;
         let outer = length("outer_radius", &outer_radius, vm)?;
-        image(Image::radial_star(n, inner, outer, style(&s, vm)?), vm)
+        image(Image::radial_star(n, inner, outer, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -643,7 +804,7 @@ pub(crate) mod _spython_image {
         side_count: PyObjectRef,
         pull: PyObjectRef,
         angle: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
@@ -651,7 +812,7 @@ pub(crate) mod _spython_image {
         let pull = finite("pull", &pull, vm)?;
         let angle = finite("angle", &angle, vm)?;
         image(
-            Image::pulled_regular_polygon(side, n, pull, angle, style(&s, vm)?),
+            Image::pulled_regular_polygon(side, n, pull, angle, s.0.clone()),
             vm,
         )
     }
@@ -660,17 +821,17 @@ pub(crate) mod _spython_image {
     fn wedge(
         radius: PyObjectRef,
         angle: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let radius = length("radius", &radius, vm)?;
         let angle = wedge_angle(&angle, vm)?;
-        image(Image::wedge(radius, angle, style(&s, vm)?), vm)
+        image(Image::wedge(radius, angle, s.0.clone()), vm)
     }
 
     #[pyfunction]
-    fn text(txt: String, f: PyObjectRef, s: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
-        Ok(PyImage(Image::text(&txt, font(&f, vm)?, style(&s, vm)?)))
+    fn text(txt: String, f: PyRef<PyFont>, s: StyleRef) -> PyImage {
+        PyImage(Image::text(&txt, f.0.clone(), s.0.clone()))
     }
 
     #[pyfunction]
@@ -740,8 +901,8 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn frame(img: ImageRef, c: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
-        Ok(PyImage(img.0.frame(color(&c, vm)?)))
+    fn frame(img: ImageRef, c: ColorRef) -> PyImage {
+        PyImage(img.0.frame(c.0))
     }
 
     #[pyfunction]
@@ -842,11 +1003,11 @@ pub(crate) mod _spython_image {
     fn empty_scene(
         w: PyObjectRef,
         h: PyObjectRef,
-        c: PyObjectRef,
+        c: ColorRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
-        Ok(PyImage(Image::empty_scene(w, h, color(&c, vm)?)))
+        Ok(PyImage(Image::empty_scene(w, h, c.0)))
     }
 
     #[pyfunction]
@@ -904,23 +1065,23 @@ pub(crate) mod _spython_image {
         y1: PyObjectRef,
         x2: PyObjectRef,
         y2: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let from = point(&x1, &y1, ("x1", "y1"), vm)?;
         let to = point(&x2, &y2, ("x2", "y2"), vm)?;
-        image(scene.0.place_line(from, to, style(&s, vm)?), vm)
+        image(scene.0.place_line(from, to, s.0.clone()), vm)
     }
 
     #[pyfunction]
     fn place_polygon(
         scene: ImageRef,
         pts: Vec<PyObjectRef>,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let pts = points(pts, vm)?;
-        image(scene.0.place_polygon(&pts, style(&s, vm)?), vm)
+        image(scene.0.place_polygon(&pts, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -928,11 +1089,11 @@ pub(crate) mod _spython_image {
         scene: ImageRef,
         from: PyObjectRef,
         to: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (from, to) = (curve_end(from, 1, vm)?, curve_end(to, 2, vm)?);
-        image(scene.0.place_curve(from, to, style(&s, vm)?), vm)
+        image(scene.0.place_curve(from, to, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -942,16 +1103,13 @@ pub(crate) mod _spython_image {
         y: PyObjectRef,
         radius: PyObjectRef,
         angle: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let center = point(&x, &y, ("x", "y"), vm)?;
         let radius = length("radius", &radius, vm)?;
         let angle = wedge_angle(&angle, vm)?;
-        image(
-            scene.0.place_wedge(center, radius, angle, style(&s, vm)?),
-            vm,
-        )
+        image(scene.0.place_wedge(center, radius, angle, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -961,23 +1119,23 @@ pub(crate) mod _spython_image {
         y1: PyObjectRef,
         x2: PyObjectRef,
         y2: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let from = point(&x1, &y1, ("x1", "y1"), vm)?;
         let to = point(&x2, &y2, ("x2", "y2"), vm)?;
-        image(img.0.add_line(from, to, style(&s, vm)?), vm)
+        image(img.0.add_line(from, to, s.0.clone()), vm)
     }
 
     #[pyfunction]
     fn add_polygon(
         img: ImageRef,
         pts: Vec<PyObjectRef>,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let pts = points(pts, vm)?;
-        image(img.0.add_polygon(&pts, style(&s, vm)?), vm)
+        image(img.0.add_polygon(&pts, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -985,11 +1143,11 @@ pub(crate) mod _spython_image {
         img: ImageRef,
         from: PyObjectRef,
         to: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (from, to) = (curve_end(from, 1, vm)?, curve_end(to, 2, vm)?);
-        image(img.0.add_curve(from, to, style(&s, vm)?), vm)
+        image(img.0.add_curve(from, to, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -997,11 +1155,11 @@ pub(crate) mod _spython_image {
         img: ImageRef,
         from: PyObjectRef,
         to: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (from, to) = (curve_end(from, 1, vm)?, curve_end(to, 2, vm)?);
-        image(img.0.add_solid_curve(from, to, style(&s, vm)?), vm)
+        image(img.0.add_solid_curve(from, to, s.0.clone()), vm)
     }
 
     #[pyfunction]
@@ -1011,13 +1169,13 @@ pub(crate) mod _spython_image {
         y: PyObjectRef,
         radius: PyObjectRef,
         angle: PyObjectRef,
-        s: PyObjectRef,
+        s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let center = point(&x, &y, ("x", "y"), vm)?;
         let radius = length("radius", &radius, vm)?;
         let angle = wedge_angle(&angle, vm)?;
-        image(img.0.add_wedge(center, radius, angle, style(&s, vm)?), vm)
+        image(img.0.add_wedge(center, radius, angle, s.0.clone()), vm)
     }
 
     // Svg
