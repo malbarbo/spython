@@ -11,8 +11,8 @@ ruff_notebook = { git = "https://github.com/malbarbo/ruff.git", branch = "spytho
 dirs = { package = "dirs-next", version = "2.0" }
 dunce = "1"
 walkdir = "2"
-# The display of a World and of animate, the image that the REPL prints,
-# the svg of an image, the image of a bitmap, and the measure of a text.
+# The image model of spython, the display of a World and of animate, and
+# the image that the REPL prints.
 sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master" }
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(windows)))'.dependencies]
@@ -24,8 +24,8 @@ rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spy
 # On wasm32, drop features that don't work (host_env, threading, ssl).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
-# The image of a bitmap, the svg of an image, and the measure of a text.
-sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master", default-features = false }
+# The image model of spython, with its svg.
+sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master", default-features = false, features = ["image"] }
 
 [lints]
 workspace = true

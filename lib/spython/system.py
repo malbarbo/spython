@@ -20,13 +20,6 @@ try:
 except ImportError:
     _open_printer = None
 
-from _spython_scene import (  # type: ignore[import-not-found]
-    load_image,
-    path_box,
-    text_metrics,
-    to_svg as scene_svg,
-)
-
 
 def install_displayhook() -> None:
     _original_displayhook = sys.displayhook
@@ -37,7 +30,7 @@ def install_displayhook() -> None:
 
     def _displayhook(value: object) -> None:
         nonlocal printer, opened
-        from spython.image import Image as _Image, _repl_canvas_size, _to_repl_svg
+        from spython.image import Image as _Image, _to_repl_svg
 
         if not isinstance(value, _Image):
             _original_displayhook(value)
@@ -50,7 +43,7 @@ def install_displayhook() -> None:
                 opened = True
             # A terminal with no graphics, or one that a display holds,
             # prints the image as any other value.
-            if printer is None or not printer.show(value, *_repl_canvas_size(value)):  # type: ignore[attr-defined]
+            if printer is None or not printer.show(value):  # type: ignore[attr-defined]
                 _original_displayhook(value)
                 return
         builtins._ = value  # type: ignore[attr-defined]

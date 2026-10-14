@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 from _spython_display import Display  # type: ignore[import-not-found]
 
-from spython.image import Image, _canvas_size
+from spython.image import Image
 from spython.system import now_ms
 
 KEYPRESS: int = 0
@@ -114,8 +114,7 @@ def _next_deadline(deadline: int, now: int, period_ms: int) -> int:
 
 
 def _show(display: object, image: Image) -> None:
-    w, h = _canvas_size(image)
-    display.show(image, w, h)  # type: ignore[attr-defined]
+    display.show(image)  # type: ignore[attr-defined]
 
 
 def animate(create_image: Callable[[int], Image]) -> None:

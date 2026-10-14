@@ -1,8 +1,8 @@
 //! The `_spython_display` module: the display that a World draws into, over
 //! [`sinteract::display::Frames`], which is a window, the terminal, or a
 //! session with a server, and natively a printer of images in the terminal. Both draw
-//! the [`Scene`] that [`crate::scene::draw`] builds, so Python never holds a
-//! scene that is half built.
+//! the [`Scene`] of an `Image`, so Python never holds a scene that is half
+//! built.
 
 pub(crate) use _spython_display::module_def;
 
@@ -23,15 +23,14 @@ mod _spython_display {
     use rustpython_vm::builtins::PyType;
     #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::common::lock::PyMutex;
-    use rustpython_vm::function::ArgIntoFloat;
     use rustpython_vm::types::Constructor;
-    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine, pyclass};
+    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, pyclass};
     use sinteract::display::{FrameEvent, Frames, StageOptions};
     #[cfg(not(target_arch = "wasm32"))]
     use sinteract::display::{PrintError, Printer, TerminalOptions};
     use sinteract::scene::Scene;
 
-    use crate::scene::draw;
+    use crate::image::PyImage;
 
     /// The kind of the close in what `wait_event` returns, first in its
     /// tuple. A key keeps the number of its
@@ -75,19 +74,17 @@ mod _spython_display {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyclass]
     impl PyPrinter {
-        /// Print `image` at the cursor, on a scene of `width` by `height`.
-        /// Returns `True` if it printed, and `False` while a display holds
-        /// the terminal.
+        /// Print `image` at the cursor, on the canvas that a repl shows it
+        /// on. Returns `True` if it printed, and `False` while a display
+        /// holds the terminal.
         #[pymethod]
-        fn show(
-            &self,
-            image: PyObjectRef,
-            width: ArgIntoFloat,
-            height: ArgIntoFloat,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
-            let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
-            draw(&image, &mut scene, vm)?;
+        fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
+            let (w, h) = image
+                .0
+                .repl_canvas_size()
+                .map_err(|e| vm.new_value_error(e.to_string()))?;
+            let mut scene = Scene::new(w, h);
+            image.0.draw(&mut scene);
             match self.inner.lock().print(&scene) {
                 Ok(()) => Ok(true),
                 Err(PrintError::Busy) => Ok(false),
@@ -187,19 +184,16 @@ mod _spython_display {
             Ok(vm.ctx.new_tuple(elements).into())
         }
 
-        /// Show `image`, an `Image` of `spython.image`, on a scene of
-        /// `width` by `height`, at the next frame of the display. The first
-        /// call opens the display.
+        /// Show `image` on its canvas at the next frame of the display. The
+        /// first call opens the display.
         #[pymethod]
-        fn show(
-            &self,
-            image: PyObjectRef,
-            width: ArgIntoFloat,
-            height: ArgIntoFloat,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
-            draw(&image, &mut scene, vm)?;
+        fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<()> {
+            let (w, h) = image
+                .0
+                .canvas_size()
+                .map_err(|e| vm.new_value_error(e.to_string()))?;
+            let mut scene = Scene::new(w, h);
+            image.0.draw(&mut scene);
             FRAMES
                 .with_borrow_mut(|frames| frames.show(scene))
                 .map_err(|e| vm.new_runtime_error(e.to_string()))

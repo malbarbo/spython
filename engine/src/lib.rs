@@ -7,12 +7,12 @@ pub mod error;
 pub mod ffi;
 pub mod format;
 pub mod host;
+mod image;
 pub mod input;
 pub mod lints;
 pub mod panic;
 pub mod repl;
 pub mod run;
-mod scene;
 pub mod shell;
 pub mod spython_lib;
 
