@@ -18,7 +18,7 @@ pub(crate) mod _spython_scene {
     };
     use sinteract::asset::{ImageError, decode_data_uri};
     use sinteract::renderer::Renderer;
-    use sinteract::renderer::svg::SvgRenderer;
+    use sinteract::renderer::svg::{IdPrefix, SvgRenderer};
     use sinteract::scene::{
         Bitmap, ClipPath, Dash, FillRule, FontStyle, Image, LineCap, LineJoin, Paint, Path,
         PathBounds, PathBuilder, PathStyle, Sampling, Scene, Text, TextSpec,
@@ -60,7 +60,8 @@ pub(crate) mod _spython_scene {
         let mut scene = Scene::new(f64::from(width) as f32, f64::from(height) as f32);
         draw(&image, &mut scene, vm)?;
         let prefix = format!("s{}-", NEXT_SVG.fetch_add(1, Ordering::Relaxed));
-        let mut renderer = SvgRenderer::with_id_prefix(&prefix).expect("a valid id prefix");
+        let prefix = IdPrefix::new(&prefix).expect("a valid id prefix");
+        let mut renderer = SvgRenderer::with_id_prefix(prefix);
         let Ok(_) = renderer.render(&scene);
         Ok(renderer.into_string())
     }
