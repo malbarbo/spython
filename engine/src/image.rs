@@ -1037,7 +1037,7 @@ pub(crate) mod _spython_image {
     #[pyfunction]
     fn place_images(
         scene: ImageRef,
-        positions: Vec<PyObjectRef>,
+        mut positions: Vec<PyObjectRef>,
         imgs: Vec<ImageRef>,
         xp: PyObjectRef,
         yp: PyObjectRef,
@@ -1045,8 +1045,8 @@ pub(crate) mod _spython_image {
     ) -> PyResult<PyImage> {
         let (xp, yp) = (x_place(&xp, vm)?, y_place(&yp, vm)?);
         // As zip does, the shorter list sets how many images go.
-        let n = positions.len().min(imgs.len());
-        let at = points(positions.into_iter().take(n).collect(), vm)?;
+        positions.truncate(imgs.len());
+        let at = points(positions, vm)?;
         image(
             scene
                 .0
