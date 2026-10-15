@@ -54,12 +54,6 @@ class Point:
         self.y: float = float(y)
 
 
-def _xy(p: Point | tuple[float, float]) -> tuple[float, float]:
-    if isinstance(p, Point):
-        return (p.x, p.y)
-    return (p[0], p[1])
-
-
 # **************************
 # * Image
 # **************************
@@ -243,7 +237,7 @@ def regular_polygon(side_length: float, side_count: int, *style_args: Style) -> 
 def polygon(
     points: _Sequence[Point | tuple[float, float]], *style_args: Style
 ) -> Image:
-    return _native.polygon([_xy(p) for p in points], _make_style(*style_args))
+    return _native.polygon(list(points), _make_style(*style_args))
 
 
 def star_polygon(
@@ -436,9 +430,7 @@ def place_images(
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    return _native.place_images(
-        scene, [_xy(p) for p in positions], images, x_place, y_place
-    )
+    return _native.place_images(scene, list(positions), images, x_place, y_place)
 
 
 def place_line(
@@ -452,9 +444,7 @@ def place_polygon(
     points: list[Point | tuple[float, float]],
     *style_args: Style,
 ) -> Image:
-    return _native.place_polygon(
-        scene, [_xy(p) for p in points], _make_style(*style_args)
-    )
+    return _native.place_polygon(scene, list(points), _make_style(*style_args))
 
 
 def place_curve(
@@ -503,7 +493,7 @@ def add_polygon(
     points: list[Point | tuple[float, float]],
     *style_args: Style,
 ) -> Image:
-    return _native.add_polygon(img, [_xy(p) for p in points], _make_style(*style_args))
+    return _native.add_polygon(img, list(points), _make_style(*style_args))
 
 
 def add_curve(

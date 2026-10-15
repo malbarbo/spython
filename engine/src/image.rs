@@ -10,7 +10,7 @@ pub(crate) mod _spython_image {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use num_traits::Signed;
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyType, PyUtf8StrRef};
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyTuple, PyType, PyUtf8StrRef};
     use rustpython_vm::function::{ArgIntoFloat, OptionalArg};
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{
@@ -147,12 +147,16 @@ pub(crate) mod _spython_image {
             .map_err(|_| vm.new_type_error(format!("expected a tuple of {N} elements")))
     }
 
-    /// The points of `points`, each a tuple `(x, y)`.
+    /// The points of `points`, each a tuple `(x, y)` or a `Point`.
     fn points(points: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<Point>> {
         points
             .iter()
             .map(|p| {
-                let [x, y] = elements(p, vm)?;
+                let [x, y] = if p.downcast_ref::<PyTuple>().is_some() {
+                    elements(p, vm)?
+                } else {
+                    [p.get_attr("x", vm)?, p.get_attr("y", vm)?]
+                };
                 point(&x, &y, ("x", "y"), vm)
             })
             .collect()
