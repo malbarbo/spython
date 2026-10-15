@@ -179,22 +179,20 @@ pub(crate) mod _spython_image {
         })
     }
 
-    fn x_place(place: &str, vm: &VirtualMachine) -> PyResult<XPlace> {
-        match place {
-            "left" => Ok(XPlace::Left),
-            "center" => Ok(XPlace::Center),
-            "right" => Ok(XPlace::Right),
-            other => Err(vm.new_value_error(format!("unknown x_place {other}"))),
-        }
+    fn x_place(place: &PyObject, vm: &VirtualMachine) -> PyResult<XPlace> {
+        Ok(match enum_value(place, vm)?.as_str() {
+            "left" => XPlace::Left,
+            "right" => XPlace::Right,
+            _ => XPlace::Center,
+        })
     }
 
-    fn y_place(place: &str, vm: &VirtualMachine) -> PyResult<YPlace> {
-        match place {
-            "top" => Ok(YPlace::Top),
-            "middle" => Ok(YPlace::Middle),
-            "bottom" => Ok(YPlace::Bottom),
-            other => Err(vm.new_value_error(format!("unknown y_place {other}"))),
-        }
+    fn y_place(place: &PyObject, vm: &VirtualMachine) -> PyResult<YPlace> {
+        Ok(match enum_value(place, vm)?.as_str() {
+            "top" => YPlace::Top,
+            "bottom" => YPlace::Bottom,
+            _ => YPlace::Middle,
+        })
     }
 
     fn images(images: Vec<ImageRef>) -> impl Iterator<Item = Image> {
@@ -929,8 +927,8 @@ pub(crate) mod _spython_image {
     #[pyfunction]
     fn crop_align(
         img: ImageRef,
-        xp: String,
-        yp: String,
+        xp: PyObjectRef,
+        yp: PyObjectRef,
         cw: PyObjectRef,
         ch: PyObjectRef,
         vm: &VirtualMachine,
@@ -943,12 +941,12 @@ pub(crate) mod _spython_image {
     // Composition
 
     #[pyfunction]
-    fn above(imgs: Vec<ImageRef>, xp: String, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn above(imgs: Vec<ImageRef>, xp: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         image(Image::above(x_place(&xp, vm)?, images(imgs)), vm)
     }
 
     #[pyfunction]
-    fn beside(imgs: Vec<ImageRef>, yp: String, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn beside(imgs: Vec<ImageRef>, yp: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         image(Image::beside(y_place(&yp, vm)?, images(imgs)), vm)
     }
 
@@ -957,8 +955,8 @@ pub(crate) mod _spython_image {
         imgs: Vec<ImageRef>,
         x_offset: PyObjectRef,
         y_offset: PyObjectRef,
-        xp: String,
-        yp: String,
+        xp: PyObjectRef,
+        yp: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let offset = point(&x_offset, &y_offset, ("x_offset", "y_offset"), vm)?;
@@ -971,8 +969,8 @@ pub(crate) mod _spython_image {
         imgs: Vec<ImageRef>,
         x_offset: PyObjectRef,
         y_offset: PyObjectRef,
-        xp: String,
-        yp: String,
+        xp: PyObjectRef,
+        yp: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let offset = point(&x_offset, &y_offset, ("x_offset", "y_offset"), vm)?;
@@ -1023,8 +1021,8 @@ pub(crate) mod _spython_image {
         x: PyObjectRef,
         y: PyObjectRef,
         img: ImageRef,
-        xp: String,
-        yp: String,
+        xp: PyObjectRef,
+        yp: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (x, y) = (finite("x", &x, vm)?, finite("y", &y, vm)?);
@@ -1037,8 +1035,8 @@ pub(crate) mod _spython_image {
         scene: ImageRef,
         positions: Vec<PyObjectRef>,
         imgs: Vec<ImageRef>,
-        xp: String,
-        yp: String,
+        xp: PyObjectRef,
+        yp: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (xp, yp) = (x_place(&xp, vm)?, y_place(&yp, vm)?);

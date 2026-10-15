@@ -359,7 +359,7 @@ def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
 def crop_align(
     img: Image, x_place: XPlace, y_place: YPlace, cw: float, ch: float
 ) -> Image:
-    return _native.crop_align(img, x_place.value, y_place.value, cw, ch)
+    return _native.crop_align(img, x_place, y_place, cw, ch)
 
 
 # **************************
@@ -377,13 +377,13 @@ def combine(images: list[Image], op: _Callable[[Image, Image], Image]) -> Image:
 def above(*images: Image, x_place: XPlace = CENTER) -> Image:
     if len(images) < 2:
         raise TypeError("above expects at least 2 images")
-    return _native.above(list(images), x_place.value)
+    return _native.above(list(images), x_place)
 
 
 def beside(*images: Image, y_place: YPlace = MIDDLE) -> Image:
     if len(images) < 2:
         raise TypeError("beside expects at least 2 images")
-    return _native.beside(list(images), y_place.value)
+    return _native.beside(list(images), y_place)
 
 
 def overlay(
@@ -395,9 +395,7 @@ def overlay(
 ) -> Image:
     if len(images) < 2:
         raise TypeError("overlay expects at least 2 images")
-    return _native.overlay(
-        list(images), x_offset, y_offset, x_place.value, y_place.value
-    )
+    return _native.overlay(list(images), x_offset, y_offset, x_place, y_place)
 
 
 def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
@@ -413,9 +411,7 @@ def underlay(
 ) -> Image:
     if len(images) < 2:
         raise TypeError("underlay expects at least 2 images")
-    return _native.underlay(
-        list(images), x_offset, y_offset, x_place.value, y_place.value
-    )
+    return _native.underlay(list(images), x_offset, y_offset, x_place, y_place)
 
 
 def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
@@ -446,7 +442,7 @@ def place_image(
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    return _native.place_image(scene, x, y, img, x_place.value, y_place.value)
+    return _native.place_image(scene, x, y, img, x_place, y_place)
 
 
 def place_images(
@@ -458,7 +454,7 @@ def place_images(
     y_place: YPlace = MIDDLE,
 ) -> Image:
     return _native.place_images(
-        scene, [_xy(p) for p in positions], images, x_place.value, y_place.value
+        scene, [_xy(p) for p in positions], images, x_place, y_place
     )
 
 
