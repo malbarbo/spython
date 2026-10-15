@@ -18,8 +18,6 @@ from spython.style import (
     stroke,
     join,
     none,
-    join as _join,
-    none as _style_none,
 )
 
 
@@ -85,11 +83,7 @@ empty: Image = _native.empty()
 
 
 def _make_style(*style_args: Style) -> Style:
-    if len(style_args) == 0:
-        return _style_none
-    if len(style_args) == 1:
-        return style_args[0]
-    return _join(*style_args)
+    return _native.join(list(style_args))
 
 
 # **************************
