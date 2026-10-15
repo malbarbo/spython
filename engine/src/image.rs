@@ -10,7 +10,7 @@ pub(crate) mod _spython_image {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use num_traits::Signed;
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyType};
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyType, PyUtf8StrRef};
     use rustpython_vm::function::{ArgIntoFloat, OptionalArg};
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{
@@ -190,8 +190,8 @@ pub(crate) mod _spython_image {
     }
 
     /// The `value` of an `Enum` of `spython`.
-    fn enum_value(e: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
-        String::try_from_object(vm, e.get_attr("value", vm)?)
+    fn enum_value(e: &PyObject, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+        PyUtf8StrRef::try_from_object(vm, e.get_attr("value", vm)?)
     }
 
     /// The member of the `Enum` `name` of `spython.font` with `value`.
