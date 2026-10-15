@@ -20,8 +20,8 @@ pub(crate) mod _spython_image {
     use sinteract::image::{
         AngleSumError, AtLeast, Attribute, BitmapError, Color, CurveEnd, Factor, FactorError,
         Finite, Font, FontWeight, Image, Length, LengthError, Opacity, Overflow, PathCmd, Point,
-        StarPolygonError, Style, TooLarge, TriangleAngle, TriangleSidesError, WedgeAngle,
-        WedgeAngleError, XPlace, YPlace,
+        StarPolygonError, Style, TriangleAngle, TriangleSidesError, WedgeAngle, WedgeAngleError,
+        XPlace, YPlace,
     };
     use sinteract::scene::{FillRule, FontStyle, LineCap, LineJoin};
 
@@ -52,16 +52,10 @@ pub(crate) mod _spython_image {
         }
     }
 
-    fn overflow(_: Overflow, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error(Overflow.to_string())
-    }
-
-    fn too_large(_: TooLarge, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error(TooLarge.to_string())
-    }
-
     fn image(image: Result<Image, Overflow>, vm: &VirtualMachine) -> PyResult<PyImage> {
-        image.map(PyImage).map_err(|e| overflow(e, vm))
+        image
+            .map(PyImage)
+            .map_err(|e| vm.new_value_error(e.to_string()))
     }
 
     fn float(value: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
@@ -613,7 +607,7 @@ pub(crate) mod _spython_image {
                         (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => e,
                     }
                 }
-                TriangleSidesError::Overflow => overflow(Overflow, vm),
+                TriangleSidesError::Overflow => vm.new_value_error(Overflow.to_string()),
             })
     }
 
@@ -674,7 +668,7 @@ pub(crate) mod _spython_image {
                     Err(e) => e,
                 }
             }
-            AngleSumError::Overflow => overflow(Overflow, vm),
+            AngleSumError::Overflow => vm.new_value_error(Overflow.to_string()),
         }
     }
 
@@ -775,7 +769,7 @@ pub(crate) mod _spython_image {
                     n.get(),
                     step.get()
                 )),
-                StarPolygonError::Overflow => overflow(Overflow, vm),
+                StarPolygonError::Overflow => vm.new_value_error(Overflow.to_string()),
             })
     }
 
@@ -1198,12 +1192,16 @@ pub(crate) mod _spython_image {
     #[pyfunction]
     fn to_svg(img: ImageRef, vm: &VirtualMachine) -> PyResult<String> {
         let number = NEXT_SVG.fetch_add(1, Ordering::Relaxed);
-        img.0.to_svg(number).map_err(|e| too_large(e, vm))
+        img.0
+            .to_svg(number)
+            .map_err(|e| vm.new_value_error(e.to_string()))
     }
 
     #[pyfunction]
     fn to_repl_svg(img: ImageRef, vm: &VirtualMachine) -> PyResult<String> {
         let number = NEXT_SVG.fetch_add(1, Ordering::Relaxed);
-        img.0.to_repl_svg(number).map_err(|e| too_large(e, vm))
+        img.0
+            .to_repl_svg(number)
+            .map_err(|e| vm.new_value_error(e.to_string()))
     }
 }
