@@ -33,6 +33,8 @@ pub(crate) mod _spython_image {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyImage {}
 
+    type PyImageRef = PyRef<PyImage>;
+
     #[pyattr]
     #[pyclass(module = "spython.image", name = "_PathCmd")]
     #[derive(Debug, PyPayload)]
@@ -41,7 +43,7 @@ pub(crate) mod _spython_image {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyPathCmd {}
 
-    type ImageRef = PyRef<PyImage>;
+    type PyPathCmdRef = PyRef<PyPathCmd>;
 
     /// The `ValueError` of the argument `name`, whose value `value` breaks
     /// `rule`.
@@ -192,7 +194,7 @@ pub(crate) mod _spython_image {
         })
     }
 
-    fn images(images: Vec<ImageRef>) -> impl Iterator<Item = Image> {
+    fn images(images: Vec<PyImageRef>) -> impl Iterator<Item = Image> {
         images.into_iter().map(|i| i.0.clone())
     }
 
@@ -270,7 +272,7 @@ pub(crate) mod _spython_image {
         }
     }
 
-    type ColorRef = PyRef<PyColor>;
+    type PyColorRef = PyRef<PyColor>;
 
     // Font
 
@@ -363,6 +365,8 @@ pub(crate) mod _spython_image {
         }
     }
 
+    type PyFontRef = PyRef<PyFont>;
+
     // Style
 
     #[pyattr]
@@ -373,16 +377,16 @@ pub(crate) mod _spython_image {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyStyle {}
 
-    type StyleRef = PyRef<PyStyle>;
+    type PyStyleRef = PyRef<PyStyle>;
 
     #[pyfunction]
-    fn join(styles: Vec<StyleRef>) -> PyStyle {
+    fn join(styles: Vec<PyStyleRef>) -> PyStyle {
         PyStyle(Style::join(styles.iter().map(|s| &s.0)))
     }
 
     #[pyfunction]
     fn fill(
-        c: ColorRef,
+        c: PyColorRef,
         opacity: Option<PyObjectRef>,
         rule: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -402,7 +406,7 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn stroke(
-        c: ColorRef,
+        c: PyColorRef,
         width: Option<PyObjectRef>,
         opacity: Option<PyObjectRef>,
         dash_array: Option<Vec<PyObjectRef>>,
@@ -505,9 +509,9 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn path(
-        commands: Vec<PyRef<PyPathCmd>>,
+        commands: Vec<PyPathCmdRef>,
         closed: bool,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let commands: Vec<PathCmd> = commands.iter().map(|c| c.0).collect();
@@ -525,7 +529,7 @@ pub(crate) mod _spython_image {
     fn rectangle(
         w: PyObjectRef,
         h: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
@@ -533,7 +537,7 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn square(side: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn square(side: PyObjectRef, s: PyStyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let side = length("side", &side, vm)?;
         Ok(PyImage(Image::square(side, s.0.clone())))
     }
@@ -542,7 +546,7 @@ pub(crate) mod _spython_image {
     fn ellipse(
         w: PyObjectRef,
         h: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
@@ -550,19 +554,24 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn circle(radius: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn circle(radius: PyObjectRef, s: PyStyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let radius = length("radius", &radius, vm)?;
         image(Image::circle(radius, s.0.clone()), vm)
     }
 
     #[pyfunction]
-    fn line(x: PyObjectRef, y: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn line(
+        x: PyObjectRef,
+        y: PyObjectRef,
+        s: PyStyleRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyImage> {
         let (x, y) = (finite("x", &x, vm)?, finite("y", &y, vm)?);
         Ok(PyImage(Image::line(x, y, s.0.clone())))
     }
 
     #[pyfunction]
-    fn triangle(side: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn triangle(side: PyObjectRef, s: PyStyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let side = length("side", &side, vm)?;
         Ok(PyImage(Image::triangle(side, s.0.clone())))
     }
@@ -571,7 +580,7 @@ pub(crate) mod _spython_image {
     fn right_triangle(
         side1: PyObjectRef,
         side2: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (side1, side2) = (length("side1", &side1, vm)?, length("side2", &side2, vm)?);
@@ -582,7 +591,7 @@ pub(crate) mod _spython_image {
     fn isosceles_triangle(
         side_length: PyObjectRef,
         angle: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
@@ -595,7 +604,7 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         side_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
@@ -623,7 +632,7 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         angle_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
@@ -637,7 +646,7 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         side_b: PyObjectRef,
         angle_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
@@ -651,7 +660,7 @@ pub(crate) mod _spython_image {
         angle_a: PyObjectRef,
         side_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let angle_a = triangle_angle("angle_a", &angle_a, vm)?;
@@ -684,7 +693,7 @@ pub(crate) mod _spython_image {
         angle_a: PyObjectRef,
         angle_b: PyObjectRef,
         side_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = triangle_angle("angle_a", &angle_a, vm)?;
@@ -700,7 +709,7 @@ pub(crate) mod _spython_image {
         angle_a: PyObjectRef,
         side_b: PyObjectRef,
         angle_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = triangle_angle("angle_a", &angle_a, vm)?;
@@ -716,7 +725,7 @@ pub(crate) mod _spython_image {
         side_a: PyObjectRef,
         angle_b: PyObjectRef,
         angle_c: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let a = length("side_a", &side_a, vm)?;
@@ -731,7 +740,7 @@ pub(crate) mod _spython_image {
     fn rhombus(
         side_length: PyObjectRef,
         angle: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
@@ -743,7 +752,7 @@ pub(crate) mod _spython_image {
     fn regular_polygon(
         side_length: PyObjectRef,
         side_count: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
@@ -752,7 +761,7 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn polygon(pts: Vec<PyObjectRef>, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn polygon(pts: Vec<PyObjectRef>, s: PyStyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let pts = points(pts, vm)?;
         image(Image::polygon(&pts, s.0.clone()), vm)
     }
@@ -762,7 +771,7 @@ pub(crate) mod _spython_image {
         side_length: PyObjectRef,
         side_count: PyObjectRef,
         step_count: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
@@ -781,7 +790,7 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn star(side_length: PyObjectRef, s: StyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn star(side_length: PyObjectRef, s: PyStyleRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
         image(Image::star(side, s.0.clone()), vm)
     }
@@ -791,7 +800,7 @@ pub(crate) mod _spython_image {
         point_count: PyObjectRef,
         inner_radius: PyObjectRef,
         outer_radius: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let n = count("point_count", &point_count, MAX_COUNT, vm)?;
@@ -806,7 +815,7 @@ pub(crate) mod _spython_image {
         side_count: PyObjectRef,
         pull: PyObjectRef,
         angle: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
@@ -823,7 +832,7 @@ pub(crate) mod _spython_image {
     fn wedge(
         radius: PyObjectRef,
         angle: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let radius = length("radius", &radius, vm)?;
@@ -834,9 +843,9 @@ pub(crate) mod _spython_image {
     #[pyfunction]
     fn text(
         txt: String,
-        f: PyRef<PyFont>,
+        f: PyFontRef,
         size: Option<PyObjectRef>,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let mut font = f.0.clone();
@@ -861,17 +870,17 @@ pub(crate) mod _spython_image {
     // Measures
 
     #[pyfunction]
-    fn width(img: ImageRef) -> f64 {
+    fn width(img: PyImageRef) -> f64 {
         img.0.width().get()
     }
 
     #[pyfunction]
-    fn height(img: ImageRef) -> f64 {
+    fn height(img: PyImageRef) -> f64 {
         img.0.height().get()
     }
 
     #[pyfunction]
-    fn center(img: ImageRef) -> (f64, f64) {
+    fn center(img: PyImageRef) -> (f64, f64) {
         let c = img.0.center();
         (c.x(), c.y())
     }
@@ -879,20 +888,20 @@ pub(crate) mod _spython_image {
     // Transformations
 
     #[pyfunction]
-    fn rotate(img: ImageRef, angle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn rotate(img: PyImageRef, angle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let angle = finite("angle", &angle, vm)?;
         image(img.0.rotate(angle), vm)
     }
 
     #[pyfunction]
-    fn scale(img: ImageRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn scale(img: PyImageRef, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         let f = factor("factor", &f, vm)?;
         image(img.0.scale(f), vm)
     }
 
     #[pyfunction]
     fn scale_xy(
-        img: ImageRef,
+        img: PyImageRef,
         x_factor: PyObjectRef,
         y_factor: PyObjectRef,
         vm: &VirtualMachine,
@@ -903,23 +912,23 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn flip_horizontal(img: ImageRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn flip_horizontal(img: PyImageRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         image(img.0.flip_horizontal(), vm)
     }
 
     #[pyfunction]
-    fn flip_vertical(img: ImageRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn flip_vertical(img: PyImageRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         image(img.0.flip_vertical(), vm)
     }
 
     #[pyfunction]
-    fn frame(img: ImageRef, c: ColorRef) -> PyImage {
+    fn frame(img: PyImageRef, c: PyColorRef) -> PyImage {
         PyImage(img.0.frame(c.0))
     }
 
     #[pyfunction]
     fn crop(
-        img: ImageRef,
+        img: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
         w: PyObjectRef,
@@ -933,7 +942,7 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn crop_align(
-        img: ImageRef,
+        img: PyImageRef,
         xp: PyObjectRef,
         yp: PyObjectRef,
         cw: PyObjectRef,
@@ -948,18 +957,18 @@ pub(crate) mod _spython_image {
     // Composition
 
     #[pyfunction]
-    fn above(imgs: Vec<ImageRef>, xp: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn above(imgs: Vec<PyImageRef>, xp: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         image(Image::above(x_place(&xp, vm)?, images(imgs)), vm)
     }
 
     #[pyfunction]
-    fn beside(imgs: Vec<ImageRef>, yp: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+    fn beside(imgs: Vec<PyImageRef>, yp: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyImage> {
         image(Image::beside(y_place(&yp, vm)?, images(imgs)), vm)
     }
 
     #[pyfunction]
     fn overlay(
-        imgs: Vec<ImageRef>,
+        imgs: Vec<PyImageRef>,
         x_offset: PyObjectRef,
         y_offset: PyObjectRef,
         xp: PyObjectRef,
@@ -973,7 +982,7 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn underlay(
-        imgs: Vec<ImageRef>,
+        imgs: Vec<PyImageRef>,
         x_offset: PyObjectRef,
         y_offset: PyObjectRef,
         xp: PyObjectRef,
@@ -987,10 +996,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn overlay_xy(
-        top: ImageRef,
+        top: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
-        bottom: ImageRef,
+        bottom: PyImageRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let at = point(&x, &y, ("x", "y"), vm)?;
@@ -999,10 +1008,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn underlay_xy(
-        bottom: ImageRef,
+        bottom: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
-        top: ImageRef,
+        top: PyImageRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let at = point(&x, &y, ("x", "y"), vm)?;
@@ -1015,7 +1024,7 @@ pub(crate) mod _spython_image {
     fn empty_scene(
         w: PyObjectRef,
         h: PyObjectRef,
-        c: ColorRef,
+        c: PyColorRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
@@ -1024,10 +1033,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn place_image(
-        scene: ImageRef,
+        scene: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
-        img: ImageRef,
+        img: PyImageRef,
         xp: PyObjectRef,
         yp: PyObjectRef,
         vm: &VirtualMachine,
@@ -1039,9 +1048,9 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn place_images(
-        scene: ImageRef,
+        scene: PyImageRef,
         mut positions: Vec<PyObjectRef>,
-        imgs: Vec<ImageRef>,
+        imgs: Vec<PyImageRef>,
         xp: PyObjectRef,
         yp: PyObjectRef,
         vm: &VirtualMachine,
@@ -1060,10 +1069,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn put_image(
-        scene: ImageRef,
+        scene: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
-        img: ImageRef,
+        img: PyImageRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (x, y) = (finite("x", &x, vm)?, finite("y", &y, vm)?);
@@ -1072,12 +1081,12 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn place_line(
-        scene: ImageRef,
+        scene: PyImageRef,
         x1: PyObjectRef,
         y1: PyObjectRef,
         x2: PyObjectRef,
         y2: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let from = point(&x1, &y1, ("x1", "y1"), vm)?;
@@ -1087,9 +1096,9 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn place_polygon(
-        scene: ImageRef,
+        scene: PyImageRef,
         pts: Vec<PyObjectRef>,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let pts = points(pts, vm)?;
@@ -1098,10 +1107,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn place_curve(
-        scene: ImageRef,
+        scene: PyImageRef,
         from: PyObjectRef,
         to: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (from, to) = (
@@ -1113,12 +1122,12 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn place_wedge(
-        scene: ImageRef,
+        scene: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
         radius: PyObjectRef,
         angle: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let center = point(&x, &y, ("x", "y"), vm)?;
@@ -1129,12 +1138,12 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn add_line(
-        img: ImageRef,
+        img: PyImageRef,
         x1: PyObjectRef,
         y1: PyObjectRef,
         x2: PyObjectRef,
         y2: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let from = point(&x1, &y1, ("x1", "y1"), vm)?;
@@ -1144,9 +1153,9 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn add_polygon(
-        img: ImageRef,
+        img: PyImageRef,
         pts: Vec<PyObjectRef>,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let pts = points(pts, vm)?;
@@ -1155,10 +1164,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn add_curve(
-        img: ImageRef,
+        img: PyImageRef,
         from: PyObjectRef,
         to: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (from, to) = (
@@ -1170,10 +1179,10 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn add_solid_curve(
-        img: ImageRef,
+        img: PyImageRef,
         from: PyObjectRef,
         to: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let (from, to) = (
@@ -1185,12 +1194,12 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn add_wedge(
-        img: ImageRef,
+        img: PyImageRef,
         x: PyObjectRef,
         y: PyObjectRef,
         radius: PyObjectRef,
         angle: PyObjectRef,
-        s: StyleRef,
+        s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let center = point(&x, &y, ("x", "y"), vm)?;
@@ -1206,7 +1215,7 @@ pub(crate) mod _spython_image {
     static NEXT_SVG: AtomicUsize = AtomicUsize::new(0);
 
     #[pyfunction]
-    fn to_svg(img: ImageRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn to_svg(img: PyImageRef, vm: &VirtualMachine) -> PyResult<String> {
         let number = NEXT_SVG.fetch_add(1, Ordering::Relaxed);
         img.0
             .to_svg(number)
@@ -1214,7 +1223,7 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn to_repl_svg(img: ImageRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn to_repl_svg(img: PyImageRef, vm: &VirtualMachine) -> PyResult<String> {
         let number = NEXT_SVG.fetch_add(1, Ordering::Relaxed);
         img.0
             .to_repl_svg(number)
