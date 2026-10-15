@@ -76,21 +76,18 @@ mod _spython_display {
     impl PyPrinter {
         /// Print `image` at the cursor, on the canvas that a repl shows it
         /// on. Returns `True` if it printed, and `False` while a display
-        /// holds the terminal.
+        /// holds the terminal or when the image is too large to draw.
         #[pymethod]
         fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
-            let (w, h) = image
-                .0
-                .repl_canvas_size()
-                .map_err(|e| vm.new_value_error(e.to_string()))?;
+            let Ok((w, h)) = image.0.repl_canvas_size() else {
+                return Ok(false);
+            };
             let mut scene = Scene::new(w, h);
             image.0.draw(&mut scene);
             match self.inner.lock().print(&scene) {
                 Ok(()) => Ok(true),
-                Err(PrintError::Busy) => Ok(false),
-                Err(e @ (PrintError::Alloc(_) | PrintError::Io(_))) => {
-                    Err(vm.new_runtime_error(e.to_string()))
-                }
+                Err(PrintError::Busy | PrintError::Alloc(_)) => Ok(false),
+                Err(e @ PrintError::Io(_)) => Err(vm.new_runtime_error(e.to_string())),
             }
         }
     }

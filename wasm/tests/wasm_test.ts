@@ -253,6 +253,17 @@ Deno.test("an image at the prompt goes to the page as an svg", async () => {
   destroy(ctx);
 });
 
+Deno.test("an image too large to draw prints as any other value", async () => {
+  const ctx = await newRepl("", { level: 5 });
+  run(ctx, "from spython.image import circle, scale, fill, red");
+  const r = run(ctx, "scale(circle(10, fill(red)), 1e300)");
+  assertEquals(r.result, REPL_OK);
+  assertEquals(r.svgs.length, 0);
+  assertEquals(r.stderr, "");
+  assertEquals(r.stdout.includes("Image object"), true, r.stdout);
+  destroy(ctx);
+});
+
 Deno.test("the prompt draws an image with one more column and row", async () => {
   const ctx = await newRepl("", { level: 5 });
   run(ctx, "from spython.image import rectangle, stroke, black");

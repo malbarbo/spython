@@ -36,13 +36,20 @@ def install_displayhook() -> None:
             _original_displayhook(value)
             return
         if _open_printer is None:
-            show_svg(_to_repl_svg(value))
+            try:
+                svg = _to_repl_svg(value)
+            except ValueError:
+                # An image too large to draw prints as any other value.
+                _original_displayhook(value)
+                return
+            show_svg(svg)
         else:
             if not opened:
                 printer = _open_printer()
                 opened = True
-            # A terminal with no graphics, or one that a display holds,
-            # prints the image as any other value.
+            # A terminal with no graphics, or one that a display holds, prints
+            # the image as any other value, and so does an image too large to
+            # draw.
             if printer is None or not printer.show(value):  # type: ignore[attr-defined]
                 _original_displayhook(value)
                 return
