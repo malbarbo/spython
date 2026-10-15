@@ -1,6 +1,7 @@
 from collections.abc import Sequence as _Sequence
 from enum import Enum
 from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Never as _Never
 
 import _spython_image as _native  # type: ignore[import-not-found]
 
@@ -29,7 +30,8 @@ class FillRule(Enum):
 if _TYPE_CHECKING:
 
     class Style:
-        pass
+        # No value fits `_Never`, so the checker rejects any call to Style.
+        def __init__(self, _: _Never) -> None: ...
 
 else:
     Style = _native.Style

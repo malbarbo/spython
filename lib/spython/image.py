@@ -2,6 +2,7 @@ from collections.abc import Callable as _Callable
 from collections.abc import Sequence as _Sequence
 from enum import Enum as _Enum
 from typing import TYPE_CHECKING as _TYPE_CHECKING
+from typing import Never as _Never
 
 import _spython_image as _native  # type: ignore[import-not-found]
 
@@ -69,7 +70,8 @@ def _xy(p: Point | tuple[float, float]) -> tuple[float, float]:
 if _TYPE_CHECKING:
 
     class Image:
-        pass
+        # No value fits `_Never`, so the checker rejects any call to Image.
+        def __init__(self, _: _Never) -> None: ...
 
     class _PathCmd:
         pass

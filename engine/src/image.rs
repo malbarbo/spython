@@ -29,7 +29,7 @@ pub(crate) mod _spython_image {
     #[derive(Debug, PyPayload)]
     pub struct PyImage(pub(crate) Image);
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyImage {}
 
     #[pyattr]
@@ -37,7 +37,7 @@ pub(crate) mod _spython_image {
     #[derive(Debug, PyPayload)]
     pub struct PyPathCmd(PathCmd);
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyPathCmd {}
 
     type ImageRef = PyRef<PyImage>;
@@ -375,7 +375,7 @@ pub(crate) mod _spython_image {
     #[derive(Debug, PyPayload)]
     pub struct PyStyle(Style);
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyStyle {}
 
     type StyleRef = PyRef<PyStyle>;
