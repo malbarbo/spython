@@ -893,7 +893,7 @@ pub(crate) mod _spython_image {
         if let Some(size) = size {
             font.size = length("size", &size, vm)?;
         }
-        Ok(PyImage(Image::text(txt.as_str(), font, s.0.clone())))
+        image(Image::text(txt.as_str(), font, s.0.clone()), vm)
     }
 
     #[pyfunction]
