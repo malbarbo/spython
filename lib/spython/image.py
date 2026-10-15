@@ -8,6 +8,7 @@ import _spython_image as _native  # type: ignore[import-not-found]
 
 from spython.font import Font, FontStyle, FontWeight
 from spython.color import Color as _Color
+from spython.color import black as _black
 from spython.color import *  # noqa: F401,F403 — re-export all colors
 from spython.style import (
     Style,
@@ -329,8 +330,6 @@ def flip_vertical(img: Image) -> Image:
 
 
 def frame(img: Image) -> Image:
-    from spython.color import black as _black
-
     return _native.frame(img, _black)
 
 
@@ -410,8 +409,6 @@ def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
 
 
 def empty_scene(w: float, h: float) -> Image:
-    from spython.color import black as _black
-
     return _native.empty_scene(w, h, _black)
 
 
