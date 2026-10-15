@@ -115,18 +115,25 @@ pub(crate) mod _spython_image {
         })
     }
 
+    /// The most sides or points a shape takes. sinteract allocates them all
+    /// at once, and 10^6 of them already take seconds to draw.
+    const MAX_COUNT: u32 = 100_000;
+
     fn count<const MIN: u32>(
         name: &str,
         value: &PyObject,
+        max: u32,
         vm: &VirtualMachine,
     ) -> PyResult<AtLeast<MIN>> {
+        let too_many = || error(name, &format!("be at most {max}"), value, vm);
         let n = match u32::try_from(value.try_index(vm)?.as_bigint()) {
-            Ok(n) => n,
+            Ok(n) if n <= max => n,
+            Ok(_) => return Err(too_many()),
             Err(_) => {
                 // A negative count is too few, as 0 is.
                 let zero = vm.ctx.new_int(0);
                 if !value.rich_compare_bool(zero.as_object(), PyComparisonOp::Lt, vm)? {
-                    return Err(error(name, &format!("be at most {}", u32::MAX), value, vm));
+                    return Err(too_many());
                 }
                 0
             }
@@ -745,7 +752,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, vm)?;
+        let n = count("side_count", &side_count, MAX_COUNT, vm)?;
         image(Image::regular_polygon(side, n, s.0.clone()), vm)
     }
 
@@ -764,8 +771,8 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, vm)?;
-        let step = count("step_count", &step_count, vm)?;
+        let n = count("side_count", &side_count, MAX_COUNT, vm)?;
+        let step = count("step_count", &step_count, u32::MAX, vm)?;
         Image::star_polygon(side, n, step, s.0.clone())
             .map(PyImage)
             .map_err(|e| match e {
@@ -792,7 +799,7 @@ pub(crate) mod _spython_image {
         s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let n = count("point_count", &point_count, vm)?;
+        let n = count("point_count", &point_count, MAX_COUNT, vm)?;
         let inner = length("inner_radius", &inner_radius, vm)?;
         let outer = length("outer_radius", &outer_radius, vm)?;
         image(Image::radial_star(n, inner, outer, s.0.clone()), vm)
@@ -808,7 +815,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, vm)?;
+        let n = count("side_count", &side_count, MAX_COUNT, vm)?;
         let pull = finite("pull", &pull, vm)?;
         let angle = finite("angle", &angle, vm)?;
         image(

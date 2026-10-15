@@ -1,0 +1,11 @@
+---
+source: cli/tests/integration.rs
+---
+ok
+side_count must be at most 100000, got 100001
+side_count must be at most 100000, got 4000000000
+side_count must be at most 100000, got 1000000000000000000000000000000
+side_count must be at most 100000, got 100001
+ok
+point_count must be at most 100000, got 100001
+side_count must be at most 100000, got 100001
