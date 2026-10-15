@@ -162,14 +162,17 @@ pub(crate) mod _spython_image {
             .collect()
     }
 
+    const CURVE_FROM: [&str; 4] = ["x1", "y1", "angle1", "pull1"];
+    const CURVE_TO: [&str; 4] = ["x2", "y2", "angle2", "pull2"];
+
     /// The end of a curve in the tuple `(x, y, angle, pull)`, with the names
-    /// of its arguments ending in `n`.
-    fn curve_end(end: PyObjectRef, n: u8, vm: &VirtualMachine) -> PyResult<CurveEnd> {
+    /// of its arguments in `names`.
+    fn curve_end(end: PyObjectRef, names: [&str; 4], vm: &VirtualMachine) -> PyResult<CurveEnd> {
         let [x, y, angle, pull] = elements(&end, vm)?;
         Ok(CurveEnd {
-            point: point(&x, &y, (&format!("x{n}"), &format!("y{n}")), vm)?,
-            angle: finite(&format!("angle{n}"), &angle, vm)?,
-            pull: finite(&format!("pull{n}"), &pull, vm)?,
+            point: point(&x, &y, (names[0], names[1]), vm)?,
+            angle: finite(names[2], &angle, vm)?,
+            pull: finite(names[3], &pull, vm)?,
         })
     }
 
@@ -1101,7 +1104,10 @@ pub(crate) mod _spython_image {
         s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let (from, to) = (curve_end(from, 1, vm)?, curve_end(to, 2, vm)?);
+        let (from, to) = (
+            curve_end(from, CURVE_FROM, vm)?,
+            curve_end(to, CURVE_TO, vm)?,
+        );
         image(scene.0.place_curve(from, to, s.0.clone()), vm)
     }
 
@@ -1155,7 +1161,10 @@ pub(crate) mod _spython_image {
         s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let (from, to) = (curve_end(from, 1, vm)?, curve_end(to, 2, vm)?);
+        let (from, to) = (
+            curve_end(from, CURVE_FROM, vm)?,
+            curve_end(to, CURVE_TO, vm)?,
+        );
         image(img.0.add_curve(from, to, s.0.clone()), vm)
     }
 
@@ -1167,7 +1176,10 @@ pub(crate) mod _spython_image {
         s: StyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let (from, to) = (curve_end(from, 1, vm)?, curve_end(to, 2, vm)?);
+        let (from, to) = (
+            curve_end(from, CURVE_FROM, vm)?,
+            curve_end(to, CURVE_TO, vm)?,
+        );
         image(img.0.add_solid_curve(from, to, s.0.clone()), vm)
     }
 
