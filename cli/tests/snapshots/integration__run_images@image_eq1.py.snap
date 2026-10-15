@@ -1,0 +1,10 @@
+---
+source: cli/tests/integration.rs
+---
+True
+False
+False
+True
+True
+False
+the image is too large to draw

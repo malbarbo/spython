@@ -11,11 +11,11 @@ pub(crate) mod _spython_image {
 
     use num_traits::Signed;
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyTuple, PyType, PyUtf8StrRef};
-    use rustpython_vm::function::{ArgIntoFloat, OptionalArg};
-    use rustpython_vm::types::Constructor;
+    use rustpython_vm::function::{ArgIntoFloat, OptionalArg, PyComparisonValue};
+    use rustpython_vm::types::{Comparable, Constructor, PyComparisonOp};
     use rustpython_vm::{
         FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-        VirtualMachine, pyclass,
+        VirtualMachine, class_or_notimplemented, pyclass,
     };
     use sinteract::image::{
         AngleSumError, AtLeast, Attribute, BitmapError, Color, CurveEnd, Factor, FactorError,
@@ -26,12 +26,31 @@ pub(crate) mod _spython_image {
     use sinteract::scene::{FillRule, FontStyle, LineCap, LineJoin};
 
     #[pyattr]
-    #[pyclass(module = "spython.image", name = "Image")]
+    #[pyclass(module = "spython.image", name = "Image", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyImage(pub(crate) Image);
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Comparable))]
     impl PyImage {}
+
+    /// Two images are equal when they draw the same pixels, as `equal?` does
+    /// in Racket.
+    impl Comparable for PyImage {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            op.eq_only(|| {
+                let other = class_or_notimplemented!(Self, other);
+                zelf.0
+                    .same(&other.0)
+                    .map(PyComparisonValue::Implemented)
+                    .map_err(|e| vm.new_value_error(e.to_string()))
+            })
+        }
+    }
 
     type PyImageRef = PyRef<PyImage>;
 
