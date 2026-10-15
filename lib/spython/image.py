@@ -353,28 +353,24 @@ def combine(images: list[Image], op: _Callable[[Image, Image], Image]) -> Image:
     return result
 
 
-def above(*images: Image, x_place: XPlace = CENTER) -> Image:
-    if len(images) < 2:
-        raise TypeError("above expects at least 2 images")
-    return _native.above(list(images), x_place)
+def above(i1: Image, i2: Image, *images: Image, x_place: XPlace = CENTER) -> Image:
+    return _native.above([i1, i2, *images], x_place)
 
 
-def beside(*images: Image, y_place: YPlace = MIDDLE) -> Image:
-    if len(images) < 2:
-        raise TypeError("beside expects at least 2 images")
-    return _native.beside(list(images), y_place)
+def beside(i1: Image, i2: Image, *images: Image, y_place: YPlace = MIDDLE) -> Image:
+    return _native.beside([i1, i2, *images], y_place)
 
 
 def overlay(
+    i1: Image,
+    i2: Image,
     *images: Image,
     x_offset: float = 0.0,
     y_offset: float = 0.0,
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    if len(images) < 2:
-        raise TypeError("overlay expects at least 2 images")
-    return _native.overlay(list(images), x_offset, y_offset, x_place, y_place)
+    return _native.overlay([i1, i2, *images], x_offset, y_offset, x_place, y_place)
 
 
 def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
@@ -382,15 +378,15 @@ def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
 
 
 def underlay(
+    i1: Image,
+    i2: Image,
     *images: Image,
     x_offset: float = 0.0,
     y_offset: float = 0.0,
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    if len(images) < 2:
-        raise TypeError("underlay expects at least 2 images")
-    return _native.underlay(list(images), x_offset, y_offset, x_place, y_place)
+    return _native.underlay([i1, i2, *images], x_offset, y_offset, x_place, y_place)
 
 
 def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:

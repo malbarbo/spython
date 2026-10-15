@@ -1,5 +1,5 @@
 from spython.color import red
-from spython.image import beside, circle
+from spython.image import square
 from spython.style import fill
 
-beside(circle(1, fill(red)))
+square(-1, fill(red))
