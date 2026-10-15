@@ -1,8 +1,8 @@
 //! The `_spython_display` module: the display that a World draws into, over
 //! [`sinteract::display::Frames`], which is a window, the terminal, or a
-//! session with a server, and natively a printer of images in the terminal. Both draw
-//! the [`Scene`] of an `Image`, so Python never holds a scene that is half
-//! built.
+//! session with a server, and natively a printer of images in the terminal.
+//! Both draw the [`sinteract::scene::Scene`] of an `Image`, so Python never
+//! holds a scene that is half built.
 
 pub(crate) use _spython_display::module_def;
 
@@ -28,7 +28,6 @@ mod _spython_display {
     use sinteract::display::{FrameEvent, Frames, StageOptions};
     #[cfg(not(target_arch = "wasm32"))]
     use sinteract::display::{PrintError, Printer, TerminalOptions};
-    use sinteract::scene::Scene;
 
     use crate::image::PyImage;
 
@@ -79,11 +78,9 @@ mod _spython_display {
         /// holds the terminal or when the image is too large to draw.
         #[pymethod]
         fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
-            let Ok((w, h)) = image.0.repl_canvas_size() else {
+            let Ok(scene) = image.0.to_repl_scene() else {
                 return Ok(false);
             };
-            let mut scene = Scene::new(w, h);
-            image.0.draw(&mut scene);
             match self.inner.lock().print(&scene) {
                 Ok(()) => Ok(true),
                 Err(PrintError::Busy | PrintError::Alloc(_)) => Ok(false),
@@ -185,12 +182,10 @@ mod _spython_display {
         /// first call opens the display.
         #[pymethod]
         fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<()> {
-            let (w, h) = image
+            let scene = image
                 .0
-                .canvas_size()
+                .to_scene()
                 .map_err(|e| vm.new_value_error(e.to_string()))?;
-            let mut scene = Scene::new(w, h);
-            image.0.draw(&mut scene);
             FRAMES
                 .with_borrow_mut(|frames| frames.show(scene))
                 .map_err(|e| vm.new_runtime_error(e.to_string()))
