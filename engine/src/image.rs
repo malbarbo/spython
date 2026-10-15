@@ -26,7 +26,7 @@ pub(crate) mod _spython_image {
     use sinteract::scene::{FillRule, FontStyle, LineCap, LineJoin};
 
     #[pyattr]
-    #[pyclass(name = "Image")]
+    #[pyclass(module = "spython.image", name = "Image")]
     #[derive(Debug, PyPayload)]
     pub struct PyImage(pub(crate) Image);
 
@@ -34,7 +34,7 @@ pub(crate) mod _spython_image {
     impl PyImage {}
 
     #[pyattr]
-    #[pyclass(name = "_PathCmd")]
+    #[pyclass(module = "spython.image", name = "_PathCmd")]
     #[derive(Debug, PyPayload)]
     pub struct PyPathCmd(PathCmd);
 
@@ -209,7 +209,7 @@ pub(crate) mod _spython_image {
     // Color
 
     #[pyattr]
-    #[pyclass(name = "Color")]
+    #[pyclass(module = "spython.color", name = "Color")]
     #[derive(Debug, PyPayload)]
     pub struct PyColor(Color);
 
@@ -274,7 +274,7 @@ pub(crate) mod _spython_image {
     // Font
 
     #[pyattr]
-    #[pyclass(name = "Font")]
+    #[pyclass(module = "spython.font", name = "Font")]
     #[derive(Debug, PyPayload)]
     pub struct PyFont(Font);
 
@@ -365,7 +365,7 @@ pub(crate) mod _spython_image {
     // Style
 
     #[pyattr]
-    #[pyclass(name = "Style")]
+    #[pyclass(module = "spython.style", name = "Style")]
     #[derive(Debug, PyPayload)]
     pub struct PyStyle(Style);
 
