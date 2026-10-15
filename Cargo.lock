@@ -1084,6 +1084,7 @@ version = "0.3.0"
 dependencies = [
  "dirs-next",
  "dunce",
+ "num-traits",
  "ruff_db",
  "ruff_macros",
  "ruff_notebook",

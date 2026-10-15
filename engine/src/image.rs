@@ -9,11 +9,12 @@ pub(crate) use _spython_image::{PyImage, module_def};
 pub(crate) mod _spython_image {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use num_traits::Signed;
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyType};
     use rustpython_vm::function::{ArgIntoFloat, OptionalArg};
-    use rustpython_vm::types::{Constructor, PyComparisonOp};
+    use rustpython_vm::types::Constructor;
     use rustpython_vm::{
-        AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, pyclass,
     };
     use sinteract::image::{
@@ -126,17 +127,12 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<AtLeast<MIN>> {
         let too_many = || error(name, &format!("be at most {max}"), value, vm);
-        let n = match u32::try_from(value.try_index(vm)?.as_bigint()) {
+        let index = value.try_index(vm)?;
+        let n = match u32::try_from(index.as_bigint()) {
             Ok(n) if n <= max => n,
-            Ok(_) => return Err(too_many()),
-            Err(_) => {
-                // A negative count is too few, as 0 is.
-                let zero = vm.ctx.new_int(0);
-                if !value.rich_compare_bool(zero.as_object(), PyComparisonOp::Lt, vm)? {
-                    return Err(too_many());
-                }
-                0
-            }
+            // A negative count is too few, as 0 is.
+            Err(_) if index.as_bigint().is_negative() => 0,
+            _ => return Err(too_many()),
         };
         AtLeast::new(n).map_err(|_| error(name, &format!("be at least {MIN}"), value, vm))
     }

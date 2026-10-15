@@ -48,3 +48,5 @@ ruff_python_parser = { git = "https://github.com/malbarbo/ruff.git", branch = "s
 # The setter of a field of a file, the one way to tell ty that a file of the
 # REPL changed. The version is the one ty uses.
 salsa = { version = "0.28.2", default-features = false }
+# The sign of a Python int, which RustPython keeps as a BigInt.
+num-traits = "0.2.19"
