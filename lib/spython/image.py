@@ -297,15 +297,7 @@ def text(
     txt: str, *style_args: Style, size: float | None = None, font: Font | None = None
 ) -> Image:
     f: Font = font if font is not None else Font()
-    if size is not None:
-        f = Font(
-            family=f.family,
-            size=size,
-            style=f.style,
-            weight=f.weight,
-            underline=f.underline,
-        )
-    return _native.text(txt, f, _make_style(*style_args))
+    return _native.text(txt, f, size, _make_style(*style_args))
 
 
 # **************************

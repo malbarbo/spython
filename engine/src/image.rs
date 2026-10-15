@@ -835,8 +835,18 @@ pub(crate) mod _spython_image {
     }
 
     #[pyfunction]
-    fn text(txt: String, f: PyRef<PyFont>, s: StyleRef) -> PyImage {
-        PyImage(Image::text(&txt, f.0.clone(), s.0.clone()))
+    fn text(
+        txt: String,
+        f: PyRef<PyFont>,
+        size: Option<PyObjectRef>,
+        s: StyleRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyImage> {
+        let mut font = f.0.clone();
+        if let Some(size) = size {
+            font.size = length("size", &size, vm)?;
+        }
+        Ok(PyImage(Image::text(&txt, font, s.0.clone())))
     }
 
     #[pyfunction]
