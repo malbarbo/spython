@@ -1,0 +1,11 @@
+---
+source: cli/tests/integration.rs
+---
+True
+False
+False
+True
+False
+True
+False
+False

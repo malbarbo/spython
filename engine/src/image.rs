@@ -228,10 +228,30 @@ pub(crate) mod _spython_image {
         module.get_attr(name, vm)?.call((value.to_owned(),), vm)
     }
 
+    /// `==` on a color, a font and a style compares their values, as `equal?`
+    /// does on the transparent structs of Racket.
+    macro_rules! impl_eq_by_value {
+        ($($class:ty),*) => {$(
+            impl Comparable for $class {
+                fn cmp(
+                    zelf: &Py<Self>,
+                    other: &PyObject,
+                    op: PyComparisonOp,
+                    _vm: &VirtualMachine,
+                ) -> PyResult<PyComparisonValue> {
+                    op.eq_only(|| {
+                        let other = class_or_notimplemented!(Self, other);
+                        Ok(PyComparisonValue::Implemented(zelf.0 == other.0))
+                    })
+                }
+            }
+        )*};
+    }
+
     // Color
 
     #[pyattr]
-    #[pyclass(module = "spython.color", name = "Color")]
+    #[pyclass(module = "spython.color", name = "Color", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyColor(Color);
 
@@ -268,7 +288,7 @@ pub(crate) mod _spython_image {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Comparable))]
     impl PyColor {
         #[pygetset]
         fn r(&self) -> u8 {
@@ -296,7 +316,7 @@ pub(crate) mod _spython_image {
     // Font
 
     #[pyattr]
-    #[pyclass(module = "spython.font", name = "Font")]
+    #[pyclass(module = "spython.font", name = "Font", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyFont(Font);
 
@@ -346,7 +366,7 @@ pub(crate) mod _spython_image {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Comparable))]
     impl PyFont {
         #[pygetset]
         fn family(&self) -> String {
@@ -389,12 +409,14 @@ pub(crate) mod _spython_image {
     // Style
 
     #[pyattr]
-    #[pyclass(module = "spython.style", name = "Style")]
+    #[pyclass(module = "spython.style", name = "Style", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyStyle(Style);
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Comparable))]
     impl PyStyle {}
+
+    impl_eq_by_value!(PyColor, PyFont, PyStyle);
 
     type PyStyleRef = PyRef<PyStyle>;
 
