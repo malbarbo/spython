@@ -284,7 +284,7 @@ pub(crate) mod _spython_image {
     #[derive(FromArgs)]
     pub struct FontArgs {
         #[pyarg(named, optional)]
-        family: OptionalArg<String>,
+        family: OptionalArg<PyUtf8StrRef>,
         #[pyarg(named, optional)]
         size: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -301,7 +301,7 @@ pub(crate) mod _spython_image {
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let mut font = Font::default();
             if let OptionalArg::Present(family) = args.family {
-                font.family = family.into();
+                font.family = family.as_str().into();
             }
             if let OptionalArg::Present(size) = args.size {
                 font.size = length("size", &size, vm)?;
@@ -842,7 +842,7 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn text(
-        txt: String,
+        txt: PyUtf8StrRef,
         f: PyFontRef,
         size: Option<PyObjectRef>,
         s: PyStyleRef,
@@ -852,12 +852,12 @@ pub(crate) mod _spython_image {
         if let Some(size) = size {
             font.size = length("size", &size, vm)?;
         }
-        Ok(PyImage(Image::text(&txt, font, s.0.clone())))
+        Ok(PyImage(Image::text(txt.as_str(), font, s.0.clone())))
     }
 
     #[pyfunction]
-    fn bitmap_data_uri(data_uri: String, vm: &VirtualMachine) -> PyResult<PyImage> {
-        Image::bitmap_data_uri(&data_uri)
+    fn bitmap_data_uri(data_uri: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyImage> {
+        Image::bitmap_data_uri(data_uri.as_str())
             .map(PyImage)
             .map_err(|e| match e {
                 BitmapError::NotDataUri => {
