@@ -19,8 +19,8 @@ pub(crate) mod _spython_image {
     use sinteract::image::{
         AngleSumError, AtLeast, Attribute, BitmapError, Color, CurveEnd, Factor, FactorError,
         Finite, Font, FontWeight, Image, Length, LengthError, Opacity, Overflow, PathCmd, Point,
-        StarPolygonError, Style, TooLarge, TriangleAngle, TriangleSidesError, WedgeAngle, XPlace,
-        YPlace,
+        StarPolygonError, Style, TooLarge, TriangleAngle, TriangleSidesError, WedgeAngle,
+        WedgeAngleError, XPlace, YPlace,
     };
     use sinteract::scene::{FillRule, FontStyle, LineCap, LineJoin};
 
@@ -104,33 +104,15 @@ pub(crate) mod _spython_image {
             .map_err(|_| error(name, "be greater than 0 and less than 180", value, vm))
     }
 
-    /// `value` as an angle greater than 0 and less than `max`.
-    fn angle_below(
-        name: &str,
-        max: f64,
-        value: &PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<Finite> {
-        let angle = float(value, vm)?;
-        if !(0.0 < angle && angle < max) {
-            let rule = format!("be greater than 0 and less than {max}");
-            return Err(error(name, &rule, value, vm));
-        }
-        Ok(Finite::new(angle).expect("an angle below max is finite"))
-    }
-
     fn wedge_angle(value: &PyObject, vm: &VirtualMachine) -> PyResult<WedgeAngle> {
-        let angle = float(value, vm)?;
-        // A wedge of 360 is the whole circle.
-        if !(0.0 < angle && angle <= 360.0) {
-            return Err(error(
-                "angle",
-                "be greater than 0 and at most 360",
-                value,
-                vm,
-            ));
-        }
-        Ok(WedgeAngle::new(angle).expect("an angle in (0, 360] is a wedge angle"))
+        WedgeAngle::new(float(value, vm)?).map_err(|e| {
+            let rule = match e {
+                WedgeAngleError::NotFinite => "be a finite number",
+                WedgeAngleError::Zero => "not be 0",
+                WedgeAngleError::OutOfRange => "be between -360 and 360",
+            };
+            error("angle", rule, value, vm)
+        })
     }
 
     fn count<const MIN: u32>(
@@ -441,7 +423,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let angle = angle_below("angle", 360.0, &angle, vm)?;
+        let angle = finite("angle", &angle, vm)?;
         image(Image::isosceles_triangle(side, angle, style(&s, vm)?), vm)
     }
 
@@ -590,7 +572,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let angle = angle_below("angle", 180.0, &angle, vm)?;
+        let angle = finite("angle", &angle, vm)?;
         image(Image::rhombus(side, angle, style(&s, vm)?), vm)
     }
 
