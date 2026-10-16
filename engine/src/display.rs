@@ -17,7 +17,6 @@ pub(crate) fn close_frames() {
 #[rustpython_vm::pymodule(name = "_spython_display")]
 mod _spython_display {
     use std::cell::RefCell;
-    use std::thread;
     use std::time::{Duration, Instant};
 
     use rustpython_vm::builtins::PyModule;
@@ -137,14 +136,7 @@ mod _spython_display {
         loop {
             let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
             let event = FRAMES.with_borrow_mut(|frames| {
-                if frames.is_open() {
-                    frames.wait_event(deadline, |e| eprintln!("spython: {e}"))
-                } else {
-                    // No world shows a frame, so there is nothing to
-                    // wait for but the time.
-                    thread::sleep(deadline.saturating_duration_since(Instant::now()));
-                    FrameEvent::Timeout
-                }
+                frames.wait_event(deadline, |e| eprintln!("spython: {e}"))
             });
             match event {
                 FrameEvent::Key(k) => return Ok(Some((k.kind as i32, k.key))),
