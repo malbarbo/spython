@@ -21,13 +21,17 @@ mod _spython_display {
 
     use rustpython_vm::builtins::PyModule;
     #[cfg(not(target_arch = "wasm32"))]
+    use rustpython_vm::builtins::PyType;
+    #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::common::lock::PyMutex;
+    #[cfg(not(target_arch = "wasm32"))]
+    use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyRef, PyResult, VirtualMachine};
     #[cfg(not(target_arch = "wasm32"))]
-    use rustpython_vm::{PyObjectRef, PyPayload, pyclass};
+    use rustpython_vm::{PyPayload, pyclass};
     use sinteract::display::{FrameEvent, Frames, StageOptions};
     #[cfg(not(target_arch = "wasm32"))]
-    use sinteract::display::{PrintError, Printer, TerminalOptions};
+    use sinteract::display::{NoGraphics, PrintError, Printer, TerminalOptions};
     use sinteract::event::KeyKind;
 
     use crate::image::PyImage;
@@ -58,26 +62,16 @@ mod _spython_display {
     /// window gets its Ctrl-C from the terminal that started the program.
     const SIGNAL_PERIOD: Duration = Duration::from_millis(100);
 
-    /// A printer of images at the cursor, or `None` when the terminal shows
-    /// no graphics or stdout is not a terminal. The page draws an svg
-    /// instead, so it has no printer.
-    #[cfg(not(target_arch = "wasm32"))]
-    #[pyfunction]
-    fn open_printer(vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let printer = Printer::new().ok()?;
-        let printer = PyPrinter {
-            inner: PyMutex::new(printer),
-        };
-        Some(printer.into_ref(&vm.ctx).into())
-    }
-
-    /// Prints one image after another in the terminal.
+    /// Prints one image after another in the terminal. The page draws an
+    /// svg instead, so it has no printer.
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     #[pyclass(name = "Printer")]
     #[derive(PyPayload)]
     pub struct PyPrinter {
-        inner: PyMutex<Printer>,
+        /// `None` until the first show, since the probe of the terminal
+        /// waits for its answer.
+        inner: PyMutex<Option<Result<Printer, NoGraphics>>>,
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -88,17 +82,33 @@ mod _spython_display {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    #[pyclass]
+    impl Constructor for PyPrinter {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: (), _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(PyPrinter {
+                inner: PyMutex::new(None),
+            })
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyclass(with(Constructor))]
     impl PyPrinter {
         /// Print `image` at the cursor, on the canvas that a repl shows it
-        /// on. Returns `True` if it printed, and `False` while a display
-        /// holds the terminal or when the image is too large to draw.
+        /// on. Returns `True` if it printed, and `False` when the terminal
+        /// shows no graphics, while a display holds the terminal, or when
+        /// the image is too large to draw.
         #[pymethod]
         fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
+            let mut printer = self.inner.lock();
+            let Ok(printer) = printer.get_or_insert_with(Printer::new) else {
+                return Ok(false);
+            };
             let Ok(scene) = image.0.to_repl_scene() else {
                 return Ok(false);
             };
-            match self.inner.lock().print(&scene) {
+            match printer.print(&scene) {
                 Ok(()) => Ok(true),
                 Err(PrintError::Busy | PrintError::Alloc(_)) => Ok(false),
                 Err(e @ PrintError::Io(_)) => Err(vm.new_runtime_error(e.to_string())),
