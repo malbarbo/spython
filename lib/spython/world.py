@@ -103,9 +103,9 @@ class World[S]:
         return False
 
 
-# Schedule from the deadline (not from now) to absorb minor overruns without
-# drift. If we overran by more than a full period, snap forward so we don't
-# burn ticks catching up.
+# The next deadline counts from the last one, so a late tick does not delay
+# the ticks after it. When a tick is a whole period late, the next deadline is
+# one period from now, and the ticks it missed do not run.
 def _next_deadline(deadline: int, now: int, period_ms: int) -> int:
     deadline += period_ms
     if deadline <= now:
