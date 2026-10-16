@@ -18,10 +18,10 @@ pub(crate) mod _spython_image {
         VirtualMachine, class_or_notimplemented, pyclass,
     };
     use sinteract::image::{
-        AngleSumError, AtLeast, Attribute, BitmapError, Color, CurveEnd, Factor, FactorError,
-        Finite, Font, FontWeight, Image, Length, LengthError, Opacity, Overflow, PathCmd, Point,
-        StarPolygonError, Style, TriangleAngle, TriangleSidesError, WedgeAngle, WedgeAngleError,
-        XPlace, YPlace,
+        AngleSumError, Attribute, BitmapError, Color, Count, CountError, CurveEnd, Factor,
+        FactorError, Finite, Font, FontWeight, Image, Length, LengthError, Opacity, Overflow,
+        PathCmd, Point, StarPolygonError, Style, TriangleAngle, TriangleSidesError, WedgeAngle,
+        WedgeAngleError, XPlace, YPlace,
     };
     use sinteract::scene::{FillRule, FontStyle, LineCap, LineJoin};
 
@@ -131,25 +131,22 @@ pub(crate) mod _spython_image {
         })
     }
 
-    /// The most sides or points a shape takes. sinteract allocates them all
-    /// at once, and 10^6 of them already take seconds to draw.
-    const MAX_COUNT: u32 = 100_000;
-
-    fn count<const MIN: u32>(
+    fn count<const MIN: u32, const MAX: u32>(
         name: &str,
         value: &PyObject,
-        max: u32,
         vm: &VirtualMachine,
-    ) -> PyResult<AtLeast<MIN>> {
-        let too_many = || error(name, &format!("be at most {max}"), value, vm);
+    ) -> PyResult<Count<MIN, MAX>> {
         let index = value.try_index(vm)?;
-        let n = match u32::try_from(index.as_bigint()) {
-            Ok(n) if n <= max => n,
+        let count = match u32::try_from(index.as_bigint()) {
+            Ok(n) => Count::new(n),
             // A negative count is too few, as 0 is.
-            Err(_) if index.as_bigint().is_negative() => 0,
-            _ => return Err(too_many()),
+            Err(_) if index.as_bigint().is_negative() => Err(CountError::TooFew),
+            Err(_) => Err(CountError::TooMany),
         };
-        AtLeast::new(n).map_err(|_| error(name, &format!("be at least {MIN}"), value, vm))
+        count.map_err(|e| match e {
+            CountError::TooFew => error(name, &format!("be at least {MIN}"), value, vm),
+            CountError::TooMany => error(name, &format!("be at most {MAX}"), value, vm),
+        })
     }
 
     fn point(
@@ -882,7 +879,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, MAX_COUNT, vm)?;
+        let n = count("side_count", &side_count, vm)?;
         image(Image::regular_polygon(side, n, s.0.clone()), vm)
     }
 
@@ -901,8 +898,8 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, MAX_COUNT, vm)?;
-        let step = count("step_count", &step_count, u32::MAX, vm)?;
+        let n = count("side_count", &side_count, vm)?;
+        let step = count("step_count", &step_count, vm)?;
         Image::star_polygon(side, n, step, s.0.clone())
             .map(PyImage)
             .map_err(|e| match e {
@@ -929,7 +926,7 @@ pub(crate) mod _spython_image {
         s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let n = count("point_count", &point_count, MAX_COUNT, vm)?;
+        let n = count("point_count", &point_count, vm)?;
         let inner = length("inner_radius", &inner_radius, vm)?;
         let outer = length("outer_radius", &outer_radius, vm)?;
         image(Image::radial_star(n, inner, outer, s.0.clone()), vm)
@@ -945,7 +942,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, MAX_COUNT, vm)?;
+        let n = count("side_count", &side_count, vm)?;
         let pull = finite("pull", &pull, vm)?;
         let angle = finite("angle", &angle, vm)?;
         image(
