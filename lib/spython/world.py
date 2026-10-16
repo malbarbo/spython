@@ -5,7 +5,9 @@ from _spython_display import (  # type: ignore[import-not-found]
     KEYDOWN as _KEYDOWN,
     KEYPRESS as _KEYPRESS,
     KEYUP as _KEYUP,
-    Display,
+    close as _close,
+    show as _show,
+    wait_event as _wait_event,
 )
 
 from spython.image import Image
@@ -54,22 +56,20 @@ class World[S]:
         return self
 
     def run(self) -> None:
-        display = Display()
         try:
-            self._show_on(display)
-            self._loop(display)
+            _show(self.to_image(self.state))
+            self._loop()
         finally:
-            display.close()
+            _close()
 
     # The world keeps its own clock, and shows its image when a tick or a key
     # changes the state. The display draws the last image at its next frame.
     # Once stop_when holds, the run ends, and the close draws the last image.
-    def _loop(self, display: object) -> None:
+    def _loop(self) -> None:
         period_ms: int = MS_PER_SECOND // self.rate
         next_tick_at: int = now_ms() + period_ms
         while self.stop_when_fn is None or not self.stop_when_fn(self.state):
-            wait_ms: int = max(next_tick_at - now_ms(), 0)
-            event: tuple[int, str] | None = display.wait_event(wait_ms)  # type: ignore[attr-defined]
+            event: tuple[int, str] | None = _wait_event(max(next_tick_at - now_ms(), 0))
             if event is not None and event[0] == _CLOSE:
                 return
             changed: bool = False
@@ -82,10 +82,7 @@ class World[S]:
             if event is not None and self._on_key(event[0], event[1]):
                 changed = True
             if changed:
-                self._show_on(display)
-
-    def _show_on(self, display: object) -> None:
-        _show(display, self.to_image(self.state))
+                _show(self.to_image(self.state))
 
     def _on_key(self, kind: int, key: str) -> bool:
         if self.on_key_down_fn is not None and kind == _KEYDOWN:
@@ -110,29 +107,24 @@ def _next_deadline(deadline: int, now: int, period_ms: int) -> int:
     return deadline
 
 
-def _show(display: object, image: Image) -> None:
-    display.show(image)  # type: ignore[attr-defined]
-
-
 def animate(create_image: Callable[[int], Image]) -> None:
-    display = Display()
     try:
         period_ms: int = MS_PER_SECOND // DEFAULT_TICK_RATE
         frame: int = 0
         while True:
-            _show(display, create_image(frame))
-            if _closed_before(display, now_ms() + period_ms):
+            _show(create_image(frame))
+            if _closed_before(now_ms() + period_ms):
                 return
             frame += 1
     finally:
-        display.close()
+        _close()
 
 
 # Returns True if the display closes before `deadline`, False otherwise. The
 # keys that arrive meanwhile go unused.
-def _closed_before(display: object, deadline: int) -> bool:
+def _closed_before(deadline: int) -> bool:
     while True:
-        event: tuple[int, str] | None = display.wait_event(max(deadline - now_ms(), 0))  # type: ignore[attr-defined]
+        event: tuple[int, str] | None = _wait_event(max(deadline - now_ms(), 0))
         if event is None:
             return False
         if event[0] == _CLOSE:

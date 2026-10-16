@@ -20,13 +20,12 @@ mod _spython_display {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    #[cfg(not(target_arch = "wasm32"))]
-    use rustpython_vm::PyObjectRef;
-    use rustpython_vm::builtins::{PyModule, PyType};
+    use rustpython_vm::builtins::PyModule;
     #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::common::lock::PyMutex;
-    use rustpython_vm::types::Constructor;
-    use rustpython_vm::{Py, PyPayload, PyRef, PyResult, VirtualMachine, pyclass};
+    use rustpython_vm::{Py, PyRef, PyResult, VirtualMachine};
+    #[cfg(not(target_arch = "wasm32"))]
+    use rustpython_vm::{PyObjectRef, PyPayload, pyclass};
     use sinteract::display::{FrameEvent, Frames, StageOptions};
     #[cfg(not(target_arch = "wasm32"))]
     use sinteract::display::{PrintError, Printer, TerminalOptions};
@@ -127,75 +126,56 @@ mod _spython_display {
         }
     }
 
-    /// The display of a world. The first `show` opens a window, and the
-    /// terminal when no window opens, or the session when a server runs
-    /// the program. The terminal keeps the last frame on screen after the
-    /// close.
-    #[pyattr]
-    #[pyclass(name = "Display")]
-    #[derive(Debug, PyPayload)]
-    pub struct PyDisplay;
-
-    impl Constructor for PyDisplay {
-        type Args = ();
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(PyDisplay)
+    /// Wait at most `ms` milliseconds for a key or the close, and
+    /// return it as `(kind, key)`, or `None` when the time runs out. The
+    /// close has the empty key. A signal that arrives meanwhile runs its
+    /// handler, so Ctrl-C raises `KeyboardInterrupt`. A message that the
+    /// session drops goes to stderr, and the wait goes on.
+    #[pyfunction]
+    fn wait_event(ms: u64, vm: &VirtualMachine) -> PyResult<Option<(i32, String)>> {
+        let end = Instant::now() + Duration::from_millis(ms);
+        loop {
+            let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
+            let event = FRAMES.with_borrow_mut(|frames| {
+                if frames.is_open() {
+                    frames.wait_event(deadline, |e| eprintln!("spython: {e}"))
+                } else {
+                    // No world shows a frame, so there is nothing to
+                    // wait for but the time.
+                    thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                    FrameEvent::Timeout
+                }
+            });
+            match event {
+                FrameEvent::Key(k) => return Ok(Some((k.kind as i32, k.key))),
+                FrameEvent::Close => return Ok(Some((CLOSE, String::new()))),
+                FrameEvent::Timeout => {}
+            }
+            if Instant::now() >= end {
+                return Ok(None);
+            }
+            vm.check_signals()?;
         }
     }
 
-    #[pyclass(with(Constructor))]
-    impl PyDisplay {
-        /// Wait at most `ms` milliseconds for a key or the close, and
-        /// return it as `(kind, key)`, or `None` when the time runs out. The
-        /// close has the empty key. A signal that arrives meanwhile runs its
-        /// handler, so Ctrl-C raises `KeyboardInterrupt`. A message that the
-        /// session drops goes to stderr, and the wait goes on.
-        #[pymethod]
-        fn wait_event(&self, ms: u64, vm: &VirtualMachine) -> PyResult<Option<(i32, String)>> {
-            let end = Instant::now() + Duration::from_millis(ms);
-            loop {
-                let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
-                let event = FRAMES.with_borrow_mut(|frames| {
-                    if frames.is_open() {
-                        frames.wait_event(deadline, |e| eprintln!("spython: {e}"))
-                    } else {
-                        // No world shows a frame, so there is nothing to
-                        // wait for but the time.
-                        thread::sleep(deadline.saturating_duration_since(Instant::now()));
-                        FrameEvent::Timeout
-                    }
-                });
-                match event {
-                    FrameEvent::Key(k) => return Ok(Some((k.kind as i32, k.key))),
-                    FrameEvent::Close => return Ok(Some((CLOSE, String::new()))),
-                    FrameEvent::Timeout => {}
-                }
-                if Instant::now() >= end {
-                    return Ok(None);
-                }
-                vm.check_signals()?;
-            }
-        }
+    /// Show `image` on its canvas at the next frame of the display. The
+    /// first call opens a window, the terminal when no window opens, or the
+    /// session when a server runs the program.
+    #[pyfunction]
+    fn show(image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<()> {
+        let scene = image
+            .0
+            .to_scene()
+            .map_err(|e| vm.new_value_error(e.to_string()))?;
+        FRAMES
+            .with_borrow_mut(|frames| frames.show(scene))
+            .map_err(|e| vm.new_runtime_error(e.to_string()))
+    }
 
-        /// Show `image` on its canvas at the next frame of the display. The
-        /// first call opens the display.
-        #[pymethod]
-        fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<()> {
-            let scene = image
-                .0
-                .to_scene()
-                .map_err(|e| vm.new_value_error(e.to_string()))?;
-            FRAMES
-                .with_borrow_mut(|frames| frames.show(scene))
-                .map_err(|e| vm.new_runtime_error(e.to_string()))
-        }
-
-        /// Show the last image, and end the display. A second call does
-        /// nothing.
-        #[pymethod]
-        fn close(&self) {
-            super::close_frames();
-        }
+    /// Show the last image, and end the display. The terminal keeps the
+    /// last image on screen. A second call does nothing.
+    #[pyfunction]
+    fn close() {
+        super::close_frames();
     }
 }
