@@ -14,10 +14,9 @@ from spython.image import Image
 from spython.system import now_ms
 
 MS_PER_SECOND: int = 1000
-KEY_POLL_PERIOD_MS: int = 10
 DEFAULT_TICK_RATE: int = 28
 MIN_TICK_RATE: int = 1
-MAX_TICK_RATE: int = MS_PER_SECOND // KEY_POLL_PERIOD_MS
+MAX_TICK_RATE: int = 100
 
 
 class World[S]:
