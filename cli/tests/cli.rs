@@ -1,8 +1,9 @@
 use assert_cmd::cargo;
 use indoc::{formatdoc, indoc};
 use insta::assert_snapshot;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
+use tempfile::TempDir;
 
 /// The binary under test. A FORCE_COLOR the machine running the tests set for
 /// something else would put escape codes in every snapshot here, so it goes.
@@ -44,17 +45,14 @@ fn run_with_stdin(command: &mut Command, input: &[u8]) -> (String, String, bool)
 }
 
 /// A directory of its own holding `files`, for a test that needs them on a
-/// filesystem. The pid keeps two concurrent runs apart, and the removal keeps
-/// a directory a panicking test left behind from seeding this one.
-fn new_dir_with(prefix: &str, files: &[(&str, &str)]) -> PathBuf {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("_spython_{prefix}_{}_{n}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create the test directory");
+/// filesystem. The directory goes away when the value drops.
+fn new_dir_with(prefix: &str, files: &[(&str, &str)]) -> TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("_spython_{prefix}_"))
+        .tempdir()
+        .expect("create the test directory");
     for (name, source) in files {
-        let path = dir.join(name);
+        let path = dir.path().join(name);
         let parent = path.parent().expect("the file is under the directory");
         std::fs::create_dir_all(parent).expect("create the test directory");
         std::fs::write(&path, source).expect("write the test file");
@@ -846,8 +844,7 @@ fn check_refuses_a_module_under_src() {
             ("src/helper.py", "def f() -> int:\n    return 1\n"),
         ],
     );
-    let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    let (_, err, success) = run_spython_native(&["check", "main.py"], dir.path());
     assert!(!success, "check should have refused, got: {err}");
     assert!(
         err.contains("Cannot resolve imported module `helper`"),
@@ -865,8 +862,7 @@ fn run_imports_a_module_beside_the_file_named_after_the_stdlib() {
             ("re.py", "def f() -> int:\n    return 1\n"),
         ],
     );
-    let (out, err, success) = run_spython_native(&["main.py"], &dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    let (out, err, success) = run_spython_native(&["main.py"], dir.path());
     assert!(success, "the file should have run, got: {err}");
     assert_eq!(out, "1\n");
 }
@@ -883,8 +879,7 @@ fn check_refuses_a_module_beside_the_file_the_interpreter_hides() {
                 (&format!("{module}.py"), "def f() -> int:\n    return 1\n"),
             ],
         );
-        let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
-        let _ = std::fs::remove_dir_all(&dir);
+        let (_, err, success) = run_spython_native(&["check", "main.py"], dir.path());
         assert!(!success, "check should have refused {module}, got: {err}");
         assert!(
             err.contains("error[shadowed-module]"),
@@ -909,12 +904,11 @@ fn check_refuses_a_module_from_site_packages() {
         ],
     );
     let output = spython()
-        .current_dir(&dir)
-        .env("VIRTUAL_ENV", dir.join("venv"))
+        .current_dir(dir.path())
+        .env("VIRTUAL_ENV", dir.path().join("venv"))
         .args(["check", "main.py"])
         .output()
         .expect("failed to run spython");
-    let _ = std::fs::remove_dir_all(&dir);
     let err = String::from_utf8_lossy(&output.stderr);
     assert!(
         !output.status.success(),
@@ -953,8 +947,7 @@ fn check_resolves_the_imports_of_a_doctest_in_a_package() {
                 ("pkg/util.py", util.as_str()),
             ],
         );
-        let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
-        let _ = std::fs::remove_dir_all(&dir);
+        let (_, err, success) = run_spython_native(&["check", "main.py"], dir.path());
         assert!(!success, "check should have refused {import:?}, got: {err}");
         assert!(
             err.contains("in doctest of quadruplo: Argument to function `dobro` is incorrect"),
@@ -978,15 +971,14 @@ fn check_follows_an_import_that_only_a_doctest_makes() {
         "doctest_import",
         &[("main.py", main), ("helpers.py", helpers)],
     );
-    let (_, err, success) = run_spython_native(&["test", "main.py"], &dir);
+    let (_, err, success) = run_spython_native(&["test", "main.py"], dir.path());
     assert!(success, "the doctest should have run, got: {err}");
     assert!(err.contains("2 tests, 2 successes"), "got: {err}");
 
     // The module the doctest imports is checked too.
     let broken = format!("{helpers}\n\ndef g() -> int:\n    return \"x\"\n");
-    std::fs::write(dir.join("helpers.py"), broken).expect("write the test file");
-    let (_, err, success) = run_spython_native(&["check", "main.py"], &dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::write(dir.path().join("helpers.py"), broken).expect("write the test file");
+    let (_, err, success) = run_spython_native(&["check", "main.py"], dir.path());
     assert!(!success, "check should have refused, got: {err}");
     assert!(
         err.contains("--> helpers.py:6:12"),
@@ -999,8 +991,7 @@ fn show_svg_writes_in_order_with_print() {
     let source =
         "from spython import show_svg\n\nprint(\"first\")\nshow_svg(\"<svg/>\")\nprint(\"last\")\n";
     let dir = new_dir_with("show_svg", &[("main.py", source)]);
-    let (out, err, success) = run_spython_native(&["main.py"], &dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    let (out, err, success) = run_spython_native(&["main.py"], dir.path());
     assert!(success, "stderr: {err}");
     assert_eq!(out, "first\n<svg/>\nlast\n");
 }
@@ -1016,11 +1007,10 @@ fn run_and_test_import_beside_the_target_of_a_symlink() {
         "symlink",
         &[("lib/main.py", main), ("lib/helpers.py", helpers)],
     );
-    std::fs::create_dir(dir.join("app")).expect("create app");
-    std::os::unix::fs::symlink("../lib/main.py", dir.join("app/main.py")).expect("symlink");
-    let (run_out, run_err, run_ok) = run_spython_native(&["run", "app/main.py"], &dir);
-    let (test_out, test_err, test_ok) = run_spython_native(&["test", "app/main.py"], &dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir(dir.path().join("app")).expect("create app");
+    std::os::unix::fs::symlink("../lib/main.py", dir.path().join("app/main.py")).expect("symlink");
+    let (run_out, run_err, run_ok) = run_spython_native(&["run", "app/main.py"], dir.path());
+    let (test_out, test_err, test_ok) = run_spython_native(&["test", "app/main.py"], dir.path());
     assert!(run_ok, "stderr: {run_err}");
     assert_eq!(run_out, "1\n");
     assert!(test_ok, "stdout: {test_out}, stderr: {test_err}");
@@ -1037,8 +1027,7 @@ fn to_svg_draws_a_scene_of_many_placed_images() {
         print(to_svg(scene).count('fill="#ff0000"'))
     "##};
     let dir = new_dir_with("deep_scene", &[("main.py", source)]);
-    let (out, err, success) = run_spython_native(&["run", "--level", "5", "main.py"], &dir);
-    let _ = std::fs::remove_dir_all(&dir);
+    let (out, err, success) = run_spython_native(&["run", "--level", "5", "main.py"], dir.path());
     assert!(success, "stderr: {err}");
     assert_eq!(out, "5000\n");
 }
@@ -1047,12 +1036,11 @@ fn to_svg_draws_a_scene_of_many_placed_images() {
 fn check_ignores_a_virtual_env_that_is_not_there() {
     let dir = new_dir_with("no_venv", &[("main.py", "print(1)\n")]);
     let output = spython()
-        .current_dir(&dir)
-        .env("VIRTUAL_ENV", dir.join("missing"))
+        .current_dir(dir.path())
+        .env("VIRTUAL_ENV", dir.path().join("missing"))
         .args(["main.py"])
         .output()
         .expect("failed to run spython");
-    let _ = std::fs::remove_dir_all(&dir);
     let err = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
@@ -2786,10 +2774,9 @@ fn run_format_stdin(args: &[&str], input: &str) -> (String, String, bool) {
 #[test]
 fn format_writes_the_file() {
     let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
-    let (out, err, success) = run_spython_native(&["format", "a.py"], &dir);
+    let (out, err, success) = run_spython_native(&["format", "a.py"], dir.path());
     assert!(success, "stdout: {out}\nstderr: {err}");
-    assert_eq!(file_in(&dir, "a.py"), FORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "a.py"), FORMATTED);
 }
 
 #[test]
@@ -2798,13 +2785,12 @@ fn format_recurses_into_directories() {
         "format",
         &[("sub/a.py", UNFORMATTED), ("sub/b.txt", UNFORMATTED)],
     );
-    let (out, err, success) = run_spython_native(&["format", "."], &dir);
+    let (out, err, success) = run_spython_native(&["format", "."], dir.path());
     assert!(success, "stdout: {out}\nstderr: {err}");
-    assert_eq!(file_in(&dir, "sub/a.py"), FORMATTED);
+    assert_eq!(file_in(dir.path(), "sub/a.py"), FORMATTED);
     // Only Python is formatted; a name the formatter has no business with is
     // left as it is.
-    assert_eq!(file_in(&dir, "sub/b.txt"), UNFORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "sub/b.txt"), UNFORMATTED);
 }
 
 #[test]
@@ -2813,40 +2799,36 @@ fn format_recurses_into_a_directory_named_like_a_python_file() {
         "format",
         &[("a.py/m.py", UNFORMATTED), ("c.py", UNFORMATTED)],
     );
-    let (out, err, success) = run_spython_native(&["format", "."], &dir);
+    let (out, err, success) = run_spython_native(&["format", "."], dir.path());
     assert!(success, "stdout: {out}\nstderr: {err}");
-    assert_eq!(file_in(&dir, "a.py/m.py"), FORMATTED);
-    assert_eq!(file_in(&dir, "c.py"), FORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "a.py/m.py"), FORMATTED);
+    assert_eq!(file_in(dir.path(), "c.py"), FORMATTED);
 }
 
 #[test]
 fn format_writes_a_named_file_whatever_its_name() {
     let dir = new_dir_with("format", &[("a.txt", UNFORMATTED)]);
-    let (out, err, success) = run_spython_native(&["format", "a.txt"], &dir);
+    let (out, err, success) = run_spython_native(&["format", "a.txt"], dir.path());
     assert!(success, "stdout: {out}\nstderr: {err}");
-    assert_eq!(file_in(&dir, "a.txt"), FORMATTED);
-    let (_, err, success) = run_spython_native(&["format", "--check", "a.txt"], &dir);
+    assert_eq!(file_in(dir.path(), "a.txt"), FORMATTED);
+    let (_, err, success) = run_spython_native(&["format", "--check", "a.txt"], dir.path());
     assert!(success, "stderr: {err}");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn format_check_names_the_file_and_leaves_it_alone() {
     let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
-    let (_, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
+    let (_, err, success) = run_spython_native(&["format", "--check", "a.py"], dir.path());
     assert!(!success, "stderr: {err}");
     assert!(err.contains("'a.py' is not formatted"), "stderr: {err}");
-    assert_eq!(file_in(&dir, "a.py"), UNFORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "a.py"), UNFORMATTED);
 }
 
 #[test]
 fn format_check_passes_on_a_formatted_file() {
     let dir = new_dir_with("format", &[("a.py", FORMATTED)]);
-    let (out, err, success) = run_spython_native(&["format", "--check", "a.py"], &dir);
+    let (out, err, success) = run_spython_native(&["format", "--check", "a.py"], dir.path());
     assert!(success, "stdout: {out}\nstderr: {err}");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -2856,14 +2838,13 @@ fn format_fails_on_a_file_it_cannot_parse() {
         &[("bad.py", "def f(:\n"), ("good.py", UNFORMATTED)],
     );
     for args in [&["format", "."][..], &["format", "--check", "."][..]] {
-        let (_, err, success) = run_spython_native(args, &dir);
+        let (_, err, success) = run_spython_native(args, dir.path());
         assert!(!success, "{args:?}: {err}");
         assert!(err.contains("cannot format './bad.py'"), "{args:?}: {err}");
     }
     // The file the formatter reads is still formatted, as one file it turns
     // down does not stop the others.
-    assert_eq!(file_in(&dir, "good.py"), FORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "good.py"), FORMATTED);
 }
 
 #[test]
@@ -2873,26 +2854,24 @@ fn format_fails_on_a_path_that_does_not_exist() {
         &["format", "a.py", "nosuch.py"][..],
         &["format", "--check", "a.py", "nosuch.py"][..],
     ] {
-        let (_, err, success) = run_spython_native(args, &dir);
+        let (_, err, success) = run_spython_native(args, dir.path());
         assert!(!success, "{args:?}: {err}");
         assert!(err.contains("cannot read 'nosuch.py'"), "{args:?}: {err}");
     }
     // The file that exists is left as it was, as the paths are all looked at
     // before any file is written.
-    assert_eq!(file_in(&dir, "a.py"), UNFORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "a.py"), UNFORMATTED);
 }
 
 #[test]
 fn format_fails_on_a_file_it_cannot_read() {
     let dir = new_dir_with("format", &[("a.py", UNFORMATTED)]);
-    std::fs::write(dir.join("c.py"), b"\xff\n").expect("write c.py");
-    let (_, err, success) = run_spython_native(&["format", "."], &dir);
+    std::fs::write(dir.path().join("c.py"), b"\xff\n").expect("write c.py");
+    let (_, err, success) = run_spython_native(&["format", "."], dir.path());
     assert!(!success, "stderr: {err}");
     assert!(err.contains("cannot read './c.py'"), "stderr: {err}");
     // The files are all read before any file is written.
-    assert_eq!(file_in(&dir, "a.py"), UNFORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "a.py"), UNFORMATTED);
 }
 
 #[cfg(unix)]
@@ -2901,18 +2880,16 @@ fn format_goes_on_after_a_file_it_cannot_write() {
     use std::os::unix::fs::PermissionsExt as _;
 
     let dir = new_dir_with("format", &[("a.py", UNFORMATTED), ("b.py", UNFORMATTED)]);
-    let a = dir.join("a.py");
+    let a = dir.path().join("a.py");
     std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o444)).expect("chmod a.py");
     // Root writes a file whatever its mode.
     if std::fs::OpenOptions::new().write(true).open(&a).is_ok() {
-        let _ = std::fs::remove_dir_all(&dir);
         return;
     }
-    let (_, err, success) = run_spython_native(&["format", "."], &dir);
+    let (_, err, success) = run_spython_native(&["format", "."], dir.path());
     assert!(!success, "stderr: {err}");
     assert!(err.contains("cannot format './a.py'"), "stderr: {err}");
-    assert_eq!(file_in(&dir, "b.py"), FORMATTED);
-    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(file_in(dir.path(), "b.py"), FORMATTED);
 }
 
 #[test]
@@ -2952,7 +2929,7 @@ fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (Stri
     let dir = new_dir_with("repl_preload", files);
     // From the directory the files are in, which is where ty looks for the
     // ones a file imports.
-    let result = run_repl_in(
+    run_repl_in(
         input,
         &[
             "repl",
@@ -2960,10 +2937,8 @@ fn run_repl_after_files(input: &str, level: u8, files: &[(&str, &str)]) -> (Stri
             &level.to_string(),
             files.first().expect("at least one file").0,
         ],
-        Some(&dir),
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+        Some(dir.path()),
+    )
 }
 
 fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, String, bool) {
@@ -3193,10 +3168,9 @@ fn repl_theme_changes_only_its_own_line_of_the_config() {
         &[("spython/config", "level=2\ntheme=dark\n")],
     );
     let mut command = spython();
-    command.env("XDG_CONFIG_HOME", &dir).arg("repl");
+    command.env("XDG_CONFIG_HOME", dir.path()).arg("repl");
     let (_, err, success) = run_with_stdin(&mut command, b":theme light\n");
-    let config = std::fs::read_to_string(dir.join("spython/config"));
-    let _ = std::fs::remove_dir_all(&dir);
+    let config = std::fs::read_to_string(dir.path().join("spython/config"));
     assert!(success, "{err}");
     assert_eq!(
         config.expect("the config is there"),
@@ -3330,7 +3304,7 @@ fn missing_file() {
 
 /// A file the checker turns down, for the tests that ask what colour the
 /// answer takes.
-fn dir_with_a_type_error(prefix: &str) -> PathBuf {
+fn dir_with_a_type_error(prefix: &str) -> TempDir {
     new_dir_with(
         prefix,
         &[("bad.py", "def f(x: int) -> int:\n    return 'a'\n")],
@@ -3356,14 +3330,14 @@ fn check_stderr_with_env(dir: &Path, env: &[(&str, &str)]) -> String {
 #[test]
 fn force_color_colours_a_diagnostic_with_no_terminal_watching() {
     let dir = dir_with_a_type_error("force_color");
-    let err = check_stderr_with_env(&dir, &[("FORCE_COLOR", "1")]);
+    let err = check_stderr_with_env(dir.path(), &[("FORCE_COLOR", "1")]);
     assert!(err.contains('\x1b'), "expected escape codes, got: {err}");
 }
 
 #[test]
 fn no_color_keeps_the_codes_out_of_a_diagnostic() {
     let dir = dir_with_a_type_error("no_color");
-    let err = check_stderr_with_env(&dir, &[("FORCE_COLOR", "1"), ("NO_COLOR", "1")]);
+    let err = check_stderr_with_env(dir.path(), &[("FORCE_COLOR", "1"), ("NO_COLOR", "1")]);
     assert!(
         !err.contains('\x1b'),
         "expected no escape codes, got: {err}"
@@ -3374,6 +3348,6 @@ fn no_color_keeps_the_codes_out_of_a_diagnostic() {
 #[test]
 fn an_empty_no_color_asks_for_nothing() {
     let dir = dir_with_a_type_error("empty_no_color");
-    let err = check_stderr_with_env(&dir, &[("FORCE_COLOR", "1"), ("NO_COLOR", "")]);
+    let err = check_stderr_with_env(dir.path(), &[("FORCE_COLOR", "1"), ("NO_COLOR", "")]);
     assert!(err.contains('\x1b'), "expected escape codes, got: {err}");
 }
