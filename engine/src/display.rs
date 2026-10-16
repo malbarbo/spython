@@ -20,21 +20,40 @@ mod _spython_display {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use rustpython_vm::builtins::PyType;
+    #[cfg(not(target_arch = "wasm32"))]
+    use rustpython_vm::PyObjectRef;
+    use rustpython_vm::builtins::{PyModule, PyType};
     #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::common::lock::PyMutex;
     use rustpython_vm::types::Constructor;
-    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, pyclass};
+    use rustpython_vm::{Py, PyPayload, PyRef, PyResult, VirtualMachine, pyclass};
     use sinteract::display::{FrameEvent, Frames, StageOptions};
     #[cfg(not(target_arch = "wasm32"))]
     use sinteract::display::{PrintError, Printer, TerminalOptions};
+    use sinteract::event::KeyKind;
 
     use crate::image::PyImage;
 
     /// The kind of the close in what `wait_event` returns, first in its
-    /// tuple. A key keeps the number of its
-    /// [`KeyKind`](sinteract::event::KeyKind), which `spython.world` reads.
+    /// tuple. A key keeps the number of its [`KeyKind`].
     const CLOSE: i32 = 3;
+
+    /// The module, with the kinds of event as `KEYPRESS`, `KEYDOWN`, `KEYUP`
+    /// and `CLOSE`. The code of a `#[pyattr]` const calls `unwrap`, which
+    /// clippy denies here.
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        let kinds = [
+            ("KEYPRESS", KeyKind::Press as i32),
+            ("KEYDOWN", KeyKind::Down as i32),
+            ("KEYUP", KeyKind::Up as i32),
+            ("CLOSE", CLOSE),
+        ];
+        for (name, kind) in kinds {
+            module.set_attr(name, vm.new_pyobj(kind), vm)?;
+        }
+        Ok(())
+    }
 
     /// How long `wait_event` blocks before it runs the handlers of the
     /// signals that arrived. Python runs them between two bytecodes, and a
@@ -128,16 +147,14 @@ mod _spython_display {
     #[pyclass(with(Constructor))]
     impl PyDisplay {
         /// Wait at most `ms` milliseconds for a key or the close, and
-        /// return it as `(kind, key, alt, ctrl, shift, meta, repeat)`, or
-        /// `None` when the time runs out. Only a key fills the fields after
-        /// the kind, and `repeat` is always `False`, because a repeat comes
-        /// as another press. A signal that arrives meanwhile runs its
-        /// handler, so Ctrl-C raises `KeyboardInterrupt`. A message that
-        /// the session drops goes to stderr, and the wait goes on.
+        /// return it as `(kind, key)`, or `None` when the time runs out. The
+        /// close has the empty key. A signal that arrives meanwhile runs its
+        /// handler, so Ctrl-C raises `KeyboardInterrupt`. A message that the
+        /// session drops goes to stderr, and the wait goes on.
         #[pymethod]
-        fn wait_event(&self, ms: u64, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn wait_event(&self, ms: u64, vm: &VirtualMachine) -> PyResult<Option<(i32, String)>> {
             let end = Instant::now() + Duration::from_millis(ms);
-            let event = loop {
+            loop {
                 let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
                 let event = FRAMES.with_borrow_mut(|frames| {
                     if frames.is_open() {
@@ -149,33 +166,16 @@ mod _spython_display {
                         FrameEvent::Timeout
                     }
                 });
-                if event != FrameEvent::Timeout {
-                    break event;
+                match event {
+                    FrameEvent::Key(k) => return Ok(Some((k.kind as i32, k.key))),
+                    FrameEvent::Close => return Ok(Some((CLOSE, String::new()))),
+                    FrameEvent::Timeout => {}
                 }
                 if Instant::now() >= end {
-                    return Ok(vm.ctx.none());
+                    return Ok(None);
                 }
                 vm.check_signals()?;
-            };
-            let (kind, key) = match event {
-                FrameEvent::Key(k) => (k.kind as i32, Some(k)),
-                FrameEvent::Close => (CLOSE, None),
-                FrameEvent::Timeout => unreachable!("the loop above takes each Timeout"),
-            };
-            let (name, mods) = match key {
-                Some(k) => (k.key, k.modifiers),
-                None => (String::new(), Default::default()),
-            };
-            let elements = vec![
-                vm.ctx.new_int(kind).into(),
-                vm.ctx.new_str(name).into(),
-                vm.ctx.new_bool(mods.alt).into(),
-                vm.ctx.new_bool(mods.ctrl).into(),
-                vm.ctx.new_bool(mods.shift).into(),
-                vm.ctx.new_bool(mods.meta).into(),
-                vm.ctx.new_bool(false).into(),
-            ];
-            Ok(vm.ctx.new_tuple(elements).into())
+            }
         }
 
         /// Show `image` on its canvas at the next frame of the display. The

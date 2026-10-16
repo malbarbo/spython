@@ -1,23 +1,21 @@
 from collections.abc import Callable
 
-from _spython_display import Display  # type: ignore[import-not-found]
+from _spython_display import (  # type: ignore[import-not-found]
+    CLOSE as _CLOSE,
+    KEYDOWN as _KEYDOWN,
+    KEYPRESS as _KEYPRESS,
+    KEYUP as _KEYUP,
+    Display,
+)
 
 from spython.image import Image
 from spython.system import now_ms
-
-KEYPRESS: int = 0
-KEYDOWN: int = 1
-KEYUP: int = 2
 
 MS_PER_SECOND: int = 1000
 KEY_POLL_PERIOD_MS: int = 10
 DEFAULT_TICK_RATE: int = 28
 MIN_TICK_RATE: int = 1
 MAX_TICK_RATE: int = MS_PER_SECOND // KEY_POLL_PERIOD_MS
-
-# The kind of event that `Display.wait_event` returns after the three kinds
-# of key.
-CLOSE: int = 3
 
 
 class World[S]:
@@ -70,10 +68,9 @@ class World[S]:
         period_ms: int = MS_PER_SECOND // self.rate
         next_tick_at: int = now_ms() + period_ms
         while self.stop_when_fn is None or not self.stop_when_fn(self.state):
-            event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
-                display.wait_event(max(next_tick_at - now_ms(), 0))  # type: ignore[attr-defined]
-            )
-            if event is not None and event[0] == CLOSE:
+            wait_ms: int = max(next_tick_at - now_ms(), 0)
+            event: tuple[int, str] | None = display.wait_event(wait_ms)  # type: ignore[attr-defined]
+            if event is not None and event[0] == _CLOSE:
                 return
             changed: bool = False
             now: int = now_ms()
@@ -91,13 +88,13 @@ class World[S]:
         _show(display, self.to_image(self.state))
 
     def _on_key(self, kind: int, key: str) -> bool:
-        if self.on_key_down_fn is not None and kind == KEYDOWN:
+        if self.on_key_down_fn is not None and kind == _KEYDOWN:
             self.state = self.on_key_down_fn(self.state, key)
             return True
-        if self.on_key_press_fn is not None and kind == KEYPRESS:
+        if self.on_key_press_fn is not None and kind == _KEYPRESS:
             self.state = self.on_key_press_fn(self.state, key)
             return True
-        if self.on_key_up_fn is not None and kind == KEYUP:
+        if self.on_key_up_fn is not None and kind == _KEYUP:
             self.state = self.on_key_up_fn(self.state, key)
             return True
         return False
@@ -135,10 +132,8 @@ def animate(create_image: Callable[[int], Image]) -> None:
 # keys that arrive meanwhile go unused.
 def _closed_before(display: object, deadline: int) -> bool:
     while True:
-        event: tuple[int, str, bool, bool, bool, bool, bool] | None = (
-            display.wait_event(max(deadline - now_ms(), 0))  # type: ignore[attr-defined]
-        )
+        event: tuple[int, str] | None = display.wait_event(max(deadline - now_ms(), 0))  # type: ignore[attr-defined]
         if event is None:
             return False
-        if event[0] == CLOSE:
+        if event[0] == _CLOSE:
             return True
