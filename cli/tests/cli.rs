@@ -1099,7 +1099,7 @@ fn run_output_agrees_between_backends() {
     );
     let (_, err, _) = dual_run("run", "doctests", "raises_in_lib.py");
     assert!(
-        err.contains("in square\n    return _native.square(side, _make_style(*style_args))\n"),
+        err.contains("in square\n    return _native.square(side, join(*style_args))\n"),
         "{err}"
     );
 }
