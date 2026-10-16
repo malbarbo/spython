@@ -346,7 +346,7 @@ def crop_align(
 # **************************
 
 
-def combine(images: list[Image], op: _Callable[[Image, Image], Image]) -> Image:
+def combine(images: _Sequence[Image], op: _Callable[[Image, Image], Image]) -> Image:
     result: Image = empty
     for img in images:
         result = op(result, img)
@@ -420,13 +420,13 @@ def place_image(
 
 def place_images(
     scene: Image,
-    positions: list[Point | tuple[float, float]],
-    images: list[Image],
+    positions: _Sequence[Point | tuple[float, float]],
+    images: _Sequence[Image],
     *,
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    return _native.place_images(scene, list(positions), images, x_place, y_place)
+    return _native.place_images(scene, list(positions), list(images), x_place, y_place)
 
 
 def place_line(
@@ -437,7 +437,7 @@ def place_line(
 
 def place_polygon(
     scene: Image,
-    points: list[Point | tuple[float, float]],
+    points: _Sequence[Point | tuple[float, float]],
     *style_args: Style,
 ) -> Image:
     return _native.place_polygon(scene, list(points), _make_style(*style_args))
@@ -486,7 +486,7 @@ def add_line(
 
 def add_polygon(
     img: Image,
-    points: list[Point | tuple[float, float]],
+    points: _Sequence[Point | tuple[float, float]],
     *style_args: Style,
 ) -> Image:
     return _native.add_polygon(img, list(points), _make_style(*style_args))
