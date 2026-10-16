@@ -281,8 +281,7 @@ def wedge(radius: float, angle: float, *style_args: Style) -> Image:
 def text(
     txt: str, *style_args: Style, size: float | None = None, font: Font | None = None
 ) -> Image:
-    f: Font = font if font is not None else Font()
-    return _native.text(txt, f, size, join(*style_args))
+    return _native.text(txt, font, size, join(*style_args))
 
 
 # **************************

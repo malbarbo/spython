@@ -969,12 +969,12 @@ pub(crate) mod _spython_image {
     #[pyfunction]
     fn text(
         txt: PyUtf8StrRef,
-        f: PyFontRef,
+        f: Option<PyFontRef>,
         size: Option<PyObjectRef>,
         s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let mut font = f.0.clone();
+        let mut font = f.map_or_else(Font::default, |f| f.0.clone());
         if let Some(size) = size {
             font.size = length("size", &size, vm)?;
         }
