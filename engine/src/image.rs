@@ -313,6 +313,14 @@ pub(crate) mod _spython_image {
 
     type PyColorRef = PyRef<PyColor>;
 
+    /// The color that CSS calls `name`.
+    #[pyfunction]
+    fn named(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyColor> {
+        Color::named(name.as_str())
+            .map(PyColor)
+            .ok_or_else(|| vm.new_value_error(format!("no color is named {name}")))
+    }
+
     // Font
 
     #[pyattr]
