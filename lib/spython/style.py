@@ -43,7 +43,7 @@ none: Style = _native.join([])
 
 
 def join(*styles: Style) -> Style:
-    return _native.join(list(styles))
+    return _native.join(styles)
 
 
 def fill(
@@ -65,7 +65,7 @@ def stroke(
         c,
         width,
         opacity,
-        None if dash_array is None else list(dash_array),
+        dash_array,
         linecap,
         linejoin,
     )

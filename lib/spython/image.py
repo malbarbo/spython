@@ -115,7 +115,7 @@ def arc_to(
 
 
 def path(commands: _Sequence[_PathCmd], closed: bool, *style_args: Style) -> Image:
-    return _native.path(list(commands), closed, join(*style_args))
+    return _native.path(commands, closed, join(*style_args))
 
 
 # **************************
@@ -235,7 +235,7 @@ def regular_polygon(side_length: float, side_count: int, *style_args: Style) -> 
 def polygon(
     points: _Sequence[Point | tuple[float, float]], *style_args: Style
 ) -> Image:
-    return _native.polygon(list(points), join(*style_args))
+    return _native.polygon(points, join(*style_args))
 
 
 def star_polygon(
@@ -422,7 +422,7 @@ def place_images(
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
-    return _native.place_images(scene, list(positions), list(images), x_place, y_place)
+    return _native.place_images(scene, positions, images, x_place, y_place)
 
 
 def place_line(
@@ -436,7 +436,7 @@ def place_polygon(
     points: _Sequence[Point | tuple[float, float]],
     *style_args: Style,
 ) -> Image:
-    return _native.place_polygon(scene, list(points), join(*style_args))
+    return _native.place_polygon(scene, points, join(*style_args))
 
 
 def place_curve(
@@ -485,7 +485,7 @@ def add_polygon(
     points: _Sequence[Point | tuple[float, float]],
     *style_args: Style,
 ) -> Image:
-    return _native.add_polygon(img, list(points), join(*style_args))
+    return _native.add_polygon(img, points, join(*style_args))
 
 
 def add_curve(
