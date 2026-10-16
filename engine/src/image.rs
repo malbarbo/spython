@@ -749,7 +749,7 @@ pub(crate) mod _spython_image {
                         (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => e,
                     }
                 }
-                TriangleSidesError::Overflow => vm.new_value_error(Overflow.to_string()),
+                e @ TriangleSidesError::Overflow => vm.new_value_error(e.to_string()),
             })
     }
 
@@ -810,7 +810,7 @@ pub(crate) mod _spython_image {
                     Err(e) => e,
                 }
             }
-            AngleSumError::Overflow => vm.new_value_error(Overflow.to_string()),
+            e @ AngleSumError::Overflow => vm.new_value_error(e.to_string()),
         }
     }
 
@@ -911,7 +911,7 @@ pub(crate) mod _spython_image {
                     n.get(),
                     step.get()
                 )),
-                StarPolygonError::Overflow => vm.new_value_error(Overflow.to_string()),
+                e @ StarPolygonError::Overflow => vm.new_value_error(e.to_string()),
             })
     }
 
