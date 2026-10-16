@@ -5,15 +5,15 @@ import _spython_image as _native  # type: ignore[import-not-found]
 
 
 class FontStyle(Enum):
-    NORMAL = "normal"
-    ITALIC = "italic"
-    SLANT = "oblique"
+    NORMAL = _native.FONTSTYLE_NORMAL
+    ITALIC = _native.FONTSTYLE_ITALIC
+    SLANT = _native.FONTSTYLE_SLANT
 
 
 class FontWeight(Enum):
-    LIGHT = "lighter"
-    REGULAR = "normal"
-    BOLD = "bold"
+    LIGHT = _native.FONTWEIGHT_LIGHT
+    REGULAR = _native.FONTWEIGHT_REGULAR
+    BOLD = _native.FONTWEIGHT_BOLD
 
 
 # Module-level shorthands so users can write `style=ITALIC` instead of

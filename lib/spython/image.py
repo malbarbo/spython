@@ -25,15 +25,15 @@ from spython.style import (
 
 
 class XPlace(_Enum):
-    LEFT = "left"
-    CENTER = "center"
-    RIGHT = "right"
+    LEFT = _native.XPLACE_LEFT
+    CENTER = _native.XPLACE_CENTER
+    RIGHT = _native.XPLACE_RIGHT
 
 
 class YPlace(_Enum):
-    TOP = "top"
-    MIDDLE = "middle"
-    BOTTOM = "bottom"
+    TOP = _native.YPLACE_TOP
+    MIDDLE = _native.YPLACE_MIDDLE
+    BOTTOM = _native.YPLACE_BOTTOM
 
 
 # Alignment shorthands so users can write `LEFT` instead of `XPlace.LEFT`.

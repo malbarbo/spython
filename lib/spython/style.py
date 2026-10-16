@@ -9,20 +9,20 @@ from spython.color import Color as _Color
 
 
 class LineCap(Enum):
-    BUTT = "butt"
-    ROUND = "round"
-    SQUARE = "square"
+    BUTT = _native.LINECAP_BUTT
+    ROUND = _native.LINECAP_ROUND
+    SQUARE = _native.LINECAP_SQUARE
 
 
 class LineJoin(Enum):
-    MITER = "miter"
-    ROUND = "round"
-    BEVEL = "bevel"
+    MITER = _native.LINEJOIN_MITER
+    ROUND = _native.LINEJOIN_ROUND
+    BEVEL = _native.LINEJOIN_BEVEL
 
 
 class FillRule(Enum):
-    NONZERO = "nonzero"
-    EVENODD = "evenodd"
+    NONZERO = _native.FILLRULE_NONZERO
+    EVENODD = _native.FILLRULE_EVENODD
 
 
 # The class lives in `_spython_image`, which ty cannot read, so ty reads this

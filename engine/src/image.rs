@@ -10,7 +10,7 @@ pub(crate) mod _spython_image {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use num_traits::Signed;
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyTuple, PyType, PyUtf8StrRef};
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyModule, PyTuple, PyType, PyUtf8StrRef};
     use rustpython_vm::function::{ArgIntoFloat, OptionalArg, PyComparisonValue};
     use rustpython_vm::types::{Comparable, Constructor, PyComparisonOp};
     use rustpython_vm::{
@@ -198,34 +198,144 @@ pub(crate) mod _spython_image {
     }
 
     fn x_place(place: &PyObject, vm: &VirtualMachine) -> PyResult<XPlace> {
-        Ok(match enum_value(place, vm)?.as_str() {
-            "left" => XPlace::Left,
-            "right" => XPlace::Right,
-            _ => XPlace::Center,
-        })
+        X_PLACE.variant(place, vm)
     }
 
     fn y_place(place: &PyObject, vm: &VirtualMachine) -> PyResult<YPlace> {
-        Ok(match enum_value(place, vm)?.as_str() {
-            "top" => YPlace::Top,
-            "bottom" => YPlace::Bottom,
-            _ => YPlace::Middle,
-        })
+        Y_PLACE.variant(place, vm)
     }
 
     fn images(images: Vec<PyImageRef>) -> impl Iterator<Item = Image> {
         images.into_iter().map(|i| i.0.clone())
     }
 
-    /// The `value` of an `Enum` of `spython`.
-    fn enum_value(e: &PyObject, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
-        PyUtf8StrRef::try_from_object(vm, e.get_attr("value", vm)?)
+    /// An `Enum` of `spython`, whose members have as value their position
+    /// in `members`. The module exports each value as `<ENUM>_<MEMBER>`,
+    /// and the `Enum` takes its values from there.
+    struct PyEnum<T: 'static> {
+        module: &'static str,
+        name: &'static str,
+        members: &'static [(&'static str, T)],
     }
 
-    /// The member of the `Enum` `name` of `spython.font` with `value`.
-    fn font_enum(name: &'static str, value: &str, vm: &VirtualMachine) -> PyResult {
-        let module = vm.import("spython.font", 0)?;
-        module.get_attr(name, vm)?.call((value.to_owned(),), vm)
+    const X_PLACE: PyEnum<XPlace> = PyEnum {
+        module: "spython.image",
+        name: "XPlace",
+        members: &[
+            ("LEFT", XPlace::Left),
+            ("CENTER", XPlace::Center),
+            ("RIGHT", XPlace::Right),
+        ],
+    };
+
+    const Y_PLACE: PyEnum<YPlace> = PyEnum {
+        module: "spython.image",
+        name: "YPlace",
+        members: &[
+            ("TOP", YPlace::Top),
+            ("MIDDLE", YPlace::Middle),
+            ("BOTTOM", YPlace::Bottom),
+        ],
+    };
+
+    const FONT_STYLE: PyEnum<FontStyle> = PyEnum {
+        module: "spython.font",
+        name: "FontStyle",
+        members: &[
+            ("NORMAL", FontStyle::Normal),
+            ("ITALIC", FontStyle::Italic),
+            ("SLANT", FontStyle::Oblique),
+        ],
+    };
+
+    const FONT_WEIGHT: PyEnum<FontWeight> = PyEnum {
+        module: "spython.font",
+        name: "FontWeight",
+        members: &[
+            ("LIGHT", FontWeight::Light),
+            ("REGULAR", FontWeight::Regular),
+            ("BOLD", FontWeight::Bold),
+        ],
+    };
+
+    const LINE_CAP: PyEnum<LineCap> = PyEnum {
+        module: "spython.style",
+        name: "LineCap",
+        members: &[
+            ("BUTT", LineCap::Butt),
+            ("ROUND", LineCap::Round),
+            ("SQUARE", LineCap::Square),
+        ],
+    };
+
+    const LINE_JOIN: PyEnum<LineJoin> = PyEnum {
+        module: "spython.style",
+        name: "LineJoin",
+        members: &[
+            ("MITER", LineJoin::Miter),
+            ("ROUND", LineJoin::Round),
+            ("BEVEL", LineJoin::Bevel),
+        ],
+    };
+
+    const FILL_RULE: PyEnum<FillRule> = PyEnum {
+        module: "spython.style",
+        name: "FillRule",
+        members: &[
+            ("NONZERO", FillRule::NonZero),
+            ("EVENODD", FillRule::EvenOdd),
+        ],
+    };
+
+    impl<T: Copy + PartialEq> PyEnum<T> {
+        fn class(&self, vm: &VirtualMachine) -> PyResult {
+            vm.import(self.module, 0)?.get_attr(self.name, vm)
+        }
+
+        /// The variant of `member`, which has to be a member of this `Enum`.
+        fn variant(&self, member: &PyObject, vm: &VirtualMachine) -> PyResult<T> {
+            let wrong = || match member.str(vm) {
+                Ok(got) => vm.new_type_error(format!("expected {}, got {got}", self.name)),
+                Err(e) => e,
+            };
+            if !member.is_instance(&*self.class(vm)?, vm)? {
+                return Err(wrong());
+            }
+            let position = usize::try_from_object(vm, member.get_attr("value", vm)?)?;
+            self.members
+                .get(position)
+                .map(|&(_, v)| v)
+                .ok_or_else(wrong)
+        }
+
+        /// The member of this `Enum` for `variant`.
+        fn member(&self, variant: T, vm: &VirtualMachine) -> PyResult {
+            let position = self.members.iter().position(|&(_, v)| v == variant);
+            self.class(vm)?.call((position,), vm)
+        }
+
+        /// Sets the value of each member on `module`.
+        fn export(&self, module: &Py<PyModule>, vm: &VirtualMachine) -> PyResult<()> {
+            let prefix = self.name.to_uppercase();
+            for (position, (name, _)) in self.members.iter().enumerate() {
+                let name = vm.ctx.new_str(format!("{prefix}_{name}"));
+                module.set_attr(&name, vm.new_pyobj(position), vm)?;
+            }
+            Ok(())
+        }
+    }
+
+    /// The module, with the values of the members of each `Enum`. The code
+    /// of a `#[pyattr]` const calls `unwrap`, which clippy denies here.
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        X_PLACE.export(module, vm)?;
+        Y_PLACE.export(module, vm)?;
+        FONT_STYLE.export(module, vm)?;
+        FONT_WEIGHT.export(module, vm)?;
+        LINE_CAP.export(module, vm)?;
+        LINE_JOIN.export(module, vm)?;
+        FILL_RULE.export(module, vm)
     }
 
     /// `==` on a color, a font and a style compares their values, as `equal?`
@@ -354,18 +464,10 @@ pub(crate) mod _spython_image {
                 font.size = length("size", &size, vm)?;
             }
             if let OptionalArg::Present(style) = args.style {
-                font.style = match enum_value(&style, vm)?.as_str() {
-                    "italic" => FontStyle::Italic,
-                    "oblique" => FontStyle::Oblique,
-                    _ => FontStyle::Normal,
-                };
+                font.style = FONT_STYLE.variant(&style, vm)?;
             }
             if let OptionalArg::Present(weight) = args.weight {
-                font.weight = match enum_value(&weight, vm)?.as_str() {
-                    "lighter" => FontWeight::Light,
-                    "bold" => FontWeight::Bold,
-                    _ => FontWeight::Regular,
-                };
+                font.weight = FONT_WEIGHT.variant(&weight, vm)?;
             }
             if let OptionalArg::Present(underline) = args.underline {
                 font.underline = underline;
@@ -388,22 +490,12 @@ pub(crate) mod _spython_image {
 
         #[pygetset]
         fn style(&self, vm: &VirtualMachine) -> PyResult {
-            let value = match self.0.style {
-                FontStyle::Normal => "normal",
-                FontStyle::Italic => "italic",
-                FontStyle::Oblique => "oblique",
-            };
-            font_enum("FontStyle", value, vm)
+            FONT_STYLE.member(self.0.style, vm)
         }
 
         #[pygetset]
         fn weight(&self, vm: &VirtualMachine) -> PyResult {
-            let value = match self.0.weight {
-                FontWeight::Light => "lighter",
-                FontWeight::Regular => "normal",
-                FontWeight::Bold => "bold",
-            };
-            font_enum("FontWeight", value, vm)
+            FONT_WEIGHT.member(self.0.weight, vm)
         }
 
         #[pygetset]
@@ -445,10 +537,7 @@ pub(crate) mod _spython_image {
             attributes.push(Attribute::FillOpacity(self::opacity("opacity", &v, vm)?));
         }
         if let Some(rule) = rule {
-            attributes.push(Attribute::FillRule(match enum_value(&rule, vm)?.as_str() {
-                "evenodd" => FillRule::EvenOdd,
-                _ => FillRule::NonZero,
-            }));
+            attributes.push(Attribute::FillRule(FILL_RULE.variant(&rule, vm)?));
         }
         Ok(PyStyle(Style::new(attributes)))
     }
@@ -475,22 +564,10 @@ pub(crate) mod _spython_image {
             attributes.push(Attribute::StrokeDashArray(values.collect::<PyResult<_>>()?));
         }
         if let Some(cap) = linecap {
-            attributes.push(Attribute::StrokeLineCap(
-                match enum_value(&cap, vm)?.as_str() {
-                    "round" => LineCap::Round,
-                    "square" => LineCap::Square,
-                    _ => LineCap::Butt,
-                },
-            ));
+            attributes.push(Attribute::StrokeLineCap(LINE_CAP.variant(&cap, vm)?));
         }
         if let Some(join) = linejoin {
-            attributes.push(Attribute::StrokeLineJoin(
-                match enum_value(&join, vm)?.as_str() {
-                    "round" => LineJoin::Round,
-                    "bevel" => LineJoin::Bevel,
-                    _ => LineJoin::Miter,
-                },
-            ));
+            attributes.push(Attribute::StrokeLineJoin(LINE_JOIN.variant(&join, vm)?));
         }
         Ok(PyStyle(Style::new(attributes)))
     }
