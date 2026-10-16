@@ -179,17 +179,9 @@ fn run_spython(path: &Path) -> (String, String) {
 }
 
 fn run_level_native_only(level: u8, code: &str) -> (String, String, bool) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir();
-    let filename = format!("_spython_level_native_{n}.py");
-    let file = dir.join(&filename);
-    std::fs::write(&file, code).expect("write the test file");
+    let dir = new_dir_with("level_native", &[("main.py", code)]);
     let level_str = level.to_string();
-    let result = run_spython_native(&["run", "--level", &level_str, &filename], &dir);
-    let _ = std::fs::remove_file(&file);
-    result
+    run_spython_native(&["run", "--level", &level_str, "main.py"], dir.path())
 }
 
 #[test]
@@ -206,13 +198,12 @@ fn bare_file_shorthand_runs() {
 fn bare_file_shorthand_passes_level() {
     // `--level` flows to the injected `run`, so a level-0 `if` is refused,
     // and the default of level 5 takes it.
-    let dir = std::env::temp_dir();
-    let file = dir.join("_spython_bare_level.py");
-    std::fs::write(&file, "x: int = 3\nif x > 0:\n    print('ok')\n").expect("write the test file");
-    let (_o0, err0, ok_lvl0) =
-        run_spython_native(&["_spython_bare_level.py", "--level", "0"], &dir);
-    let (out, _err, ok_default) = run_spython_native(&["_spython_bare_level.py"], &dir);
-    let _ = std::fs::remove_file(&file);
+    let dir = new_dir_with(
+        "bare_level",
+        &[("main.py", "x: int = 3\nif x > 0:\n    print('ok')\n")],
+    );
+    let (_o0, err0, ok_lvl0) = run_spython_native(&["main.py", "--level", "0"], dir.path());
+    let (out, _err, ok_default) = run_spython_native(&["main.py"], dir.path());
     assert!(!ok_lvl0, "level 0 should reject `if`");
     assert!(err0.contains("forbidden-selection"), "stderr: {err0}");
     assert!(ok_default, "level 5 (default) should allow `if`: {out}");
@@ -223,11 +214,8 @@ fn bare_file_shorthand_passes_level() {
 fn bare_file_shorthand_after_dashdash() {
     // `--` forces the next token to be a file, even if it matches a
     // subcommand name, so it is dispatched to `run`.
-    let dir = std::env::temp_dir();
-    let file = dir.join("run");
-    std::fs::write(&file, "print(2)\n").expect("write the test file");
-    let (out, err, success) = run_spython_native(&["--", "run"], &dir);
-    let _ = std::fs::remove_file(&file);
+    let dir = new_dir_with("dashdash", &[("run", "print(2)\n")]);
+    let (out, err, success) = run_spython_native(&["--", "run"], dir.path());
     assert!(success, "stdout: {out}\nstderr: {err}");
     assert_eq!(out, "2\n");
 }
@@ -1105,17 +1093,9 @@ fn check_output_agrees_between_backends() {
 // --- Level restriction tests ---
 
 fn run_level(level: u8, code: &str) -> (String, String, bool) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir();
-    let filename = format!("_spython_level_test_{n}.py");
-    let file = dir.join(&filename);
-    std::fs::write(&file, code).expect("write the test file");
+    let dir = new_dir_with("level", &[("main.py", code)]);
     let level_str = level.to_string();
-    let result = run_spython_cmd(&["run", "--level", &level_str, &filename], &dir);
-    let _ = std::fs::remove_file(&file);
-    result
+    run_spython_cmd(&["run", "--level", &level_str, "main.py"], dir.path())
 }
 
 #[test]
@@ -2967,17 +2947,14 @@ fn run_repl_in(input: &str, args: &[&str], cwd: Option<&Path>) -> (String, Strin
 #[cfg(target_os = "linux")]
 #[test]
 fn the_repl_keeps_the_history_of_a_session_that_quit() {
-    let data = std::env::temp_dir().join(format!("_spython_history_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&data);
-    std::fs::create_dir_all(&data).expect("create the data directory");
+    let data = new_dir_with("history", &[]);
     let mut command = spython();
-    command.arg("repl").env("XDG_DATA_HOME", &data);
+    command.arg("repl").env("XDG_DATA_HOME", data.path());
     let (_, err, success) = run_with_stdin(&mut command, b"x = 1\n:quit\n");
     assert!(success, "stderr: {err}");
-    let history = std::fs::read_to_string(data.join("spython").join("history"))
+    let history = std::fs::read_to_string(data.path().join("spython").join("history"))
         .expect("read the history the session left");
     assert!(history.contains("x = 1"), "history: {history}");
-    let _ = std::fs::remove_dir_all(&data);
 }
 
 #[test]
