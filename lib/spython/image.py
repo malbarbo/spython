@@ -9,7 +9,9 @@ import _spython_image as _native  # type: ignore[import-not-found]
 from spython.font import Font, FontStyle, FontWeight
 from spython.color import Color as _Color
 from spython.color import black as _black
-from spython.color import *  # noqa: F401,F403 — re-export all colors
+
+# A program can take the colors from spython.image too.
+from spython.color import *  # noqa: F401,F403
 from spython.style import (
     Style,
     LineCap,
