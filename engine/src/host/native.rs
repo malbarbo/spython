@@ -1,4 +1,4 @@
-//! What a run answers where there is no page: a drawing goes to stdout.
+//! What a run answers where there is no page. A drawing goes to stdout.
 
 use rustpython_vm::{PyResult, VirtualMachine};
 

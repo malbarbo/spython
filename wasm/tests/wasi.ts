@@ -15,11 +15,12 @@ export interface WasiOptions {
   readStdin?: () => string;
   args?: string[];
   env?: string[];
-  /** Epoch milliseconds, for a caller that wants the clock to be its own:
-   * a test that advances one by hand fires the `world` loop's ticks without
-   * burning wall-clock time. Defaults to the real clock, and replaces both
-   * the realtime and the monotonic one when given -- a clock stopped for the
-   * engine has to be stopped whichever it asks for. */
+  /** Epoch milliseconds, for a caller that wants a clock of its own. A test
+   * that advances one by hand fires the ticks of the `world` loop without
+   * waiting for the real clock. Defaults to the real clock. When given, it
+   * replaces both the realtime and the monotonic clock, because a clock
+   * stopped for the engine has to be stopped whichever one the engine asks
+   * for. */
   now?: () => bigint;
   /** Moves the clock of `now` on, to at most `until` milliseconds, or as far
    * as the next thing that happens when `until` is null. A wait of
