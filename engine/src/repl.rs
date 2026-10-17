@@ -10,11 +10,10 @@ use crate::ffi::register_ffi_module;
 use crate::run::{DOCTEST_RUNNER, keep_source, new_interpreter};
 use crate::{ReplProject, infer_expression_type, type_check_repl_input};
 use ruff_python_ast::PySourceType;
-use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::parse_unchecked_source;
 use ruff_python_stdlib::identifiers::is_identifier;
 use ruff_python_stdlib::keyword::is_keyword;
-use ruff_text_size::{Ranged, TextLen, TextRange, TextSize};
+use ruff_text_size::{Ranged, TextLen, TextRange};
 use rustpython::vm;
 use rustpython::vm::AsObject;
 use std::collections::HashMap;
@@ -356,7 +355,7 @@ impl Repl {
             return Ok(elapsed);
         }
         if let Some(last) = ran.done.checked_sub(1).and_then(|at| statements.get(at)) {
-            self.append_source(&up_to(&code, last.end(), parsed.tokens()));
+            self.append_source(&code[..last.end().to_usize()]);
         }
         if !ran.changed.is_empty() {
             let dels: Vec<String> = ran
@@ -467,27 +466,6 @@ fn alone(code: &str, range: TextRange) -> String {
     format!("{}{}\n", "\n".repeat(line), &code[range])
 }
 
-/// The text of `code` up to `end`, together with the comment that closes the
-/// line `end` is on. A `# type: ignore` there covers the statements that ran
-/// as well, and the checker has to keep reading it on them.
-fn up_to(code: &str, end: TextSize, tokens: &Tokens) -> String {
-    let line_end = code[end.to_usize()..]
-        .find('\n')
-        .map_or(code.text_len(), |at| {
-            end + TextSize::try_from(at).unwrap_or_default()
-        });
-    let comment = tokens
-        .iter()
-        .find(|token| {
-            token.kind() == TokenKind::Comment && token.start() >= end && token.end() <= line_end
-        })
-        .map(|token| &code[token.range()]);
-    match comment {
-        Some(comment) => format!("{}  {comment}", &code[..end.to_usize()]),
-        None => code[..end.to_usize()].to_owned(),
-    }
-}
-
 impl Drop for Repl {
     fn drop(&mut self) {
         // Drop the scope inside the VM context so Python __del__ methods can run,
@@ -506,6 +484,7 @@ impl Drop for Repl {
 mod tests {
     use super::*;
     use crate::ffi::REPL_ATEXIT_RAN;
+    use ruff_text_size::TextSize;
 
     #[test]
     fn repl_drop_runs_atexit_handlers() {
