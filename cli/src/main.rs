@@ -123,7 +123,20 @@ fn show_help<T>(parser: bpaf::OptionParser<T>, args: &[&str]) -> ExitCode {
     }
 }
 
+/// std ignores SIGPIPE before main, which turns a closed pipe into a panic.
+#[cfg(unix)]
+fn die_on_a_closed_pipe() {
+    // SAFETY: SIG_DFL is no handler, so nothing of ours runs at signal time.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn die_on_a_closed_pipe() {}
+
 fn main() -> ExitCode {
+    die_on_a_closed_pipe();
     engine::panic::add_handler();
 
     // Hidden flag for testing the panic handler

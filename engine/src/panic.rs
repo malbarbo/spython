@@ -13,6 +13,11 @@ pub fn add_handler() {
             (_, Some(s)) => s.to_string(),
             (None, None) => "unknown error".into(),
         };
+        if is_a_failed_print(&message) {
+            // The report would go to the stream that just failed, and a pipe
+            // the reader closed is not a bug of ours.
+            std::process::exit(1);
+        }
         let location = match info.location() {
             Some(loc) => format!("{}:{}\n  ", loc.file(), loc.line()),
             None => String::new(),
@@ -30,4 +35,25 @@ pub fn add_handler() {
             os = std::env::consts::OS,
         );
     }));
+}
+
+fn is_a_failed_print(message: &str) -> bool {
+    message.starts_with("failed printing to ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_a_failed_print;
+
+    /// The messages are std's, from `print_to` in `std::io::stdio`.
+    #[test]
+    fn a_write_that_failed_is_not_a_bug() {
+        assert!(is_a_failed_print(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        ));
+        assert!(is_a_failed_print(
+            "failed printing to stderr: Rohrleitung unterbrochen (os error 32)"
+        ));
+        assert!(!is_a_failed_print("index out of bounds: the len is 0"));
+    }
 }

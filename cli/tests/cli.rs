@@ -3328,3 +3328,28 @@ fn an_empty_no_color_asks_for_nothing() {
     let err = check_stderr_with_env(dir.path(), &[("FORCE_COLOR", "1"), ("NO_COLOR", "")]);
     assert!(err.contains('\x1b'), "expected escape codes, got: {err}");
 }
+
+/// `spython x.py | head` leaves the program printing to a pipe no one reads.
+#[test]
+#[cfg(unix)]
+fn a_reader_that_went_away_is_not_a_crash() {
+    let dir = new_dir_with(
+        "closed_pipe",
+        &[("count.py", "for i in range(200000):\n    print(i)\n")],
+    );
+    for args in [&["count.py"][..], &["--help"]] {
+        let mut child = spython()
+            .current_dir(dir.path())
+            .args(args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to run spython");
+        // Closed before the first print, so every print goes to a closed pipe.
+        drop(child.stdout.take());
+        let out = child
+            .wait_with_output()
+            .expect("failed to wait for spython");
+        assert_eq!(String::from_utf8_lossy(&out.stderr), "", "args: {args:?}");
+    }
+}

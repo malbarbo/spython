@@ -4702,6 +4702,7 @@ dependencies = [
  "engine",
  "indoc",
  "insta",
+ "libc",
  "rustyline",
  "tempfile",
 ]
