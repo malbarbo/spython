@@ -91,7 +91,8 @@ enum Command {
 
 /// The parser, with the two shorthands the students use most as alternatives
 /// to a named subcommand: a leading `FILE` is a `run`, and bare options with
-/// no file are a `repl`. `None` is the bare `spython`, which is a `repl` too.
+/// no file are a `repl`. The `optional` only puts brackets around the usage,
+/// since the bare options already take an empty command line.
 fn cli() -> bpaf::OptionParser<Option<Command>> {
     let level = level_arg().fallback(Level::Full);
     let file = bpaf::positional::<PathBuf>("FILE");
