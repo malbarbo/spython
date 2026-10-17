@@ -381,6 +381,13 @@ Deno.test("level 1 allows if/else", async () => {
   destroy(ctx);
 });
 
+Deno.test("a config without a level means level 5", async () => {
+  const ctx = await newRepl();
+  const r = run(ctx, "async def g() -> None:\n    pass");
+  assertEquals(r.result, REPL_OK);
+  destroy(ctx);
+});
+
 // --- :type command ---
 
 Deno.test(":type command returns type", async () => {

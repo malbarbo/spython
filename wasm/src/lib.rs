@@ -73,7 +73,7 @@ fn to_cstr(s: String) -> *mut std::ffi::c_char {
 // --- Config parsing ---
 
 /// Parse `level=<n>` from a space-separated `key=value` config string.
-/// Defaults to level 0. Unknown keys are ignored.
+/// Defaults to level 5. Unknown keys are ignored.
 fn parse_config_level(config: &str) -> engine::Level {
     for entry in config.split_whitespace() {
         if let Some(value) = entry.strip_prefix("level=")
@@ -83,7 +83,7 @@ fn parse_config_level(config: &str) -> engine::Level {
             return level;
         }
     }
-    engine::Level::Functions
+    engine::Level::Full
 }
 
 // --- Checking ---
