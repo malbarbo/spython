@@ -109,10 +109,12 @@ def _next_deadline(deadline: int, now: int, period_ms: int) -> int:
 def animate(create_image: Callable[[int], Image]) -> None:
     try:
         period_ms: int = MS_PER_SECOND // DEFAULT_TICK_RATE
+        next_frame_at: int = now_ms()
         frame: int = 0
         while True:
             _show(create_image(frame))
-            if _closed_before(now_ms() + period_ms):
+            next_frame_at = _next_deadline(next_frame_at, now_ms(), period_ms)
+            if _closed_before(next_frame_at):
                 return
             frame += 1
     finally:
