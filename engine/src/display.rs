@@ -1,5 +1,5 @@
 //! The `_spython_display` module: the display that a World draws into, over
-//! [`sinteract::display::Frames`], which is a window, the terminal, or a
+//! [`sinteract::display::Worlds`], which is a window, the terminal, or a
 //! session with a server, and natively a printer of images in the terminal.
 //! Both draw the [`sinteract::scene::Scene`] of an `Image`, so Python never
 //! holds a scene that is half built.
@@ -29,9 +29,9 @@ mod _spython_display {
     use rustpython_vm::{Py, PyRef, PyResult, VirtualMachine};
     #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::{PyPayload, pyclass};
-    use sinteract::display::{FrameEvent, Frames, StageOptions};
     #[cfg(not(target_arch = "wasm32"))]
     use sinteract::display::{NoGraphics, PrintError, Printer, TerminalOptions};
+    use sinteract::display::{StageMode, WorldEvent, Worlds};
     use sinteract::event::KeyKind;
 
     use crate::image::PyImage;
@@ -119,20 +119,23 @@ mod _spython_display {
     thread_local! {
         /// The display of the worlds of a run, on the thread that runs
         /// Python, since a window of winit stays on the thread that made it.
-        pub(super) static FRAMES: RefCell<Frames> =
-            RefCell::new(Frames::new("spython", stage_options));
+        pub(super) static FRAMES: RefCell<Worlds> =
+            RefCell::new(Worlds::new("spython", stage_mode));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn stage_mode() -> StageMode {
+        let terminal = TerminalOptions {
+            keep_last_frame: true,
+            ..TerminalOptions::default()
+        };
+        StageMode::auto(None, terminal)
     }
 
     /// The page shows a world in a session, the only display it has.
-    fn stage_options() -> StageOptions {
-        StageOptions {
-            #[cfg(not(target_arch = "wasm32"))]
-            terminal: TerminalOptions {
-                keep_last_frame: true,
-                ..TerminalOptions::default()
-            },
-            ..StageOptions::default()
-        }
+    #[cfg(target_arch = "wasm32")]
+    fn stage_mode() -> StageMode {
+        StageMode::Session
     }
 
     /// Wait at most `ms` milliseconds for a key or the close, and
@@ -145,13 +148,12 @@ mod _spython_display {
         let end = Instant::now() + Duration::from_millis(ms);
         loop {
             let deadline = (Instant::now() + SIGNAL_PERIOD).min(end);
-            let event = FRAMES.with_borrow_mut(|frames| {
-                frames.wait_event(deadline, |e| eprintln!("spython: {e}"))
-            });
+            let event = FRAMES
+                .with_borrow_mut(|frames| frames.wait(deadline, |e| eprintln!("spython: {e}")));
             match event {
-                FrameEvent::Key(k) => return Ok(Some((k.kind as i32, k.key))),
-                FrameEvent::Close => return Ok(Some((CLOSE, String::new()))),
-                FrameEvent::Timeout => {}
+                WorldEvent::Key(_, k) => return Ok(Some((k.kind as i32, k.key))),
+                WorldEvent::Close => return Ok(Some((CLOSE, String::new()))),
+                WorldEvent::Pad(..) | WorldEvent::Frame | WorldEvent::Timeout => {}
             }
             if Instant::now() >= end {
                 return Ok(None);

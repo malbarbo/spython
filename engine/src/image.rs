@@ -7,6 +7,7 @@ pub(crate) use _spython_image::{PyImage, module_def};
 
 #[rustpython_vm::pymodule(name = "_spython_image")]
 pub(crate) mod _spython_image {
+    use std::num::NonZeroU32;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use num_traits::Signed;
@@ -18,12 +19,12 @@ pub(crate) mod _spython_image {
         VirtualMachine, class_or_notimplemented, pyclass,
     };
     use sinteract::image::{
-        AngleSumError, Attribute, BitmapError, Color, Count, CountError, CurveEnd, Factor,
-        FactorError, Finite, Font, FontWeight, Image, Length, LengthError, Opacity, Overflow,
-        PathCmd, Point, StarPolygonError, Style, TriangleAngle, TriangleSidesError, WedgeAngle,
-        WedgeAngleError, XPlace, YPlace,
+        AngleSumError, Attribute, BitmapError, Color, CountError, CurveEnd, Factor, FactorError,
+        Finite, Font, FontWeight, Image, Length, LengthError, MAX_VERTICES, Opacity, Overflow,
+        PathCmd, Point, PointCount, SideCount, StarPolygonError, Style, TriangleAngle,
+        TriangleSidesError, WedgeAngle, WedgeAngleError, XPlace, YPlace,
     };
-    use sinteract::scene::{FillRule, FontStyle, LineCap, LineJoin};
+    use sinteract::scene::{ArcSize, FillRule, FontStyle, LineCap, LineJoin, MiterLimit, Sweep};
 
     #[pyattr]
     #[pyclass(module = "spython.image", name = "Image", unhashable = true)]
@@ -57,7 +58,18 @@ pub(crate) mod _spython_image {
     #[pyattr]
     #[pyclass(module = "spython.image", name = "_PathCmd")]
     #[derive(Debug, PyPayload)]
-    pub struct PyPathCmd(PathCmd);
+    pub struct PyPathCmd {
+        cmd: PathCmd,
+        /// The point of a move, since a path starts at the point of its
+        /// first move.
+        move_to: Option<Point>,
+    }
+
+    impl From<PathCmd> for PyPathCmd {
+        fn from(cmd: PathCmd) -> Self {
+            PyPathCmd { cmd, move_to: None }
+        }
+    }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyPathCmd {}
@@ -123,7 +135,6 @@ pub(crate) mod _spython_image {
     fn wedge_angle(value: &PyObject, vm: &VirtualMachine) -> PyResult<WedgeAngle> {
         WedgeAngle::new(float(value, vm)?).map_err(|e| {
             let rule = match e {
-                WedgeAngleError::NotFinite => "be a finite number",
                 WedgeAngleError::Zero => "not be 0",
                 WedgeAngleError::OutOfRange => "be between -360 and 360",
             };
@@ -131,22 +142,29 @@ pub(crate) mod _spython_image {
         })
     }
 
-    fn count<const MIN: u32, const MAX: u32>(
+    /// `value` as a count that `new` takes from `min` to `max`.
+    fn count<T>(
         name: &str,
         value: &PyObject,
+        (min, max): (u32, u32),
+        new: impl FnOnce(u32) -> Result<T, CountError>,
         vm: &VirtualMachine,
-    ) -> PyResult<Count<MIN, MAX>> {
+    ) -> PyResult<T> {
         let index = value.try_index(vm)?;
         let count = match u32::try_from(index.as_bigint()) {
-            Ok(n) => Count::new(n),
+            Ok(n) => new(n),
             // A negative count is too few, as 0 is.
             Err(_) if index.as_bigint().is_negative() => Err(CountError::TooFew),
             Err(_) => Err(CountError::TooMany),
         };
         count.map_err(|e| match e {
-            CountError::TooFew => error(name, &format!("be at least {MIN}"), value, vm),
-            CountError::TooMany => error(name, &format!("be at most {MAX}"), value, vm),
+            CountError::TooFew => error(name, &format!("be at least {min}"), value, vm),
+            CountError::TooMany => error(name, &format!("be at most {max}"), value, vm),
         })
+    }
+
+    fn sides(value: &PyObject, vm: &VirtualMachine) -> PyResult<SideCount> {
+        count("side_count", value, (3, MAX_VERTICES), SideCount::new, vm)
     }
 
     fn point(
@@ -269,7 +287,7 @@ pub(crate) mod _spython_image {
         module: "spython.style",
         name: "LineJoin",
         members: &[
-            ("MITER", LineJoin::Miter),
+            ("MITER", LineJoin::Miter(MiterLimit::DEFAULT)),
             ("ROUND", LineJoin::Round),
             ("BEVEL", LineJoin::Bevel),
         ],
@@ -573,12 +591,17 @@ pub(crate) mod _spython_image {
 
     #[pyfunction]
     fn move_to(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyPathCmd> {
-        Ok(PyPathCmd(PathCmd::move_to(point(&x, &y, ("x", "y"), vm)?)))
+        let p = point(&x, &y, ("x", "y"), vm)?;
+        Ok(PyPathCmd {
+            cmd: PathCmd::move_to(p),
+            move_to: Some(p),
+        })
     }
 
     #[pyfunction]
     fn line_to(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyPathCmd> {
-        Ok(PyPathCmd(PathCmd::line_to(point(&x, &y, ("x", "y"), vm)?)))
+        let p = point(&x, &y, ("x", "y"), vm)?;
+        Ok(PyPathCmd::from(PathCmd::line_to(p)))
     }
 
     #[pyfunction]
@@ -591,7 +614,7 @@ pub(crate) mod _spython_image {
     ) -> PyResult<PyPathCmd> {
         let control = point(&cx, &cy, ("cx", "cy"), vm)?;
         let end = point(&x, &y, ("x", "y"), vm)?;
-        Ok(PyPathCmd(PathCmd::quad_to(control, end)))
+        Ok(PyPathCmd::from(PathCmd::quad_to(control, end)))
     }
 
     #[pyfunction]
@@ -607,7 +630,7 @@ pub(crate) mod _spython_image {
         let c1 = point(&c1x, &c1y, ("c1x", "c1y"), vm)?;
         let c2 = point(&c2x, &c2y, ("c2x", "c2y"), vm)?;
         let end = point(&x, &y, ("x", "y"), vm)?;
-        Ok(PyPathCmd(PathCmd::cubic_to(c1, c2, end)))
+        Ok(PyPathCmd::from(PathCmd::cubic_to(c1, c2, end)))
     }
 
     #[pyfunction]
@@ -620,13 +643,23 @@ pub(crate) mod _spython_image {
         end: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyPathCmd> {
-        let rx = finite("rx", &rx, vm)?;
-        let ry = finite("ry", &ry, vm)?;
+        let rx = length("rx", &rx, vm)?;
+        let ry = length("ry", &ry, vm)?;
         let rotation = finite("rotation", &rotation, vm)?;
         let [x, y] = elements(&end, vm)?;
         let end = point(&x, &y, ("x", "y"), vm)?;
-        Ok(PyPathCmd(PathCmd::arc_to(
-            rx, ry, rotation, large_arc, sweep, end,
+        let size = if large_arc {
+            ArcSize::Large
+        } else {
+            ArcSize::Small
+        };
+        let sweep = if sweep {
+            Sweep::Clockwise
+        } else {
+            Sweep::Counterclockwise
+        };
+        Ok(PyPathCmd::from(PathCmd::arc_to(
+            rx, ry, rotation, size, sweep, end,
         )))
     }
 
@@ -637,8 +670,21 @@ pub(crate) mod _spython_image {
         s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let commands: Vec<PathCmd> = commands.iter().map(|c| c.0).collect();
-        image(Image::path(commands, closed, s.0.clone()), vm)
+        // A path that does not start with a move draws nothing, as in SVG.
+        let Some((start, rest)) = commands
+            .split_first()
+            .and_then(|(first, rest)| Some((first.move_to?, rest)))
+        else {
+            return Ok(PyImage(Image::empty()));
+        };
+        let rest: Vec<PathCmd> = rest.iter().map(|c| c.cmd).collect();
+        let style = s.0.clone();
+        let path = if closed {
+            Image::closed_path(start, rest, style)
+        } else {
+            Image::path(start, rest, style)
+        };
+        image(path, vm)
     }
 
     // Shapes
@@ -879,7 +925,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, vm)?;
+        let n = sides(&side_count, vm)?;
         image(Image::regular_polygon(side, n, s.0.clone()), vm)
     }
 
@@ -898,8 +944,14 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, vm)?;
-        let step = count("step_count", &step_count, vm)?;
+        let n = sides(&side_count, vm)?;
+        let step = count(
+            "step_count",
+            &step_count,
+            (1, u32::MAX),
+            |n| NonZeroU32::new(n).ok_or(CountError::TooFew),
+            vm,
+        )?;
         Image::star_polygon(side, n, step, s.0.clone())
             .map(PyImage)
             .map_err(|e| match e {
@@ -926,7 +978,13 @@ pub(crate) mod _spython_image {
         s: PyStyleRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let n = count("point_count", &point_count, vm)?;
+        let n = count(
+            "point_count",
+            &point_count,
+            (2, MAX_VERTICES),
+            PointCount::new,
+            vm,
+        )?;
         let inner = length("inner_radius", &inner_radius, vm)?;
         let outer = length("outer_radius", &outer_radius, vm)?;
         image(Image::radial_star(n, inner, outer, s.0.clone()), vm)
@@ -942,7 +1000,7 @@ pub(crate) mod _spython_image {
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
         let side = length("side_length", &side_length, vm)?;
-        let n = count("side_count", &side_count, vm)?;
+        let n = sides(&side_count, vm)?;
         let pull = finite("pull", &pull, vm)?;
         let angle = finite("angle", &angle, vm)?;
         image(
@@ -1060,7 +1118,7 @@ pub(crate) mod _spython_image {
     ) -> PyResult<PyImage> {
         let (x, y) = (finite("x", &x, vm)?, finite("y", &y, vm)?);
         let (w, h) = (length("w", &w, vm)?, length("h", &h, vm)?);
-        Ok(PyImage(img.0.crop(x, y, w, h)))
+        Ok(PyImage(img.0.crop(Point::new(x, y), w, h)))
     }
 
     #[pyfunction]
@@ -1164,9 +1222,9 @@ pub(crate) mod _spython_image {
         yp: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyImage> {
-        let (x, y) = (finite("x", &x, vm)?, finite("y", &y, vm)?);
+        let at = point(&x, &y, ("x", "y"), vm)?;
         let (xp, yp) = (x_place(&xp, vm)?, y_place(&yp, vm)?);
-        image(scene.0.place_image(x, y, xp, yp, &img.0), vm)
+        image(scene.0.place_image(at, xp, yp, &img.0), vm)
     }
 
     #[pyfunction]

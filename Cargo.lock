@@ -4559,7 +4559,7 @@ dependencies = [
 [[package]]
 name = "sinteract"
 version = "0.1.0"
-source = "git+https://github.com/malbarbo/sinteract.git?branch=master#62a8297208c632ce3be88e439e1b5ff81b9de9a5"
+source = "git+https://github.com/malbarbo/sinteract.git?branch=master#af9594ddc2874435e777dbda384b913fbad7d058"
 dependencies = [
  "base64",
  "capnp",
