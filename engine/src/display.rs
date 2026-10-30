@@ -25,6 +25,8 @@ mod _spython_display {
     #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::common::lock::PyMutex;
     #[cfg(not(target_arch = "wasm32"))]
+    use rustpython_vm::convert::ToPyException;
+    #[cfg(not(target_arch = "wasm32"))]
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyRef, PyResult, VirtualMachine};
     #[cfg(not(target_arch = "wasm32"))]
@@ -111,7 +113,7 @@ mod _spython_display {
             match printer.print(&scene) {
                 Ok(()) => Ok(true),
                 Err(PrintError::Busy | PrintError::Alloc(_)) => Ok(false),
-                Err(e @ PrintError::Io(_)) => Err(vm.new_runtime_error(e.to_string())),
+                Err(PrintError::Io(e)) => Err(e.to_pyexception(vm)),
             }
         }
     }
