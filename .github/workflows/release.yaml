@@ -42,7 +42,7 @@ jobs:
             setup: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Find the version
         shell: bash
@@ -109,7 +109,7 @@ jobs:
           esac
 
       - name: Hand the archive to the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: |
@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Collect every archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
