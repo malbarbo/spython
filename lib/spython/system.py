@@ -40,11 +40,16 @@ def install_displayhook() -> None:
                 _original_displayhook(value)
                 return
             show_svg(svg)
-        # A terminal with no graphics, or one that a display holds, prints the
-        # image as any other value, and so does an image too large to draw.
-        elif not printer.show(value):
-            _original_displayhook(value)
-            return
+        else:
+            # The printer writes to the terminal directly, so the text that
+            # sys.stdout holds has to go out first.
+            sys.stdout.flush()
+            # A terminal with no graphics, or one that a display holds, prints
+            # the image as any other value, and so does an image too large to
+            # draw.
+            if not printer.show(value):
+                _original_displayhook(value)
+                return
         builtins._ = value  # type: ignore[attr-defined]
 
     sys.displayhook = _displayhook
