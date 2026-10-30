@@ -303,8 +303,18 @@ pub(crate) mod _spython_image {
     };
 
     impl<T: Copy + PartialEq> PyEnum<T> {
+        /// The `Enum` class, read from `sys.modules`. `vm.import` of a dotted
+        /// name returns the top package, and it runs `__import__` on every call.
         fn class(&self, vm: &VirtualMachine) -> PyResult {
-            vm.import(self.module, 0)?.get_attr(self.name, vm)
+            let modules = vm.sys_module.get_attr("modules", vm)?;
+            let module = match modules.get_item(self.module, vm) {
+                Ok(module) => module,
+                Err(_) => {
+                    vm.import(self.module, 0)?;
+                    modules.get_item(self.module, vm)?
+                }
+            };
+            module.get_attr(self.name, vm)
         }
 
         /// The variant of `member`, which has to be a member of this `Enum`.
