@@ -7,8 +7,10 @@ def sleep(ms: int) -> None:
     _time.sleep(ms / 1000.0)
 
 
+# A monotonic clock, so a change of the system clock does not stop or skip
+# the ticks of a world.
 def now_ms() -> int:
-    return int(_time.time() * 1000)
+    return int(_time.monotonic() * 1000)
 
 
 from _spython_ffi import show_svg  # type: ignore[import-not-found]
