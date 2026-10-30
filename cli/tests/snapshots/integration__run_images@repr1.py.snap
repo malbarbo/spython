@@ -1,0 +1,13 @@
+---
+source: cli/tests/integration.rs
+---
+Color(r=255, g=0, b=0, a=1.0)
+Color(r=1, g=2, b=3, a=0.5)
+Font(family='sans-serif', size=14.0, style=FontStyle.NORMAL, weight=FontWeight.REGULAR, underline=False)
+Font(family='mono', size=20.0, style=FontStyle.ITALIC, weight=FontWeight.BOLD, underline=True)
+none
+fill(Color(r=255, g=0, b=0, a=1.0), opacity=0.5, rule=FillRule.EVENODD)
+stroke(Color(r=0, g=0, b=255, a=1.0), width=2.0, opacity=0.25, dash_array=[1.0, 2.5], linecap=LineCap.ROUND, linejoin=LineJoin.BEVEL)
+join(fill(Color(r=255, g=0, b=0, a=1.0)), stroke(Color(r=0, g=0, b=255, a=1.0)), fill(Color(r=0, g=128, b=0, a=1.0), opacity=0.1))
+True
+[<Image width=10.0 height=10.0>]

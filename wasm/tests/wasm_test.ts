@@ -260,7 +260,7 @@ Deno.test("an image too large to draw prints as any other value", async () => {
   assertEquals(r.result, REPL_OK);
   assertEquals(r.svgs.length, 0);
   assertEquals(r.stderr, "");
-  assertEquals(r.stdout.includes("Image object"), true, r.stdout);
+  assertEquals(r.stdout, "<Image width=2e+301 height=2e+301>\n");
   destroy(ctx);
 });
 

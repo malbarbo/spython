@@ -13,7 +13,7 @@ pub(crate) mod _spython_image {
     use num_traits::Signed;
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyModule, PyTuple, PyType, PyUtf8StrRef};
     use rustpython_vm::function::{ArgIntoFloat, OptionalArg, PyComparisonValue};
-    use rustpython_vm::types::{Comparable, Constructor, PyComparisonOp};
+    use rustpython_vm::types::{Comparable, Constructor, PyComparisonOp, Representable};
     use rustpython_vm::{
         FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, class_or_notimplemented, pyclass,
@@ -31,8 +31,17 @@ pub(crate) mod _spython_image {
     #[derive(Debug, PyPayload)]
     pub struct PyImage(pub(crate) Image);
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Comparable))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Comparable, Representable))]
     impl PyImage {}
+
+    /// The size alone, in angle brackets, since no text builds an image back.
+    impl Representable for PyImage {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let width = float_repr(zelf.0.width().get(), vm)?;
+            let height = float_repr(zelf.0.height().get(), vm)?;
+            Ok(format!("<Image width={width} height={height}>"))
+        }
+    }
 
     /// Two images are equal when they draw the same pixels, as `equal?` does
     /// in Racket. Two images built the same way are equal at any size, and
@@ -382,6 +391,73 @@ pub(crate) mod _spython_image {
         )*};
     }
 
+    // Repr
+
+    fn float_repr(x: f64, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(vm.new_pyobj(x).repr(vm)?.to_string())
+    }
+
+    fn color_repr(c: &Color, vm: &VirtualMachine) -> PyResult<String> {
+        let a = float_repr(c.a.get(), vm)?;
+        Ok(format!("Color(r={}, g={}, b={}, a={a})", c.r, c.g, c.b))
+    }
+
+    /// The member of an `Enum` as its name, as `str` writes it.
+    fn member_repr<T: Copy + PartialEq>(
+        e: &PyEnum<T>,
+        variant: T,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        Ok(e.member(variant, vm)?.str(vm)?.to_string())
+    }
+
+    /// The calls of `fill`, `stroke` and `join` that build `style`. `fill`
+    /// and `stroke` put the color first and each option after it, so an
+    /// option belongs to the color before it.
+    fn style_repr(style: &Style, vm: &VirtualMachine) -> PyResult<String> {
+        let mut calls: Vec<String> = Vec::new();
+        for attribute in style.attributes() {
+            let option = match attribute {
+                Attribute::Fill(c) => {
+                    calls.push(format!("fill({}", color_repr(c, vm)?));
+                    continue;
+                }
+                Attribute::Stroke(c) => {
+                    calls.push(format!("stroke({}", color_repr(c, vm)?));
+                    continue;
+                }
+                Attribute::FillOpacity(o) | Attribute::StrokeOpacity(o) => {
+                    format!("opacity={}", float_repr(o.get(), vm)?)
+                }
+                Attribute::FillRule(r) => format!("rule={}", member_repr(&FILL_RULE, *r, vm)?),
+                Attribute::StrokeWidth(w) => format!("width={}", float_repr(w.get(), vm)?),
+                Attribute::StrokeDashArray(values) => {
+                    let values = values
+                        .iter()
+                        .map(|v| float_repr(v.get(), vm))
+                        .collect::<PyResult<Vec<_>>>()?;
+                    format!("dash_array=[{}]", values.join(", "))
+                }
+                Attribute::StrokeLineCap(c) => {
+                    format!("linecap={}", member_repr(&LINE_CAP, *c, vm)?)
+                }
+                Attribute::StrokeLineJoin(j) => {
+                    format!("linejoin={}", member_repr(&LINE_JOIN, *j, vm)?)
+                }
+            };
+            if let Some(call) = calls.last_mut() {
+                call.push_str(", ");
+                call.push_str(&option);
+            }
+        }
+        let calls: Vec<String> = calls.into_iter().map(|call| call + ")").collect();
+        Ok(match calls.as_slice() {
+            [] => "none".to_owned(),
+            [call] => call.clone(),
+            _ => format!("join({})", calls.join(", ")),
+        })
+    }
+
     // Color
 
     #[pyattr]
@@ -422,7 +498,7 @@ pub(crate) mod _spython_image {
         }
     }
 
-    #[pyclass(with(Constructor, Comparable))]
+    #[pyclass(with(Constructor, Comparable, Representable))]
     impl PyColor {
         #[pygetset]
         fn r(&self) -> u8 {
@@ -442,6 +518,12 @@ pub(crate) mod _spython_image {
         #[pygetset]
         fn a(&self) -> f64 {
             self.0.a.get()
+        }
+    }
+
+    impl Representable for PyColor {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            color_repr(&zelf.0, vm)
         }
     }
 
@@ -500,7 +582,7 @@ pub(crate) mod _spython_image {
         }
     }
 
-    #[pyclass(with(Constructor, Comparable))]
+    #[pyclass(with(Constructor, Comparable, Representable))]
     impl PyFont {
         #[pygetset]
         fn family(&self) -> String {
@@ -528,6 +610,20 @@ pub(crate) mod _spython_image {
         }
     }
 
+    impl Representable for PyFont {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let f = &zelf.0;
+            Ok(format!(
+                "Font(family={}, size={}, style={}, weight={}, underline={})",
+                vm.new_pyobj(f.family.to_string()).repr(vm)?,
+                float_repr(f.size.get(), vm)?,
+                member_repr(&FONT_STYLE, f.style, vm)?,
+                member_repr(&FONT_WEIGHT, f.weight, vm)?,
+                if f.underline { "True" } else { "False" },
+            ))
+        }
+    }
+
     type PyFontRef = PyRef<PyFont>;
 
     // Style
@@ -537,8 +633,14 @@ pub(crate) mod _spython_image {
     #[derive(Debug, PyPayload)]
     pub struct PyStyle(Style);
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Comparable))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Comparable, Representable))]
     impl PyStyle {}
+
+    impl Representable for PyStyle {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            style_repr(&zelf.0, vm)
+        }
+    }
 
     impl_eq_by_value!(PyColor, PyFont, PyStyle);
 
