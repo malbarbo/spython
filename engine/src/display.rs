@@ -173,6 +173,10 @@ mod _spython_display {
             .0
             .to_scene()
             .map_err(|e| vm.new_value_error(e.to_string()))?;
+        // The terminal writes to its fd directly, so the text that
+        // sys.stdout holds goes out first.
+        let stdout = vm.sys_module.get_attr("stdout", vm)?;
+        vm.call_method(&stdout, "flush", ())?;
         FRAMES
             .with_borrow_mut(|frames| frames.show(scene))
             .map_err(|e| vm.new_runtime_error(e.to_string()))
