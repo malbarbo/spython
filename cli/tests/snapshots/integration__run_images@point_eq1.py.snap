@@ -1,0 +1,6 @@
+---
+source: cli/tests/integration.rs
+---
+True
+False
+Point(x=1.0, y=2.5)

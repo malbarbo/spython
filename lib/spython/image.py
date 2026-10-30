@@ -1,5 +1,6 @@
 from collections.abc import Callable as _Callable
 from collections.abc import Sequence as _Sequence
+from dataclasses import dataclass as _dataclass
 from enum import Enum as _Enum
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 from typing import Never as _Never
@@ -50,10 +51,14 @@ BOTTOM: YPlace = YPlace.BOTTOM
 # **************************
 
 
+@_dataclass
 class Point:
-    def __init__(self, x: float, y: float) -> None:
-        self.x: float = float(x)
-        self.y: float = float(y)
+    x: float
+    y: float
+
+    def __post_init__(self) -> None:
+        self.x = float(self.x)
+        self.y = float(self.y)
 
 
 # **************************
