@@ -1405,9 +1405,18 @@ pub(crate) mod _spython_image {
     /// HTML document, so two svgs must not share a number.
     static NEXT_SVG: AtomicUsize = AtomicUsize::new(0);
 
+    /// `number` fixes the ids of the svg, so the same image gives the same
+    /// text. Without it, the svg takes the next number.
     #[pyfunction]
-    fn to_svg(img: PyImageRef, vm: &VirtualMachine) -> PyResult<String> {
-        let number = NEXT_SVG.fetch_add(1, Ordering::Relaxed);
+    fn to_svg(
+        img: PyImageRef,
+        number: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let number = match number {
+            Some(n) => count("number", &n, (0, u32::MAX), |n| Ok(n as usize), vm)?,
+            None => NEXT_SVG.fetch_add(1, Ordering::Relaxed),
+        };
         img.0
             .to_svg(number)
             .map_err(|e| vm.new_value_error(e.to_string()))

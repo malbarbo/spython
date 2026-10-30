@@ -538,8 +538,8 @@ def add_wedge(
 # **************************
 
 
-def to_svg(img: Image) -> str:
-    return _native.to_svg(img)
+def to_svg(img: Image, number: int | None = None) -> str:
+    return _native.to_svg(img, number)
 
 
 def _to_repl_svg(img: Image) -> str:
