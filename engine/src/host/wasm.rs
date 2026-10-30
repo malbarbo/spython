@@ -2,7 +2,7 @@
 
 use rustpython_vm::{PyResult, VirtualMachine};
 
-/// The `env` imports, under the names the page exports them by.
+/// The `env` imports, under the names that the page exports.
 mod imports {
     #[link(wasm_import_module = "env")]
     unsafe extern "C" {

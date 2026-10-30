@@ -1,4 +1,4 @@
-//! The `_spython_display` module: the display that a World draws into, over
+//! The `_spython_display` module: the display of a World, over
 //! [`sinteract::display::Worlds`], which is a window, the terminal, or a
 //! session with a server, and natively a printer of images in the terminal.
 //! Both draw the [`sinteract::scene::Scene`] of an `Image`, so Python never
@@ -95,10 +95,10 @@ mod _spython_display {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyclass(with(Constructor))]
     impl PyPrinter {
-        /// Print `image` at the cursor, on the canvas that a repl shows it
-        /// on. Returns `True` if it printed, and `False` when the terminal
-        /// shows no graphics, while a display holds the terminal, or when
-        /// the image is too large to draw.
+        /// Print `image` at the cursor, on the canvas that the repl uses for
+        /// an image. Returns `True` if it printed, and `False` when the
+        /// terminal shows no graphics, while a display holds the terminal, or
+        /// when the image is too large to draw.
         #[pymethod]
         fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
             let mut printer = self.inner.lock();

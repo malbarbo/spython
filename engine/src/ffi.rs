@@ -1,4 +1,4 @@
-//! The `_spython_ffi` module: what Python reaches the host through.
+//! The `_spython_ffi` module: the way Python calls the host.
 
 use rustpython::vm;
 
