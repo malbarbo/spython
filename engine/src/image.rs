@@ -35,20 +35,19 @@ pub(crate) mod _spython_image {
     impl PyImage {}
 
     /// Two images are equal when they draw the same pixels, as `equal?` does
-    /// in Racket.
+    /// in Racket. Two images built the same way are equal at any size, and
+    /// two others on a canvas too large to draw are not, so `==` never raises.
     impl Comparable for PyImage {
         fn cmp(
             zelf: &Py<Self>,
             other: &PyObject,
             op: PyComparisonOp,
-            vm: &VirtualMachine,
+            _vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
             op.eq_only(|| {
                 let other = class_or_notimplemented!(Self, other);
-                zelf.0
-                    .same(&other.0)
-                    .map(PyComparisonValue::Implemented)
-                    .map_err(|e| vm.new_value_error(e.to_string()))
+                let same = zelf.0.same(&other.0).unwrap_or(false);
+                Ok(PyComparisonValue::Implemented(same))
             })
         }
     }
