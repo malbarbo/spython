@@ -172,7 +172,13 @@ pub(crate) mod _spython_image {
     }
 
     fn sides(value: &PyObject, vm: &VirtualMachine) -> PyResult<SideCount> {
-        count("side_count", value, (3, MAX_VERTICES), SideCount::new, vm)
+        count(
+            "side_count",
+            value,
+            (SideCount::MIN, MAX_VERTICES),
+            SideCount::new,
+            vm,
+        )
     }
 
     fn point(
@@ -1092,7 +1098,7 @@ pub(crate) mod _spython_image {
         let n = count(
             "point_count",
             &point_count,
-            (2, MAX_VERTICES),
+            (PointCount::MIN, MAX_VERTICES),
             PointCount::new,
             vm,
         )?;
