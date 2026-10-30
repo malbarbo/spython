@@ -124,7 +124,7 @@ jobs:
     name: Publish the draft release
     needs: build
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Collect every archive
