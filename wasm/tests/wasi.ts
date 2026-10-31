@@ -74,6 +74,15 @@ export function makeWasi(options: WasiOptions) {
   const buf = () => options.getBuffer();
 
   return {
+    // `performance.now` can be finer, but a browser coarsens it, and
+    // `Date.now` and `options.now` count whole milliseconds.
+    clock_res_get: (clockId: number, resolutionPtr: number): number => {
+      if (clockId < 0 || clockId > 3) {
+        return WASI_EINVAL;
+      }
+      new DataView(buf()).setBigUint64(resolutionPtr, 1_000_000n, true);
+      return WASI_ESUCCESS;
+    },
     clock_time_get: (
       clockId: number,
       _precision: bigint,
