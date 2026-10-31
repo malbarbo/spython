@@ -31,10 +31,10 @@ and `cli/tests/images`. `cli/build.rs` writes the list, so adding a file is
 enough.
 
 The `wasm` crate is outside the default workspace. `cargo build`, `cargo
-test`, and `cargo clippy` do not touch it. The WASM exports follow the slangs
-engine protocol, in `ENGINE.md` of the slangs repository. `repl_new` takes
-a config of `key=value` pairs separated by spaces, and `level=<0-5>` is the
-one key today.
+test`, and `cargo clippy` do not touch it. The WASM exports follow the
+simplecode engine protocol, in `ENGINE.md` of the simplecode repository.
+`repl_new` takes a config of `key=value` pairs separated by spaces, and
+`level=<0-5>` is the one key today.
 
 Run `make check` and `make test-rs` before you call a change done. Do not
 leave test files in the root of the repository.
