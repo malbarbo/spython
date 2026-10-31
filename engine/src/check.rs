@@ -6,8 +6,7 @@ use std::panic::RefUnwindSafe;
 
 use ruff_db::Db as SourceDb;
 use ruff_db::diagnostic::{
-    Annotation, Diagnostic, DisplayDiagnosticConfig, DisplayDiagnostics, Span, SubDiagnostic,
-    UnifiedFile,
+    Annotation, Diagnostic, DisplayDiagnosticConfig, Span, SubDiagnostic, UnifiedFile,
 };
 use ruff_db::file_revision::FileRevision;
 use ruff_db::files::{File, system_path_to_file};
@@ -110,7 +109,7 @@ where
         python_version: Some(RangedValue::cli(SupportedPythonVersion::Py314)),
         ..EnvironmentOptions::default()
     };
-    metadata.apply_override_options(Options {
+    metadata.set_override_options(Options {
         rules: Some(rules),
         environment: Some(environment),
         ..Options::default()
@@ -526,6 +525,7 @@ fn visit_module(
 /// the ANSI codes), or `stderr().is_terminal()` from the CLI binary.
 pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_color: bool) {
     use ruff_db::diagnostic::Severity;
+    use ruff_db::diagnostic::render::{FullRenderer, Renderer};
     use std::fmt::Write;
     if diagnostics.is_empty() {
         return;
@@ -535,7 +535,7 @@ pub fn print_type_errors(db: &ProjectDatabase, diagnostics: &[Diagnostic], use_c
         .iter()
         .filter(|d| d.severity() == Severity::Error)
         .count();
-    let mut buf = format!("{}", DisplayDiagnostics::new(db, &config, diagnostics));
+    let mut buf = format!("{}", FullRenderer::new(db, &config).display(diagnostics));
     if n > 0 {
         let s = if n == 1 { "" } else { "s" };
         let _ = writeln!(buf, "Found {n} error{s}.");

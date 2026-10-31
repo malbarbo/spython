@@ -507,23 +507,23 @@ pub(crate) mod _spython_image {
     #[pyclass(with(Constructor, Comparable, Representable))]
     impl PyColor {
         #[pygetset]
-        fn r(&self) -> u8 {
-            self.0.r
+        fn r(zelf: &Py<Self>) -> u8 {
+            zelf.0.r
         }
 
         #[pygetset]
-        fn g(&self) -> u8 {
-            self.0.g
+        fn g(zelf: &Py<Self>) -> u8 {
+            zelf.0.g
         }
 
         #[pygetset]
-        fn b(&self) -> u8 {
-            self.0.b
+        fn b(zelf: &Py<Self>) -> u8 {
+            zelf.0.b
         }
 
         #[pygetset]
-        fn a(&self) -> f64 {
-            self.0.a.get()
+        fn a(zelf: &Py<Self>) -> f64 {
+            zelf.0.a.get()
         }
     }
 
@@ -591,28 +591,28 @@ pub(crate) mod _spython_image {
     #[pyclass(with(Constructor, Comparable, Representable))]
     impl PyFont {
         #[pygetset]
-        fn family(&self) -> String {
-            self.0.family.to_string()
+        fn family(zelf: &Py<Self>) -> String {
+            zelf.0.family.to_string()
         }
 
         #[pygetset]
-        fn size(&self) -> f64 {
-            self.0.size.get()
+        fn size(zelf: &Py<Self>) -> f64 {
+            zelf.0.size.get()
         }
 
         #[pygetset]
-        fn style(&self, vm: &VirtualMachine) -> PyResult {
-            FONT_STYLE.member(self.0.style, vm)
+        fn style(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            FONT_STYLE.member(zelf.0.style, vm)
         }
 
         #[pygetset]
-        fn weight(&self, vm: &VirtualMachine) -> PyResult {
-            FONT_WEIGHT.member(self.0.weight, vm)
+        fn weight(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            FONT_WEIGHT.member(zelf.0.weight, vm)
         }
 
         #[pygetset]
-        fn underline(&self) -> bool {
-            self.0.underline
+        fn underline(zelf: &Py<Self>) -> bool {
+            zelf.0.underline
         }
     }
 

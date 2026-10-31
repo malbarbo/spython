@@ -143,7 +143,7 @@ impl Checker<'_> {
     /// and the code inside an f-string included.
     fn check_reserved_names(&mut self, tokens: &Tokens, source: &str) {
         for token in tokens {
-            if token.kind() != TokenKind::Name
+            if token.kind() != TokenKind::Identifier
                 || self.repl_input.is_some_and(|start| token.start() < start)
             {
                 continue;
@@ -600,8 +600,8 @@ impl Checker<'_> {
     /// `None` from both pairs, so we dedupe by source position.
     fn check_literal_comparisons(&mut self, cmp: &ruff_python_ast::ExprCompare) {
         let mut emitted: Vec<TextSize> = Vec::new();
-        let mut prev = cmp.left.as_ref();
-        for (op, right) in cmp.ops.iter().zip(cmp.comparators.iter()) {
+        let mut prev = cmp.first_operand();
+        for (op, right) in cmp.ops.iter().zip(cmp.comparators()) {
             if matches!(op, CmpOp::Eq | CmpOp::NotEq) {
                 for side in [prev, right] {
                     let start = side.range().start();
@@ -1164,7 +1164,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 e.range(),
                 forbidden_msg("`lambda`", self.level, Level::Classes),
             ),
-            Expr::Compare(cmp) if self.level < Level::Classes && cmp.comparators.len() > 1 => {
+            Expr::Compare(cmp) if self.level < Level::Classes && cmp.comparators().len() > 1 => {
                 self.push(
                     &CHAINED_COMPARISON,
                     cmp.range(),

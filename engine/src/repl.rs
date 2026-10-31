@@ -113,7 +113,7 @@ impl Repl {
                 "from spython.system import install_displayhook; install_displayhook(); del install_displayhook",
                 "<init>",
             ) {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
             }
         });
     }
@@ -144,7 +144,7 @@ impl Repl {
             if let Some(dir) = dir
                 && let Err(exc) = vm.insert_sys_path(vm.new_pyobj(dir))
             {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
                 return Err(Failed);
             }
             keep_source(vm, name, source);
@@ -347,7 +347,7 @@ impl Repl {
                     {
                         Ok(code_obj) => compiled.push(code_obj),
                         Err(exc) => {
-                            vm.print_exception(exc);
+                            vm.print_exception(&exc);
                             break 'ran Ran {
                                 done: 0,
                                 exit: None,
@@ -434,7 +434,7 @@ fn report(vm: &vm::VirtualMachine, exc: vm::builtins::PyBaseExceptionRef) -> boo
     if interrupted(vm, &exc) {
         return true;
     }
-    vm.print_exception(exc);
+    vm.print_exception(&exc);
     false
 }
 

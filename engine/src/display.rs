@@ -102,8 +102,8 @@ mod _spython_display {
         /// terminal shows no graphics, while a display holds the terminal, or
         /// when the image is too large to draw.
         #[pymethod]
-        fn show(&self, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
-            let mut printer = self.inner.lock();
+        fn show(zelf: &Py<Self>, image: PyRef<PyImage>, vm: &VirtualMachine) -> PyResult<bool> {
+            let mut printer = zelf.inner.lock();
             let Ok(printer) = printer.get_or_insert_with(Printer::new) else {
                 return Ok(false);
             };

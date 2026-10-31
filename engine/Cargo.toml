@@ -6,8 +6,8 @@ edition = "2024"
 # The checker over the filesystem, and the overlay that serves the embedded
 # lib to it, are native only: the page checks in memory.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ruff_db = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3", features = ["os"] }
-ruff_notebook = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
+ruff_db = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4", features = ["os"] }
+ruff_notebook = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
 dirs = { package = "dirs-next", version = "2.0" }
 dunce = "1"
 walkdir = "2"
@@ -16,14 +16,14 @@ walkdir = "2"
 sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master" }
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(windows)))'.dependencies]
-rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env"] }
+rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env"] }
 
 [target.'cfg(all(not(target_arch = "wasm32"), windows))'.dependencies]
-rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env", "host_env_extras"] }
+rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4", default-features = false, features = ["freeze-stdlib", "stdio", "importlib", "host_env", "host_env_extras"] }
 
 # On wasm32, drop features that don't work (host_env, threading, ssl).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
+rustpython = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4", default-features = false, features = ["freeze-stdlib", "stdio", "importlib"] }
 # The image model of spython, with its svg, and the pixmap that compares
 # two images by their pixels.
 sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "master", default-features = false, features = ["image", "pixmap"] }
@@ -33,19 +33,19 @@ workspace = true
 
 [dependencies]
 # The macros of the modules that build a scene and hold the display.
-rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.3", default-features = false }
-ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ty_python_core = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ty_module_resolver = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_db = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_python_ast = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_text_size = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_ranged_value = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_macros = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_python_formatter = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_python_stdlib = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
-ruff_python_parser = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.3" }
+rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4", default-features = false }
+ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ty_python_core = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ty_module_resolver = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_db = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_python_ast = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_text_size = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_ranged_value = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_macros = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_python_formatter = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_python_stdlib = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_python_parser = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
 # The setter of a field of a file, the one way to tell ty that a file of the
 # REPL changed. The version is the one ty uses.
 salsa = { version = "0.28.2", default-features = false }

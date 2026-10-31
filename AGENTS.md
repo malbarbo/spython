@@ -9,7 +9,7 @@ library that ships in the binary. `docs/` is the user guide.
 
 The interpreter is a fork of RustPython and the checker is `ty`, from a fork
 of ruff. Both come from `malbarbo/` on GitHub, on the branch named after the
-spython version they were rebased for, `spython-0.3` today. Prefer a change
+spython version they were rebased for, `spython-0.4` today. Prefer a change
 in `engine` or `cli` to a change in a fork. After you push to a fork, run
 `cargo update -p <crate>` here to take the new commit. The two forks and the
 `LIBS_VERSION` in `engine/build.rs` change together.

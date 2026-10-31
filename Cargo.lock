@@ -201,12 +201,25 @@ version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05832cdddc8f2650cc2cc187cc2e952b8c133a48eb055f35211f61ee81502d77"
 dependencies = [
- "attribute-derive-macro",
+ "attribute-derive-macro 0.10.5",
  "derive-where",
- "manyhow",
+ "manyhow 0.11.4",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "attribute-derive"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f9ef7a68684657ce9da341c934c73b63df7a3585a61e366d84c84ed5d3d167"
+dependencies = [
+ "attribute-derive-macro 0.11.0",
+ "manyhow 0.14.1",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -217,12 +230,28 @@ checksum = "0a7cdbbd4bd005c5d3e2e9c885e6fa575db4f4a3572335b974d8db853b6beb61"
 dependencies = [
  "collection_literals",
  "interpolator",
- "manyhow",
+ "manyhow 0.11.4",
  "proc-macro-utils",
  "proc-macro2",
  "quote",
- "quote-use",
+ "quote-use 0.8.4",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "attribute-derive-macro"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300d426e5e73549125bb8e4649bdd5508f82c94ddf898fb0517246e71dfb8e98"
+dependencies = [
+ "collection_literals",
+ "interpolator",
+ "manyhow 0.14.1",
+ "proc-macro-utils",
+ "proc-macro2",
+ "quote",
+ "quote-use 0.9.0",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -238,6 +267,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -251,9 +286,9 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "bitflagset"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64b6ee310aa7af14142c8c9121775774ff601ae055ed98ba7fac96098bcde1b9"
+checksum = "b20ef61bbe50b5243319d8f4d2dfb492435ba267e184aa0468587ad08c8bef70"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -274,12 +309,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2"
-version = "0.11.0-rc.6"
+name = "blake2b_simd"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061f1a09225e328e1ffbb378d2d49923c0ca5fee19fb5ac1cc9c1e9d52b93690"
+checksum = "3560a7b1951efe814fcd721938313adc56753ca39f4b23847d7e9a2402f5dbff"
 dependencies = [
- "digest",
+ "arrayvec",
+ "constant_time_eq 0.4.2",
+]
+
+[[package]]
+name = "blake2s_simd"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2380c0236432f7b22a70229df30f218f5293870c056beb76f5ca068e3273a366"
+dependencies = [
+ "arrayvec",
+ "constant_time_eq 0.4.2",
 ]
 
 [[package]]
@@ -490,7 +536,30 @@ dependencies = [
  "get-size2 0.10.3",
  "itoa",
  "ryu",
+]
+
+[[package]]
+name = "char_str"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cba78a5abb515610e10af297615434b019755b5d7be14e559ff5340dff50c4"
+dependencies = [
+ "castaway",
+ "get-size2 0.11.1",
+ "itoa",
+ "ryu",
  "serde_core",
+]
+
+[[package]]
+name = "cipher"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
+ "inout",
 ]
 
 [[package]]
@@ -587,20 +656,6 @@ dependencies = [
 
 [[package]]
 name = "compact_str"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dfdd1c2274d9aa354115b09dc9a901d6c5576818cdf70d14cae2bdb47df00ab"
-dependencies = [
- "castaway",
- "cfg-if",
- "itoa",
- "rustversion",
- "ryu",
- "static_assertions",
-]
-
-[[package]]
-name = "compact_str"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79fcda08c33bb58b97008b2cdada6622500e949e060f5913361763121abd2416"
@@ -641,15 +696,34 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "constant_time_eq"
-version = "0.5.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a1ec0cfec728a79a5109075543131387f911cb4d07716436d7ae20533657a96"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eb6feb175df65d0a3ccd3e73484e940d0ac664e8034f0519fd49a93db3071d9"
+dependencies = [
+ "rustversion",
+]
 
 [[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91e195e091a93c46f7102ec7818a2aa394e1e1771c3ab4825963fa03e45afb8f"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
+name = "core-foundation"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
 dependencies = [
  "core-foundation-sys",
  "libc",
@@ -668,7 +742,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c07782be35f9e1140080c6b96f0d44b739e2278479f64e02fdab4e32dfd8b081"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation",
+ "core-foundation 0.9.4",
  "core-graphics-types",
  "foreign-types",
  "libc",
@@ -681,7 +755,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45390e6114f68f718cc7a830514a96f903cccd70d02a8f6d9f643ac4ba45afaf"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation",
+ "core-foundation 0.9.4",
  "libc",
 ]
 
@@ -813,15 +887,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "csv-core"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
-dependencies = [
- "memchr",
-]
-
-[[package]]
 name = "ctor"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -892,13 +957,13 @@ dependencies = [
 
 [[package]]
 name = "derive-where"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d08b3a0bcc0d079199cd476b2cae8435016ec11d1c0986c6901c5ac223041534"
+checksum = "2e2b94854e8576378ccda7c8de8a66ed8b4e8acbd2c50ec3418ea6c8aaf4b567"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -999,14 +1064,14 @@ dependencies = [
 
 [[package]]
 name = "dns-lookup"
-version = "3.0.1"
+version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e39034cee21a2f5bbb66ba0e3689819c4bb5d00382a282006e802a7ffa6c41d"
+checksum = "263c0ccfc6b3b6a93e959edad4f985779e76c0b36dbb2e13e3d27c690974adf1"
 dependencies = [
  "cfg-if",
  "libc",
  "socket2",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1047,12 +1112,6 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
-
-[[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "either"
@@ -1170,12 +1229,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "exitcode"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de853764b47027c2e862a995c34978ffa63c1501f2e15f987ba11bd4f9bba193"
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1274,6 +1327,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
+
+[[package]]
 name = "fsevent-sys"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1314,37 +1376,24 @@ dependencies = [
 
 [[package]]
 name = "get-size-derive2"
-version = "0.7.4"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2b6d1e2f75c16bfbcd0f95d84f99858a6e2f885c2287d1f5c3a96e8444a34b4"
+checksum = "c736d226c32e496b8377813b52269e11ad3a48d8373b68862d0364f04fd1229d"
 dependencies = [
- "attribute-derive",
+ "attribute-derive 0.10.5",
  "quote",
  "syn 2.0.119",
 ]
 
 [[package]]
 name = "get-size-derive2"
-version = "0.10.3"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c736d226c32e496b8377813b52269e11ad3a48d8373b68862d0364f04fd1229d"
+checksum = "28f0daa179069133df60523e0f59d0a6bd2d3db9ccae01b630896d269c4a802e"
 dependencies = [
- "attribute-derive",
+ "attribute-derive 0.11.0",
  "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "get-size2"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49cf31a6d70300cf81461098f7797571362387ef4bf85d32ac47eaa59b3a5a1a"
-dependencies = [
- "compact_str 0.9.1",
- "get-size-derive2 0.7.4",
- "hashbrown 0.16.1",
- "ordermap",
- "smallvec",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -1353,8 +1402,22 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b411f34418305908ab15a82ff78958c2a9aee9a272b2a2e663836b20a4e4b9d3"
 dependencies = [
- "compact_str 0.10.0",
+ "compact_str",
  "get-size-derive2 0.10.3",
+ "hashbrown 0.17.1",
+ "ordermap",
+ "smallvec",
+ "thin-vec",
+]
+
+[[package]]
+name = "get-size2"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "050a5d07359ebfac7f0b74916d94cfa30575e45fdc7e9bfbb0f76d5d4203325a"
+dependencies = [
+ "compact_str",
+ "get-size-derive2 0.11.1",
  "hashbrown 0.17.1",
  "indexmap",
  "ordermap",
@@ -1462,12 +1525,6 @@ name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
-
-[[package]]
-name = "hashbrown"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
 
 [[package]]
 name = "hashbrown"
@@ -1703,6 +1760,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "idna"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
+dependencies = [
+ "idna_adapter",
+ "smallvec",
+ "utf8_iter",
+]
+
+[[package]]
+name = "idna_adapter"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+dependencies = [
+ "icu_normalizer",
+ "icu_properties",
+]
+
+[[package]]
 name = "ignore"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1788,6 +1866,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inout"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b5cf4372d022092674a83b8febf5865f7a573cc0c5baec5e49c879b6a20978f"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "insta"
 version = "1.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,15 +1932,6 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
-
-[[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
-dependencies = [
- "either",
-]
 
 [[package]]
 name = "itertools"
@@ -2204,9 +2282,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lz4_flex"
-version = "0.13.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 dependencies = [
  "twox-hash",
 ]
@@ -2227,10 +2305,22 @@ version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b33efb3ca6d3b07393750d4030418d594ab1139cee518f0dc88db70fec873587"
 dependencies = [
- "manyhow-macros",
+ "manyhow-macros 0.11.4",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "manyhow"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1704b073316272a6785b70599f91f73b49022c2e290b065591ee6b9109ed8c7"
+dependencies = [
+ "manyhow-macros 0.14.1",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -2238,6 +2328,17 @@ name = "manyhow-macros"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46fce34d199b78b6e6073abf984c9cf5fd3e9330145a93ee0738a7443e371495"
+dependencies = [
+ "proc-macro-utils",
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "manyhow-macros"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31601db71f1f5fb6f831a18aa3052d13a62528ee4f2cba7e8c9a5e258d953725"
 dependencies = [
  "proc-macro-utils",
  "proc-macro2",
@@ -2983,6 +3084,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "phf_codegen"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b585a510fb76fdebead6897982ef2a03a21d8e6cbcca904999742a4afc6ffe"
+dependencies = [
+ "phf_generator 0.14.0",
+ "phf_shared 0.14.0",
+]
+
+[[package]]
 name = "phf_generator"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3288,7 +3399,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9619db1197b497a36178cfc736dc96b271fe918875fbf1344c436a7e93d0321e"
 dependencies = [
  "quote",
- "quote-use-macros",
+ "quote-use-macros 0.8.4",
+]
+
+[[package]]
+name = "quote-use"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48356e493823dc3c1d7e9fc7b3ff204ecec48afbdd718fc4134091b88eb63f3d"
+dependencies = [
+ "quote",
+ "quote-use-macros 0.9.0",
 ]
 
 [[package]]
@@ -3301,6 +3422,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "quote-use-macros"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cf1c5de6a7cc231c71e03c77aa4c7019097859ea7029156b54d2894a8430704"
+dependencies = [
+ "proc-macro-utils",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3558,8 +3691,8 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "ruff_annotate_snippets"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "anstyle",
  "memchr",
@@ -3568,32 +3701,32 @@ dependencies = [
 
 [[package]]
 name = "ruff_cache"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "char_str",
+ "char_str 0.0.4",
  "filetime",
  "glob",
  "globset",
- "itertools 0.15.0",
+ "itertools",
  "regex",
  "seahash",
 ]
 
 [[package]]
 name = "ruff_db"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "anstyle",
  "arc-swap",
  "camino",
- "compact_str 0.10.0",
+ "compact_str",
  "dashmap",
  "dunce",
  "etcetera",
  "filetime",
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "ignore",
  "matchit",
  "path-slash",
@@ -3618,6 +3751,7 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "ty_static",
+ "url",
  "web-time",
  "which",
  "zip",
@@ -3625,10 +3759,10 @@ dependencies = [
 
 [[package]]
 name = "ruff_diagnostics"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "is-macro",
  "ruff_text_size",
  "serde",
@@ -3636,8 +3770,8 @@ dependencies = [
 
 [[package]]
 name = "ruff_formatter"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "drop_bomb",
  "ruff_cache",
@@ -3652,21 +3786,21 @@ dependencies = [
 
 [[package]]
 name = "ruff_index"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "ruff_macros",
  "salsa",
 ]
 
 [[package]]
 name = "ruff_macros"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "heck",
- "itertools 0.15.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "regex",
@@ -3676,16 +3810,16 @@ dependencies = [
 
 [[package]]
 name = "ruff_memory_usage"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
 ]
 
 [[package]]
 name = "ruff_notebook"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "anyhow",
  "rand 0.10.2",
@@ -3700,20 +3834,20 @@ dependencies = [
 
 [[package]]
 name = "ruff_options_metadata"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 
 [[package]]
 name = "ruff_python_ast"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "aho-corasick",
  "arrayvec",
  "bitflags 2.13.1",
- "char_str",
- "compact_str 0.10.0",
- "get-size2 0.10.3",
+ "char_str 0.0.4",
+ "compact_str",
+ "get-size2 0.11.1",
  "is-macro",
  "memchr",
  "ruff_cache",
@@ -3728,14 +3862,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_python_codegen"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
+dependencies = [
+ "ruff_python_ast",
+ "ruff_python_literal",
+ "ruff_python_parser",
+ "ruff_source_file",
+ "ruff_text_size",
+]
+
+[[package]]
+name = "ruff_python_edits"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
+dependencies = [
+ "ruff_python_ast",
+ "ruff_source_file",
+ "ruff_text_size",
+]
+
+[[package]]
 name = "ruff_python_formatter"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "anyhow",
  "clap",
  "countme",
- "itertools 0.15.0",
+ "itertools",
  "memchr",
  "regex",
  "ruff_cache",
@@ -3757,42 +3913,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_python_importer"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
+dependencies = [
+ "anyhow",
+ "ruff_diagnostics",
+ "ruff_python_ast",
+ "ruff_python_codegen",
+ "ruff_python_trivia",
+ "ruff_source_file",
+ "ruff_text_size",
+]
+
+[[package]]
 name = "ruff_python_literal"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "bitflags 2.13.1",
+ "icu_normalizer",
  "icu_properties",
- "itertools 0.15.0",
+ "itertools",
  "ruff_python_ast",
 ]
 
 [[package]]
 name = "ruff_python_parser"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
  "drop_bomb",
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
+ "hashbrown 0.17.1",
  "memchr",
  "ruff_python_ast",
  "ruff_python_trivia",
  "ruff_text_size",
+ "ruff_unicode_names2",
  "rustc-hash",
- "stacker",
  "static_assertions",
  "thin-vec",
  "unicode-ident",
  "unicode-normalization",
- "unicode_names2 1.3.0",
 ]
 
 [[package]]
 name = "ruff_python_stdlib"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "bitflags 2.13.1",
  "unicode-ident",
@@ -3800,22 +3971,24 @@ dependencies = [
 
 [[package]]
 name = "ruff_python_trivia"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "itertools 0.15.0",
+ "itertools",
+ "memchr",
  "ruff_source_file",
  "ruff_text_size",
  "rustc-hash",
  "unicode-ident",
+ "unicode-normalization",
 ]
 
 [[package]]
 name = "ruff_ranged_value"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "ruff_db",
  "ruff_python_ast",
  "ruff_text_size",
@@ -3825,10 +3998,10 @@ dependencies = [
 
 [[package]]
 name = "ruff_source_file"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "memchr",
  "ruff_text_size",
  "serde",
@@ -3836,11 +4009,29 @@ dependencies = [
 
 [[package]]
 name = "ruff_text_size"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "serde",
+]
+
+[[package]]
+name = "ruff_unicode_names2"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
+dependencies = [
+ "phf 0.14.0",
+ "ruff_unicode_names2_generator",
+]
+
+[[package]]
+name = "ruff_unicode_names2_generator"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
+dependencies = [
+ "phf_codegen 0.14.0",
+ "rand 0.10.2",
 ]
 
 [[package]]
@@ -3886,8 +4077,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "dirs",
  "env_logger",
@@ -3904,12 +4095,12 @@ dependencies = [
 
 [[package]]
 name = "rustpython-codegen"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "bitflags 2.13.1",
  "indexmap",
- "itertools 0.15.0",
+ "itertools",
  "log",
  "memchr",
  "num-bigint",
@@ -3927,30 +4118,47 @@ dependencies = [
 
 [[package]]
 name = "rustpython-common"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "ascii",
+ "base64 0.23.1",
  "bitflags 2.13.1",
+ "blake2b_simd",
+ "blake2s_simd",
+ "bzip2",
+ "crc32fast",
  "getrandom 0.4.3",
- "itertools 0.15.0",
+ "itertools",
  "libc",
+ "libz-rs-sys",
  "lock_api",
+ "md-5",
+ "memchr",
  "num-bigint",
  "num-complex",
  "num-rational",
  "num-traits",
+ "parking_lot",
  "radium 1.1.1",
  "rustpython-literal",
  "rustpython-unicode",
  "rustpython-wtf8",
+ "scrypt",
+ "sha1",
+ "sha2",
+ "sha3",
+ "shake",
  "siphasher",
+ "xz",
+ "xz-sys",
+ "zlib-rs",
 ]
 
 [[package]]
 name = "rustpython-compiler"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "rustpython-codegen",
  "rustpython-compiler-core",
@@ -3963,12 +4171,12 @@ dependencies = [
 
 [[package]]
 name = "rustpython-compiler-core"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "bitflags 2.13.1",
  "bitflagset",
- "itertools 0.15.0",
+ "itertools",
  "lz4_flex",
  "num-bigint",
  "num-complex",
@@ -3979,8 +4187,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-derive"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -3989,10 +4197,10 @@ dependencies = [
 
 [[package]]
 name = "rustpython-derive-impl"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
- "itertools 0.15.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "rustpython-compiler-core",
@@ -4004,18 +4212,19 @@ dependencies = [
 
 [[package]]
 name = "rustpython-doc"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
- "phf 0.14.0",
+ "xz",
 ]
 
 [[package]]
 name = "rustpython-host_env"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "bitflags 2.13.1",
+ "bitflagset",
  "cc",
  "dns-lookup",
  "gethostname",
@@ -4046,8 +4255,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-literal"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -4059,8 +4268,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-pylib"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -4069,37 +4278,44 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_ast"
-version = "0.15.9"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.15.19-rustpython#3c1ab2dd9987f190f3df94d28452ed5e65e106af"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc19eeb4cfa2c35428143693eadf85ee78816f22a829298593581a56700c0a21"
 dependencies = [
  "aho-corasick",
+ "arrayvec",
  "bitflags 2.13.1",
- "compact_str 0.9.1",
- "get-size2 0.7.4",
+ "char_str 0.0.2",
+ "compact_str",
+ "get-size2 0.10.3",
  "is-macro",
  "memchr",
  "rustc-hash",
  "rustpython-ruff_python_trivia",
  "rustpython-ruff_source_file",
  "rustpython-ruff_text_size",
+ "thin-vec",
  "thiserror 2.0.20",
 ]
 
 [[package]]
 name = "rustpython-ruff_python_parser"
-version = "0.15.9"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.15.19-rustpython#3c1ab2dd9987f190f3df94d28452ed5e65e106af"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "480eec9ac4dda77b6724f0c9a54a81d3c57868d6a707c3d7c5133fd83c933f66"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
- "compact_str 0.9.1",
- "get-size2 0.7.4",
+ "drop_bomb",
+ "get-size2 0.10.3",
  "memchr",
  "rustc-hash",
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_trivia",
  "rustpython-ruff_text_size",
+ "stacker",
  "static_assertions",
+ "thin-vec",
  "unicode-ident",
  "unicode-normalization",
  "unicode_names2 1.3.0",
@@ -4107,10 +4323,12 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_trivia"
-version = "0.15.9"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.15.19-rustpython#3c1ab2dd9987f190f3df94d28452ed5e65e106af"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d69a5d9bb610a76bee05d23adce0de55f0fa06f251c0e1c7f7a0c625a366a58"
 dependencies = [
- "itertools 0.14.0",
+ "itertools",
+ "rustc-hash",
  "rustpython-ruff_source_file",
  "rustpython-ruff_text_size",
  "unicode-ident",
@@ -4118,8 +4336,9 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_source_file"
-version = "0.15.9"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.15.19-rustpython#3c1ab2dd9987f190f3df94d28452ed5e65e106af"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3aa9c91c8a4e86bf0fa8a67aec284fa6c0c533cdefb900b08584be15748c606"
 dependencies = [
  "memchr",
  "rustpython-ruff_text_size",
@@ -4127,37 +4346,27 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_text_size"
-version = "0.15.9"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.15.19-rustpython#3c1ab2dd9987f190f3df94d28452ed5e65e106af"
+version = "0.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fedbd1af4f91cd828185123d95119662db9c4a0b21c02b695783d74360d4f46"
 dependencies = [
- "get-size2 0.7.4",
+ "get-size2 0.10.3",
 ]
 
 [[package]]
 name = "rustpython-stdlib"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "adler32",
  "ascii",
- "base64",
- "blake2",
- "bzip2",
- "constant_time_eq",
- "crc32fast",
+ "constant_time_eq 0.6.1",
  "crossbeam-utils",
- "csv-core",
- "digest",
- "dyn-clone",
- "flate2",
+ "getrandom 0.4.3",
  "hex",
- "hmac",
  "indexmap",
- "itertools 0.15.0",
- "jiff",
+ "itertools",
  "libc",
- "libz-rs-sys",
- "md-5",
  "memchr",
  "mt19937",
  "num-bigint",
@@ -4166,7 +4375,6 @@ dependencies = [
  "num_enum",
  "parking_lot",
  "paste",
- "pbkdf2",
  "phf 0.14.0",
  "pymath",
  "rand 0.10.2",
@@ -4181,21 +4389,15 @@ dependencies = [
  "rustpython-unicode",
  "rustpython-vm",
  "scopeguard",
- "sha1",
- "sha2",
- "sha3",
- "shake",
  "uuid",
  "widestring",
  "xml",
- "xz",
- "xz-sys",
 ]
 
 [[package]]
 name = "rustpython-unicode"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "icu_casemap",
  "icu_locale",
@@ -4204,25 +4406,26 @@ dependencies = [
  "rustpython-wtf8",
  "unicode_names2 3.1.0",
  "writeable",
+ "zlib-rs",
 ]
 
 [[package]]
 name = "rustpython-vm"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "ascii",
  "bitflags 2.13.1",
+ "bitflagset",
  "bstr",
- "constant_time_eq",
+ "constant_time_eq 0.6.1",
  "crossbeam-utils",
- "exitcode",
  "glob",
  "half",
  "hex",
  "indexmap",
  "is-macro",
- "itertools 0.15.0",
+ "itertools",
  "itoa",
  "jiff",
  "libc",
@@ -4261,12 +4464,12 @@ dependencies = [
 
 [[package]]
 name = "rustpython-wtf8"
-version = "0.5.0"
-source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.3#df0b6c995b6f8940c7a01b96032a8cd608bcf82c"
+version = "0.6.0"
+source = "git+https://github.com/malbarbo/RustPython.git?branch=spython-0.4#e7eefc379437b326b99b51a809141f3cfeecc0e1"
 dependencies = [
  "ascii",
  "bstr",
- "itertools 0.15.0",
+ "itertools",
  "memchr",
 ]
 
@@ -4313,12 +4516,12 @@ dependencies = [
 
 [[package]]
 name = "salsa"
-version = "0.28.2"
+version = "0.28.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf0e374215cd2db2b5c75d7b3a99cb0cc052c0595335dfdefc03d4eb08f4aa81"
+checksum = "27d2e6e19e39591cd99c01ac4141544b4d012cfd0831348629b8187fa9fe6d34"
 dependencies = [
  "boxcar",
- "compact_str 0.10.0",
+ "compact_str",
  "crossbeam-queue",
  "crossbeam-utils",
  "hashbrown 0.17.1",
@@ -4340,19 +4543,29 @@ dependencies = [
 
 [[package]]
 name = "salsa-macro-rules"
-version = "0.28.2"
+version = "0.28.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85f4b7d4405540bbd6d4ffa52d4322d983f3781954d3073067ac1bdb028459b3"
+checksum = "baf90a551c38f25ed8489111d3d5827aa18e1b85963f5e6a298505b1d1e2cb7e"
 
 [[package]]
 name = "salsa-macros"
-version = "0.28.2"
+version = "0.28.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "445be2bfbb2f67cb663225ecd7bc5a25370c0250fca30f9d8cbad9a913650370"
+checksum = "69dd77f86ec10e72e314f4ddf7c44c8d349e73cdff1aad524ba9668603fb0549"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "salsa20"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f874456e72520ff1375a06c588eaf074b0f01f9e9e1aada45bd9b7954a6e42c"
+dependencies = [
+ "cfg-if",
+ "cipher",
 ]
 
 [[package]]
@@ -4384,6 +4597,18 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "scrypt"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d87af57419b594aa23fa95f09f0e06d80d84ba01c26148c43844cad6ff4485f0"
+dependencies = [
+ "cfg-if",
+ "pbkdf2",
+ "salsa20",
+ "sha2",
+]
 
 [[package]]
 name = "sctk-adwaita"
@@ -4561,7 +4786,7 @@ name = "sinteract"
 version = "0.1.0"
 source = "git+https://github.com/malbarbo/sinteract.git?branch=master#a51657b9db768af8d1ba699603cdd8b81884ff0c"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "capnp",
  "crossterm",
  "fontdb",
@@ -4835,12 +5060,12 @@ dependencies = [
 
 [[package]]
 name = "system-configuration"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13f3d0daba03132c0aa9767f98351b3488edc2c100cda2d2ec2b04f3d8d3c8b"
+checksum = "501336eb7ba9e417300a6a0fa985721065467aa83a6dcf0422a8e43e4c0328fa"
 dependencies = [
  "bitflags 2.13.1",
- "core-foundation",
+ "core-foundation 0.10.1",
  "system-configuration-sys",
 ]
 
@@ -4867,7 +5092,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -5132,8 +5357,8 @@ checksum = "8464ec13c3691491391d9fce00f6416c9a48e46972f72d7865688be2080192c9"
 
 [[package]]
 name = "ty_combine"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "ordermap",
  "ruff_db",
@@ -5143,13 +5368,15 @@ dependencies = [
 
 [[package]]
 name = "ty_module_resolver"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "anyhow",
  "camino",
- "compact_str 0.10.0",
- "get-size2 0.10.3",
+ "compact_str",
+ "get-size2 0.11.1",
+ "itertools",
+ "memchr",
  "ordermap",
  "regex",
  "regex-syntax",
@@ -5168,15 +5395,16 @@ dependencies = [
 [[package]]
 name = "ty_project"
 version = "0.0.0"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "anyhow",
  "bitvec",
  "camino",
+ "char_str 0.0.4",
  "colored",
- "compact_str 0.10.0",
+ "compact_str",
  "crossbeam",
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "globset",
  "notify",
  "ordermap",
@@ -5192,12 +5420,14 @@ dependencies = [
  "ruff_options_metadata",
  "ruff_python_ast",
  "ruff_ranged_value",
+ "ruff_source_file",
  "ruff_text_size",
  "rustc-hash",
  "salsa",
  "serde",
  "serde_json",
  "shellexpand",
+ "similar 3.2.0",
  "strum",
  "strum_macros",
  "thiserror 2.0.20",
@@ -5213,15 +5443,15 @@ dependencies = [
 
 [[package]]
 name = "ty_python_core"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "bitflags 2.13.1",
  "bitvec",
- "char_str",
- "get-size2 0.10.3",
+ "char_str 0.0.4",
+ "get-size2 0.11.1",
  "hashbrown 0.17.1",
- "itertools 0.15.0",
+ "itertools",
  "ruff_db",
  "ruff_index",
  "ruff_macros",
@@ -5244,16 +5474,16 @@ dependencies = [
 
 [[package]]
 name = "ty_python_semantic"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "bitflags 2.13.1",
- "char_str",
- "compact_str 0.10.0",
+ "char_str 0.0.4",
+ "compact_str",
  "drop_bomb",
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "indexmap",
- "itertools 0.15.0",
+ "itertools",
  "memchr",
  "ordermap",
  "rayon",
@@ -5263,6 +5493,9 @@ dependencies = [
  "ruff_macros",
  "ruff_memory_usage",
  "ruff_python_ast",
+ "ruff_python_codegen",
+ "ruff_python_edits",
+ "ruff_python_importer",
  "ruff_python_literal",
  "ruff_python_parser",
  "ruff_python_stdlib",
@@ -5278,6 +5511,7 @@ dependencies = [
  "strum_macros",
  "thiserror 2.0.20",
  "tracing",
+ "ty_combine",
  "ty_module_resolver",
  "ty_python_core",
  "ty_site_packages",
@@ -5286,12 +5520,12 @@ dependencies = [
 
 [[package]]
 name = "ty_site_packages"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "camino",
  "colored",
- "get-size2 0.10.3",
+ "get-size2 0.11.1",
  "indexmap",
  "ruff_annotate_snippets",
  "ruff_db",
@@ -5307,16 +5541,16 @@ dependencies = [
 
 [[package]]
 name = "ty_static"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "ruff_macros",
 ]
 
 [[package]]
 name = "ty_vendored"
-version = "0.0.10"
-source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.3#bdfd52a681fc3e7bee7edd16c7175bbece9eae9d"
+version = "0.0.20"
+source = "git+https://github.com/malbarbo/ruff.git?branch=spython-0.4#8da9f2544498424c0c13c4d8506d9825cab3ecd7"
 dependencies = [
  "path-slash",
  "ruff_db",
@@ -5398,7 +5632,7 @@ checksum = "b91e5b84611016120197efd7dc93ef76774f4e084cd73c9fb3ea4a86c570c56e"
 dependencies = [
  "getopts",
  "log",
- "phf_codegen",
+ "phf_codegen 0.11.3",
  "rand 0.8.7",
 ]
 
@@ -5408,7 +5642,7 @@ version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "849744a58c479122ff24910d7ca57f312b62613ef0412dc327776ae6b235d16a"
 dependencies = [
- "phf_codegen",
+ "phf_codegen 0.11.3",
  "rand 0.8.7",
 ]
 
@@ -5417,6 +5651,18 @@ name = "unscanny"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9df2af067a7953e9c3831320f35c1cc0600c30d44d9f7a12b01db1cd88d6b47"
+
+[[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
+]
 
 [[package]]
 name = "utf16_iter"
@@ -5954,7 +6200,7 @@ dependencies = [
  "calloop",
  "cfg_aliases",
  "concurrent-queue",
- "core-foundation",
+ "core-foundation 0.9.4",
  "core-graphics",
  "cursor-icon",
  "dpi",
@@ -6244,9 +6490,9 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34b31d188d9d685a4f9c7b46d6e36631b07058d2cfe190267adce54dc230bf12"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zmij"
