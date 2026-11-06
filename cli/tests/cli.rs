@@ -1737,6 +1737,19 @@ fn level0_forbids_unary_plus_bool() {
 }
 
 #[test]
+fn level1_forbids_a_union_with_bool_in_arithmetic() {
+    let (_, err, success) = run_level(
+        1,
+        indoc! {"
+        def f(c: bool, x: int) -> int:
+            return (True if c else x) * 2
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
 fn level0_allows_int_plus_int() {
     let (out, err, success) = run_level(
         0,
@@ -1795,6 +1808,52 @@ fn level4_allows_bool_arithmetic() {
     );
     assert!(success, "stderr: {err}");
     assert_eq!(out, "3\n");
+}
+
+#[test]
+fn level4_allows_bool_variables_in_arithmetic() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(xs: list[int], b: bool) -> list[int]:
+            total = 0
+            for x in xs:
+                total += x > 0
+            return [total, -b, b * total, total << b]
+        print(f([1, -2, 3], True))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "[2, -1, 2, 4]\n");
+}
+
+#[test]
+fn level3_reports_only_the_lint_for_a_bool_in_arithmetic() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f(x: int, b: bool) -> int:
+            return x + b
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("error[").count(), 1, "stderr: {err}");
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
+fn level5_rejects_a_bool_where_the_annotation_says_int() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        x: int = True
+        def f() -> int:
+            return 3 > 2
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("invalid-assignment"), "stderr: {err}");
+    assert!(err.contains("invalid-return-type"), "stderr: {err}");
 }
 
 #[test]

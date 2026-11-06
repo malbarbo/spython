@@ -877,7 +877,7 @@ mod repl_check_tests {
         for (expr, expected) in [
             ("1", "int"),
             ("1 if b else \"a\"", "int | str"),
-            ("True if b else 1", "int"),
+            ("True if b else 1", "bool | int"),
             ("\"a\" if b else None", "str | None"),
             ("(1, \"a\")", "tuple[int, str]"),
             ("b\"x\"", "bytes"),
