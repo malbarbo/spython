@@ -67,8 +67,8 @@ Todas elas são liberadas no nível 4.
   o guard de um `case` e os operandos de `and`/`or`/`not` precisam ter tipo
   `bool`. "Truthiness" implícita (`if x:` com `x: int`) é rejeitada.
 - **Sem `bool` em aritmética** — valores `bool` não são aceitos como
-  operandos de `+`, `-`, `*`, `/`, `//`, `%`, `**`, atribuição aumentada ou
-  unário `+`/`-`. Isso evita bugs de aluno como `x + True`, que funciona
+  operandos de `+`, `-`, `*`, `/`, `//`, `%`, `**`, `<<`, `>>`, atribuição
+  aumentada ou unário `+`/`-`. Isso evita bugs de aluno como `x + True`, que funciona
   silenciosamente porque `bool` é subclasse de `int`.
 - **Sem comparações encadeadas** — `a < b < c` e `a == b != c` precisam ser
   desmembradas com `and`, já que a semântica de comparação encadeada do

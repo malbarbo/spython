@@ -67,7 +67,8 @@ are lifted at level 4.
   the guard of a `case`, and the operands of `and`/`or`/`not` must have type
   `bool`. Implicit truthiness (`if x:` with `x: int`) is rejected.
 - **No `bool` in arithmetic** — `bool` values are not allowed as operands of
-  `+`, `-`, `*`, `/`, `//`, `%`, `**`, augmented assignment, or unary `+`/`-`.
+  `+`, `-`, `*`, `/`, `//`, `%`, `**`, `<<`, `>>`, augmented assignment, or
+  unary `+`/`-`.
   This catches student bugs like `x + True` that silently work because
   `bool` is a subclass of `int`.
 - **No chained comparisons** — `a < b < c` and `a == b != c` must be split

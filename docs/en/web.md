@@ -67,7 +67,8 @@ mistakes, all lifted at level 4:
   the guard of a `case`, and the operands of `and`/`or`/`not` must have type
   `bool`.
 - **No `bool` in arithmetic** — `bool` values are not allowed in `+`, `-`,
-  `*`, `/`, `//`, `%`, `**`, augmented assignment, or unary `+`/`-`.
+  `*`, `/`, `//`, `%`, `**`, `<<`, `>>`, augmented assignment, or unary
+  `+`/`-`.
 - **No chained comparisons** — `a < b < c` must be split with `and`.
 - **No bare expression statements** — an expression whose result is
   discarded (other than a function call, a docstring, or `...`) is rejected.

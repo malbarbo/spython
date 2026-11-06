@@ -67,7 +67,8 @@ iniciantes, todas liberadas no nível 4:
   o guard de um `case` e os operandos de `and`/`or`/`not` precisam ter tipo
   `bool`.
 - **Sem `bool` em aritmética** — valores `bool` não são aceitos em `+`, `-`,
-  `*`, `/`, `//`, `%`, `**`, atribuição aumentada ou unário `+`/`-`.
+  `*`, `/`, `//`, `%`, `**`, `<<`, `>>`, atribuição aumentada ou unário
+  `+`/`-`.
 - **Sem comparações encadeadas** — `a < b < c` precisa ser desmembrada com
   `and`.
 - **Sem expressão como statement** — uma expressão cujo resultado é
