@@ -3,7 +3,7 @@
 //! This module checks for missing annotations and forbidden constructs based
 //! on the current teaching level.
 
-use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span};
+use ruff_db::diagnostic::{Annotation, Diagnostic, DiagnosticId, Severity, Span, UnifiedFile};
 use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
 use ruff_db::source::source_text;
@@ -1760,6 +1760,103 @@ fn forbidden_msg(construct: &str, level: Level, min_level: Level) -> String {
 }
 
 /// Create a lint diagnostic that matches ty's format.
+/// Add a note to each error of ty about a power of two ints that is not an
+/// `int`. The type of `2 ** n` is `int | float`, because a negative `n`
+/// gives a `float`, and the message of ty does not say why.
+pub(crate) fn explain_int_or_float_powers(db: &dyn Db, diagnostics: &mut [Diagnostic]) {
+    let mut powers: HashMap<File, Vec<TextRange>> = HashMap::new();
+    for diag in diagnostics.iter_mut() {
+        let Some(annotation) = diag.primary_annotation() else {
+            continue;
+        };
+        let span = annotation.get_span();
+        let (UnifiedFile::Ty(file), Some(range)) = (span.file(), span.range()) else {
+            continue;
+        };
+        let file = *file;
+        let mentions_int_or_float = diag.concise_message().to_string().contains("int | float")
+            || annotation
+                .get_message()
+                .is_some_and(|message| message.contains("int | float"));
+        if diag.severity() != Severity::Error || !mentions_int_or_float {
+            continue;
+        }
+        let ranges = powers
+            .entry(file)
+            .or_insert_with(|| int_or_float_powers(db, file));
+        if ranges.iter().any(|power| range.contains_range(*power)) {
+            diag.info(
+                "The exponent can be negative, and then the result is a `float`; \
+                 use `int(...)` or `float(...)` if you know the sign",
+            );
+        }
+    }
+}
+
+/// The ranges in `file` of the powers whose type is `int | float`, and of
+/// the target of every `**=`, where ty reports an error about the power.
+fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
+    struct Powers<'a> {
+        model: &'a SemanticModel<'a>,
+        ranges: Vec<TextRange>,
+    }
+
+    impl Powers<'_> {
+        fn is_int_or_float(&self, ty: Option<Type>) -> bool {
+            let db = self.model.db();
+            let env = self.model.program_environment();
+            let Some(Type::Union(union)) = ty else {
+                return false;
+            };
+            let int_ty = KnownClass::Int.to_instance(db, &env);
+            let float_ty = KnownClass::Float.to_instance(db, &env);
+            let elements = union.elements(db);
+            elements.len() == 2 && elements.contains(&int_ty) && elements.contains(&float_ty)
+        }
+    }
+
+    impl<'a> Visitor<'a> for Powers<'_> {
+        fn visit_stmt(&mut self, stmt: &'a Stmt) {
+            // The target has its declared type, not the type of the power.
+            if let Stmt::AugAssign(aug) = stmt
+                && aug.op == Operator::Pow
+            {
+                self.ranges.push(aug.target.range());
+            }
+            walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'a Expr) {
+            let is_power = match expr {
+                Expr::BinOp(e) => e.op == Operator::Pow,
+                Expr::Call(call) => call
+                    .func
+                    .inferred_type(self.model)
+                    .and_then(Type::as_function_literal)
+                    .is_some_and(|function| {
+                        function.known(self.model.db()) == Some(KnownFunction::Pow)
+                    }),
+                _ => false,
+            };
+            if is_power && self.is_int_or_float(expr.inferred_type(self.model)) {
+                self.ranges.push(expr.range());
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    let program_file = db.program_file(file);
+    let parsed = parsed_module(db, program_file.python_file(db));
+    let module = parsed.load(db);
+    let model = SemanticModel::new(db, program_file);
+    let mut powers = Powers {
+        model: &model,
+        ranges: Vec::new(),
+    };
+    powers.visit_body(module.suite());
+    powers.ranges
+}
+
 pub(crate) fn make_lint_diagnostic(
     lint: &LintMetadata,
     file: File,

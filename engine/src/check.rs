@@ -279,7 +279,7 @@ fn check_project(
     repl_input: Option<TextSize>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = annotation_check(db, level, repl_input);
-    diagnostics.extend(db.check());
+    diagnostics.extend(type_check(db));
     // Doctests are code too, so validate the prompts and type-check the
     // snippets.
     // Skip in REPL context, where incremental input doesn't have docstrings.
@@ -291,6 +291,12 @@ fn check_project(
             level,
         ));
     }
+    diagnostics
+}
+/// What ty finds in `db`, with the notes spython adds to its errors.
+pub(crate) fn type_check(db: &ProjectDatabase) -> Vec<Diagnostic> {
+    let mut diagnostics = db.check();
+    checker::explain_int_or_float_powers(db, &mut diagnostics);
     diagnostics
 }
 /// Run the annotation checker on all files registered in `db`.
@@ -416,7 +422,7 @@ pub fn check_file_doctests(
     };
 
     let mut raw = annotation_check(&scratch, level, None);
-    raw.extend(scratch.check());
+    raw.extend(type_check(&scratch));
 
     let remapped = doctests::remap_diagnostics(
         raw,

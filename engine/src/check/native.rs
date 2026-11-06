@@ -13,7 +13,7 @@ use crate::{Level, SpythonError};
 
 use super::{
     TypeErrors, annotation_check, check_file_doctests, collect_import_files, modules_beside,
-    print_type_errors, project_database, user_files,
+    print_type_errors, project_database, type_check, user_files,
 };
 
 /// The spython lib, served from memory to a checker that looks on disk for it.
@@ -60,7 +60,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     db.project().set_included_paths(&mut db, sys_files);
 
     let mut diagnostics = annotation_check(&db, level, None);
-    diagnostics.extend(db.check());
+    diagnostics.extend(type_check(&db));
     // Validate and type-check doctests inside each user file's docstrings.
     let user_files = user_files(&db, files.iter().copied());
     for f in &user_files {

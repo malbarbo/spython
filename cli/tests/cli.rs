@@ -1868,6 +1868,29 @@ fn level0_rejects_a_power_of_ints_where_the_annotation_says_int() {
         err.contains("expected `int`, found `int | float`"),
         "stderr: {err}"
     );
+    assert!(
+        err.contains("The exponent can be negative"),
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level3_explains_why_a_power_assignment_is_not_an_int() {
+    let (_, err, success) = run_level(
+        3,
+        indoc! {"
+        def f(n: int, xs: list[int]) -> None:
+            k: int = 3
+            k **= n
+            xs.append(pow(2, n))
+    "},
+    );
+    assert!(!success);
+    assert_eq!(
+        err.matches("The exponent can be negative").count(),
+        2,
+        "stderr: {err}"
+    );
 }
 
 #[test]
