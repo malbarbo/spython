@@ -12,28 +12,28 @@ use std::collections::{HashMap, HashSet};
 use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_ast::visitor::{Visitor, walk_expr, walk_pattern, walk_stmt};
 use ruff_python_ast::{
-    CmpOp, Comprehension, Decorator, Expr, ExprContext, Operator, Parameter, Parameters, Pattern,
-    Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, TypeParams, UnaryOp,
+    CmpOp, Comprehension, Decorator, Expr, ExprCall, ExprContext, Number, Operator, Parameter,
+    Parameters, Pattern, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, TypeParams, UnaryOp,
 };
 use ruff_python_stdlib::str as stdlib_str;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_project::Db;
 use ty_python_semantic::lint::LintMetadata;
-use ty_python_semantic::types::{KnownClass, Type};
+use ty_python_semantic::types::{KnownClass, KnownFunction, Type};
 use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::lints::{
     BARE_EXPRESSION, BOOL_IN_ARITHMETIC, CHAINED_COMPARISON, F_STRING_MISSING_PLACEHOLDERS,
-    FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD, FORBIDDEN_COLLECTION_LITERAL,
-    FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT, FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA,
-    FORBIDDEN_LOOP, FORBIDDEN_MATCH, FORBIDDEN_SELECTION, INVALID_ARGUMENT_NAME,
-    INVALID_CLASS_NAME, INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD, INVALID_FUNCTION_NAME,
-    LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
-    MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
-    NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
-    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME, SHADOWED_MODULE,
-    TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
+    FLOAT_EXPONENT, FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD,
+    FORBIDDEN_COLLECTION_LITERAL, FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT,
+    FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP, FORBIDDEN_MATCH, FORBIDDEN_SELECTION,
+    INVALID_ARGUMENT_NAME, INVALID_CLASS_NAME, INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD,
+    INVALID_FUNCTION_NAME, LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION,
+    MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL,
+    NON_BOOLEAN_CONDITION, NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER,
+    NONE_COMPARISON, NOT_IN_TEST, NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME,
+    SHADOWED_MODULE, TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
 };
 
 /// The start of the names that spython gives to the code it generates.
@@ -274,6 +274,103 @@ impl Checker<'_> {
                     ty.display(db, &env)
                 ),
             );
+        }
+    }
+
+    /// Reject a power with a `float` exponent and an `int` or `float` base
+    /// that can be negative, at every level.
+    ///
+    /// Python gives a `complex` for `(-8) ** 0.5`, and ty types the power
+    /// as `float`. A positive base and an exponent that is a whole `float`
+    /// literal give a `float`. The base `0` and the exponent `-0.0` stay out
+    /// because the interpreter raises `ZeroDivisionError` where Python does
+    /// not.
+    fn check_float_exponent(&mut self, range: TextRange, base: &Expr, exponent: &Expr) {
+        let (Some(base_ty), Some(exponent_ty)) = (
+            base.inferred_type(self.model),
+            exponent.inferred_type(self.model),
+        ) else {
+            return;
+        };
+        let db = self.model.db();
+        let env = self.model.program_environment();
+        let base_members = match base_ty {
+            Type::Union(union) => union.elements(db).to_vec(),
+            ty => vec![ty],
+        };
+        let exponent_members = match exponent_ty {
+            Type::Union(union) => union.elements(db).to_vec(),
+            ty => vec![ty],
+        };
+        let float_ty = KnownClass::Float.to_instance(db, &env);
+        let is_real = |ty: &Type| {
+            ty.as_int_literal().is_some()
+                || [
+                    KnownClass::Int.to_instance(db, &env),
+                    KnownClass::Bool.to_instance(db, &env),
+                    float_ty,
+                    Type::bool_literal(false),
+                    Type::bool_literal(true),
+                ]
+                .contains(ty)
+        };
+        if !base_members.iter().all(is_real)
+            || !exponent_members.contains(&float_ty)
+            || base_members
+                .iter()
+                .all(|ty| ty.as_int_literal().is_some_and(|n| n > 0))
+            || float_literal(base).is_some_and(|x| x.is_finite() && x > 0.0)
+            || is_whole_float_literal(exponent)
+        {
+            return;
+        }
+        let advice = if float_literal(exponent) == Some(0.5) {
+            "use `math.sqrt` for a square root"
+        } else if is_math_e(base) {
+            "use `math.exp(x)` for `math.e ** x`"
+        } else {
+            "use `math.pow`, which gives a `float`"
+        };
+        self.push(
+            &FLOAT_EXPONENT,
+            range,
+            format!("A `float` exponent gives a `complex` when the base is negative; {advice}"),
+        );
+    }
+
+    /// Check the base and the exponent of a call to `pow`.
+    fn check_pow_call(&mut self, call: &ExprCall) {
+        let is_pow = call
+            .func
+            .inferred_type(self.model)
+            .and_then(Type::as_function_literal)
+            .is_some_and(|function| function.known(self.model.db()) == Some(KnownFunction::Pow));
+        if !is_pow {
+            return;
+        }
+        let arguments = &call.arguments;
+        match (
+            arguments.find_argument_value("base", 0),
+            arguments.find_argument_value("exp", 1),
+        ) {
+            (Some(base), Some(exponent)) => {
+                self.check_float_exponent(call.range(), base, exponent);
+            }
+            // The unpacked values can hold a `float` exponent the check cannot see.
+            _ if arguments.args.iter().any(Expr::is_starred_expr)
+                || arguments
+                    .keywords
+                    .iter()
+                    .any(|keyword| keyword.arg.is_none()) =>
+            {
+                self.push(
+                    &FLOAT_EXPONENT,
+                    call.range(),
+                    "Pass the base and the exponent of `pow` one by one, without `*` or `**`"
+                        .to_owned(),
+                );
+            }
+            _ => {}
         }
     }
 
@@ -1012,6 +1109,9 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     self.reject_bool_arith_operand(&aug.target);
                     self.reject_bool_arith_operand(&aug.value);
                 }
+                if aug.op == Operator::Pow {
+                    self.check_float_exponent(aug.range(), &aug.target, &aug.value);
+                }
                 self.visit_assign_target_subexprs(&aug.target);
                 self.visit_expr(&aug.value);
             }
@@ -1203,7 +1303,11 @@ impl<'a> Visitor<'a> for Checker<'_> {
             Expr::BinOp(e) if is_arithmetic_op(e.op) => {
                 self.reject_bool_arith_operand(&e.left);
                 self.reject_bool_arith_operand(&e.right);
+                if e.op == Operator::Pow {
+                    self.check_float_exponent(e.range(), &e.left, &e.right);
+                }
             }
+            Expr::Call(call) => self.check_pow_call(call),
             Expr::UnaryOp(u) => match u.op {
                 UnaryOp::Not => self.check_bool_ctx(&u.operand),
                 UnaryOp::UAdd | UnaryOp::USub => self.reject_bool_arith_operand(&u.operand),
@@ -1233,6 +1337,33 @@ fn is_arithmetic_op(op: Operator) -> bool {
             | Operator::LShift
             | Operator::RShift
     )
+}
+
+/// The value of `expr` when it is a `float` literal, with or without a unary
+/// `+` or `-`.
+fn float_literal(expr: &Expr) -> Option<f64> {
+    match expr {
+        Expr::NumberLiteral(literal) => match literal.value {
+            Number::Float(value) => Some(value),
+            _ => None,
+        },
+        Expr::UnaryOp(u) if u.op == UnaryOp::UAdd => float_literal(&u.operand),
+        Expr::UnaryOp(u) if u.op == UnaryOp::USub => float_literal(&u.operand).map(|x| -x),
+        _ => None,
+    }
+}
+
+/// Returns `true` if `expr` is a `float` literal with a whole finite value
+/// other than `-0.0`, `false` otherwise.
+fn is_whole_float_literal(expr: &Expr) -> bool {
+    float_literal(expr)
+        .is_some_and(|x| x.is_finite() && x.fract() == 0.0 && !(x == 0.0 && x.is_sign_negative()))
+}
+
+/// Returns `true` if `expr` is `math.e`, `false` otherwise.
+fn is_math_e(expr: &Expr) -> bool {
+    matches!(expr, Expr::Attribute(a) if a.attr.as_str() == "e"
+        && matches!(&*a.value, Expr::Name(n) if n.id.as_str() == "math"))
 }
 
 /// Returns `true` if `decorators` contains a bare-name or attribute decorator

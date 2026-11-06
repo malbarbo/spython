@@ -302,6 +302,38 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Rejects `**`, `**=` and `pow` with a `float` exponent and an `int` or
+    /// `float` base that can be negative, at every level. A base that is a
+    /// positive literal and an exponent that is a whole `float` literal, such
+    /// as `16 ** 0.5` and `x ** 2.0`, are fine.
+    ///
+    /// ## Why is this bad?
+    /// Python gives a `complex` for `(-8) ** 0.5`, where the student expects
+    /// a `float`. `math.sqrt` and `math.pow` give a `float`, and raise
+    /// `ValueError` for a negative base.
+    ///
+    /// ## Example
+    /// ```python
+    /// def hypotenuse(a: float, b: float) -> float:
+    ///     return (a * a + b * b) ** 0.5   # error: float exponent
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// import math
+    ///
+    /// def hypotenuse(a: float, b: float) -> float:
+    ///     return math.sqrt(a * a + b * b)
+    /// ```
+    pub(crate) static FLOAT_EXPONENT = {
+        summary: "float exponent with a base that can be negative",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects chained comparisons like `a < b < c` or `a == b != c` at
     /// teaching levels 0–3.
     ///

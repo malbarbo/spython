@@ -1857,6 +1857,77 @@ fn level5_rejects_a_bool_where_the_annotation_says_int() {
 }
 
 #[test]
+fn level0_rejects_a_float_exponent_and_suggests_math_sqrt() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(a: float) -> float:
+            return a ** 0.5
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("float-exponent"), "stderr: {err}");
+    assert!(err.contains("`math.sqrt`"), "stderr: {err}");
+}
+
+#[test]
+fn level5_rejects_a_float_exponent_with_a_base_that_can_be_negative() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        import math
+        def f(x: float, y: float, n: int, k: int) -> None:
+            p = pow
+            xs = [x, 0.5]
+            print(x ** y)
+            k **= y
+            print(pow(x, 0.5))
+            print(pow(exp=0.5, base=x))
+            print(p(x, 0.5))
+            print(pow(*xs))
+            print(0 ** x)
+            print(0.0 ** x)
+            print(x ** -0.0)
+            print(n ** x)
+            print(math.e ** x)
+            print((-8) ** (1 / 3))
+            x **= y
+    "},
+    );
+    assert!(!success);
+    for line in 5..=17 {
+        assert!(
+            err.contains(&format!("main.py:{line}:")),
+            "line {line}, stderr: {err}"
+        );
+    }
+    assert_eq!(
+        err.matches("error[float-exponent]").count(),
+        13,
+        "stderr: {err}"
+    );
+    assert!(err.contains("`math.exp(x)`"), "stderr: {err}");
+    assert!(err.contains("without `*` or `**`"), "stderr: {err}");
+}
+
+#[test]
+fn level5_allows_a_float_exponent_with_a_positive_base_or_a_whole_exponent() {
+    let (out, err, success) = run_level(
+        5,
+        indoc! {"
+        B = 16
+        def f(x: float, z: complex, n: int, m: int) -> None:
+            print(16 ** 0.5, B ** 0.5, 2.0 ** x)
+            print(x ** 2.0, x ** -2.0, x ** +3.0)
+            print(z ** 0.5, pow(n, m, 7), x ** n)
+        f(-2.0, 4 + 0j, 3, 2)
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "4.0 4.0 0.25\n4.0 0.25 -8.0\n(2+0j) 2 -8.0\n");
+}
+
+#[test]
 fn level4_allows_non_bool_if() {
     let (out, err, success) = run_level(
         4,

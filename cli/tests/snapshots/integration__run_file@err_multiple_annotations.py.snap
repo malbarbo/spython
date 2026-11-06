@@ -76,4 +76,11 @@ error[missing-return-annotation]: Function `distance` is missing a return type a
 21 |         return (self.x**2 + self.y**2) ** 0.5
    |
 
-Found 8 errors.
+error[float-exponent]: A `float` exponent gives a `complex` when the base is negative; use `math.sqrt` for a square root
+  --> err_multiple_annotations.py:21:16
+   |
+20 |     def distance(self):  # Missing self is OK, but missing return annotation
+21 |         return (self.x**2 + self.y**2) ** 0.5
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Found 9 errors.
