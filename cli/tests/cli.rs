@@ -1683,6 +1683,19 @@ fn level0_forbids_bool_pow() {
 }
 
 #[test]
+fn level0_forbids_bool_shift() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int) -> int:
+            return True << x
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("bool-in-arithmetic"), "stderr: {err}");
+}
+
+#[test]
 fn level3_forbids_bool_aug_assign() {
     let (_, err, success) = run_level(
         3,

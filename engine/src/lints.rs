@@ -280,8 +280,8 @@ declare_lint! {
 declare_lint! {
     /// ## What it does
     /// Rejects `bool` operands in arithmetic operators (`+`, `-`, `*`, `/`,
-    /// `//`, `%`, `**`), augmented assignment with those operators, and
-    /// unary `+` / `-` at teaching levels 0–3.
+    /// `//`, `%`, `**`) and shifts (`<<`, `>>`), augmented assignment with
+    /// those operators, and unary `+` / `-` at teaching levels 0–3.
     ///
     /// ## Why is this bad?
     /// Python treats `bool` as a subclass of `int`, so `True + 1` silently

@@ -1218,7 +1218,8 @@ impl<'a> Visitor<'a> for Checker<'_> {
 }
 
 /// Returns `true` if `op` is an arithmetic operator (`+`, `-`, `*`, `/`,
-/// `//`, `%`, `**`), `false` otherwise. A bitwise or matrix operator is not.
+/// `//`, `%`, `**`) or a shift (`<<`, `>>`), `false` otherwise. `&`, `|`,
+/// `^` and `@` are not.
 fn is_arithmetic_op(op: Operator) -> bool {
     matches!(
         op,
@@ -1229,6 +1230,8 @@ fn is_arithmetic_op(op: Operator) -> bool {
             | Operator::FloorDiv
             | Operator::Mod
             | Operator::Pow
+            | Operator::LShift
+            | Operator::RShift
     )
 }
 
