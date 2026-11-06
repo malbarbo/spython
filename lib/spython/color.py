@@ -7,7 +7,7 @@ import _spython_image as _native  # type: ignore[import-not-found]
 if _TYPE_CHECKING:
 
     class Color:
-        def __init__(self, r: int, g: int, b: int, a: float = 1.0) -> None: ...
+        def __init__(self, r: int, g: int, b: int, a: int | float = 1.0) -> None: ...
 
         @property
         def r(self) -> int: ...
@@ -29,7 +29,7 @@ def rgb(r: int, g: int, b: int) -> Color:
     return Color(r, g, b)
 
 
-def rgba(r: int, g: int, b: int, a: float) -> Color:
+def rgba(r: int, g: int, b: int, a: int | float) -> Color:
     return Color(r, g, b, a)
 
 

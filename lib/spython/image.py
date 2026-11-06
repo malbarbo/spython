@@ -53,8 +53,8 @@ BOTTOM: YPlace = YPlace.BOTTOM
 
 @_dataclass
 class Point:
-    x: float
-    y: float
+    x: int | float
+    y: int | float
 
     def __post_init__(self) -> None:
         self.x = float(self.x)
@@ -89,32 +89,39 @@ empty: Image = _native.empty()
 # **************************
 
 
-def move_to(x: float, y: float) -> _PathCmd:
+def move_to(x: int | float, y: int | float) -> _PathCmd:
     return _native.move_to(x, y)
 
 
-def line_to(x: float, y: float) -> _PathCmd:
+def line_to(x: int | float, y: int | float) -> _PathCmd:
     return _native.line_to(x, y)
 
 
-def quad_to(cx: float, cy: float, x: float, y: float) -> _PathCmd:
+def quad_to(
+    cx: int | float, cy: int | float, x: int | float, y: int | float
+) -> _PathCmd:
     return _native.quad_to(cx, cy, x, y)
 
 
 def cubic_to(
-    c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float
+    c1x: int | float,
+    c1y: int | float,
+    c2x: int | float,
+    c2y: int | float,
+    x: int | float,
+    y: int | float,
 ) -> _PathCmd:
     return _native.cubic_to(c1x, c1y, c2x, c2y, x, y)
 
 
 def arc_to(
-    rx: float,
-    ry: float,
-    rotation: float,
+    rx: int | float,
+    ry: int | float,
+    rotation: int | float,
     large_arc: bool,
     sweep: bool,
-    x: float,
-    y: float,
+    x: int | float,
+    y: int | float,
 ) -> _PathCmd:
     return _native.arc_to(rx, ry, rotation, large_arc, sweep, (x, y))
 
@@ -150,23 +157,23 @@ def center(img: Image) -> Point:
 # **************************
 
 
-def rectangle(w: float, h: float, *style_args: Style) -> Image:
+def rectangle(w: int | float, h: int | float, *style_args: Style) -> Image:
     return _native.rectangle(w, h, join(*style_args))
 
 
-def square(side: float, *style_args: Style) -> Image:
+def square(side: int | float, *style_args: Style) -> Image:
     return _native.square(side, join(*style_args))
 
 
-def ellipse(w: float, h: float, *style_args: Style) -> Image:
+def ellipse(w: int | float, h: int | float, *style_args: Style) -> Image:
     return _native.ellipse(w, h, join(*style_args))
 
 
-def circle(radius: float, *style_args: Style) -> Image:
+def circle(radius: int | float, *style_args: Style) -> Image:
     return _native.circle(radius, join(*style_args))
 
 
-def line(x: float, y: float, *style_args: Style) -> Image:
+def line(x: int | float, y: int | float, *style_args: Style) -> Image:
     return _native.line(x, y, join(*style_args))
 
 
@@ -175,86 +182,93 @@ def line(x: float, y: float, *style_args: Style) -> Image:
 # **************************
 
 
-def triangle(side: float, *style_args: Style) -> Image:
+def triangle(side: int | float, *style_args: Style) -> Image:
     return _native.triangle(side, join(*style_args))
 
 
-def right_triangle(side1: float, side2: float, *style_args: Style) -> Image:
+def right_triangle(side1: int | float, side2: int | float, *style_args: Style) -> Image:
     return _native.right_triangle(side1, side2, join(*style_args))
 
 
-def isosceles_triangle(side_length: float, angle: float, *style_args: Style) -> Image:
+def isosceles_triangle(
+    side_length: int | float, angle: int | float, *style_args: Style
+) -> Image:
     return _native.isosceles_triangle(side_length, angle, join(*style_args))
 
 
 def triangle_sss(
-    side_a: float, side_b: float, side_c: float, *style_args: Style
+    side_a: int | float, side_b: int | float, side_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_sss(side_a, side_b, side_c, join(*style_args))
 
 
 def triangle_sas(
-    side_a: float, angle_b: float, side_c: float, *style_args: Style
+    side_a: int | float, angle_b: int | float, side_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_sas(side_a, angle_b, side_c, join(*style_args))
 
 
 def triangle_ssa(
-    side_a: float, side_b: float, angle_c: float, *style_args: Style
+    side_a: int | float, side_b: int | float, angle_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_ssa(side_a, side_b, angle_c, join(*style_args))
 
 
 def triangle_aas(
-    angle_a: float, angle_b: float, side_c: float, *style_args: Style
+    angle_a: int | float, angle_b: int | float, side_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_aas(angle_a, angle_b, side_c, join(*style_args))
 
 
 def triangle_ass(
-    angle_a: float, side_b: float, side_c: float, *style_args: Style
+    angle_a: int | float, side_b: int | float, side_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_ass(angle_a, side_b, side_c, join(*style_args))
 
 
 def triangle_asa(
-    angle_a: float, side_b: float, angle_c: float, *style_args: Style
+    angle_a: int | float, side_b: int | float, angle_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_asa(angle_a, side_b, angle_c, join(*style_args))
 
 
 def triangle_saa(
-    side_a: float, angle_b: float, angle_c: float, *style_args: Style
+    side_a: int | float, angle_b: int | float, angle_c: int | float, *style_args: Style
 ) -> Image:
     return _native.triangle_saa(side_a, angle_b, angle_c, join(*style_args))
 
 
-def rhombus(side_length: float, angle: float, *style_args: Style) -> Image:
+def rhombus(side_length: int | float, angle: int | float, *style_args: Style) -> Image:
     return _native.rhombus(side_length, angle, join(*style_args))
 
 
-def regular_polygon(side_length: float, side_count: int, *style_args: Style) -> Image:
+def regular_polygon(
+    side_length: int | float, side_count: int, *style_args: Style
+) -> Image:
     return _native.regular_polygon(side_length, side_count, join(*style_args))
 
 
 def polygon(
-    points: _Sequence[Point | tuple[float, float]], *style_args: Style
+    points: _Sequence[Point | tuple[int | float, int | float]], *style_args: Style
 ) -> Image:
     return _native.polygon(points, join(*style_args))
 
 
 def star_polygon(
-    side_length: float, side_count: int, step_count: int, *style_args: Style
+    side_length: int | float, side_count: int, step_count: int, *style_args: Style
 ) -> Image:
     return _native.star_polygon(side_length, side_count, step_count, join(*style_args))
 
 
-def star(side_length: float, *style_args: Style) -> Image:
+def star(side_length: int | float, *style_args: Style) -> Image:
     return _native.star(side_length, join(*style_args))
 
 
 def radial_star(
-    point_count: int, inner_radius: float, outer_radius: float, *style_args: Style
+    point_count: int,
+    inner_radius: int | float,
+    outer_radius: int | float,
+    *style_args: Style,
 ) -> Image:
     return _native.radial_star(
         point_count, inner_radius, outer_radius, join(*style_args)
@@ -262,7 +276,11 @@ def radial_star(
 
 
 def pulled_regular_polygon(
-    side_length: float, side_count: int, pull: float, angle: float, *style_args: Style
+    side_length: int | float,
+    side_count: int,
+    pull: int | float,
+    angle: int | float,
+    *style_args: Style,
 ) -> Image:
     return _native.pulled_regular_polygon(
         side_length, side_count, pull, angle, join(*style_args)
@@ -274,7 +292,7 @@ def pulled_regular_polygon(
 # **************************
 
 
-def wedge(radius: float, angle: float, *style_args: Style) -> Image:
+def wedge(radius: int | float, angle: int | float, *style_args: Style) -> Image:
     return _native.wedge(radius, angle, join(*style_args))
 
 
@@ -284,7 +302,10 @@ def wedge(radius: float, angle: float, *style_args: Style) -> Image:
 
 
 def text(
-    txt: str, *style_args: Style, size: float | None = None, font: Font | None = None
+    txt: str,
+    *style_args: Style,
+    size: int | float | None = None,
+    font: Font | None = None,
 ) -> Image:
     return _native.text(txt, font, size, join(*style_args))
 
@@ -303,15 +324,15 @@ def bitmap_data_uri(data_uri: str) -> Image:
 # **************************
 
 
-def rotate(img: Image, angle: float) -> Image:
+def rotate(img: Image, angle: int | float) -> Image:
     return _native.rotate(img, angle)
 
 
-def scale(img: Image, factor: float) -> Image:
+def scale(img: Image, factor: int | float) -> Image:
     return _native.scale(img, factor)
 
 
-def scale_xy(img: Image, x_factor: float, y_factor: float) -> Image:
+def scale_xy(img: Image, x_factor: int | float, y_factor: int | float) -> Image:
     return _native.scale_xy(img, x_factor, y_factor)
 
 
@@ -331,12 +352,14 @@ def color_frame(img: Image, color: _Color) -> Image:
     return _native.frame(img, color)
 
 
-def crop(img: Image, x: float, y: float, w: float, h: float) -> Image:
+def crop(
+    img: Image, x: int | float, y: int | float, w: int | float, h: int | float
+) -> Image:
     return _native.crop(img, x, y, w, h)
 
 
 def crop_align(
-    img: Image, x_place: XPlace, y_place: YPlace, cw: float, ch: float
+    img: Image, x_place: XPlace, y_place: YPlace, cw: int | float, ch: int | float
 ) -> Image:
     return _native.crop_align(img, x_place, y_place, cw, ch)
 
@@ -365,15 +388,15 @@ def overlay(
     i1: Image,
     i2: Image,
     *images: Image,
-    x_offset: float = 0.0,
-    y_offset: float = 0.0,
+    x_offset: int | float = 0.0,
+    y_offset: int | float = 0.0,
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
     return _native.overlay([i1, i2, *images], x_offset, y_offset, x_place, y_place)
 
 
-def overlay_xy(top: Image, x: float, y: float, bottom: Image) -> Image:
+def overlay_xy(top: Image, x: int | float, y: int | float, bottom: Image) -> Image:
     return _native.overlay_xy(top, x, y, bottom)
 
 
@@ -381,15 +404,15 @@ def underlay(
     i1: Image,
     i2: Image,
     *images: Image,
-    x_offset: float = 0.0,
-    y_offset: float = 0.0,
+    x_offset: int | float = 0.0,
+    y_offset: int | float = 0.0,
     x_place: XPlace = CENTER,
     y_place: YPlace = MIDDLE,
 ) -> Image:
     return _native.underlay([i1, i2, *images], x_offset, y_offset, x_place, y_place)
 
 
-def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
+def underlay_xy(bottom: Image, x: int | float, y: int | float, top: Image) -> Image:
     return _native.underlay_xy(bottom, x, y, top)
 
 
@@ -398,18 +421,18 @@ def underlay_xy(bottom: Image, x: float, y: float, top: Image) -> Image:
 # **************************
 
 
-def empty_scene(w: float, h: float) -> Image:
+def empty_scene(w: int | float, h: int | float) -> Image:
     return _native.empty_scene(w, h, _black)
 
 
-def empty_scene_color(w: float, h: float, color: _Color) -> Image:
+def empty_scene_color(w: int | float, h: int | float, color: _Color) -> Image:
     return _native.empty_scene(w, h, color)
 
 
 def place_image(
     scene: Image,
-    x: float,
-    y: float,
+    x: int | float,
+    y: int | float,
     img: Image,
     *,
     x_place: XPlace = CENTER,
@@ -420,7 +443,7 @@ def place_image(
 
 def place_images(
     scene: Image,
-    positions: _Sequence[Point | tuple[float, float]],
+    positions: _Sequence[Point | tuple[int | float, int | float]],
     images: _Sequence[Image],
     *,
     x_place: XPlace = CENTER,
@@ -430,14 +453,19 @@ def place_images(
 
 
 def place_line(
-    scene: Image, x1: float, y1: float, x2: float, y2: float, *style_args: Style
+    scene: Image,
+    x1: int | float,
+    y1: int | float,
+    x2: int | float,
+    y2: int | float,
+    *style_args: Style,
 ) -> Image:
     return _native.place_line(scene, x1, y1, x2, y2, join(*style_args))
 
 
 def place_polygon(
     scene: Image,
-    points: _Sequence[Point | tuple[float, float]],
+    points: _Sequence[Point | tuple[int | float, int | float]],
     *style_args: Style,
 ) -> Image:
     return _native.place_polygon(scene, points, join(*style_args))
@@ -445,14 +473,14 @@ def place_polygon(
 
 def place_curve(
     scene: Image,
-    x1: float,
-    y1: float,
-    angle1: float,
-    pull1: float,
-    x2: float,
-    y2: float,
-    angle2: float,
-    pull2: float,
+    x1: int | float,
+    y1: int | float,
+    angle1: int | float,
+    pull1: int | float,
+    x2: int | float,
+    y2: int | float,
+    angle2: int | float,
+    pull2: int | float,
     *style_args: Style,
 ) -> Image:
     return _native.place_curve(
@@ -464,12 +492,17 @@ def place_curve(
 
 
 def place_wedge(
-    scene: Image, x: float, y: float, radius: float, angle: float, *style_args: Style
+    scene: Image,
+    x: int | float,
+    y: int | float,
+    radius: int | float,
+    angle: int | float,
+    *style_args: Style,
 ) -> Image:
     return _native.place_wedge(scene, x, y, radius, angle, join(*style_args))
 
 
-def put_image(scene: Image, x: float, y: float, img: Image) -> Image:
+def put_image(scene: Image, x: int | float, y: int | float, img: Image) -> Image:
     return _native.put_image(scene, x, y, img)
 
 
@@ -479,14 +512,19 @@ def put_image(scene: Image, x: float, y: float, img: Image) -> Image:
 
 
 def add_line(
-    img: Image, x1: float, y1: float, x2: float, y2: float, *style_args: Style
+    img: Image,
+    x1: int | float,
+    y1: int | float,
+    x2: int | float,
+    y2: int | float,
+    *style_args: Style,
 ) -> Image:
     return _native.add_line(img, x1, y1, x2, y2, join(*style_args))
 
 
 def add_polygon(
     img: Image,
-    points: _Sequence[Point | tuple[float, float]],
+    points: _Sequence[Point | tuple[int | float, int | float]],
     *style_args: Style,
 ) -> Image:
     return _native.add_polygon(img, points, join(*style_args))
@@ -494,14 +532,14 @@ def add_polygon(
 
 def add_curve(
     img: Image,
-    x1: float,
-    y1: float,
-    angle1: float,
-    pull1: float,
-    x2: float,
-    y2: float,
-    angle2: float,
-    pull2: float,
+    x1: int | float,
+    y1: int | float,
+    angle1: int | float,
+    pull1: int | float,
+    x2: int | float,
+    y2: int | float,
+    angle2: int | float,
+    pull2: int | float,
     *style_args: Style,
 ) -> Image:
     return _native.add_curve(
@@ -514,14 +552,14 @@ def add_curve(
 
 def add_solid_curve(
     img: Image,
-    x1: float,
-    y1: float,
-    angle1: float,
-    pull1: float,
-    x2: float,
-    y2: float,
-    angle2: float,
-    pull2: float,
+    x1: int | float,
+    y1: int | float,
+    angle1: int | float,
+    pull1: int | float,
+    x2: int | float,
+    y2: int | float,
+    angle2: int | float,
+    pull2: int | float,
     *style_args: Style,
 ) -> Image:
     return _native.add_solid_curve(
@@ -533,7 +571,12 @@ def add_solid_curve(
 
 
 def add_wedge(
-    img: Image, x: float, y: float, radius: float, angle: float, *style_args: Style
+    img: Image,
+    x: int | float,
+    y: int | float,
+    radius: int | float,
+    angle: int | float,
+    *style_args: Style,
 ) -> Image:
     return _native.add_wedge(img, x, y, radius, angle, join(*style_args))
 

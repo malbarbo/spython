@@ -47,7 +47,7 @@ def join(*styles: Style) -> Style:
 
 
 def fill(
-    c: _Color, *, opacity: float | None = None, rule: FillRule | None = None
+    c: _Color, *, opacity: int | float | None = None, rule: FillRule | None = None
 ) -> Style:
     return _native.fill(c, opacity, rule)
 
@@ -55,9 +55,9 @@ def fill(
 def stroke(
     c: _Color,
     *,
-    width: float | None = None,
-    opacity: float | None = None,
-    dash_array: _Sequence[float] | None = None,
+    width: int | float | None = None,
+    opacity: int | float | None = None,
+    dash_array: _Sequence[int | float] | None = None,
     linecap: LineCap | None = None,
     linejoin: LineJoin | None = None,
 ) -> Style:

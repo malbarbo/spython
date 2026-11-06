@@ -35,7 +35,7 @@ if _TYPE_CHECKING:
             self,
             *,
             family: str = "sans-serif",
-            size: float = 14.0,
+            size: int | float = 14.0,
             style: FontStyle = FontStyle.NORMAL,
             weight: FontWeight = FontWeight.REGULAR,
             underline: bool = False,
