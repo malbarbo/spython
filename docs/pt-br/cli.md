@@ -85,6 +85,13 @@ rejeita `True`, então `x: int = True` e uma função anotada com `-> int` que
 devolve `3 > 2` são erros. A partir do nível 4, um `bool` numa conta vale
 `0` ou `1`, como em `total += x > 0`.
 
+Em todos os níveis, um expoente `float` precisa de uma base que nunca é
+negativa, porque o Python dá um número complexo para `(-8) ** 0.5`. Então
+`a ** 0.5` com `a: float` é erro, e o jeito de escrever é `math.sqrt(a)`.
+`16 ** 0.5` e `x ** 2.0` são aceitos. Uma potência de dois `int` tem o tipo
+`int | float`, porque `2 ** -1` é `0.5`. Então `x: int = 2 ** n` é erro, e
+`int(2 ** n)` é o jeito de escrever quando `n` nunca é negativo.
+
 
 ## Anotações obrigatórias
 

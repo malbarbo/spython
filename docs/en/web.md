@@ -79,6 +79,13 @@ rejects `True`, so `x: int = True` and a function annotated `-> int` that
 returns `3 > 2` are errors. From level 4 on, a `bool` in arithmetic counts
 as `0` or `1`, as in `total += x > 0`.
 
+At every level, a `float` exponent needs a base that is never negative,
+because Python gives a complex number for `(-8) ** 0.5`. So `a ** 0.5` with
+`a: float` is an error, and `math.sqrt(a)` is the way to write it.
+`16 ** 0.5` and `x ** 2.0` are fine. A power of two `int` values has the
+type `int | float`, because `2 ** -1` is `0.5`. So `x: int = 2 ** n` is an
+error, and `int(2 ** n)` is the way to write it when `n` is never negative.
+
 
 # REPL commands
 
