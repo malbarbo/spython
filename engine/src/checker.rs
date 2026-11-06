@@ -349,6 +349,11 @@ impl Checker<'_> {
             return;
         }
         let arguments = &call.arguments;
+        for (name, position) in [("base", 0), ("exp", 1), ("mod", 2)] {
+            if let Some(argument) = arguments.find_argument_value(name, position) {
+                self.reject_bool_arith_operand(argument);
+            }
+        }
         match (
             arguments.find_argument_value("base", 0),
             arguments.find_argument_value("exp", 1),

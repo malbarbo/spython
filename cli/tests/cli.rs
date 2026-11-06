@@ -1683,6 +1683,37 @@ fn level0_forbids_bool_pow() {
 }
 
 #[test]
+fn level0_forbids_bool_arguments_of_pow() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(x: int, b: bool) -> int:
+            return pow(b, x) + pow(x, exp=b) + pow(x, x, b)
+    "},
+    );
+    assert!(!success);
+    assert_eq!(
+        err.matches("error[bool-in-arithmetic]").count(),
+        3,
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level4_allows_bool_arguments_of_pow() {
+    let (out, err, success) = run_level(
+        4,
+        indoc! {"
+        def f(x: int, b: bool) -> int:
+            return pow(x, b)
+        print(f(3, True))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "3\n");
+}
+
+#[test]
 fn level0_forbids_bool_shift() {
     let (_, err, success) = run_level(
         0,
