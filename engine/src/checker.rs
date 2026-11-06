@@ -252,8 +252,8 @@ impl Checker<'_> {
         let bool_ty = KnownClass::Bool.to_instance(db, &env);
         // `Any`/`Unknown` are gradual types and are assignable to *every*
         // type, `bool` included, so `is_assignable_to(bool)` alone would
-        // misfire on operands ty cannot infer (e.g. `(-1) ** i`, which ty
-        // types as `Any`). A genuine `bool`/`Literal[bool]` is assignable to
+        // misfire on operands ty cannot infer (e.g. a parameter annotated
+        // `Any`). A genuine `bool`/`Literal[bool]` is assignable to
         // `bool` but never to a disjoint type like `str`, whereas a gradual
         // type is assignable to both. Requiring "assignable to `bool`, not to
         // `str`" thus excludes gradual types while still catching real bools.

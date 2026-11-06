@@ -1779,21 +1779,19 @@ fn level0_allows_unary_minus_int() {
 
 #[test]
 fn level0_allows_any_typed_operand_in_arithmetic() {
-    // `(-1) ** i` is inferred as `Any` by ty. `Any` is assignable to every
-    // type (including `bool`), so the bool-in-arithmetic lint must not treat
-    // it as a `bool` operand.
+    // `Any` is assignable to every type (including `bool`), so the
+    // bool-in-arithmetic lint must not treat it as a `bool` operand.
     let (out, err, success) = run_level(
         0,
         indoc! {"
-        def f(n: int) -> float:
-            r: float = 0.0
-            r = (-1) ** n / (2 * n + 1)
-            return r
-        print(f(0))
+        from typing import Any
+        def f(x: Any) -> float:
+            return x / 2
+        print(f(1))
     "},
     );
     assert!(success, "stderr: {err}");
-    assert_eq!(out, "1.0\n");
+    assert_eq!(out, "0.5\n");
 }
 
 #[test]
@@ -1857,6 +1855,36 @@ fn level5_rejects_a_bool_where_the_annotation_says_int() {
 }
 
 #[test]
+fn level0_rejects_a_power_of_ints_where_the_annotation_says_int() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(n: int) -> int:
+            return 2 ** n
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains("expected `int`, found `int | float`"),
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level0_allows_int_of_a_power_of_ints() {
+    let (out, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(n: int) -> int:
+            return int(2 ** n)
+        print(f(10))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "1024\n");
+}
+
+#[test]
 fn level0_rejects_a_float_exponent_and_suggests_math_sqrt() {
     let (_, err, success) = run_level(
         0,
@@ -1891,11 +1919,12 @@ fn level5_rejects_a_float_exponent_with_a_base_that_can_be_negative() {
             print(n ** x)
             print(math.e ** x)
             print((-8) ** (1 / 3))
+            print(x ** (2 ** n))
             x **= y
     "},
     );
     assert!(!success);
-    for line in 5..=17 {
+    for line in 5..=18 {
         assert!(
             err.contains(&format!("main.py:{line}:")),
             "line {line}, stderr: {err}"
@@ -1903,7 +1932,7 @@ fn level5_rejects_a_float_exponent_with_a_base_that_can_be_negative() {
     }
     assert_eq!(
         err.matches("error[float-exponent]").count(),
-        13,
+        14,
         "stderr: {err}"
     );
     assert!(err.contains("`math.exp(x)`"), "stderr: {err}");
