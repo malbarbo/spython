@@ -133,6 +133,9 @@ where
     .map_err(|err| err.to_string())?;
     let mut settings = db.project().program_settings(&db).clone();
     settings.search_paths = search_paths;
+    // A `float` is a float, so `x: float = 1` is an error. The compiler keeps
+    // a `float` in an f64, and an `int` there would change what it prints.
+    settings.strict_numbers = true;
     db.project().update_program(&mut db, settings);
     Ok(db)
 }
