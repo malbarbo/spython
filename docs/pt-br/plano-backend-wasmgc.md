@@ -78,7 +78,12 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
    arquivo a conhece.
 10. `bool` não é atribuível a `int` nem a `float`, em todos os níveis.
     Sem isso, `def g() -> int: return 3 > 2` imprimiria `1` no lugar de
-    `True`. No corpus, a regra não rejeita nenhum programa.
+    `True`. No corpus, a regra não rejeita nenhum programa. Um operador de
+    inteiro (`+ - * / // % ** << >>` e o `+`/`-` unário) lê um operando
+    `bool` como `int`, e quem decide se a conta vale é o lint
+    `bool-in-arithmetic`, que a rejeita nos níveis 0 a 3. Nenhum desses
+    operadores devolve `bool`, então nenhum valor de tipo `int` é um
+    `bool`.
 11. `int ** int` é `int`, e `float ** int` e `float ** float` são `float`.
     O `ty` dá `Any` nesses casos, e o gancho fixa o tipo. Um expoente
     negativo em `int` e uma base negativa com expoente fracionário param o
@@ -146,10 +151,11 @@ O `ty` lê a anotação `float` como `int | float`. O gancho no fork desliga
 isso no código do aluno, e mantém nos stubs só nas anotações de parâmetro.
 Assim o próprio `ty` rejeita `7874`, `sum(xs)` e `math.floor(x)` onde se
 espera `float`, e aceita `math.sqrt(2)` e `2.0 + 1`. No `na-programacao`,
-o único diagnóstico novo é o de `massa_tubo_ferro.py`. O gancho vira uma
-opção do `ty` e pede um ajuste nas mensagens, que hoje mostram `float*`.
-A mesma opção liga as regras de `bool` e de `**` das decisões 10 e 11. O
-lint de `is` fica no engine, porque só precisa do tipo dos operandos.
+o único diagnóstico novo é o de `massa_tubo_ferro.py`. O gancho é a opção
+`ProgramSettings.strict_numbers` do fork, que também tira o `float*` das
+mensagens. A mesma opção liga as regras de `bool` e de `**` das decisões
+10 e 11. O lint de `is` fica no engine, porque só precisa do tipo dos
+operandos.
 
 ### Valores
 
