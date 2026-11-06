@@ -238,8 +238,8 @@ impl Checker<'_> {
             && !(ty.is_assignable_to(db, &env, int_ty) && ty.is_assignable_to(db, &env, str_ty))
     }
 
-    /// Reject an arithmetic operand whose inferred type is `bool`. Only
-    /// applies at teaching levels 0–3.
+    /// Reject an arithmetic operand whose inferred type is `bool` or a union
+    /// with a `bool` member. Only applies at teaching levels 0–3.
     fn reject_bool_arith_operand(&mut self, expr: &Expr) {
         if self.level >= Level::Classes {
             return;
@@ -258,7 +258,14 @@ impl Checker<'_> {
         // type is assignable to both. Requiring "assignable to `bool`, not to
         // `str`" thus excludes gradual types while still catching real bools.
         let str_ty = KnownClass::Str.to_instance(db, &env);
-        if ty.is_assignable_to(db, &env, bool_ty) && !ty.is_assignable_to(db, &env, str_ty) {
+        let is_bool = |ty: &Type| {
+            ty.is_assignable_to(db, &env, bool_ty) && !ty.is_assignable_to(db, &env, str_ty)
+        };
+        let has_bool = match ty {
+            Type::Union(union) => union.elements(db).iter().any(is_bool),
+            ty => is_bool(&ty),
+        };
+        if has_bool {
             self.push(
                 &BOOL_IN_ARITHMETIC,
                 expr.range(),
