@@ -74,6 +74,11 @@ mistakes, all lifted at level 4:
   discarded (other than a function call, a docstring, or `...`) is rejected.
 - **No default argument values** — function parameters cannot have defaults.
 
+At every level, `bool` is not an `int`. An annotation of `int` or `float`
+rejects `True`, so `x: int = True` and a function annotated `-> int` that
+returns `3 > 2` are errors. From level 4 on, a `bool` in arithmetic counts
+as `0` or `1`, as in `total += x > 0`.
+
 
 # REPL commands
 

@@ -68,8 +68,8 @@ Todas elas são liberadas no nível 4.
   `bool`. "Truthiness" implícita (`if x:` com `x: int`) é rejeitada.
 - **Sem `bool` em aritmética** — valores `bool` não são aceitos como
   operandos de `+`, `-`, `*`, `/`, `//`, `%`, `**`, `<<`, `>>`, atribuição
-  aumentada ou unário `+`/`-`. Isso evita bugs de aluno como `x + True`, que funciona
-  silenciosamente porque `bool` é subclasse de `int`.
+  aumentada ou unário `+`/`-`. Isso evita bugs de aluno como `x + True`,
+  que o Python roda lendo `True` como `1`.
 - **Sem comparações encadeadas** — `a < b < c` e `a == b != c` precisam ser
   desmembradas com `and`, já que a semântica de comparação encadeada do
   Python é confusa para iniciantes.
@@ -79,6 +79,11 @@ Todas elas são liberadas no nível 4.
   aluno esqueceu de atribuir ou imprimir.
 - **Sem valores padrão em parâmetros** — parâmetros de função não podem ter
   valores padrão; todo argumento deve ser passado explicitamente.
+
+Em todos os níveis, `bool` não é `int`. Uma anotação `int` ou `float`
+rejeita `True`, então `x: int = True` e uma função anotada com `-> int` que
+devolve `3 > 2` são erros. A partir do nível 4, um `bool` numa conta vale
+`0` ou `1`, como em `total += x > 0`.
 
 
 ## Anotações obrigatórias

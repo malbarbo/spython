@@ -77,6 +77,11 @@ iniciantes, todas liberadas no nível 4:
 - **Sem valores padrão em parâmetros** — parâmetros de função não podem ter
   valores padrão.
 
+Em todos os níveis, `bool` não é `int`. Uma anotação `int` ou `float`
+rejeita `True`, então `x: int = True` e uma função anotada com `-> int` que
+devolve `3 > 2` são erros. A partir do nível 4, um `bool` numa conta vale
+`0` ou `1`, como em `total += x > 0`.
+
 
 # Comandos do REPL
 

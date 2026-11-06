@@ -69,8 +69,8 @@ are lifted at level 4.
 - **No `bool` in arithmetic** — `bool` values are not allowed as operands of
   `+`, `-`, `*`, `/`, `//`, `%`, `**`, `<<`, `>>`, augmented assignment, or
   unary `+`/`-`.
-  This catches student bugs like `x + True` that silently work because
-  `bool` is a subclass of `int`.
+  This catches student bugs like `x + True`, which Python runs by reading
+  `True` as `1`.
 - **No chained comparisons** — `a < b < c` and `a == b != c` must be split
   with `and`, since Python's chained-comparison semantics are surprising for
   beginners.
@@ -79,6 +79,11 @@ are lifted at level 4.
   catching cases like `x + 1` where the student forgot to assign or print.
 - **No default argument values** — function parameters cannot have default
   values; every argument must be passed explicitly.
+
+At every level, `bool` is not an `int`. An annotation of `int` or `float`
+rejects `True`, so `x: int = True` and a function annotated `-> int` that
+returns `3 > 2` are errors. From level 4 on, a `bool` in arithmetic counts
+as `0` or `1`, as in `total += x > 0`.
 
 
 ## Required annotations
