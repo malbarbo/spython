@@ -49,9 +49,11 @@ e o loader nativo segue o `Runtime` do sc.
 Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
 
 1. O objetivo é velocidade e tamanho. O RustPython sai no fim.
-2. O fork do ruff ganha um arquivo, `ty_python_semantic/src/types/lowering.rs`,
-   com as consultas de que o compilador precisa, e os ganchos das decisões
-   4, 10 e 11. Nada além disso muda no fork.
+2. O fork do ruff ganha um arquivo,
+   `ty_python_semantic/src/types/lowering.rs`, com as consultas de que o
+   compilador precisa, e os ganchos das decisões 4, 10 e 11. O engine lê do
+   fork o `KnownFunction`, com o `pow`, e o `Type::as_int_literal` para os
+   seus lints. Nada além disso muda no fork.
 3. O nível 5 não precisa ser coberto inteiro. O RustPython sai quando o
    corpus passar: o `na-programacao`, os exemplos da documentação e a lib
    `spython`. O que o compilador não cobrir vira diagnóstico do checker.
@@ -84,10 +86,21 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
     `bool-in-arithmetic`, que a rejeita nos níveis 0 a 3. Nenhum desses
     operadores devolve `bool`, então nenhum valor de tipo `int` é um
     `bool`.
-11. `int ** int` é `int`, e `float ** int` e `float ** float` são `float`.
-    O `ty` dá `Any` nesses casos, e o gancho fixa o tipo. Um expoente
-    negativo em `int` e uma base negativa com expoente fracionário param o
-    programa com o erro da decisão 7.
+11. `int ** int` é `int` quando o expoente é um literal ≥ 0 ou um `bool`,
+    `float` quando é um literal negativo, e `int | float` quando é outro
+    `int`, porque `2 ** -1` é `0.5`. `float ** int` e `** float` são
+    `float`. O `ty` dava `Any` nesses casos, e o gancho fixa o tipo, também
+    no `pow` com dois argumentos. Um erro de tipo sobre um desses
+    `int | float` traz uma nota que sugere `int(...)` ou `float(...)`. O
+    lint `float-exponent` rejeita, em todos os níveis, um expoente `float`
+    com base que pode ser negativa, porque o Python daria `complex`. Ele
+    aceita uma base literal positiva e um expoente literal `float` de valor
+    inteiro, exceto a base 0 e o expoente `-0.0`, em que o RustPython
+    diverge do CPython. No compilador, `int | float` é uma união na forma
+    `(ref null eq)`, e o expoente negativo deixa de parar o programa. O
+    `complex` ainda existe no spython, pelo tipo `complex`, pelos literais
+    como `2j` e pelo `**` sobre `Any`, e pela decisão 3 o compilador pede um
+    diagnóstico do checker para ele.
 12. Um lint, em todos os níveis, só aceita `is` com `None`, com membros de
     Enum e com instâncias de classe. Com números e strings, o resultado de
     `is` depende da representação.
