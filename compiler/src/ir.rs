@@ -119,8 +119,13 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
-    /// Two `str`s, one after the other.
-    Concat(Box<Expr>, Box<Expr>),
+    /// Two `str`s, one after the other. The site is where the program runs
+    /// out of memory for the result.
+    Concat {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        site: Site,
+    },
     /// A `str` repeated an `int` number of times, where either operand may
     /// come first. The result raises `MemoryError` at the site when it is
     /// too long.
@@ -259,7 +264,9 @@ pub(crate) enum Rep {
 impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
-            Expr::Str(_) | Expr::Concat(..) | Expr::Repeat { .. } | Expr::Index { .. } => Rep::Str,
+            Expr::Str(_) | Expr::Concat { .. } | Expr::Repeat { .. } | Expr::Index { .. } => {
+                Rep::Str
+            }
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,

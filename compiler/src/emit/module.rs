@@ -2,6 +2,7 @@
 //! emitted.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use wasm_encoder::{
     CodeSection, ConstExpr, DataCountSection, DataSection, EntityType, ExportKind, ExportSection,
@@ -9,6 +10,9 @@ use wasm_encoder::{
     InstructionSink, MemorySection, MemoryType, Module, StorageType, TagKind, TagSection, TagType,
     TypeSection, ValType,
 };
+use wasmparser::{Parser, Payload};
+
+use crate::ir::Site;
 
 pub(crate) struct ModuleState {
     types: TypeSection,
@@ -29,6 +33,28 @@ pub(crate) struct ModuleState {
     data_count: u32,
     /// The code `_start` runs before the program, which fills the globals.
     pub init: Vec<u8>,
+    /// The code of each function that runs the code of a Python frame, by
+    /// the index of the function among the functions the module defines.
+    frames: Vec<(usize, Vec<SiteRange>)>,
+}
+
+/// The code from `start` to `end` that runs at `site`. Inside a function,
+/// both count from the start of its instructions, and in [`CodeMap`] they
+/// count from the start of the module.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SiteRange {
+    pub start: u32,
+    pub end: u32,
+    pub site: Site,
+}
+
+/// Where the code of the Python frames is in the module.
+pub(crate) struct CodeMap {
+    /// The code of each function that runs the code of a Python frame.
+    pub frames: Vec<Range<u32>>,
+    /// The code of the frame of the module, the outermost frame.
+    pub module: Range<u32>,
+    pub sites: Vec<SiteRange>,
 }
 
 impl ModuleState {
@@ -49,6 +75,7 @@ impl ModuleState {
             data: DataSection::new(),
             data_count: 0,
             init: Vec::new(),
+            frames: Vec::new(),
         }
     }
 
@@ -130,6 +157,24 @@ impl ModuleState {
         slot.1 = Some(body);
     }
 
+    /// Defines the function of a Python frame, which runs `prefix` before
+    /// the code of `f`.
+    pub fn define_frame(&mut self, index: u32, f: FuncState, prefix: &[u8]) {
+        let shift = u32::try_from(prefix.len()).expect("a prefix shorter than 2^32 bytes");
+        let sites = f
+            .sites
+            .iter()
+            .map(|range| SiteRange {
+                start: range.start + shift,
+                end: range.end + shift,
+                site: range.site,
+            })
+            .collect();
+        self.frames
+            .push(((index - self.imported_funcs) as usize, sites));
+        self.define(index, f.finish_with_prefix(prefix));
+    }
+
     pub fn add_func(&mut self, ty: u32, body: Function) -> u32 {
         let index = self.reserve(ty);
         self.define(index, body);
@@ -170,7 +215,9 @@ impl ModuleState {
         self.exports.export(name, ExportKind::Func, index);
     }
 
-    pub fn finish(self) -> Vec<u8> {
+    /// The bytes of the module, with the place of the code of the Python
+    /// frames. The function `module_frame` runs the frame of the module.
+    pub fn finish(self, module_frame: u32) -> (Vec<u8>, CodeMap) {
         let mut functions = FunctionSection::new();
         let mut code = CodeSection::new();
         for (index, (ty, body)) in self.funcs.iter().enumerate() {
@@ -194,8 +241,52 @@ impl ModuleState {
             })
             .section(&code)
             .section(&self.data);
-        module.finish()
+        let bytes = module.finish();
+        let map = code_map(
+            &bytes,
+            &self.frames,
+            (module_frame - self.imported_funcs) as usize,
+        );
+        (bytes, map)
     }
+}
+
+/// The offsets in `bytes` of the code of `frames`, whose ranges count from
+/// the start of the instructions of their function. The function `module`
+/// runs the frame of the module.
+fn code_map(bytes: &[u8], frames: &[(usize, Vec<SiteRange>)], module: usize) -> CodeMap {
+    let mut bodies = Vec::new();
+    for payload in Parser::new(0).parse_all(bytes) {
+        if let Payload::CodeSectionEntry(body) = payload.expect("a module the emitter made") {
+            let start = body
+                .get_operators_reader()
+                .expect("a body the emitter made")
+                .original_position();
+            bodies.push((body.range(), start));
+        }
+    }
+    let (range, _) = bodies.get(module).expect("a function the module defines");
+    let mut map = CodeMap {
+        frames: Vec::new(),
+        module: offset(range.start)..offset(range.end),
+        sites: Vec::new(),
+    };
+    for (func, sites) in frames {
+        let (range, start) = bodies.get(*func).expect("a function the module defines");
+        map.frames.push(offset(range.start)..offset(range.end));
+        let start = offset(*start);
+        map.sites.extend(sites.iter().map(|range| SiteRange {
+            start: start + range.start,
+            end: start + range.end,
+            site: range.site,
+        }));
+    }
+    map
+}
+
+fn offset(n: impl TryInto<u32>) -> u32 {
+    n.try_into()
+        .unwrap_or_else(|_| panic!("a module shorter than 2^32 bytes"))
 }
 
 /// The locals and the code of a function while it is emitted. A local is
@@ -204,6 +295,7 @@ pub(crate) struct FuncState {
     params: u32,
     locals: Vec<ValType>,
     code: Vec<u8>,
+    sites: Vec<SiteRange>,
 }
 
 impl FuncState {
@@ -212,7 +304,20 @@ impl FuncState {
             params,
             locals: Vec::new(),
             code: Vec::new(),
+            sites: Vec::new(),
         }
+    }
+
+    /// The offset of the next instruction from the start of the code.
+    pub fn position(&self) -> u32 {
+        u32::try_from(self.code.len()).expect("a function shorter than 2^32 bytes")
+    }
+
+    /// Marks the code from `start` to the next instruction as code that
+    /// runs at `site`.
+    pub fn mark(&mut self, start: u32, site: Site) {
+        let end = self.position();
+        self.sites.push(SiteRange { start, end, site });
     }
 
     pub fn local(&mut self, ty: ValType) -> u32 {
@@ -226,7 +331,7 @@ impl FuncState {
 
     /// The function, with `prefix` run before its own code. `prefix` uses
     /// no local.
-    pub fn finish_with_prefix(self, prefix: &[u8]) -> Function {
+    fn finish_with_prefix(self, prefix: &[u8]) -> Function {
         let mut function = Function::new_with_locals_types(self.locals);
         function.raw(prefix.iter().copied());
         function.raw(self.code);

@@ -7,6 +7,7 @@ mod names;
 mod repr;
 mod suggest;
 mod traceback;
+mod trap;
 
 use ruff_db::files::File;
 use ruff_text_size::TextRange;
@@ -22,15 +23,25 @@ pub enum Error {
     Invalid(BinaryReaderError),
 }
 
+/// A compiled program.
+pub struct Module {
+    /// The module, a WASI command whose `_start` runs the program.
+    pub bytes: Vec<u8>,
+    map: emit::module::CodeMap,
+    sites: Vec<ir::SiteFrame>,
+}
+
 /// The module of the program in `file`, which the checker has accepted.
 /// A traceback names the file by `path`.
-///
-/// The module is a WASI command, and its `_start` runs the program.
-pub fn compile(db: &dyn Db, file: File, path: &str) -> Result<Vec<u8>, Error> {
+pub fn compile(db: &dyn Db, file: File, path: &str) -> Result<Module, Error> {
     let program = lower::lower(db, file, path)?;
-    let bytes = emit::emit(&program);
+    let (bytes, map) = emit::emit(&program);
     validate(&bytes).map_err(Error::Invalid)?;
-    Ok(bytes)
+    Ok(Module {
+        bytes,
+        map,
+        sites: program.sites,
+    })
 }
 
 /// Returns `Ok` if `bytes` is a valid module for the features the compiler

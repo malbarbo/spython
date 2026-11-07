@@ -12,9 +12,10 @@ use crate::ir::{
 use crate::repr::Reprs;
 use crate::suggest::MAX_CANDIDATE_ITEMS;
 use host::Host;
-use module::{FuncState, ModuleState};
+use module::{CodeMap, FuncState, ModuleState};
 
-pub(crate) fn emit(program: &Program) -> Vec<u8> {
+/// The bytes of the module, with the place of the code of each site.
+pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m);
     let reprs = Reprs::new(&mut m, &host);
@@ -77,9 +78,9 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
     }
     e.reprs.finish(&mut e.m, &program.sites);
     let init = std::mem::take(&mut e.m.init);
-    e.m.define(start, f.finish_with_prefix(&init));
+    e.m.define_frame(start, f, &init);
     e.m.export_func("_start", start);
-    e.m.finish()
+    e.m.finish(start)
 }
 
 struct Emitter<'a> {
@@ -179,7 +180,7 @@ impl Emitter<'_> {
         }
         self.reprs.end_function(&mut f, site);
         let index = self.func_slots(id).index;
-        self.m.define(index, f.finish());
+        self.m.define_frame(index, f, &[]);
     }
 
     fn stmt(&mut self, f: &mut FuncState, stmt: &Stmt) {
@@ -344,19 +345,27 @@ impl Emitter<'_> {
     /// Pops the flag of a name, and raises the error of `check` when it is
     /// 0.
     fn raise_if_undefined(&mut self, f: &mut FuncState, check: &Check) {
-        f.ins()
-            .i32_eqz()
-            .if_(BlockType::Empty)
-            .i32_const(site_index(check.site))
-            .local_set(self.code.site);
-        match &check.error {
-            Undefined::Local(message) => self.reprs.raise(&mut self.m, f, message),
+        f.ins().i32_eqz().if_(BlockType::Empty);
+        self.at(f, check.site, |e, f| match &check.error {
+            Undefined::Local(message) => e.reprs.raise(&mut e.m, f, message),
             Undefined::Global(error) => {
-                self.name_error_message(f, error);
-                self.reprs.raise_message(f);
+                e.name_error_message(f, error);
+                e.reprs.raise_message(f);
             }
-        }
+        });
         f.ins().end();
+    }
+
+    /// Emits the code of `emit` as code that runs at `site`. An exception
+    /// gets the frame of the site, and so does a trap, which wasmtime gives
+    /// when the program runs out of memory.
+    fn at(&mut self, f: &mut FuncState, site: Site, emit: impl FnOnce(&mut Self, &mut FuncState)) {
+        f.ins()
+            .i32_const(site_index(site))
+            .local_set(self.code.site);
+        let start = f.position();
+        emit(self, f);
+        f.mark(start, site);
     }
 
     /// Pushes the message of `error`, with the suggestion of CPython for
@@ -491,14 +500,9 @@ impl Emitter<'_> {
         };
     }
 
-    /// Pops an `i32`, and raises an exception with `message` at `site` when
-    /// it is 0.
-    fn raise_if_zero(&mut self, f: &mut FuncState, site: Site, message: &str) {
-        f.ins()
-            .i32_eqz()
-            .if_(BlockType::Empty)
-            .i32_const(site_index(site))
-            .local_set(self.code.site);
+    /// Pops an `i32`, and raises an exception with `message` when it is 0.
+    fn raise_if_zero(&mut self, f: &mut FuncState, message: &str) {
+        f.ins().i32_eqz().if_(BlockType::Empty);
         self.reprs.raise(&mut self.m, f, message);
         f.ins().end();
     }
@@ -519,12 +523,11 @@ impl Emitter<'_> {
         for arg in args {
             self.expr(f, arg);
         }
-        self.reprs.call_fits(f);
-        self.raise_if_zero(f, site, "RecursionError: maximum recursion depth exceeded");
-        f.ins()
-            .i32_const(site_index(site))
-            .local_set(self.code.site)
-            .call(index);
+        self.at(f, site, |e, f| {
+            e.reprs.call_fits(f);
+            e.raise_if_zero(f, "RecursionError: maximum recursion depth exceeded");
+            f.ins().call(index);
+        });
     }
 
     fn slots(&self, place: Place) -> &Slots {
@@ -585,15 +588,12 @@ impl Emitter<'_> {
             } => {
                 self.expr(f, left);
                 self.expr(f, right);
-                f.ins()
-                    .i32_const(site_index(*site))
-                    .local_set(self.code.site);
-                self.reprs.int_arith(f, *op);
+                self.at(f, *site, |e, f| e.reprs.int_arith(f, *op));
             }
-            Expr::Concat(left, right) => {
+            Expr::Concat { left, right, site } => {
                 self.expr(f, left);
                 self.expr(f, right);
-                self.reprs.str_concat(f);
+                self.at(f, *site, |e, f| e.reprs.str_concat(f));
             }
             Expr::Repeat { left, right, site } => {
                 self.expr(f, left);
@@ -605,25 +605,16 @@ impl Emitter<'_> {
                     self.reprs.load(f, Rep::Str, s);
                     self.reprs.load(f, Rep::Int, n);
                 }
-                f.ins()
-                    .i32_const(site_index(*site))
-                    .local_set(self.code.site);
-                self.reprs.str_repeat(&mut self.m, f);
+                self.at(f, *site, |e, f| e.reprs.str_repeat(&mut e.m, f));
             }
             Expr::Index { value, index, site } => {
                 self.expr(f, value);
                 self.expr(f, index);
-                f.ins()
-                    .i32_const(site_index(*site))
-                    .local_set(self.code.site);
-                self.reprs.str_index(&mut self.m, f);
+                self.at(f, *site, |e, f| e.reprs.str_index(&mut e.m, f));
             }
             Expr::Len { operand, site } => {
                 self.expr(f, operand);
-                f.ins()
-                    .i32_const(site_index(*site))
-                    .local_set(self.code.site);
-                self.reprs.str_len(f);
+                self.at(f, *site, |e, f| e.reprs.str_len(f));
             }
             Expr::Truth(operand) => {
                 self.expr(f, operand);

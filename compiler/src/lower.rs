@@ -887,7 +887,11 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         match (op, left.rep(), right.rep()) {
             (ast::Operator::Add, Rep::Str, Rep::Str) => {
-                return Ok(Expr::Concat(Box::new(left), Box::new(right)));
+                return Ok(Expr::Concat {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    site: self.site(node.range()),
+                });
             }
             (ast::Operator::Mult, Rep::Str, _) => {
                 return Ok(Expr::Repeat {

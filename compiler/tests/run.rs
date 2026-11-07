@@ -12,7 +12,7 @@ use engine::check::check_source;
 
 /// The module of `source`, which has to pass the checker at the last level.
 /// A traceback names the file by `path`.
-fn compile(source: &str, path: &Path) -> Result<Vec<u8>, compiler::Error> {
+fn compile(source: &str, path: &Path) -> Result<compiler::Module, compiler::Error> {
     let checked = match check_source(source, Level::Full, false) {
         Ok(checked) => checked,
         Err(errors) => panic!("the checker rejects the program: {:?}", errors.diagnostics),
@@ -29,10 +29,13 @@ fn path(name: &str, extension: &str) -> PathBuf {
 
 /// Runs `module` in the wasmtime on the `PATH`, or in the one that
 /// `WASMTIME` names. The stack of 8 MiB holds the 1000 frames of the
-/// recursion limit of CPython.
-fn wasmtime(name: &str, module: &[u8]) -> Output {
+/// recursion limit of CPython, and a backtrace of 2000 frames holds them
+/// too. The GC heap has `heap` bytes, when it is given. A program that
+/// runs out of the heap writes the traceback of
+/// [`compiler::Module::memory_error`], as the CLI does.
+fn wasmtime(name: &str, module: &compiler::Module, heap: Option<u32>) -> Output {
     let path = path(name, "wasm");
-    std::fs::write(&path, module).expect("the module written to disk");
+    std::fs::write(&path, &module.bytes).expect("the module written to disk");
     let wasmtime = std::env::var("WASMTIME").unwrap_or_else(|_| "wasmtime".to_owned());
     let mut command = Command::new(wasmtime);
     command
@@ -40,10 +43,24 @@ fn wasmtime(name: &str, module: &[u8]) -> Output {
             "run",
             "-W",
             "gc=y,function-references=y,exceptions=y,max-wasm-stack=8388608",
+            "-D",
+            "max-backtrace=2000",
         ])
-        .args(["--invoke", "_start"])
-        .arg(&path);
-    output_within_limit(command)
+        .args(["--invoke", "_start"]);
+    if let Some(heap) = heap {
+        command.args([
+            "-O",
+            &format!(
+                "gc-heap-reservation={heap},gc-heap-reservation-for-growth=0,gc-heap-may-move=n"
+            ),
+        ]);
+    }
+    command.arg(&path);
+    let mut output = output_within_limit(command);
+    if let Some(traceback) = module.memory_error(&String::from_utf8_lossy(&output.stderr)) {
+        output.stderr = traceback.into_bytes();
+    }
+    output
 }
 
 /// Runs `source` in the python3 on the `PATH`, or in the one that `PYTHON`
@@ -120,7 +137,7 @@ fn same_as_cpython(name: &str, source: &str) {
 /// Compiles `source` and runs it in wasmtime.
 fn run(name: &str, source: &str) -> Output {
     let module = compile(source, &path(name, "py")).expect("the program to compile");
-    wasmtime(name, &module)
+    wasmtime(name, &module, None)
 }
 
 /// Asserts that the compiled `source` prints `stdout`, then stops with the
@@ -144,6 +161,27 @@ fn stops_at_the_int_limit(
              spython: the result {result} does not fit in an int, \
              which goes from -1073741824 to 1073741823\n",
             path(name, "py").display()
+        ),
+        "stderr"
+    );
+    assert_eq!(output.status.code(), Some(1), "exit code");
+}
+
+/// Asserts that the compiled `source`, with a GC heap of 64 MiB, prints
+/// `stdout` and then stops with a `MemoryError` whose traceback has
+/// `frames`, where `{file}` stands for the path of the program. CPython
+/// writes the same traceback when it runs out of memory at the same place,
+/// as a run under `ulimit -v` showed once.
+fn runs_out_of_memory(name: &str, source: &str, stdout: &str, frames: &str) {
+    let module = compile(source, &path(name, "py")).expect("the program to compile");
+    let output = wasmtime(name, &module, Some(64 << 20));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), stdout, "stdout");
+    let file = path(name, "py");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "Traceback (most recent call last):\n{}MemoryError\n",
+            frames.replace("{file}", &file.display().to_string())
         ),
         "stderr"
     );
@@ -1258,5 +1296,43 @@ fn a_def_outside_what_the_compiler_covers_is_unsupported() {
             "def f() -> int:\n    return 1\n\nprint(f(n=1))  # ty: ignore[unknown-argument]\n"
         ),
         "a call with keyword arguments"
+    );
+}
+
+#[test]
+fn a_str_too_long_for_memory_raises_memory_error() {
+    runs_out_of_memory(
+        "a_str_too_long_for_memory_raises_memory_error",
+        "print('start')\ns = 'ab' * 100_000_000\nprint(len(s))\n",
+        "start\n",
+        "  File \"{file}\", line 2, in <module>\n    \
+         s = 'ab' * 100_000_000\n        \
+         ~~~~~^~~~~~~~~~~~~\n",
+    );
+}
+
+#[test]
+fn a_memory_error_has_the_frames_of_the_calls() {
+    runs_out_of_memory(
+        "a_memory_error_has_the_frames_of_the_calls",
+        "def double(s: str) -> str:\n    return s + s\n\n\n\
+         s = 'a' * 2_000_000\nt = double(s)\nprint(len(t))\nu = double(t)\nprint(len(u))\n",
+        "4000000\n",
+        "  File \"{file}\", line 8, in <module>\n    u = double(t)\n  \
+         File \"{file}\", line 2, in double\n    return s + s\n           ~~^~~\n",
+    );
+}
+
+#[test]
+fn a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out() {
+    let frame = "  File \"{file}\", line 2, in grow\n    return grow(s + s)\n";
+    runs_out_of_memory(
+        "a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out",
+        "def grow(s: str) -> str:\n    return grow(s + s)\n\n\nprint(grow('a'))\n",
+        "",
+        &format!(
+            "  File \"{{file}}\", line 5, in <module>\n    print(grow('a'))\n          \
+             ~~~~^^^^^\n{frame}{frame}{frame}  [Previous line repeated 20 more times]\n"
+        ),
     );
 }

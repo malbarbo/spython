@@ -31,7 +31,7 @@ pub fn run(file: &Path, level: Level) -> Result<(), SpythonError> {
         .suffix(".wasm")
         .tempfile()
         .map_err(|err| other(format!("cannot create the module file: {err}")))?;
-    wasm.write_all(&module)
+    wasm.write_all(&module.bytes)
         .map_err(|err| other(format!("cannot write the module file: {err}")))?;
 
     // The stack of 8 MiB holds the 1000 frames of the recursion limit of
