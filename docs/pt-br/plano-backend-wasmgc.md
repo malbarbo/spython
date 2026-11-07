@@ -383,6 +383,14 @@ bytes por caractere. Um texto de cerca de mil milhões de caracteres dá
 caractere conforme o texto. Um `str` compacto, com as três larguras,
 fecharia a diferença até um texto que o CPython também não comporta.
 
+O V8 tem dois limites. Um array de 1 GiB ou mais, como `'a' * 2**28`,
+lança um `RuntimeError` ("requested new array is too large") que o host
+captura, e a pilha do erro traz o offset de cada quadro, então a mesma
+faixa de código dos sites serve para o traceback. O CPython cria esse
+`str`. Quando o heap inteiro acaba, perto de 4 GB, o V8 para o processo
+com "Fatal JavaScript out of memory", e nem o host roda depois disso. No
+navegador, a aba morre.
+
 ### Módulos e REPL
 
 Até o REPL entrar, o programa e o runtime viram um módulo wasm só. Os
@@ -481,7 +489,8 @@ corpus.
   esgotada e o traceback com as marcas do CPython. Defaults, argumentos nomeados,
   `def` dentro de função e função como valor ainda são recusados.
 - **0b. Navegador.** O mesmo no deno, com o diferencial contra o
-  RustPython.
+  RustPython. Os testes do `compiler` já rodam cada módulo no deno
+  também, com o mesmo resultado do wasmtime.
 - **1. Prelude.** Arrays, classes sem herança, a `$Class` e os métodos
   especiais. Depois o prelude de `str` e de `int`, e os doctests.
 - **2. Níveis 0 e 1**, com o diferencial do corpus verde.
@@ -544,7 +553,7 @@ O hello world leva hoje 141 ms no `main`, com o checker.
   reescrever a biblioteca no prelude.
 - O `str` compacto, com 1, 2 ou 4 bytes por caractere, para o teto de
   4 GiB do heap do wasmtime.
-- O que o V8 faz quando o heap de GC acaba, se lança um `RangeError` que
-  o host traduz ou se derruba o processo inteiro.
+- O heap do V8 que acaba e derruba o processo, e o limite de 1 GiB por
+  array do V8, abaixo do que o CPython aceita.
 - A memória que acaba no handler que relança uma exceção ou na
   construção dos literais, que hoje mostra o erro do wasmtime.
