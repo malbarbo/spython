@@ -3,9 +3,9 @@
 pub(crate) mod host;
 pub(crate) mod module;
 
-use wasm_encoder::{BlockType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use crate::ir::{CmpOp, Expr, Program, Rep, Site, Stmt};
+use crate::ir::{CmpOp, Expr, Program, Rep, Site, Stmt, VarId};
 use crate::repr::Reprs;
 use host::Host;
 use module::{FuncState, ModuleState};
@@ -14,10 +14,22 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m);
     let reprs = Reprs::new(&mut m, &host);
+    let vars = program
+        .vars
+        .iter()
+        .map(|var| VarGlobals {
+            value: reprs.global(&mut m, var.rep),
+            defined: var
+                .checked
+                .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
+        })
+        .collect();
     let mut e = Emitter {
         m,
         host,
         reprs,
+        program,
+        vars,
         site: 0,
     };
     let start_ty = e.m.func_type(&[], &[]);
@@ -37,15 +49,24 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
     e.m.finish()
 }
 
-struct Emitter {
+struct Emitter<'a> {
     m: ModuleState,
     host: Host,
     reprs: Reprs,
+    program: &'a Program,
+    vars: Vec<VarGlobals>,
     /// The local that holds the site of the instruction that may raise.
     site: u32,
 }
 
-impl Emitter {
+/// The globals of a variable.
+struct VarGlobals {
+    value: u32,
+    /// 1 once the variable has a value, for a variable whose read checks it.
+    defined: Option<u32>,
+}
+
+impl Emitter<'_> {
     fn stmt(&mut self, f: &mut FuncState, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(expr) => {
@@ -54,7 +75,55 @@ impl Emitter {
                     f.ins().drop();
                 }
             }
+            Stmt::Assign { targets, value } => {
+                self.expr(f, value);
+                let (first, rest) = targets.split_first().expect("an assignment has a target");
+                self.store(f, *first);
+                for var in rest {
+                    f.ins().global_get(self.globals(*first).value);
+                    self.store(f, *var);
+                }
+            }
         }
+    }
+
+    /// Pops a value into `var`.
+    fn store(&mut self, f: &mut FuncState, var: VarId) {
+        let globals = self.globals(var);
+        f.ins().global_set(globals.value);
+        if let Some(defined) = globals.defined {
+            f.ins().i32_const(1).global_set(defined);
+        }
+    }
+
+    fn load(&mut self, f: &mut FuncState, var: VarId, rep: Rep, check: Option<Site>) {
+        if let Some(site) = check {
+            let defined = self
+                .globals(var)
+                .defined
+                .expect("a checked variable has a flag");
+            f.ins()
+                .global_get(defined)
+                .i32_eqz()
+                .if_(BlockType::Empty)
+                .i32_const(site_index(site))
+                .local_set(self.site);
+            let message = &self
+                .program
+                .vars
+                .get(index(var))
+                .expect("a variable of the program")
+                .undefined;
+            self.reprs.raise(&mut self.m, f, message);
+            f.ins().end();
+        }
+        self.reprs.load_global(f, rep, self.globals(var).value);
+    }
+
+    fn globals(&self, var: VarId) -> &VarGlobals {
+        self.vars
+            .get(index(var))
+            .expect("a variable of the program")
     }
 
     /// Pushes the value of `expr`, and nothing when its rep is `None`.
@@ -63,6 +132,7 @@ impl Emitter {
             Expr::Str(s) => self.reprs.str_literal(&mut self.m, f, s),
             Expr::Int(value) => self.reprs.int_literal(f, *value),
             Expr::Bool(value) => self.reprs.bool_literal(f, *value),
+            Expr::Load { var, rep, check } => self.load(f, *var, *rep, *check),
             Expr::BoolAsInt(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);
@@ -134,6 +204,10 @@ impl Emitter {
             .call(self.host.write_char)
             .call(self.host.flush);
     }
+}
+
+fn index(var: VarId) -> usize {
+    var.0 as usize
 }
 
 fn site_index(site: Site) -> i32 {

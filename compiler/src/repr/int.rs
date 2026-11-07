@@ -1,6 +1,6 @@
 //! The representations of `int`.
 
-use wasm_encoder::{BlockType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::exc::Exceptions;
 use super::str::StrRepr;
@@ -52,6 +52,13 @@ impl IntRepr {
     pub fn val_type(&self) -> ValType {
         match self {
             IntRepr::I31 { .. } => ValType::I32,
+        }
+    }
+
+    /// The initial value of a global that holds an `int`.
+    pub fn global_init(&self) -> ConstExpr {
+        match self {
+            IntRepr::I31 { .. } => ConstExpr::i32_const(0),
         }
     }
 

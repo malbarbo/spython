@@ -6,13 +6,16 @@ use ruff_db::source::source_text;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{KnownModule, file_to_module};
-use ty_python_semantic::types::lowering::{Shape, expr_shape};
+use ty_python_semantic::types::lowering::{
+    Shape, expr_shape, is_definitely_bound, is_implicit_global,
+};
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
-use crate::ir::{ArithOp, CmpOp, Expr, Program, Rep, Site, Stmt};
+use crate::ir::{ArithOp, CmpOp, Expr, Program, Rep, Site, Stmt, Var, VarId};
 use crate::traceback;
 
 /// The range of an `int`, which has to fit in 31 bits.
@@ -30,14 +33,14 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         source: source.as_str(),
         path,
         sites: RefCell::new(Vec::new()),
+        vars: RefCell::new(Vars::default()),
     };
-    let body = module
-        .suite()
-        .iter()
-        .map(|stmt| lowering.stmt(stmt))
-        .collect::<Result<_, _>>()?;
+    let suite = module.suite().as_slice();
+    lowering.declare_vars(suite)?;
+    let body = lowering.body(suite)?;
     Ok(Program {
         body,
+        vars: lowering.vars.into_inner().list,
         sites: lowering.sites.into_inner(),
     })
 }
@@ -48,14 +51,170 @@ struct Lowering<'a, 'db> {
     /// The path of the file in a traceback.
     path: &'a str,
     sites: RefCell<Vec<String>>,
+    vars: RefCell<Vars>,
+}
+
+#[derive(Default)]
+struct Vars {
+    ids: HashMap<String, VarId>,
+    list: Vec<Var>,
+}
+
+impl Vars {
+    /// The variable of `name`, and its rep.
+    fn find(&self, name: &str) -> Option<(VarId, Rep)> {
+        let id = *self.ids.get(name)?;
+        Some((id, self.get(id).rep))
+    }
+
+    fn get(&self, id: VarId) -> &Var {
+        self.list
+            .get(id.0 as usize)
+            .expect("a variable of the module")
+    }
+
+    fn get_mut(&mut self, id: VarId) -> &mut Var {
+        self.list
+            .get_mut(id.0 as usize)
+            .expect("a variable of the module")
+    }
 }
 
 impl Lowering<'_, '_> {
-    fn stmt(&self, stmt: &ast::Stmt) -> Result<Stmt, Error> {
+    /// Gives each variable that the module assigns the rep of its values,
+    /// which the checker infers. A read may come before the assignment, as
+    /// in a loop, so every variable has a rep before the lowering starts.
+    fn declare_vars(&self, body: &[ast::Stmt]) -> Result<(), Error> {
+        for stmt in body {
+            let (targets, value): (&[ast::Expr], &ast::Expr) = match stmt {
+                ast::Stmt::Assign(a) => (&a.targets, &a.value),
+                ast::Stmt::AnnAssign(ast::StmtAnnAssign {
+                    target,
+                    value: Some(value),
+                    ..
+                }) => (std::slice::from_ref(target), value),
+                _ => continue,
+            };
+            // The lowering of the assignment rejects a value without a rep.
+            let Some(rep) = shape_rep(expr_shape(self.model, value)) else {
+                continue;
+            };
+            for target in targets {
+                if let ast::Expr::Name(name) = target {
+                    self.declare_var(name.id.as_str(), rep, value)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn declare_var(&self, name: &str, rep: Rep, value: &ast::Expr) -> Result<(), Error> {
+        let mut vars = self.vars.borrow_mut();
+        if let Some((_, declared)) = vars.find(name) {
+            if declared != rep {
+                return Err(unsupported(value, "a variable with values of two types"));
+            }
+            return Ok(());
+        }
+        let id = VarId(u32::try_from(vars.list.len()).expect("fewer than 2^32 variables"));
+        vars.ids.insert(name.to_owned(), id);
+        vars.list.push(Var {
+            rep,
+            undefined: format!("NameError: name '{name}' is not defined"),
+            checked: false,
+        });
+        Ok(())
+    }
+
+    fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
+        let mut lowered = Vec::new();
+        for stmt in body {
+            lowered.extend(self.stmt(stmt)?);
+        }
+        Ok(lowered)
+    }
+
+    fn stmt(&self, stmt: &ast::Stmt) -> Result<Option<Stmt>, Error> {
         match stmt {
-            ast::Stmt::Expr(e) => Ok(Stmt::Expr(self.expr(&e.value)?)),
+            ast::Stmt::Expr(e) => Ok(Some(Stmt::Expr(self.expr(&e.value)?))),
+            ast::Stmt::Assign(a) => {
+                let value = self.expr(&a.value)?;
+                let targets = a
+                    .targets
+                    .iter()
+                    .map(|target| self.target(target, &value))
+                    .collect::<Result<_, _>>()?;
+                Ok(Some(Stmt::Assign { targets, value }))
+            }
+            // An annotation alone binds nothing.
+            ast::Stmt::AnnAssign(ast::StmtAnnAssign { value: None, .. }) => Ok(None),
+            ast::Stmt::AnnAssign(ast::StmtAnnAssign {
+                target,
+                value: Some(value),
+                ..
+            }) => {
+                let value = self.expr(value)?;
+                let target = self.target(target, &value)?;
+                Ok(Some(Stmt::Assign {
+                    targets: vec![target],
+                    value,
+                }))
+            }
+            ast::Stmt::AugAssign(a) => {
+                let ast::Expr::Name(name) = &*a.target else {
+                    return Err(unsupported(&*a.target, "this target"));
+                };
+                let left = self.int_value(self.load(name)?, name)?;
+                let right = self.int_operand(&a.value)?;
+                let value = Expr::Arith {
+                    op: arith_op(a.op).ok_or_else(|| unsupported(a, "this operator"))?,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    site: self.site(a.range()),
+                };
+                let target = self.target(&a.target, &value)?;
+                Ok(Some(Stmt::Assign {
+                    targets: vec![target],
+                    value,
+                }))
+            }
             _ => Err(unsupported(stmt, "this statement")),
         }
+    }
+
+    /// The variable that `target` names, which has to hold the rep of
+    /// `value`.
+    fn target(&self, target: &ast::Expr, value: &Expr) -> Result<VarId, Error> {
+        let ast::Expr::Name(name) = target else {
+            return Err(unsupported(target, "this target"));
+        };
+        match self.vars.borrow().find(name.id.as_str()) {
+            Some((id, rep)) if rep == value.rep() => Ok(id),
+            Some(_) => Err(unsupported(target, "a variable with values of two types")),
+            // The checker gives the value a type that no rep holds.
+            None => Err(unsupported(target, "a variable of this type")),
+        }
+    }
+
+    /// The value of the variable that `name` reads.
+    fn load(&self, name: &ast::ExprName) -> Result<Expr, Error> {
+        let Some((id, rep)) = self.vars.borrow().find(name.id.as_str()) else {
+            return Err(unsupported(name, "a name that the module does not assign"));
+        };
+        let check = if is_definitely_bound(self.model, name) {
+            None
+        } else if is_implicit_global(self.model, name.id.as_str()) {
+            // Without a value, the read takes the builtin of the name.
+            return Err(unsupported(name, "a name that may be a builtin"));
+        } else {
+            self.vars.borrow_mut().get_mut(id).checked = true;
+            Some(self.site(name.range()))
+        };
+        Ok(Expr::Load {
+            var: id,
+            rep,
+            check,
+        })
     }
 
     fn expr(&self, expr: &ast::Expr) -> Result<Expr, Error> {
@@ -81,16 +240,10 @@ impl Lowering<'_, '_> {
                 _ => Err(unsupported(expr, "this number")),
             },
             ast::Expr::BooleanLiteral(b) => Ok(Expr::Bool(b.value)),
+            ast::Expr::Name(name) => self.load(name),
             ast::Expr::UnaryOp(u) => self.unary(u),
             ast::Expr::BinOp(b) => {
-                let op = match b.op {
-                    ast::Operator::Add => ArithOp::Add,
-                    ast::Operator::Sub => ArithOp::Sub,
-                    ast::Operator::Mult => ArithOp::Mul,
-                    ast::Operator::FloorDiv => ArithOp::FloorDiv,
-                    ast::Operator::Mod => ArithOp::Mod,
-                    _ => return Err(unsupported(expr, "this operator")),
-                };
+                let op = arith_op(b.op).ok_or_else(|| unsupported(expr, "this operator"))?;
                 let left = self.int_operand(&b.left)?;
                 let right = self.int_operand(&b.right)?;
                 Ok(Expr::Arith {
@@ -158,7 +311,11 @@ impl Lowering<'_, '_> {
 
     /// The operand of an operator of `int`, which may be a `bool`.
     fn int_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
-        let lowered = self.expr(operand)?;
+        self.int_value(self.expr(operand)?, operand)
+    }
+
+    /// `lowered`, the value of `operand`, as an `int`.
+    fn int_value(&self, lowered: Expr, operand: &impl Ranged) -> Result<Expr, Error> {
         match lowered.rep() {
             Rep::Int => Ok(lowered),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(lowered))),
@@ -202,6 +359,28 @@ impl Lowering<'_, '_> {
 fn is_builtins(db: &dyn Db, file: File) -> bool {
     let resolver_file = db.program_file(file).resolver_file(db);
     file_to_module(db, resolver_file).is_some_and(|m| m.is_known(db, KnownModule::Builtins))
+}
+
+fn arith_op(op: ast::Operator) -> Option<ArithOp> {
+    match op {
+        ast::Operator::Add => Some(ArithOp::Add),
+        ast::Operator::Sub => Some(ArithOp::Sub),
+        ast::Operator::Mult => Some(ArithOp::Mul),
+        ast::Operator::FloorDiv => Some(ArithOp::FloorDiv),
+        ast::Operator::Mod => Some(ArithOp::Mod),
+        _ => None,
+    }
+}
+
+/// The rep of the values of `shape`, and `None` when the compiler has no rep
+/// for them.
+fn shape_rep(shape: Option<Shape>) -> Option<Rep> {
+    match shape? {
+        Shape::Int | Shape::IntLit(_) => Some(Rep::Int),
+        Shape::Bool | Shape::BoolLit(_) => Some(Rep::Bool),
+        Shape::Str | Shape::StrLit(_) => Some(Rep::Str),
+        _ => None,
+    }
 }
 
 /// The `int` of a literal, which has to fit in 31 bits.

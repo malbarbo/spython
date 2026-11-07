@@ -4,7 +4,7 @@ mod exc;
 mod int;
 mod str;
 
-use wasm_encoder::{BlockType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, HeapType, ValType};
 
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
@@ -64,6 +64,33 @@ impl Reprs {
         if rep == Rep::Str {
             f.ins().ref_as_non_null();
         }
+    }
+
+    /// A global that holds a value of `rep`. Until the first `global.set`,
+    /// it holds a value that no read sees.
+    pub fn global(&self, m: &mut ModuleState, rep: Rep) -> u32 {
+        let ty = self.local_type(rep).expect("a variable has a value");
+        let init = match rep {
+            Rep::Int => self.int.global_init(),
+            Rep::Bool => ConstExpr::i32_const(0),
+            Rep::Str => ConstExpr::ref_null(HeapType::Concrete(self.str.type_index())),
+            Rep::None => unreachable!("a variable of rep None"),
+        };
+        m.global(ty, &init)
+    }
+
+    /// Pushes the value of `rep` that `global` holds.
+    pub fn load_global(&self, f: &mut FuncState, rep: Rep, global: u32) {
+        f.ins().global_get(global);
+        if rep == Rep::Str {
+            f.ins().ref_as_non_null();
+        }
+    }
+
+    /// Raises an exception with `message`, the last line of its traceback.
+    pub fn raise(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &str) {
+        self.str.literal(m, f, message);
+        self.exc.raise(f);
     }
 
     /// Pushes the `str` with the text `s`.

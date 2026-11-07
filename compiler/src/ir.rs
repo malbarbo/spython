@@ -3,6 +3,8 @@
 
 pub(crate) struct Program {
     pub body: Vec<Stmt>,
+    /// The variables of the module, by their [`VarId`].
+    pub vars: Vec<Var>,
     /// The text of the frame of each place that can raise, by its [`Site`].
     pub sites: Vec<String>,
 }
@@ -11,9 +13,25 @@ pub(crate) struct Program {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Site(pub u32);
 
+/// A variable of the module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct VarId(pub u32);
+
+pub(crate) struct Var {
+    pub rep: Rep,
+    /// The message of the `NameError` that a read before the first
+    /// assignment raises.
+    pub undefined: String,
+    /// `true` when some read of the variable may come before its first
+    /// assignment.
+    pub checked: bool,
+}
+
 pub(crate) enum Stmt {
     /// An expression whose value the program drops.
     Expr(Expr),
+    /// The value goes to each variable, from the first one.
+    Assign { targets: Vec<VarId>, value: Expr },
 }
 
 pub(crate) enum Expr {
@@ -21,6 +39,14 @@ pub(crate) enum Expr {
     /// An `int` that fits in 31 bits.
     Int(i32),
     Bool(bool),
+    /// The value of a variable. The read raises `NameError` at the site when
+    /// the variable has no value yet, and only a read with a site may come
+    /// before the first assignment.
+    Load {
+        var: VarId,
+        rep: Rep,
+        check: Option<Site>,
+    },
     /// A `bool` read as an `int`, as an operand of an operator of `int`.
     BoolAsInt(Box<Expr>),
     /// An operator on two `int`s.
@@ -71,6 +97,7 @@ impl Expr {
             Expr::Str(_) => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Compare(..) => Rep::Bool,
+            Expr::Load { rep, .. } => *rep,
             Expr::Print(_) => Rep::None,
         }
     }
