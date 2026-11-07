@@ -37,7 +37,7 @@ use crate::{Level, checker, doctests, spython_lib};
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::check_file;
+pub use native::{CheckedFile, check_file, check_file_keeping_db};
 
 /// The directory of [`USER_FILE`], which no search path includes. The code
 /// in the REPL and on the page is not a module at run time, so no import

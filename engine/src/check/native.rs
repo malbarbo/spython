@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use ruff_db::files::system_path_to_file;
+use ruff_db::files::{File, system_path_to_file};
 use ruff_db::system::SystemPathBuf;
 use ty_project::{Db as _, ProjectDatabase};
 
@@ -19,12 +19,28 @@ use super::{
 /// The spython lib, served from memory to a checker that looks on disk for it.
 mod overlay;
 
+/// A file that passed the check, with the database that checked it.
+pub struct CheckedFile {
+    pub db: ProjectDatabase,
+    /// The file in `db`.
+    pub file: File,
+    /// The first-party files it imports, each a path relative to its own
+    /// directory and its text.
+    pub modules: Vec<(String, String)>,
+}
+
 /// Type-check a Python file: validates the path, builds the ty database,
 /// runs the annotation checker, then runs ty's type checker.
 ///
 /// Returns the first-party files it imports, each a path relative to its own
 /// directory and its text, for a REPL that has to keep checking against them.
 pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, SpythonError> {
+    check_file_keeping_db(file, level).map(|checked| checked.modules)
+}
+
+/// What [`check_file`] checks, with the database that a compiler of the
+/// file reads.
+pub fn check_file_keeping_db(file: &Path, level: Level) -> Result<CheckedFile, SpythonError> {
     use ruff_db::diagnostic::Severity;
 
     let abs_file = dunce::canonicalize(file).map_err(|err| SpythonError::FileRead {
@@ -77,11 +93,16 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     }
     print_type_errors(&db, &diagnostics, color_stderr());
 
-    Ok(modules_beside(
+    let modules = modules_beside(
         &db,
         &root,
         user_files.into_iter().filter(|f| *f != main_file),
-    ))
+    );
+    Ok(CheckedFile {
+        db,
+        file: main_file,
+        modules,
+    })
 }
 
 /// Build a ty ProjectDatabase for the given file.
