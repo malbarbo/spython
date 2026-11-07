@@ -7,15 +7,17 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::types::lowering::{
-    Shape, expr_shape, is_definitely_bound, is_implicit_global,
+    Shape, expr_shape, function_info, is_definitely_bound, is_implicit_global,
 };
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::ir::{ArithOp, CmpOp, Expr, LogicOp, Program, Rep, Site, Stmt, Var, VarId};
+use crate::ir::{
+    ArithOp, CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, Stmt, Var, VarId,
+};
 use crate::traceback;
 
 /// The range of an `int`, which has to fit in 31 bits.
@@ -34,13 +36,22 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         path,
         sites: RefCell::new(Vec::new()),
         vars: RefCell::new(Vars::default()),
+        funcs: RefCell::new(Funcs::default()),
+        scope: RefCell::new(None),
+        calls: RefCell::new(Vec::new()),
     };
     let suite = module.suite().as_slice();
     lowering.declare_vars(suite)?;
     let body = lowering.body(suite)?;
+    let count = lowering.funcs.borrow().sigs.len();
+    let funcs = (0..count)
+        .map(|i| lowering.func(FuncId(u32::try_from(i).expect("fewer than 2^32 functions"))))
+        .collect::<Result<_, _>>()?;
+    lowering.reject_recursion(count)?;
     Ok(Program {
         body,
         vars: lowering.vars.into_inner().list,
+        funcs,
         sites: lowering.sites.into_inner(),
     })
 }
@@ -51,7 +62,14 @@ struct Lowering<'a, 'db> {
     /// The path of the file in a traceback.
     path: &'a str,
     sites: RefCell<Vec<String>>,
+    /// The variables of the module.
     vars: RefCell<Vars>,
+    funcs: RefCell<Funcs<'a>>,
+    /// The function whose body the lowering is in, and `None` in the code
+    /// of the module.
+    scope: RefCell<Option<Scope>>,
+    /// Each call from a function to a function, with its range.
+    calls: RefCell<Vec<(FuncId, FuncId, TextRange)>>,
 }
 
 #[derive(Default)]
@@ -70,21 +88,65 @@ impl Vars {
     fn get(&self, id: VarId) -> &Var {
         self.list
             .get(id.0 as usize)
-            .expect("a variable of the module")
+            .expect("a variable of the scope")
     }
 
     fn get_mut(&mut self, id: VarId) -> &mut Var {
         self.list
             .get_mut(id.0 as usize)
-            .expect("a variable of the module")
+            .expect("a variable of the scope")
+    }
+
+    fn add(&mut self, name: &str, rep: Rep, undefined: String) {
+        let id = VarId(u32::try_from(self.list.len()).expect("fewer than 2^32 variables"));
+        self.ids.insert(name.to_owned(), id);
+        self.list.push(Var {
+            rep,
+            undefined,
+            checked: false,
+        });
     }
 }
 
-impl Lowering<'_, '_> {
-    /// Gives each variable that the module assigns the rep of its values,
-    /// which the checker infers. A read may come before the assignment, as
-    /// in a loop, so every variable has a rep before the lowering starts.
-    fn declare_vars(&self, body: &[ast::Stmt]) -> Result<(), Error> {
+#[derive(Default)]
+struct Funcs<'a> {
+    ids: HashMap<String, FuncId>,
+    sigs: Vec<Sig<'a>>,
+}
+
+impl<'a> Funcs<'a> {
+    fn get(&self, id: FuncId) -> &Sig<'a> {
+        self.sigs
+            .get(id.0 as usize)
+            .expect("a function of the module")
+    }
+}
+
+/// What a call needs to know of a function before its body is lowered.
+#[derive(Clone)]
+struct Sig<'a> {
+    def: &'a ast::StmtFunctionDef,
+    params: Vec<Rep>,
+    ret: Rep,
+}
+
+struct Scope {
+    func: FuncId,
+    /// The name of the function, which its frames in a traceback show.
+    name: String,
+    ret: Rep,
+    /// Every name the function assigns, which makes the name local to the
+    /// function, whether the variable has a rep or not.
+    locals: HashSet<String>,
+    vars: Vars,
+}
+
+impl<'a> Lowering<'a, '_> {
+    /// Gives each variable that the code assigns the rep of its values,
+    /// which the checker infers, and declares each function of the module.
+    /// A read or a call may come before the assignment, as in a loop, so
+    /// every variable has a rep before the lowering of the code starts.
+    fn declare_vars(&self, body: &'a [ast::Stmt]) -> Result<(), Error> {
         for stmt in body {
             let (targets, value): (&[ast::Expr], &ast::Expr) = match stmt {
                 ast::Stmt::If(i) => {
@@ -97,6 +159,11 @@ impl Lowering<'_, '_> {
                 ast::Stmt::While(w) => {
                     self.declare_vars(&w.body)?;
                     self.declare_vars(&w.orelse)?;
+                    continue;
+                }
+                // The lowering of a function rejects a `def` in its body.
+                ast::Stmt::FunctionDef(def) if self.scope.borrow().is_none() => {
+                    self.declare_func(def)?;
                     continue;
                 }
                 ast::Stmt::Assign(a) => (&a.targets, &a.value),
@@ -121,20 +188,150 @@ impl Lowering<'_, '_> {
     }
 
     fn declare_var(&self, name: &str, rep: Rep, value: &ast::Expr) -> Result<(), Error> {
-        let mut vars = self.vars.borrow_mut();
-        if let Some((_, declared)) = vars.find(name) {
-            if declared != rep {
-                return Err(unsupported(value, "a variable with values of two types"));
+        let mut scope = self.scope.borrow_mut();
+        let mut module = self.vars.borrow_mut();
+        let (vars, undefined) = match scope.as_mut() {
+            Some(scope) => (&mut scope.vars, unbound_local(name)),
+            None => {
+                if self.funcs.borrow().ids.contains_key(name) {
+                    return Err(unsupported(value, "a name of a function and of a variable"));
+                }
+                (&mut *module, name_error(name))
             }
-            return Ok(());
+        };
+        match vars.find(name) {
+            Some((_, declared)) if declared != rep => {
+                Err(unsupported(value, "a variable with values of two types"))
+            }
+            Some(_) => Ok(()),
+            None => {
+                vars.add(name, rep, undefined);
+                Ok(())
+            }
         }
-        let id = VarId(u32::try_from(vars.list.len()).expect("fewer than 2^32 variables"));
-        vars.ids.insert(name.to_owned(), id);
-        vars.list.push(Var {
-            rep,
-            undefined: format!("NameError: name '{name}' is not defined"),
-            checked: false,
+    }
+
+    fn declare_func(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
+        if def.is_async || !def.decorator_list.is_empty() || def.type_params.is_some() {
+            return Err(unsupported(def, "this def"));
+        }
+        let parameters = &def.parameters;
+        if !parameters.posonlyargs.is_empty()
+            || parameters.vararg.is_some()
+            || !parameters.kwonlyargs.is_empty()
+            || parameters.kwarg.is_some()
+        {
+            return Err(unsupported(&**parameters, "these parameters"));
+        }
+        if let Some(param) = parameters.args.iter().find(|p| p.default.is_some()) {
+            return Err(unsupported(param, "a parameter with a default"));
+        }
+        let info = function_info(self.model, def).ok_or_else(|| unsupported(def, "this def"))?;
+        let params = parameters
+            .args
+            .iter()
+            .zip(info.params)
+            .map(|(param, info)| {
+                shape_rep(Some(info.shape))
+                    .ok_or_else(|| unsupported(param, "a parameter of this type"))
+            })
+            .collect::<Result<_, _>>()?;
+        let ret = match info.ret {
+            Shape::None => Rep::None,
+            shape => shape_rep(Some(shape)).ok_or_else(|| match &def.returns {
+                Some(returns) => unsupported(&**returns, "a result of this type"),
+                None => unsupported(&def.name, "a result of this type"),
+            })?,
+        };
+        let name = def.name.as_str();
+        if self.vars.borrow().ids.contains_key(name) {
+            return Err(unsupported(def, "a name of a function and of a variable"));
+        }
+        let mut funcs = self.funcs.borrow_mut();
+        if funcs.ids.contains_key(name) {
+            return Err(unsupported(def, "two functions of the same name"));
+        }
+        let id = FuncId(u32::try_from(funcs.sigs.len()).expect("fewer than 2^32 functions"));
+        funcs.ids.insert(name.to_owned(), id);
+        funcs.sigs.push(Sig { def, params, ret });
+        Ok(())
+    }
+
+    /// The body of the function, lowered in its own scope.
+    fn func(&self, id: FuncId) -> Result<Func, Error> {
+        let sig = self.funcs.borrow().get(id).clone();
+        let def = sig.def;
+        let mut vars = Vars::default();
+        let mut locals = HashSet::new();
+        for (param, rep) in def.parameters.args.iter().zip(&sig.params) {
+            let name = param.parameter.name.as_str();
+            vars.add(name, *rep, unbound_local(name));
+            locals.insert(name.to_owned());
+        }
+        local_names(&def.body, &mut locals);
+        *self.scope.borrow_mut() = Some(Scope {
+            func: id,
+            name: def.name.to_string(),
+            ret: sig.ret,
+            locals,
+            vars,
         });
+        self.declare_vars(&def.body)?;
+        let body = self.body(&def.body)?;
+        if sig.ret != Rep::None && !always_returns(&def.body) {
+            return Err(unsupported(
+                &def.name,
+                "a function that may end without a return",
+            ));
+        }
+        let scope = self.scope.take().expect("the scope of the function");
+        Ok(Func {
+            undefined: name_error(def.name.as_str()),
+            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
+            vars: scope.vars.list,
+            ret: sig.ret,
+            body,
+        })
+    }
+
+    /// Rejects a function that calls itself, directly or through other
+    /// functions.
+    fn reject_recursion(&self, count: usize) -> Result<(), Error> {
+        let calls = self.calls.borrow();
+        // 0 for a function not visited yet, 1 for one on the path of the
+        // search, and 2 for one whose calls are all visited.
+        let mut state = vec![0u8; count];
+        fn visit(
+            func: FuncId,
+            calls: &[(FuncId, FuncId, TextRange)],
+            state: &mut [u8],
+        ) -> Result<(), Error> {
+            let index = func.0 as usize;
+            *state.get_mut(index).expect("a function of the module") = 1;
+            for (_, callee, range) in calls.iter().filter(|(caller, ..)| *caller == func) {
+                match state
+                    .get(callee.0 as usize)
+                    .expect("a function of the module")
+                {
+                    0 => visit(*callee, calls, state)?,
+                    1 => {
+                        return Err(Error::Unsupported {
+                            range: *range,
+                            what: "a recursive call".to_owned(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            *state.get_mut(index).expect("a function of the module") = 2;
+            Ok(())
+        }
+        for i in 0..count {
+            let func = FuncId(u32::try_from(i).expect("fewer than 2^32 functions"));
+            if state.get(i) == Some(&0) {
+                visit(func, &calls, &mut state)?;
+            }
+        }
         Ok(())
     }
 
@@ -218,7 +415,37 @@ impl Lowering<'_, '_> {
             ast::Stmt::Break(_) => Ok(Some(Stmt::Break)),
             ast::Stmt::Continue(_) => Ok(Some(Stmt::Continue)),
             ast::Stmt::Pass(_) => Ok(None),
+            ast::Stmt::FunctionDef(def) => {
+                if self.scope.borrow().is_some() {
+                    return Err(unsupported(def, "a def in a function"));
+                }
+                let id = *self
+                    .funcs
+                    .borrow()
+                    .ids
+                    .get(def.name.as_str())
+                    .expect("a declared function");
+                Ok(Some(Stmt::Def(id)))
+            }
+            ast::Stmt::Return(r) => self.return_(r).map(Some),
             _ => Err(unsupported(stmt, "this statement")),
+        }
+    }
+
+    fn return_(&self, r: &ast::StmtReturn) -> Result<Stmt, Error> {
+        let Some(ret) = self.scope.borrow().as_ref().map(|scope| scope.ret) else {
+            return Err(unsupported(r, "a return outside a function"));
+        };
+        match r.value.as_deref() {
+            None | Some(ast::Expr::NoneLiteral(_)) if ret == Rep::None => Ok(Stmt::Return(None)),
+            None | Some(ast::Expr::NoneLiteral(_)) => Err(unsupported(r, "a return of None")),
+            Some(value) => {
+                let lowered = self.expr(value)?;
+                if lowered.rep() != ret {
+                    return Err(unsupported(value, "a return of this type"));
+                }
+                Ok(Stmt::Return(Some(lowered)))
+            }
         }
     }
 
@@ -270,12 +497,24 @@ impl Lowering<'_, '_> {
 
     /// The variable that `target` names, which has to hold the rep of
     /// `value`.
-    fn target(&self, target: &ast::Expr, value: &Expr) -> Result<VarId, Error> {
+    fn target(&self, target: &ast::Expr, value: &Expr) -> Result<Place, Error> {
         let ast::Expr::Name(name) = target else {
             return Err(unsupported(target, "this target"));
         };
-        match self.vars.borrow().find(name.id.as_str()) {
-            Some((id, rep)) if rep == value.rep() => Ok(id),
+        let name = name.id.as_str();
+        let found = match self.scope.borrow().as_ref() {
+            Some(scope) => scope
+                .vars
+                .find(name)
+                .map(|(id, rep)| (Place::Local(id), rep)),
+            None => self
+                .vars
+                .borrow()
+                .find(name)
+                .map(|(id, rep)| (Place::Global(id), rep)),
+        };
+        match found {
+            Some((place, rep)) if rep == value.rep() => Ok(place),
             Some(_) => Err(unsupported(target, "a variable with values of two types")),
             // The checker gives the value a type that no rep holds.
             None => Err(unsupported(target, "a variable of this type")),
@@ -284,21 +523,113 @@ impl Lowering<'_, '_> {
 
     /// The value of the variable that `name` reads.
     fn load(&self, name: &ast::ExprName) -> Result<Expr, Error> {
-        let Some((id, rep)) = self.vars.borrow().find(name.id.as_str()) else {
+        let id = name.id.as_str();
+        let local = match self.scope.borrow().as_ref() {
+            Some(scope) if scope.locals.contains(id) => Some(
+                scope
+                    .vars
+                    .find(id)
+                    .ok_or_else(|| unsupported(name, "a variable of this type"))?,
+            ),
+            _ => None,
+        };
+        if let Some((var, rep)) = local {
+            let check = if is_definitely_bound(self.model, name) {
+                None
+            } else {
+                if let Some(scope) = self.scope.borrow_mut().as_mut() {
+                    scope.vars.get_mut(var).checked = true;
+                }
+                Some(self.site(name.range()))
+            };
+            return Ok(Expr::Load {
+                place: Place::Local(var),
+                rep,
+                check,
+            });
+        }
+        let global = self.vars.borrow().find(id);
+        let Some((var, rep)) = global else {
+            if self.funcs.borrow().ids.contains_key(id) {
+                return Err(unsupported(name, "a function as a value"));
+            }
             return Err(unsupported(name, "a name that the module does not assign"));
         };
-        let check = if is_definitely_bound(self.model, name) {
-            None
-        } else if is_implicit_global(self.model, name.id.as_str()) {
+        let check = self.global_check(name)?;
+        if check.is_some() {
+            self.vars.borrow_mut().get_mut(var).checked = true;
+        }
+        Ok(Expr::Load {
+            place: Place::Global(var),
+            rep,
+            check,
+        })
+    }
+
+    /// The site where the read of the global `name` raises `NameError`, and
+    /// `None` when the read always finds a value. A function may run before
+    /// the module assigns the global, so every read in a function checks.
+    fn global_check(&self, name: &ast::ExprName) -> Result<Option<Site>, Error> {
+        if self.scope.borrow().is_none() && is_definitely_bound(self.model, name) {
+            return Ok(None);
+        }
+        if is_implicit_global(self.model, name.id.as_str()) {
             // Without a value, the read takes the builtin of the name.
             return Err(unsupported(name, "a name that may be a builtin"));
-        } else {
-            self.vars.borrow_mut().get_mut(id).checked = true;
-            Some(self.site(name.range()))
+        }
+        Ok(Some(self.site(name.range())))
+    }
+
+    /// A call of a function of the module, with positional arguments.
+    fn call(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let ast::Expr::Name(name) = &*call.func else {
+            return Err(unsupported(call, "this call"));
         };
-        Ok(Expr::Load {
-            var: id,
-            rep,
+        let callee = name.id.as_str();
+        if self
+            .scope
+            .borrow()
+            .as_ref()
+            .is_some_and(|scope| scope.locals.contains(callee))
+        {
+            return Err(unsupported(call, "this call"));
+        }
+        let Some(func) = self.funcs.borrow().ids.get(callee).copied() else {
+            return Err(unsupported(call, "this call"));
+        };
+        // The `def` is the one binding of the name in the module, so the call
+        // finds the function, or raises `NameError` before the `def` runs.
+        let sig = self.funcs.borrow().get(func).clone();
+        if !call.arguments.keywords.is_empty() {
+            return Err(unsupported(call, "a call with keyword arguments"));
+        }
+        if call.arguments.args.len() != sig.params.len() {
+            return Err(unsupported(call, "a call with this number of arguments"));
+        }
+        let check = self.global_check(name)?;
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .zip(&sig.params)
+            .map(|(arg, rep)| {
+                let lowered = self.expr(arg)?;
+                if lowered.rep() != *rep {
+                    return Err(unsupported(arg, "an argument of this type"));
+                }
+                Ok(lowered)
+            })
+            .collect::<Result<_, _>>()?;
+        if let Some(scope) = self.scope.borrow().as_ref() {
+            self.calls
+                .borrow_mut()
+                .push((scope.func, func, call.range()));
+        }
+        Ok(Expr::Call {
+            func,
+            args,
+            rep: sig.ret,
+            site: self.site(call.range()),
             check,
         })
     }
@@ -362,6 +693,7 @@ impl Lowering<'_, '_> {
                 Ok(Expr::Compare(Box::new(first), rest))
             }
             ast::Expr::Call(call) if self.is_builtin_print(&call.func) => self.print(call),
+            ast::Expr::Call(call) => self.call(call),
             _ => Err(unsupported(expr, "this expression")),
         }
     }
@@ -390,10 +722,16 @@ impl Lowering<'_, '_> {
         }
     }
 
-    /// A new site for the instruction at `range`, in the code of the module.
+    /// A new site for the instruction at `range`, in the code that the
+    /// lowering is in.
     fn site(&self, range: TextRange) -> Site {
+        let name = self
+            .scope
+            .borrow()
+            .as_ref()
+            .map_or_else(|| "<module>".to_owned(), |scope| scope.name.clone());
         let mut sites = self.sites.borrow_mut();
-        sites.push(traceback::frame(self.path, "<module>", self.source, range));
+        sites.push(traceback::frame(self.path, &name, self.source, range));
         Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
     }
 
@@ -467,6 +805,85 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
         ast::Operator::Mod => Some(ArithOp::Mod),
         _ => None,
     }
+}
+
+fn name_error(name: &str) -> String {
+    format!("NameError: name '{name}' is not defined")
+}
+
+fn unbound_local(name: &str) -> String {
+    format!(
+        "UnboundLocalError: cannot access local variable '{name}' where it is not \
+         associated with a value"
+    )
+}
+
+/// Adds to `names` each name that `body` assigns. Any other way to bind a
+/// name, as a `for` or a `:=`, makes the lowering of the function fail.
+fn local_names(body: &[ast::Stmt], names: &mut HashSet<String>) {
+    fn add(target: &ast::Expr, names: &mut HashSet<String>) {
+        if let ast::Expr::Name(name) = target {
+            names.insert(name.id.to_string());
+        }
+    }
+    for stmt in body {
+        match stmt {
+            ast::Stmt::Assign(a) => {
+                for target in &a.targets {
+                    add(target, names);
+                }
+            }
+            ast::Stmt::AnnAssign(a) => add(&a.target, names),
+            ast::Stmt::AugAssign(a) => add(&a.target, names),
+            ast::Stmt::If(i) => {
+                local_names(&i.body, names);
+                for clause in &i.elif_else_clauses {
+                    local_names(&clause.body, names);
+                }
+            }
+            ast::Stmt::While(w) => {
+                local_names(&w.body, names);
+                local_names(&w.orelse, names);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Returns `true` if `body` never reaches its end, `false` when it may.
+/// The answer is `false` in a case this check cannot decide.
+fn always_returns(body: &[ast::Stmt]) -> bool {
+    body.iter().any(|stmt| match stmt {
+        ast::Stmt::Return(_) => true,
+        ast::Stmt::If(i) => {
+            always_returns(&i.body)
+                && i.elif_else_clauses
+                    .last()
+                    .is_some_and(|clause| clause.test.is_none())
+                && i.elif_else_clauses
+                    .iter()
+                    .all(|clause| always_returns(&clause.body))
+        }
+        ast::Stmt::While(w) => {
+            matches!(&*w.test, ast::Expr::BooleanLiteral(b) if b.value) && !breaks(&w.body)
+        }
+        _ => false,
+    })
+}
+
+/// Returns `true` if `body` has a `break` of the loop whose body it is,
+/// `false` otherwise.
+fn breaks(body: &[ast::Stmt]) -> bool {
+    body.iter().any(|stmt| match stmt {
+        ast::Stmt::Break(_) => true,
+        ast::Stmt::If(i) => {
+            breaks(&i.body)
+                || i.elif_else_clauses
+                    .iter()
+                    .any(|clause| breaks(&clause.body))
+        }
+        _ => false,
+    })
 }
 
 /// The truth of `lowered`, the value of `node`, as a `bool`.

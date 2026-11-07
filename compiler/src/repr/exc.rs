@@ -19,6 +19,9 @@ pub(super) struct Exceptions {
     /// the traceback, writes the traceback to the standard error, and ends
     /// the program with 1.
     uncaught: u32,
+    /// `(func (param (ref $Exc) i32))`, which adds the frame of the site to
+    /// the traceback and raises the exception again.
+    reraise: u32,
     /// `(array (mut (ref null $Str)))`, with the text of the frame of each
     /// site.
     sites: u32,
@@ -57,17 +60,35 @@ impl Exceptions {
             .throw(tag);
         let raise = m.add_func(raise_type, f.finish());
 
-        let uncaught_type = m.func_type(&[ref_to(exc, false), ValType::I32], &[]);
+        let frame_type = m.func_type(&[ref_to(exc, false), ValType::I32], &[]);
         let (e, site) = (0, 1);
+        // The frame of the site goes before the frames of the functions
+        // that the code at the site called.
         let mut f = FuncState::new(2);
-        let next = f.local(ref_to(frame, true));
         f.ins()
             .local_get(e)
             .local_get(site)
             .local_get(e)
             .struct_get(exc, 1)
             .struct_new(frame)
-            .struct_set(exc, 1)
+            .struct_set(exc, 1);
+        let add_frame = m.add_func(frame_type, f.finish());
+
+        let mut f = FuncState::new(2);
+        f.ins()
+            .local_get(e)
+            .local_get(site)
+            .call(add_frame)
+            .local_get(e)
+            .throw(tag);
+        let reraise = m.add_func(frame_type, f.finish());
+
+        let mut f = FuncState::new(2);
+        let next = f.local(ref_to(frame, true));
+        f.ins()
+            .local_get(e)
+            .local_get(site)
+            .call(add_frame)
             .call(host.to_stderr);
         str.literal(m, &mut f, "Traceback (most recent call last):\n");
         str.write(&mut f);
@@ -101,13 +122,14 @@ impl Exceptions {
             .call(host.write_char)
             .i32_const(1)
             .call(host.exit);
-        let uncaught = m.add_func(uncaught_type, f.finish());
+        let uncaught = m.add_func(frame_type, f.finish());
 
         Exceptions {
             exc,
             tag,
             raise,
             uncaught,
+            reraise,
             sites,
             sites_global,
         }
@@ -118,9 +140,10 @@ impl Exceptions {
         f.ins().call(self.raise).unreachable();
     }
 
-    /// Opens the code of the module, where an exception that nothing
-    /// catches ends the program.
-    pub fn begin_module(&self, f: &mut FuncState) {
+    /// Opens the code of the module or of a function, where the handler
+    /// that [`Self::end_module`] or [`Self::end_function`] adds catches an
+    /// exception.
+    pub fn begin(&self, f: &mut FuncState) {
         f.ins()
             .block(BlockType::Result(ref_to(self.exc, false)))
             .try_table(
@@ -132,8 +155,9 @@ impl Exceptions {
             );
     }
 
-    /// Closes what [`Self::begin_module`] opened. `site` is the local that
-    /// holds the site of the instruction that may raise.
+    /// Closes what [`Self::begin`] opened in the module, where an exception
+    /// that nothing catches ends the program. `site` is the local that holds
+    /// the site of the instruction that may raise.
     pub fn end_module(&self, f: &mut FuncState, site: u32) {
         f.ins()
             .end()
@@ -141,6 +165,23 @@ impl Exceptions {
             .end()
             .local_get(site)
             .call(self.uncaught);
+    }
+
+    /// Closes what [`Self::begin`] opened in a function, where an exception
+    /// goes on to the caller with the frame of the function. The code of a
+    /// function with a result never reaches its end.
+    pub fn end_function(&self, f: &mut FuncState, site: u32, has_result: bool) {
+        f.ins().end();
+        if has_result {
+            f.ins().unreachable();
+        } else {
+            f.ins().return_();
+        }
+        f.ins()
+            .end()
+            .local_get(site)
+            .call(self.reraise)
+            .unreachable();
     }
 
     /// Fills the array of the sites, with the text of the frame of each.

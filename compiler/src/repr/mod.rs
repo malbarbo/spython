@@ -27,16 +27,24 @@ impl Reprs {
         Reprs { int, str, exc }
     }
 
-    /// Opens the code of the module, where an exception that nothing
-    /// catches writes the traceback and ends the program.
-    pub fn begin_module(&self, f: &mut FuncState) {
-        self.exc.begin_module(f);
+    /// Opens the code of the module or of a function, where the handler
+    /// that `end_module` or `end_function` adds catches an exception.
+    pub fn begin(&self, f: &mut FuncState) {
+        self.exc.begin(f);
     }
 
-    /// Closes what [`Self::begin_module`] opened. `site` is the local that
-    /// holds the site of the instruction that may raise.
+    /// Closes what [`Self::begin`] opened in the module, where an exception
+    /// that nothing catches writes the traceback and ends the program.
+    /// `site` is the local that holds the site of the instruction that may
+    /// raise.
     pub fn end_module(&self, f: &mut FuncState, site: u32) {
         self.exc.end_module(f, site);
+    }
+
+    /// Closes what [`Self::begin`] opened in a function, where an exception
+    /// goes on to the caller with the frame of the function.
+    pub fn end_function(&self, f: &mut FuncState, site: u32, has_result: bool) {
+        self.exc.end_function(f, site, has_result);
     }
 
     /// Adds what the module needs once the program is emitted, with the

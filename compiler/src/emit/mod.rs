@@ -5,7 +5,7 @@ pub(crate) mod module;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use crate::ir::{CmpOp, Expr, LogicOp, Program, Rep, Site, Stmt, VarId};
+use crate::ir::{CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, Stmt, VarId};
 use crate::repr::Reprs;
 use host::Host;
 use module::{FuncState, ModuleState};
@@ -17,11 +17,29 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
     let vars = program
         .vars
         .iter()
-        .map(|var| VarGlobals {
+        .map(|var| Slots {
             value: reprs.global(&mut m, var.rep),
             defined: var
                 .checked
                 .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
+        })
+        .collect();
+    let funcs = program
+        .funcs
+        .iter()
+        .map(|func| {
+            let params: Vec<ValType> = func
+                .vars
+                .iter()
+                .take(func.params as usize)
+                .map(|var| reprs.local_type(var.rep).expect("a parameter has a value"))
+                .collect();
+            let results: Vec<ValType> = reprs.value_type(func.ret).into_iter().collect();
+            let ty = m.func_type(&params, &results);
+            FuncSlots {
+                index: m.reserve(ty),
+                defined: m.global(ValType::I32, &ConstExpr::i32_const(0)),
+            }
         })
         .collect();
     let mut e = Emitter {
@@ -30,20 +48,25 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
         reprs,
         program,
         vars,
-        site: 0,
-        depth: 0,
-        loops: Vec::new(),
+        funcs,
+        code: Code::default(),
     };
     let start_ty = e.m.func_type(&[], &[]);
     let start = e.m.reserve(start_ty);
     let mut f = FuncState::new(0);
     let site = f.local(ValType::I32);
-    e.site = site;
-    e.reprs.begin_module(&mut f);
+    e.code.site = site;
+    e.reprs.begin(&mut f);
     for stmt in &program.body {
         e.stmt(&mut f, stmt);
     }
     e.reprs.end_module(&mut f, site);
+    for (i, func) in program.funcs.iter().enumerate() {
+        e.func(
+            FuncId(u32::try_from(i).expect("fewer than 2^32 functions")),
+            func,
+        );
+    }
     e.reprs.finish(&mut e.m, &program.sites);
     let init = std::mem::take(&mut e.m.init);
     e.m.define(start, f.finish_with_prefix(&init));
@@ -56,7 +79,17 @@ struct Emitter<'a> {
     host: Host,
     reprs: Reprs,
     program: &'a Program,
-    vars: Vec<VarGlobals>,
+    /// The globals of each variable of the module.
+    vars: Vec<Slots>,
+    funcs: Vec<FuncSlots>,
+    code: Code,
+}
+
+/// The state of the code that the emitter is in, the module or a function.
+#[derive(Default)]
+struct Code {
+    /// The function, and `None` in the module.
+    func: Option<FuncId>,
     /// The local that holds the site of the instruction that may raise.
     site: u32,
     /// How many blocks of statements enclose the current one.
@@ -64,6 +97,8 @@ struct Emitter<'a> {
     /// The depth of the target of `break` and of `continue`, for each loop
     /// that encloses the current statement.
     loops: Vec<Loop>,
+    /// The locals of each variable of the function.
+    vars: Vec<Slots>,
 }
 
 enum Open {
@@ -77,14 +112,57 @@ struct Loop {
     continue_: u32,
 }
 
-/// The globals of a variable.
-struct VarGlobals {
+/// The globals of a variable of the module, or the locals of a variable of
+/// a function.
+struct Slots {
     value: u32,
     /// 1 once the variable has a value, for a variable whose read checks it.
     defined: Option<u32>,
 }
 
+struct FuncSlots {
+    index: u32,
+    /// The global that is 1 once the `def` has run.
+    defined: u32,
+}
+
 impl Emitter<'_> {
+    fn func(&mut self, id: FuncId, func: &Func) {
+        let mut f = FuncState::new(func.params);
+        let site = f.local(ValType::I32);
+        let mut vars = Vec::new();
+        for (i, var) in func.vars.iter().enumerate() {
+            let value = match u32::try_from(i) {
+                Ok(param) if param < func.params => param,
+                _ => f.local(
+                    self.reprs
+                        .local_type(var.rep)
+                        .expect("a variable has a value"),
+                ),
+            };
+            let defined = var.checked.then(|| f.local(ValType::I32));
+            vars.push(Slots { value, defined });
+        }
+        // A parameter has a value from the start.
+        for slots in vars.iter().take(func.params as usize) {
+            if let Some(defined) = slots.defined {
+                f.ins().i32_const(1).local_set(defined);
+            }
+        }
+        self.code = Code {
+            func: Some(id),
+            site,
+            depth: 0,
+            loops: Vec::new(),
+            vars,
+        };
+        self.reprs.begin(&mut f);
+        self.body(&mut f, &func.body);
+        self.reprs.end_function(&mut f, site, func.ret != Rep::None);
+        let index = self.func_slots(id).index;
+        self.m.define(index, f.finish());
+    }
+
     fn stmt(&mut self, f: &mut FuncState, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(expr) => {
@@ -97,10 +175,24 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 let (first, rest) = targets.split_first().expect("an assignment has a target");
                 self.store(f, *first);
-                for var in rest {
-                    f.ins().global_get(self.globals(*first).value);
-                    self.store(f, *var);
+                for place in rest {
+                    let value = self.slots(*first).value;
+                    match first {
+                        Place::Global(_) => f.ins().global_get(value),
+                        Place::Local(_) => f.ins().local_get(value),
+                    };
+                    self.store(f, *place);
                 }
+            }
+            Stmt::Def(func) => {
+                let defined = self.func_slots(*func).defined;
+                f.ins().i32_const(1).global_set(defined);
+            }
+            Stmt::Return(value) => {
+                if let Some(value) = value {
+                    self.expr(f, value);
+                }
+                f.ins().return_();
             }
             Stmt::If { cond, then, else_ } => {
                 self.expr(f, cond);
@@ -114,12 +206,17 @@ impl Emitter<'_> {
             }
             Stmt::While { cond, body, else_ } => self.while_(f, cond, body, else_),
             Stmt::Break => {
-                let target = self.loops.last().expect("a break in a loop").break_;
-                f.ins().br(self.depth - target);
+                let target = self.code.loops.last().expect("a break in a loop").break_;
+                f.ins().br(self.code.depth - target);
             }
             Stmt::Continue => {
-                let target = self.loops.last().expect("a continue in a loop").continue_;
-                f.ins().br(self.depth - target);
+                let target = self
+                    .code
+                    .loops
+                    .last()
+                    .expect("a continue in a loop")
+                    .continue_;
+                f.ins().br(self.code.depth - target);
             }
         }
     }
@@ -134,17 +231,17 @@ impl Emitter<'_> {
     /// loop and inside the block that `break` leaves.
     fn while_(&mut self, f: &mut FuncState, cond: &Expr, body: &[Stmt], else_: &[Stmt]) {
         self.open(f, Open::Block);
-        let break_ = self.depth;
+        let break_ = self.code.depth;
         self.open(f, Open::Block);
-        let done = self.depth;
+        let done = self.code.depth;
         self.open(f, Open::Loop);
-        let continue_ = self.depth;
+        let continue_ = self.code.depth;
         self.expr(f, cond);
-        f.ins().i32_eqz().br_if(self.depth - done);
-        self.loops.push(Loop { break_, continue_ });
+        f.ins().i32_eqz().br_if(self.code.depth - done);
+        self.code.loops.push(Loop { break_, continue_ });
         self.body(f, body);
-        self.loops.pop();
-        f.ins().br(self.depth - continue_);
+        self.code.loops.pop();
+        f.ins().br(self.code.depth - continue_);
         self.close(f);
         self.close(f);
         self.body(f, else_);
@@ -159,51 +256,119 @@ impl Emitter<'_> {
             Open::Block => ins.block(BlockType::Empty),
             Open::Loop => ins.loop_(BlockType::Empty),
         };
-        self.depth += 1;
+        self.code.depth += 1;
     }
 
     fn close(&mut self, f: &mut FuncState) {
         f.ins().end();
-        self.depth -= 1;
+        self.code.depth -= 1;
     }
 
-    /// Pops a value into `var`.
-    fn store(&mut self, f: &mut FuncState, var: VarId) {
-        let globals = self.globals(var);
-        f.ins().global_set(globals.value);
-        if let Some(defined) = globals.defined {
-            f.ins().i32_const(1).global_set(defined);
+    /// Pops a value into `place`.
+    fn store(&mut self, f: &mut FuncState, place: Place) {
+        let slots = self.slots(place);
+        let (value, defined) = (slots.value, slots.defined);
+        let mut ins = f.ins();
+        match place {
+            Place::Global(_) => {
+                ins.global_set(value);
+                if let Some(defined) = defined {
+                    ins.i32_const(1).global_set(defined);
+                }
+            }
+            Place::Local(_) => {
+                ins.local_set(value);
+                if let Some(defined) = defined {
+                    ins.i32_const(1).local_set(defined);
+                }
+            }
         }
     }
 
-    fn load(&mut self, f: &mut FuncState, var: VarId, rep: Rep, check: Option<Site>) {
+    fn load(&mut self, f: &mut FuncState, place: Place, rep: Rep, check: Option<Site>) {
+        let slots = self.slots(place);
+        let value = slots.value;
         if let Some(site) = check {
-            let defined = self
-                .globals(var)
-                .defined
-                .expect("a checked variable has a flag");
-            f.ins()
-                .global_get(defined)
-                .i32_eqz()
-                .if_(BlockType::Empty)
-                .i32_const(site_index(site))
-                .local_set(self.site);
-            let message = &self
-                .program
-                .vars
-                .get(index(var))
-                .expect("a variable of the program")
-                .undefined;
-            self.reprs.raise(&mut self.m, f, message);
-            f.ins().end();
+            let defined = slots.defined.expect("a checked variable has a flag");
+            match place {
+                Place::Global(_) => f.ins().global_get(defined),
+                Place::Local(_) => f.ins().local_get(defined),
+            };
+            let message = self.var(place).undefined.clone();
+            self.raise_if_zero(f, site, &message);
         }
-        self.reprs.load_global(f, rep, self.globals(var).value);
+        match place {
+            Place::Global(_) => self.reprs.load_global(f, rep, value),
+            Place::Local(_) => self.reprs.load(f, rep, value),
+        }
     }
 
-    fn globals(&self, var: VarId) -> &VarGlobals {
-        self.vars
-            .get(index(var))
-            .expect("a variable of the program")
+    /// Pops an `i32`, and raises an exception with `message` at `site` when
+    /// it is 0.
+    fn raise_if_zero(&mut self, f: &mut FuncState, site: Site, message: &str) {
+        f.ins()
+            .i32_eqz()
+            .if_(BlockType::Empty)
+            .i32_const(site_index(site))
+            .local_set(self.code.site);
+        self.reprs.raise(&mut self.m, f, message);
+        f.ins().end();
+    }
+
+    fn call(
+        &mut self,
+        f: &mut FuncState,
+        func: FuncId,
+        args: &[Expr],
+        site: Site,
+        check: Option<Site>,
+    ) {
+        let slots = self.func_slots(func);
+        let (index, defined) = (slots.index, slots.defined);
+        if let Some(check) = check {
+            f.ins().global_get(defined);
+            let message = self.program_func(func).undefined.clone();
+            self.raise_if_zero(f, check, &message);
+        }
+        for arg in args {
+            self.expr(f, arg);
+        }
+        f.ins()
+            .i32_const(site_index(site))
+            .local_set(self.code.site)
+            .call(index);
+    }
+
+    fn slots(&self, place: Place) -> &Slots {
+        match place {
+            Place::Global(var) => self.vars.get(index(var)),
+            Place::Local(var) => self.code.vars.get(index(var)),
+        }
+        .expect("a variable of the program")
+    }
+
+    fn var(&self, place: Place) -> &crate::ir::Var {
+        match place {
+            Place::Global(var) => self.program.vars.get(index(var)),
+            Place::Local(var) => {
+                let func = self.code.func.expect("a local in a function");
+                self.program_func(func).vars.get(index(var))
+            }
+        }
+        .expect("a variable of the program")
+    }
+
+    fn func_slots(&self, func: FuncId) -> &FuncSlots {
+        self.funcs
+            .get(func.0 as usize)
+            .expect("a function of the program")
+    }
+
+    fn program_func(&self, func: FuncId) -> &Func {
+        self.program
+            .funcs
+            .get(func.0 as usize)
+            .expect("a function of the program")
     }
 
     /// Pushes the value of `expr`, and nothing when its rep is `None`.
@@ -212,7 +377,14 @@ impl Emitter<'_> {
             Expr::Str(s) => self.reprs.str_literal(&mut self.m, f, s),
             Expr::Int(value) => self.reprs.int_literal(f, *value),
             Expr::Bool(value) => self.reprs.bool_literal(f, *value),
-            Expr::Load { var, rep, check } => self.load(f, *var, *rep, *check),
+            Expr::Load { place, rep, check } => self.load(f, *place, *rep, *check),
+            Expr::Call {
+                func,
+                args,
+                site,
+                check,
+                ..
+            } => self.call(f, *func, args, *site, *check),
             Expr::BoolAsInt(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);
@@ -225,7 +397,9 @@ impl Emitter<'_> {
             } => {
                 self.expr(f, left);
                 self.expr(f, right);
-                f.ins().i32_const(site_index(*site)).local_set(self.site);
+                f.ins()
+                    .i32_const(site_index(*site))
+                    .local_set(self.code.site);
                 self.reprs.int_arith(f, *op);
             }
             Expr::Truth(operand) => {
