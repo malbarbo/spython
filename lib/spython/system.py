@@ -13,7 +13,12 @@ def now_ms() -> int:
     return int(_time.monotonic() * 1000)
 
 
-from _spython_ffi import show_svg  # type: ignore[import-not-found]
+import _spython_ffi  # type: ignore[import-not-found]
+
+
+def show_svg(svg: str) -> None:
+    _spython_ffi.show_svg(svg)
+
 
 # The page draws an svg instead, so it has no printer.
 try:
