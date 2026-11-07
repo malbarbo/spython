@@ -217,6 +217,7 @@ impl Lowering<'_, '_> {
             })),
             ast::Stmt::Break(_) => Ok(Some(Stmt::Break)),
             ast::Stmt::Continue(_) => Ok(Some(Stmt::Continue)),
+            ast::Stmt::Pass(_) => Ok(None),
             _ => Err(unsupported(stmt, "this statement")),
         }
     }

@@ -521,6 +521,17 @@ fn a_while_repeats_while_the_condition_is_true() {
 }
 
 #[test]
+fn a_pass_does_nothing() {
+    same_as_cpython(
+        "a_pass_does_nothing",
+        "n = 0\n\
+         while n < 3:\n    n += 1\n    if n == 2:\n        pass\n    else:\n        print(n)\n\
+         if n == 3:\n    pass\n\
+         print('fim')\n",
+    );
+}
+
+#[test]
 fn a_break_leaves_the_innermost_loop_without_its_else() {
     same_as_cpython(
         "a_break_leaves_the_innermost_loop_without_its_else",
