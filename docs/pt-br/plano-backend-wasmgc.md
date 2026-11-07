@@ -61,8 +61,11 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
 4. Onde a anotação diz `float`, o valor tem de ser `float`. O checker
    rejeita `massa: float = 7874` e pede `7874.0`. Com isso, `float` é
    sempre `f64`.
-5. A CLI embute o wasmtime, atrás de uma feature, desde a fatia 0a. O
-   `fd_write` e o `fd_read` são escritos à mão, sem `wasmtime-wasi`.
+5. Até a última fatia, a CLI e os testes rodam o módulo no wasmtime
+   externo, por `wasmtime run`, e o módulo importa do WASI só o
+   `fd_write`, o `fd_read` e o `proc_exit`. No fim, a CLI embute o
+   wasmtime, atrás de uma feature, e escreve essas funções à mão, sem
+   `wasmtime-wasi`.
 6. Um commit que só toca `compiler/` passa pelo portão rápido: `make check`
    e `cargo test -p compiler`, com o diferencial do corpus. Os outros rodam
    todas as suítes.
@@ -310,9 +313,11 @@ salvam e restauram esse global. Uma função que não pode lançar fica sem
 `try_table`.
 
 A sondagem imprimiu o mesmo traceback do spython de hoje, byte a byte, no deno e
-no wasmtime. O host lê a exceção por exports que devolvem números, e
-nenhum valor GC atravessa a fronteira como número. Cada módulo exporta a
-tabela com os nomes das funções.
+no wasmtime. Com o wasmtime externo, o próprio módulo escreve o
+traceback no fd 2 e sai com `proc_exit(1)`. Quando o host for nosso, ele
+vai ler a exceção por exports que devolvem números, e nenhum valor GC
+vai atravessar a fronteira como número. Cada módulo exporta a tabela com
+os nomes das funções.
 
 ### Recursão e Stop
 
@@ -380,7 +385,9 @@ No navegador e no deno, o módulo roda pelo `wasm_instantiate` e pelo
 `wasm_call` do `ENGINE.md`. O V8 compila de forma preguiçosa, e o custo de
 compilação some. Lá o que importa é o tamanho do download.
 
-Na CLI, o wasmtime 48 roda com as features `runtime`, `std`, `cranelift`,
+Na CLI, o wasmtime 48 roda hoje como processo externo, com
+`-W gc=y,function-references=y,exceptions=y`. Quando for embutido, ele
+roda com as features `runtime`, `std`, `cranelift`,
 `gc`, `gc-drc` e `parallel-compilation`, e o `cranelift_opt_level` fica em
 Speed. Compilar um prelude do tamanho do da sondagem levou 0,2 s em 28
 núcleos e 1,9 s num núcleo só. Quando o runtime virar um módulo separado,
@@ -407,9 +414,9 @@ zero" no lugar de "integer modulo by zero").
 
 O corpus é o `na-programacao`, os programas dos branches antigos, o
 `cli/tests/inputs`, os exemplos e as transcrições de REPL da documentação
-e as sondagens. As
-fixtures ficam num módulo só, atrás de um dispatcher, para o teste ser
-rápido, e rodam no wasmtime da CLI e no deno.
+e as sondagens. Cada programa roda num módulo próprio, no wasmtime e no
+deno. Se o tempo dos testes pesar, as fixtures passam a ficar num módulo
+só, atrás de um dispatcher.
 
 
 ## Fatias
@@ -419,7 +426,7 @@ corpus.
 
 - **−1. Sondagens.** Feitas, com o resultado na seção seguinte.
 - **0a. CLI.** `def`, `int`, `if`, `while`, `print` e a exceção não
-  capturada com linha, rodando no wasmtime embutido.
+  capturada com linha, rodando no wasmtime externo.
 - **0b. Navegador.** O mesmo no deno, com o diferencial contra o
   RustPython.
 - **1. Prelude.** Arrays, classes sem herança, a `$Class` e os métodos
@@ -433,6 +440,7 @@ corpus.
 - **7. Imagens e programas interativos.**
 - **8. Nível 5 por partes**, até o corpus passar. Depois os inteiros
   grandes e a saída do RustPython.
+- **9. O wasmtime embutido na CLI.**
 
 A estimativa é de 5 a 8 meses de trabalho ativo até a fatia 6.
 
