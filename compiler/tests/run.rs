@@ -973,6 +973,23 @@ fn a_call_before_the_def_in_the_module_raises_name_error() {
 }
 
 #[test]
+fn the_name_error_of_a_name_of_a_module_asks_about_an_import() {
+    same_as_cpython(
+        "the_name_error_of_a_name_of_a_module_asks_about_an_import",
+        "def h() -> str:\n    return string\n\
+         \n\
+         print(h())\n\
+         string = 'a'\n",
+    );
+    same_as_cpython(
+        "the_name_error_of_a_call_of_a_name_of_a_module_asks_about_an_import",
+        "print(random())  # ty: ignore[unresolved-reference]\n\
+         \n\
+         def random() -> int:\n    return 4\n",
+    );
+}
+
+#[test]
 fn a_recursive_function_runs_up_to_the_limit_of_cpython() {
     same_as_cpython(
         "a_recursive_function_runs_up_to_the_limit_of_cpython",

@@ -3,6 +3,7 @@
 mod emit;
 mod ir;
 mod lower;
+mod names;
 mod repr;
 mod traceback;
 

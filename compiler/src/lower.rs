@@ -19,7 +19,7 @@ use crate::ir::{
     ArithOp, CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, SiteFrame, Stmt, Var,
     VarId,
 };
-use crate::traceback;
+use crate::{names, traceback};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -863,8 +863,14 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
     }
 }
 
+/// The message of the `NameError` of `name`. CPython asks about an import
+/// when the name is the name of a module of the standard library.
 fn name_error(name: &str) -> String {
-    format!("NameError: name '{name}' is not defined")
+    let mut message = format!("NameError: name '{name}' is not defined");
+    if names::STDLIB_MODULES.binary_search(&name).is_ok() {
+        message.push_str(&format!(". Did you forget to import '{name}'?"));
+    }
+    message
 }
 
 fn unbound_local(name: &str) -> String {
