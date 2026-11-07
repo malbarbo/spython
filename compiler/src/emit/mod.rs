@@ -156,9 +156,13 @@ impl Emitter<'_> {
             loops: Vec::new(),
             vars,
         };
+        self.reprs.enter(&mut f);
         self.reprs.begin(&mut f);
         self.body(&mut f, &func.body);
-        self.reprs.end_function(&mut f, site, func.ret != Rep::None);
+        if func.ret == Rep::None {
+            self.stmt(&mut f, &Stmt::Return(None));
+        }
+        self.reprs.end_function(&mut f, site);
         let index = self.func_slots(id).index;
         self.m.define(index, f.finish());
     }
@@ -192,6 +196,7 @@ impl Emitter<'_> {
                 if let Some(value) = value {
                     self.expr(f, value);
                 }
+                self.reprs.leave(f);
                 f.ins().return_();
             }
             Stmt::If { cond, then, else_ } => {
@@ -333,6 +338,8 @@ impl Emitter<'_> {
         for arg in args {
             self.expr(f, arg);
         }
+        self.reprs.call_fits(f);
+        self.raise_if_zero(f, site, "RecursionError: maximum recursion depth exceeded");
         f.ins()
             .i32_const(site_index(site))
             .local_set(self.code.site)

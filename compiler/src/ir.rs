@@ -7,8 +7,16 @@ pub(crate) struct Program {
     pub vars: Vec<Var>,
     /// The functions of the module, by their [`FuncId`].
     pub funcs: Vec<Func>,
-    /// The text of the frame of each place that can raise, by its [`Site`].
-    pub sites: Vec<String>,
+    /// The frame of each place that can raise, by its [`Site`].
+    pub sites: Vec<SiteFrame>,
+}
+
+pub(crate) struct SiteFrame {
+    /// What the traceback writes for the frame.
+    pub text: String,
+    /// The line of the frame in its function. Two sites have the same line
+    /// when they are on the same line of the same function.
+    pub line: u32,
 }
 
 /// A place in the program that can raise an exception.

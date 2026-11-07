@@ -16,7 +16,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::ir::{
-    ArithOp, CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, Stmt, Var, VarId,
+    ArithOp, CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, SiteFrame, Stmt, Var,
+    VarId,
 };
 use crate::traceback;
 
@@ -38,7 +39,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         vars: RefCell::new(Vars::default()),
         funcs: RefCell::new(Funcs::default()),
         scope: RefCell::new(None),
-        calls: RefCell::new(Vec::new()),
+        lines: RefCell::new(HashMap::new()),
     };
     let suite = module.suite().as_slice();
     lowering.declare_vars(suite)?;
@@ -47,7 +48,6 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let funcs = (0..count)
         .map(|i| lowering.func(FuncId(u32::try_from(i).expect("fewer than 2^32 functions"))))
         .collect::<Result<_, _>>()?;
-    lowering.reject_recursion(count)?;
     Ok(Program {
         body,
         vars: lowering.vars.into_inner().list,
@@ -61,15 +61,16 @@ struct Lowering<'a, 'db> {
     source: &'a str,
     /// The path of the file in a traceback.
     path: &'a str,
-    sites: RefCell<Vec<String>>,
+    sites: RefCell<Vec<SiteFrame>>,
     /// The variables of the module.
     vars: RefCell<Vars>,
     funcs: RefCell<Funcs<'a>>,
     /// The function whose body the lowering is in, and `None` in the code
     /// of the module.
     scope: RefCell<Option<Scope>>,
-    /// Each call from a function to a function, with its range.
-    calls: RefCell<Vec<(FuncId, FuncId, TextRange)>>,
+    /// The line of the frame of each line of each function, and of the
+    /// module, by the name of the function and the number of the line.
+    lines: RefCell<HashMap<(String, usize), u32>>,
 }
 
 #[derive(Default)]
@@ -131,7 +132,6 @@ struct Sig<'a> {
 }
 
 struct Scope {
-    func: FuncId,
     /// The name of the function, which its frames in a traceback show.
     name: String,
     ret: Rep,
@@ -270,7 +270,6 @@ impl<'a> Lowering<'a, '_> {
         }
         local_names(&def.body, &mut locals);
         *self.scope.borrow_mut() = Some(Scope {
-            func: id,
             name: def.name.to_string(),
             ret: sig.ret,
             locals,
@@ -292,47 +291,6 @@ impl<'a> Lowering<'a, '_> {
             ret: sig.ret,
             body,
         })
-    }
-
-    /// Rejects a function that calls itself, directly or through other
-    /// functions.
-    fn reject_recursion(&self, count: usize) -> Result<(), Error> {
-        let calls = self.calls.borrow();
-        // 0 for a function not visited yet, 1 for one on the path of the
-        // search, and 2 for one whose calls are all visited.
-        let mut state = vec![0u8; count];
-        fn visit(
-            func: FuncId,
-            calls: &[(FuncId, FuncId, TextRange)],
-            state: &mut [u8],
-        ) -> Result<(), Error> {
-            let index = func.0 as usize;
-            *state.get_mut(index).expect("a function of the module") = 1;
-            for (_, callee, range) in calls.iter().filter(|(caller, ..)| *caller == func) {
-                match state
-                    .get(callee.0 as usize)
-                    .expect("a function of the module")
-                {
-                    0 => visit(*callee, calls, state)?,
-                    1 => {
-                        return Err(Error::Unsupported {
-                            range: *range,
-                            what: "a recursive call".to_owned(),
-                        });
-                    }
-                    _ => {}
-                }
-            }
-            *state.get_mut(index).expect("a function of the module") = 2;
-            Ok(())
-        }
-        for i in 0..count {
-            let func = FuncId(u32::try_from(i).expect("fewer than 2^32 functions"));
-            if state.get(i) == Some(&0) {
-                visit(func, &calls, &mut state)?;
-            }
-        }
-        Ok(())
     }
 
     fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
@@ -620,11 +578,6 @@ impl<'a> Lowering<'a, '_> {
                 Ok(lowered)
             })
             .collect::<Result<_, _>>()?;
-        if let Some(scope) = self.scope.borrow().as_ref() {
-            self.calls
-                .borrow_mut()
-                .push((scope.func, func, call.range()));
-        }
         Ok(Expr::Call {
             func,
             args,
@@ -730,8 +683,13 @@ impl<'a> Lowering<'a, '_> {
             .borrow()
             .as_ref()
             .map_or_else(|| "<module>".to_owned(), |scope| scope.name.clone());
+        let number = traceback::line(self.source, range);
+        let text = traceback::frame(self.path, &name, self.source, range);
+        let mut lines = self.lines.borrow_mut();
+        let count = u32::try_from(lines.len()).expect("fewer than 2^32 lines");
+        let line = *lines.entry((name, number)).or_insert(count);
         let mut sites = self.sites.borrow_mut();
-        sites.push(traceback::frame(self.path, &name, self.source, range));
+        sites.push(SiteFrame { text, line });
         Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
     }
 

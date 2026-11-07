@@ -20,6 +20,11 @@ pub(crate) fn frame(path: &str, name: &str, source: &str, range: TextRange) -> S
     )
 }
 
+/// The number of the line where `range` of `source` starts, from 1.
+pub(crate) fn line(source: &str, range: TextRange) -> usize {
+    FileLines::new(source).position(range.start()).0
+}
+
 /// The lines CPython writes under the `File` line of a frame. Each line
 /// ends in a newline, and an instruction on blank lines gives no line.
 fn source_lines(source: &str, range: TextRange) -> String {

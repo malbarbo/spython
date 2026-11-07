@@ -5,6 +5,7 @@ use wasm_encoder::{BlockType, Catch, ConstExpr, HeapType, RefType, StorageType, 
 use super::str::StrRepr;
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
+use crate::ir::SiteFrame;
 
 pub(super) struct Exceptions {
     /// `(struct (field $message (ref $Str)) (field $tb (mut (ref null $Frame))))`.
@@ -27,7 +28,22 @@ pub(super) struct Exceptions {
     sites: u32,
     /// The global that holds the array of the sites.
     sites_global: u32,
+    /// `(array (mut i32))`, with the line of the frame of each site.
+    lines: u32,
+    /// The global that holds the array of the lines.
+    lines_global: u32,
+    /// The global with the number of frames, which starts at 1 for the
+    /// frame of the module.
+    depth: u32,
 }
+
+/// The most frames CPython keeps, with its default recursion limit. The
+/// frame of the module counts.
+const MAX_DEPTH: i32 = 1000;
+
+/// The traceback writes the first frames of a run of frames on the same
+/// line, and then how many more there are.
+const RECURSIVE_CUTOFF: i32 = 3;
 
 impl Exceptions {
     pub fn new(m: &mut ModuleState, host: &Host, str: &mut StrRepr) -> Self {
@@ -50,6 +66,13 @@ impl Exceptions {
             ref_to(sites, true),
             &ConstExpr::ref_null(HeapType::Concrete(sites)),
         );
+        let lines = m.array_type(StorageType::Val(ValType::I32), true);
+        let lines_global = m.global(
+            ref_to(lines, true),
+            &ConstExpr::ref_null(HeapType::Concrete(lines)),
+        );
+        let depth = m.global(ValType::I32, &ConstExpr::i32_const(1));
+        let repeated = add_repeated(m, str);
 
         let raise_type = m.func_type(&[ref_to(str_type, false)], &[]);
         let mut f = FuncState::new(1);
@@ -76,6 +99,10 @@ impl Exceptions {
 
         let mut f = FuncState::new(2);
         f.ins()
+            .global_get(depth)
+            .i32_const(1)
+            .i32_sub()
+            .global_set(depth)
             .local_get(e)
             .local_get(site)
             .call(add_frame)
@@ -83,8 +110,14 @@ impl Exceptions {
             .throw(tag);
         let reraise = m.add_func(frame_type, f.finish());
 
+        // As `StackSummary.format` of CPython, a frame on the line of the
+        // frame before it adds to the count of the run, and the traceback
+        // writes the count at the end of the run.
         let mut f = FuncState::new(2);
         let next = f.local(ref_to(frame, true));
+        let last = f.local(ValType::I32);
+        let count = f.local(ValType::I32);
+        let line = f.local(ValType::I32);
         f.ins()
             .local_get(e)
             .local_get(site)
@@ -96,11 +129,35 @@ impl Exceptions {
             .local_get(e)
             .struct_get(exc, 1)
             .local_set(next)
+            .i32_const(-1)
+            .local_set(last)
             .block(BlockType::Empty)
             .loop_(BlockType::Empty)
             .local_get(next)
             .ref_is_null()
             .br_if(1)
+            .global_get(lines_global)
+            .local_get(next)
+            .struct_get(frame, 0)
+            .array_get(lines)
+            .local_tee(line)
+            .local_get(last)
+            .i32_ne()
+            .if_(BlockType::Empty)
+            .local_get(count)
+            .call(repeated)
+            .local_get(line)
+            .local_set(last)
+            .i32_const(0)
+            .local_set(count)
+            .end()
+            .local_get(count)
+            .i32_const(1)
+            .i32_add()
+            .local_tee(count)
+            .i32_const(RECURSIVE_CUTOFF)
+            .i32_le_s()
+            .if_(BlockType::Empty)
             .global_get(sites_global)
             .local_get(next)
             .struct_get(frame, 0)
@@ -108,12 +165,15 @@ impl Exceptions {
             .ref_as_non_null();
         str.write(&mut f);
         f.ins()
+            .end()
             .local_get(next)
             .struct_get(frame, 1)
             .local_set(next)
             .br(0)
             .end()
             .end()
+            .local_get(count)
+            .call(repeated)
             .local_get(e)
             .struct_get(exc, 0);
         str.write(&mut f);
@@ -132,7 +192,37 @@ impl Exceptions {
             reraise,
             sites,
             sites_global,
+            lines,
+            lines_global,
+            depth,
         }
+    }
+
+    /// Pushes 1 when a call has room for one more frame, and 0 when the call
+    /// raises `RecursionError`.
+    pub fn call_fits(&self, f: &mut FuncState) {
+        f.ins()
+            .global_get(self.depth)
+            .i32_const(MAX_DEPTH)
+            .i32_lt_s();
+    }
+
+    /// Counts the frame of the function that starts.
+    pub fn enter(&self, f: &mut FuncState) {
+        self.add_depth(f, 1);
+    }
+
+    /// Drops the frame of the function that returns.
+    pub fn leave(&self, f: &mut FuncState) {
+        self.add_depth(f, -1);
+    }
+
+    fn add_depth(&self, f: &mut FuncState, delta: i32) {
+        f.ins()
+            .global_get(self.depth)
+            .i32_const(delta)
+            .i32_add()
+            .global_set(self.depth);
     }
 
     /// Pops the message and raises an exception with it.
@@ -168,40 +258,82 @@ impl Exceptions {
     }
 
     /// Closes what [`Self::begin`] opened in a function, where an exception
-    /// goes on to the caller with the frame of the function. The code of a
-    /// function with a result never reaches its end.
-    pub fn end_function(&self, f: &mut FuncState, site: u32, has_result: bool) {
-        f.ins().end();
-        if has_result {
-            f.ins().unreachable();
-        } else {
-            f.ins().return_();
-        }
+    /// goes on to the caller with the frame of the function. Every path of
+    /// the code of a function ends in a `return`.
+    pub fn end_function(&self, f: &mut FuncState, site: u32) {
         f.ins()
+            .end()
+            .unreachable()
             .end()
             .local_get(site)
             .call(self.reraise)
             .unreachable();
     }
 
-    /// Fills the array of the sites, with the text of the frame of each.
-    pub fn finish(&self, m: &mut ModuleState, str: &mut StrRepr, sites: &[String]) {
+    /// Fills the arrays of the sites, with the text and the line of the
+    /// frame of each.
+    pub fn finish(&self, m: &mut ModuleState, str: &mut StrRepr, sites: &[SiteFrame]) {
         let globals: Vec<u32> = sites
             .iter()
-            .map(|text| str.literal_global(m, text))
+            .map(|site| str.literal_global(m, &site.text))
             .collect();
         let len = i32::try_from(sites.len()).expect("fewer than 2^31 sites");
         let mut ins = wasm_encoder::InstructionSink::new(&mut m.init);
         ins.i32_const(len)
             .array_new_default(self.sites)
-            .global_set(self.sites_global);
-        for (i, global) in globals.into_iter().enumerate() {
+            .global_set(self.sites_global)
+            .i32_const(len)
+            .array_new_default(self.lines)
+            .global_set(self.lines_global);
+        for (i, (global, site)) in globals.into_iter().zip(sites).enumerate() {
+            let i = i32::try_from(i).expect("fewer than 2^31 sites");
+            let line = i32::try_from(site.line).expect("fewer than 2^31 lines");
             ins.global_get(self.sites_global)
-                .i32_const(i32::try_from(i).expect("fewer than 2^31 sites"))
+                .i32_const(i)
                 .global_get(global)
-                .array_set(self.sites);
+                .array_set(self.sites)
+                .global_get(self.lines_global)
+                .i32_const(i)
+                .i32_const(line)
+                .array_set(self.lines);
         }
     }
+}
+
+/// `(func (param i32))`, which writes how many frames of a run the
+/// traceback leaves out, when the run has more than the cutoff.
+fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> u32 {
+    let ty = m.func_type(&[ValType::I32], &[]);
+    let count = 0;
+    let mut f = FuncState::new(1);
+    f.ins()
+        .local_get(count)
+        .i32_const(RECURSIVE_CUTOFF)
+        .i32_gt_s()
+        .if_(BlockType::Empty)
+        .local_get(count)
+        .i32_const(RECURSIVE_CUTOFF)
+        .i32_sub()
+        .local_set(count);
+    str.literal(m, &mut f, "  [Previous line repeated ");
+    str.write(&mut f);
+    f.ins().local_get(count).i64_extend_i32_s();
+    str.decimal(&mut f);
+    str.write(&mut f);
+    str.literal(m, &mut f, " more time");
+    str.write(&mut f);
+    f.ins()
+        .local_get(count)
+        .i32_const(1)
+        .i32_gt_s()
+        .if_(BlockType::Empty);
+    str.literal(m, &mut f, "s");
+    str.write(&mut f);
+    f.ins().end();
+    str.literal(m, &mut f, "]\n");
+    str.write(&mut f);
+    f.ins().end();
+    m.add_func(ty, f.finish())
 }
 
 fn ref_to(index: u32, nullable: bool) -> ValType {

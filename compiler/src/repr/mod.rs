@@ -8,7 +8,7 @@ use wasm_encoder::{BlockType, ConstExpr, HeapType, ValType};
 
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
-use crate::ir::{ArithOp, CmpOp, Rep};
+use crate::ir::{ArithOp, CmpOp, Rep, SiteFrame};
 use exc::Exceptions;
 use int::IntRepr;
 use str::StrRepr;
@@ -41,15 +41,31 @@ impl Reprs {
         self.exc.end_module(f, site);
     }
 
+    /// Pushes 1 when a call has room for one more frame, and 0 when the call
+    /// raises `RecursionError`.
+    pub fn call_fits(&self, f: &mut FuncState) {
+        self.exc.call_fits(f);
+    }
+
+    /// Counts the frame of the function that starts.
+    pub fn enter(&self, f: &mut FuncState) {
+        self.exc.enter(f);
+    }
+
+    /// Drops the frame of the function that returns.
+    pub fn leave(&self, f: &mut FuncState) {
+        self.exc.leave(f);
+    }
+
     /// Closes what [`Self::begin`] opened in a function, where an exception
     /// goes on to the caller with the frame of the function.
-    pub fn end_function(&self, f: &mut FuncState, site: u32, has_result: bool) {
-        self.exc.end_function(f, site, has_result);
+    pub fn end_function(&self, f: &mut FuncState, site: u32) {
+        self.exc.end_function(f, site);
     }
 
     /// Adds what the module needs once the program is emitted, with the
     /// text of the frame of each site.
-    pub fn finish(&mut self, m: &mut ModuleState, sites: &[String]) {
+    pub fn finish(&mut self, m: &mut ModuleState, sites: &[SiteFrame]) {
         self.exc.finish(m, &mut self.str, sites);
     }
 
