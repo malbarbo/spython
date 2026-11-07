@@ -294,17 +294,15 @@ impl Checker<'_> {
         let base_members = union_members(db, &base_ty);
         let exponent_members = union_members(db, &exponent_ty);
         let float_ty = KnownClass::Float.to_instance(db, &env);
-        let is_real = |ty: &Type| {
-            ty.as_int_literal().is_some()
-                || [
-                    KnownClass::Int.to_instance(db, &env),
-                    KnownClass::Bool.to_instance(db, &env),
-                    float_ty,
-                    Type::bool_literal(false),
-                    Type::bool_literal(true),
-                ]
-                .contains(ty)
-        };
+        let bool_ty = KnownClass::Bool.to_instance(db, &env);
+        let reals = [
+            KnownClass::Int.to_instance(db, &env),
+            bool_ty,
+            float_ty,
+            Type::bool_literal(false),
+            Type::bool_literal(true),
+        ];
+        let is_real = |ty: &Type| ty.as_int_literal().is_some() || reals.contains(ty);
         if !base_members.iter().all(is_real)
             || !exponent_members.contains(&float_ty)
             || base_members
@@ -319,7 +317,7 @@ impl Checker<'_> {
             .is_some_and(|x| x == 0.0 && x.is_sign_positive())
             && !base_members.iter().all(|ty| {
                 ty.as_int_literal().is_some_and(|n| n >= 0)
-                    || ty.is_assignable_to(db, &env, KnownClass::Bool.to_instance(db, &env))
+                    || ty.is_assignable_to(db, &env, bool_ty)
             });
         if !can_be_negative {
             self.push(
@@ -770,11 +768,11 @@ impl Checker<'_> {
         if left_ty.is_none(db) || right_ty.is_none(db) {
             return;
         }
-        let value_ty = if self.identity_depends_on_implementation(left_ty) {
-            left_ty
-        } else if self.identity_depends_on_implementation(right_ty) {
-            right_ty
-        } else {
+        let sides = [left_ty, right_ty];
+        let Some(&value_ty) = self
+            .first_with_implementation_identity(&sides)
+            .and_then(|side| sides.get(side))
+        else {
             return;
         };
         let env = self.model.program_environment();
@@ -801,10 +799,10 @@ impl Checker<'_> {
         );
     }
 
-    /// Returns `true` if a value of type `ty` can be an `int`, a `float`, a
-    /// `complex`, a `bool`, a `str`, a `bytes` or a `tuple`, `false`
-    /// otherwise.
-    fn identity_depends_on_implementation(&self, ty: Type) -> bool {
+    /// The index of the first type of `types` with a value that can be an
+    /// `int`, a `float`, a `complex`, a `bool`, a `str`, a `bytes` or a
+    /// `tuple`.
+    fn first_with_implementation_identity(&self, types: &[Type]) -> Option<usize> {
         let db = self.model.db();
         let env = self.model.program_environment();
         let object_ty = KnownClass::Object.to_instance(db, &env);
@@ -818,8 +816,7 @@ impl Checker<'_> {
             Type::homogeneous_tuple(db, &env, object_ty),
         ];
         let enum_ty = KnownClass::Enum.to_instance(db, &env);
-        let members = union_members(db, &ty);
-        members.iter().any(|member| match member {
+        let depends_on_implementation = |member: &Type| match member {
             Type::Never => false,
             Type::Dynamic(_) => true,
             // A `TypeVar` can stand for any of the classes, and the checker
@@ -831,7 +828,10 @@ impl Checker<'_> {
                 member.is_assignable_to(db, &env, *class)
                     || class.is_assignable_to(db, &env, *member)
             }),
-        })
+        };
+        types
+            .iter()
+            .position(|ty| union_members(db, ty).iter().any(depends_on_implementation))
     }
 
     /// E713 / E714: `not <a> in <b>` → `<a> not in <b>`; `not <a> is <b>` →
