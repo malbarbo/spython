@@ -15,7 +15,7 @@ use crate::Error;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use crate::ir::{ArithOp, CmpOp, Expr, Program, Rep, Site, Stmt, Var, VarId};
+use crate::ir::{ArithOp, CmpOp, Expr, LogicOp, Program, Rep, Site, Stmt, Var, VarId};
 use crate::traceback;
 
 /// The range of an `int`, which has to fit in 31 bits.
@@ -301,6 +301,26 @@ impl Lowering<'_, '_> {
                     right: Box::new(right),
                     site: self.site(b.range()),
                 })
+            }
+            ast::Expr::BoolOp(b) => {
+                let op = match b.op {
+                    ast::BoolOp::And => LogicOp::And,
+                    ast::BoolOp::Or => LogicOp::Or,
+                };
+                let (first, rest) = b
+                    .values
+                    .split_first()
+                    .expect("a bool operator has operands");
+                // `a and b and c` gives the value of `(a and b) and c`, and
+                // evaluates the same operands.
+                rest.iter()
+                    .try_fold(self.bool_operand(first)?, |left, right| {
+                        Ok(Expr::Logic {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(self.bool_operand(right)?),
+                        })
+                    })
             }
             ast::Expr::Compare(c) => {
                 let first = self.int_operand(c.first_operand())?;

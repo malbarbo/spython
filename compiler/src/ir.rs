@@ -76,6 +76,13 @@ pub(crate) enum Expr {
     },
     /// `not` on a `bool`.
     Not(Box<Expr>),
+    /// `and` or `or` on two `bool`s. The right operand runs only when the
+    /// left one does not decide the result.
+    Logic {
+        op: LogicOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     /// A chain of comparisons of `int`s, as in `a < b <= c`. Each operand
     /// after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
@@ -90,6 +97,12 @@ pub(crate) enum ArithOp {
     Mul,
     FloorDiv,
     Mod,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LogicOp {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,7 +129,7 @@ impl Expr {
         match self {
             Expr::Str(_) => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
-            Expr::Bool(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
+            Expr::Bool(_) | Expr::Not(_) | Expr::Logic { .. } | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } => *rep,
             Expr::Print(_) => Rep::None,
         }

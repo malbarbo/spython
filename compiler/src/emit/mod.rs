@@ -5,7 +5,7 @@ pub(crate) mod module;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use crate::ir::{CmpOp, Expr, Program, Rep, Site, Stmt, VarId};
+use crate::ir::{CmpOp, Expr, LogicOp, Program, Rep, Site, Stmt, VarId};
 use crate::repr::Reprs;
 use host::Host;
 use module::{FuncState, ModuleState};
@@ -231,6 +231,27 @@ impl Emitter<'_> {
             Expr::Not(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_not(f);
+            }
+            Expr::Logic { op, left, right } => {
+                self.expr(f, left);
+                f.ins().if_(BlockType::Result(
+                    self.reprs
+                        .local_type(Rep::Bool)
+                        .expect("a bool has a value"),
+                ));
+                match op {
+                    LogicOp::And => {
+                        self.expr(f, right);
+                        f.ins().else_();
+                        self.reprs.bool_literal(f, false);
+                    }
+                    LogicOp::Or => {
+                        self.reprs.bool_literal(f, true);
+                        f.ins().else_();
+                        self.expr(f, right);
+                    }
+                }
+                f.ins().end();
             }
             Expr::Compare(first, rest) => self.compare(f, first, rest),
             Expr::Print(args) => self.print(f, args),

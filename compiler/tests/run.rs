@@ -507,6 +507,42 @@ fn not_of_an_operand_that_is_not_a_bool_is_unsupported() {
 }
 
 #[test]
+fn and_and_or_combine_bools() {
+    same_as_cpython(
+        "and_and_or_combine_bools",
+        "t = True\nf = False\n\
+         print(t and t, t and f, f and t, f and f)\n\
+         print(t or t, t or f, f or t, f or f)\n\
+         print(t and f or t, f or t and f, not f and t, t and t and f, f or f or t)\n\
+         n = 0\n\
+         while n < 10 and not n == 4 or n == 7:\n    n += 1\n\
+         print(n)\n",
+    );
+}
+
+#[test]
+fn and_and_or_skip_the_right_operand_when_the_left_decides() {
+    same_as_cpython(
+        "and_and_or_skip_the_right_operand_when_the_left_decides",
+        "print(False and 1 // 0 == 0)  # ty: ignore[division-by-zero]\n\
+         print(True or 1 // 0 == 0)  # ty: ignore[division-by-zero]\n\
+         print(True and 1 % 0 == 0)  # ty: ignore[division-by-zero]\n",
+    );
+}
+
+#[test]
+fn and_of_an_operand_that_is_not_a_bool_is_unsupported() {
+    assert_eq!(
+        unsupported("t = True\nprint(t and 1)\n"),
+        "an operand that is not a bool"
+    );
+    assert_eq!(
+        unsupported("t = True\nprint('a' or t)\n"),
+        "an operand that is not a bool"
+    );
+}
+
+#[test]
 fn an_if_runs_the_first_clause_whose_condition_is_true() {
     same_as_cpython(
         "an_if_runs_the_first_clause_whose_condition_is_true",
