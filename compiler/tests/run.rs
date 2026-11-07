@@ -28,14 +28,19 @@ fn path(name: &str, extension: &str) -> PathBuf {
 }
 
 /// Runs `module` in the wasmtime on the `PATH`, or in the one that
-/// `WASMTIME` names.
+/// `WASMTIME` names. The stack of 8 MiB holds the 1000 frames of the
+/// recursion limit of CPython.
 fn wasmtime(name: &str, module: &[u8]) -> Output {
     let path = path(name, "wasm");
     std::fs::write(&path, module).expect("the module written to disk");
     let wasmtime = std::env::var("WASMTIME").unwrap_or_else(|_| "wasmtime".to_owned());
     let mut command = Command::new(wasmtime);
     command
-        .args(["run", "-W", "gc=y,function-references=y,exceptions=y"])
+        .args([
+            "run",
+            "-W",
+            "gc=y,function-references=y,exceptions=y,max-wasm-stack=8388608",
+        ])
         .args(["--invoke", "_start"])
         .arg(&path);
     output_within_limit(command)
