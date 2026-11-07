@@ -63,6 +63,8 @@ pub struct TypeErrors {
 /// prints it. A check that found nothing carries an empty one.
 pub struct Warnings {
     pub db: ProjectDatabase,
+    /// The file that holds the checked source.
+    pub file: File,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -266,7 +268,11 @@ fn check_in_memory(
     if has_errors {
         Err(Box::new(TypeErrors { db, diagnostics }))
     } else {
-        Ok(Warnings { db, diagnostics })
+        Ok(Warnings {
+            db,
+            file: user_file,
+            diagnostics,
+        })
     }
 }
 /// What the checks find in `db`, whose user file is `user_file`.
