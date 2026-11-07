@@ -19,6 +19,10 @@ pub(super) enum StrRepr {
         decimal: u32,
         /// `(func (param (ref $Str) (ref $Str)) (result (ref $Str)))`.
         concat: u32,
+        /// `(func (param (ref $Str) (ref $Str)) (result i32))`, which gives
+        /// -1, 0 or 1 as the first `str` comes before, with or after the
+        /// second one.
+        compare: u32,
         /// The global that holds each literal, by its text.
         literals: HashMap<String, u32>,
     },
@@ -33,6 +37,7 @@ impl StrRepr {
             write,
             decimal: add_decimal(m, array),
             concat: add_concat(m, array),
+            compare: add_compare(m, array),
             literals: HashMap::new(),
         }
     }
@@ -107,6 +112,17 @@ impl StrRepr {
         match self {
             StrRepr::Ucs4 { concat, .. } => {
                 f.ins().call(*concat);
+            }
+        }
+    }
+
+    /// Pops two `str`s and pushes -1, 0 or 1 as the first one comes
+    /// before, with or after the second one, by the order of their code
+    /// points.
+    pub fn compare(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { compare, .. } => {
+                f.ins().call(*compare);
             }
         }
     }
@@ -275,5 +291,77 @@ fn add_concat(m: &mut ModuleState, array: u32) -> u32 {
         .array_copy(array, array)
         .local_get(s)
         .ref_as_non_null();
+    m.add_func(ty, f.finish())
+}
+
+fn add_compare(m: &mut ModuleState, array: u32) -> u32 {
+    let ty = m.func_type(
+        &[ref_to(array, false), ref_to(array, false)],
+        &[ValType::I32],
+    );
+    let (a, b) = (0, 1);
+    let mut f = FuncState::new(2);
+    let i = f.local(ValType::I32);
+    let shorter = f.local(ValType::I32);
+    let x = f.local(ValType::I32);
+    let y = f.local(ValType::I32);
+    f.ins()
+        .local_get(a)
+        .array_len()
+        .local_get(b)
+        .array_len()
+        .local_get(a)
+        .array_len()
+        .local_get(b)
+        .array_len()
+        .i32_lt_u()
+        .select()
+        .local_set(shorter)
+        .block(BlockType::Empty)
+        .loop_(BlockType::Empty)
+        .local_get(i)
+        .local_get(shorter)
+        .i32_ge_u()
+        .br_if(1)
+        .local_get(a)
+        .local_get(i)
+        .array_get(array)
+        .local_set(x)
+        .local_get(b)
+        .local_get(i)
+        .array_get(array)
+        .local_set(y)
+        .local_get(x)
+        .local_get(y)
+        .i32_ne()
+        .if_(BlockType::Empty)
+        .local_get(x)
+        .local_get(y)
+        .i32_gt_u()
+        .local_get(x)
+        .local_get(y)
+        .i32_lt_u()
+        .i32_sub()
+        .return_()
+        .end()
+        .local_get(i)
+        .i32_const(1)
+        .i32_add()
+        .local_set(i)
+        .br(0)
+        .end()
+        .end()
+        // One `str` starts the other, and the shorter one comes first.
+        .local_get(a)
+        .array_len()
+        .local_get(b)
+        .array_len()
+        .i32_gt_u()
+        .local_get(a)
+        .array_len()
+        .local_get(b)
+        .array_len()
+        .i32_lt_u()
+        .i32_sub();
     m.add_func(ty, f.finish())
 }

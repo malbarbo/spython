@@ -135,8 +135,8 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
-    /// A chain of comparisons of `int`s, as in `a < b <= c`. Each operand
-    /// after the first comes with the operator on its left.
+    /// A chain of comparisons of `int`s or of `str`s, as in `a < b <= c`.
+    /// Each operand after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
     /// `print` with the default `sep` and `end`.
     Print(Vec<Expr>),

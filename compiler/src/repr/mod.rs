@@ -169,9 +169,18 @@ impl Reprs {
         self.int.arith(f, op);
     }
 
-    /// Pops two `int`s and pushes the `bool` of `op`.
-    pub fn int_compare(&self, f: &mut FuncState, op: CmpOp) {
-        self.int.compare(f, op);
+    /// Pops two values of `rep` and pushes the `bool` of `op`.
+    pub fn compare(&self, f: &mut FuncState, rep: Rep, op: CmpOp) {
+        match rep {
+            Rep::Int => self.int.compare(f, op),
+            // `a op b` is `compare(a, b) op 0`.
+            Rep::Str => {
+                self.str.compare(f);
+                self.int.literal(f, 0);
+                self.int.compare(f, op);
+            }
+            Rep::Bool | Rep::None => unreachable!("a comparison of a {rep:?}"),
+        }
     }
 
     /// Pops a value of `rep` and writes what `str` gives for it to the

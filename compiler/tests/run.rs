@@ -256,6 +256,49 @@ fn a_chain_of_comparisons_stops_at_the_first_false() {
 }
 
 #[test]
+fn the_comparisons_of_str_follow_the_order_of_the_code_points() {
+    let strs = [
+        "",
+        "a",
+        "b",
+        "ab",
+        "aa",
+        "B",
+        "é",
+        "\u{1f600}",
+        "a\u{1f600}",
+    ];
+    let mut source = String::new();
+    for a in strs {
+        for b in strs {
+            source.push_str(&format!(
+                "print('{a}' == '{b}', '{a}' != '{b}', '{a}' < '{b}', '{a}' <= '{b}', '{a}' > '{b}', '{a}' >= '{b}')\n"
+            ));
+        }
+    }
+    same_as_cpython(
+        "the_comparisons_of_str_follow_the_order_of_the_code_points",
+        &source,
+    );
+}
+
+#[test]
+fn a_chain_of_comparisons_of_str_stops_at_the_first_false() {
+    same_as_cpython(
+        "a_chain_of_comparisons_of_str_stops_at_the_first_false",
+        "def f() -> str:\n    print('f')\n    return 'z'\n\n\na = 'a'\nprint(a < 'b' < 'c', a < 'c' < 'b', 'b' < a < f(), a < 'b' < f(), a == a != 'b')\n",
+    );
+}
+
+#[test]
+fn a_comparison_of_a_str_and_an_int_is_unsupported() {
+    assert_eq!(
+        unsupported("print('a' == 1)\n"),
+        "a comparison of two types"
+    );
+}
+
+#[test]
 fn an_int_expression_as_a_statement_prints_nothing() {
     same_as_cpython(
         "an_int_expression_as_a_statement_prints_nothing",

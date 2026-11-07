@@ -613,31 +613,50 @@ impl<'a> Lowering<'a, '_> {
                 self.binary(b, b.op, (left, &*b.left), (right, &*b.right))
             }
             ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
-            ast::Expr::Compare(c) => {
-                let first = self.int_operand(c.first_operand())?;
-                let rest = c
-                    .ops
-                    .iter()
-                    .zip(c.comparators())
-                    .map(|(op, right)| {
-                        let op = match op {
-                            ast::CmpOp::Eq => CmpOp::Eq,
-                            ast::CmpOp::NotEq => CmpOp::Ne,
-                            ast::CmpOp::Lt => CmpOp::Lt,
-                            ast::CmpOp::LtE => CmpOp::Le,
-                            ast::CmpOp::Gt => CmpOp::Gt,
-                            ast::CmpOp::GtE => CmpOp::Ge,
-                            _ => return Err(unsupported(expr, "this comparison")),
-                        };
-                        Ok((op, self.int_operand(right)?))
-                    })
-                    .collect::<Result<_, _>>()?;
-                Ok(Expr::Compare(Box::new(first), rest))
-            }
+            ast::Expr::Compare(c) => self.compare(c),
             ast::Expr::Call(call) if self.is_builtin_print(&call.func) => self.print(call),
             ast::Expr::Call(call) => self.call(call),
             _ => Err(unsupported(expr, "this expression")),
         }
+    }
+
+    /// A chain of comparisons, where every operand is a `str`, or every
+    /// operand is an `int` or a `bool`.
+    fn compare(&self, c: &ast::ExprCompare) -> Result<Expr, Error> {
+        let ops = c
+            .ops
+            .iter()
+            .map(|op| match op {
+                ast::CmpOp::Eq => Ok(CmpOp::Eq),
+                ast::CmpOp::NotEq => Ok(CmpOp::Ne),
+                ast::CmpOp::Lt => Ok(CmpOp::Lt),
+                ast::CmpOp::LtE => Ok(CmpOp::Le),
+                ast::CmpOp::Gt => Ok(CmpOp::Gt),
+                ast::CmpOp::GtE => Ok(CmpOp::Ge),
+                _ => Err(unsupported(c, "this comparison")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let operands = std::iter::once(c.first_operand())
+            .chain(c.comparators())
+            .map(|operand| Ok((self.expr(operand)?, operand)))
+            .collect::<Result<Vec<_>, Error>>()?;
+        let is_str = |(lowered, _): &(Expr, _)| lowered.rep() == Rep::Str;
+        let mut operands = if !operands.iter().any(is_str) {
+            operands
+                .into_iter()
+                .map(|(lowered, operand)| self.int_value(lowered, operand))
+                .collect::<Result<Vec<_>, _>>()?
+        } else if operands.iter().all(is_str) {
+            operands.into_iter().map(|(lowered, _)| lowered).collect()
+        } else {
+            return Err(unsupported(c, "a comparison of two types"));
+        }
+        .into_iter();
+        let first = operands.next().expect("a comparison has a first operand");
+        Ok(Expr::Compare(
+            Box::new(first),
+            ops.into_iter().zip(operands).collect(),
+        ))
     }
 
     /// The operator `op` of `node` on two lowered operands, each with the

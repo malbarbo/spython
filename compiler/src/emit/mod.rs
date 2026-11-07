@@ -461,6 +461,7 @@ impl Emitter<'_> {
         let Some(((last_op, last), init)) = rest.split_last() else {
             unreachable!("a comparison without operators");
         };
+        let rep = first.rep();
         f.ins().block(BlockType::Result(
             self.reprs
                 .local_type(Rep::Bool)
@@ -468,19 +469,20 @@ impl Emitter<'_> {
         ));
         self.expr(f, first);
         if !init.is_empty() {
-            let right = f.local(self.reprs.local_type(Rep::Int).expect("an int has a value"));
+            let right = f.local(self.reprs.local_type(rep).expect("an operand has a value"));
             for (op, operand) in init {
                 self.expr(f, operand);
-                f.ins().local_tee(right);
-                self.reprs.int_compare(f, *op);
+                f.ins().local_set(right);
+                self.reprs.load(f, rep, right);
+                self.reprs.compare(f, rep, *op);
                 f.ins().i32_eqz().if_(BlockType::Empty);
                 self.reprs.bool_literal(f, false);
                 f.ins().br(1).end();
-                self.reprs.load(f, Rep::Int, right);
+                self.reprs.load(f, rep, right);
             }
         }
         self.expr(f, last);
-        self.reprs.int_compare(f, *last_op);
+        self.reprs.compare(f, rep, *last_op);
         f.ins().end();
     }
 
