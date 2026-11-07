@@ -7,6 +7,10 @@ use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 
+/// The most code points in a `str`, the longest array that an `i32`
+/// length gives.
+const MAX_LEN: i64 = i32::MAX as i64;
+
 pub(super) enum StrRepr {
     /// One code point per element of an `(array (mut i32))`, so `s[i]` is
     /// O(1). The array is mutable only while a function builds it.
@@ -19,6 +23,9 @@ pub(super) enum StrRepr {
         decimal: u32,
         /// `(func (param (ref $Str) (ref $Str)) (result (ref $Str)))`.
         concat: u32,
+        /// `(func (param (ref $Str) i32) (result (ref null $Str)))`, which
+        /// repeats the `str`, and gives null when the result is too long.
+        repeat: u32,
         /// `(func (param (ref $Str) (ref $Str)) (result i32))`, which gives
         /// -1, 0 or 1 as the first `str` comes before, with or after the
         /// second one.
@@ -37,6 +44,7 @@ impl StrRepr {
             write,
             decimal: add_decimal(m, array),
             concat: add_concat(m, array),
+            repeat: add_repeat(m, array),
             compare: add_compare(m, array),
             literals: HashMap::new(),
         }
@@ -112,6 +120,17 @@ impl StrRepr {
         match self {
             StrRepr::Ucs4 { concat, .. } => {
                 f.ins().call(*concat);
+            }
+        }
+    }
+
+    /// Pops a `str` and an `i32`, and pushes the `str` repeated that many
+    /// times, or null when the result has more than [`MAX_LEN`] code
+    /// points.
+    pub fn repeat(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { repeat, .. } => {
+                f.ins().call(*repeat);
             }
         }
     }
@@ -363,5 +382,90 @@ fn add_compare(m: &mut ModuleState, array: u32) -> u32 {
         .array_len()
         .i32_lt_u()
         .i32_sub();
+    m.add_func(ty, f.finish())
+}
+
+fn add_repeat(m: &mut ModuleState, array: u32) -> u32 {
+    let ty = m.func_type(
+        &[ref_to(array, false), ValType::I32],
+        &[ref_to(array, true)],
+    );
+    let (s, n) = (0, 1);
+    let mut f = FuncState::new(2);
+    let len = f.local(ValType::I64);
+    let r = f.local(ref_to(array, true));
+    let done = f.local(ValType::I32);
+    let chunk = f.local(ValType::I32);
+    f.ins()
+        // A count below 1 gives the empty `str`.
+        .local_get(n)
+        .i32_const(0)
+        .i32_le_s()
+        .if_(BlockType::Empty)
+        .i32_const(0)
+        .array_new_default(array)
+        .return_()
+        .end()
+        .local_get(s)
+        .array_len()
+        .i64_extend_i32_u()
+        .local_get(n)
+        .i64_extend_i32_u()
+        .i64_mul()
+        .local_tee(len)
+        .i64_const(MAX_LEN)
+        .i64_gt_u()
+        .if_(BlockType::Empty)
+        .ref_null(HeapType::Concrete(array))
+        .return_()
+        .end()
+        .local_get(len)
+        .i32_wrap_i64()
+        .array_new_default(array)
+        .local_tee(r)
+        .i32_const(0)
+        .local_get(s)
+        .i32_const(0)
+        .local_get(s)
+        .array_len()
+        .array_copy(array, array)
+        .local_get(s)
+        .array_len()
+        .local_set(done)
+        // Each copy doubles the part of the result that is done.
+        .block(BlockType::Empty)
+        .loop_(BlockType::Empty)
+        .local_get(done)
+        .i64_extend_i32_u()
+        .local_get(len)
+        .i64_ge_u()
+        .br_if(1)
+        .local_get(done)
+        .local_get(len)
+        .i32_wrap_i64()
+        .local_get(done)
+        .i32_sub()
+        .local_get(done)
+        .local_get(len)
+        .i32_wrap_i64()
+        .local_get(done)
+        .i32_sub()
+        .i32_lt_u()
+        .select()
+        .local_set(chunk)
+        .local_get(r)
+        .local_get(done)
+        .local_get(r)
+        .i32_const(0)
+        .local_get(chunk)
+        .array_copy(array, array)
+        .local_get(done)
+        .local_get(chunk)
+        .i32_add()
+        .local_set(done)
+        .br(0)
+        .end()
+        .end()
+        .local_get(r);
     m.add_func(ty, f.finish())
 }

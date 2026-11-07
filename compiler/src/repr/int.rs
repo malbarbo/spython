@@ -78,6 +78,13 @@ impl IntRepr {
         }
     }
 
+    /// Pops an `int` and pushes it as an `i32`.
+    pub fn as_i32(&self, _f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { .. } => {}
+        }
+    }
+
     /// Pops two `int`s and pushes the result of `op`.
     pub fn arith(&self, f: &mut FuncState, op: ArithOp) {
         match self {

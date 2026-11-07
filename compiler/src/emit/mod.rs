@@ -414,6 +414,21 @@ impl Emitter<'_> {
                 self.expr(f, right);
                 self.reprs.str_concat(f);
             }
+            Expr::Repeat { left, right, site } => {
+                self.expr(f, left);
+                self.expr(f, right);
+                if left.rep() != Rep::Str {
+                    let s = f.local(self.reprs.local_type(Rep::Str).expect("a str has a value"));
+                    let n = f.local(self.reprs.local_type(Rep::Int).expect("an int has a value"));
+                    f.ins().local_set(s).local_set(n);
+                    self.reprs.load(f, Rep::Str, s);
+                    self.reprs.load(f, Rep::Int, n);
+                }
+                f.ins()
+                    .i32_const(site_index(*site))
+                    .local_set(self.code.site);
+                self.reprs.str_repeat(&mut self.m, f);
+            }
             Expr::Truth(operand) => {
                 self.expr(f, operand);
                 self.reprs.truth(f, operand.rep());

@@ -169,6 +169,21 @@ impl Reprs {
         self.int.arith(f, op);
     }
 
+    /// Pops a `str` and an `int`, and pushes the `str` repeated that many
+    /// times. A result too long for memory raises `MemoryError`.
+    pub fn str_repeat(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.str.repeat(f);
+        let result = f.local(self.str.val_type(true));
+        f.ins()
+            .local_tee(result)
+            .ref_is_null()
+            .if_(BlockType::Empty);
+        self.raise(m, f, "MemoryError");
+        f.ins().end();
+        self.load(f, Rep::Str, result);
+    }
+
     /// Pops two values of `rep` and pushes the `bool` of `op`.
     pub fn compare(&self, f: &mut FuncState, rep: Rep, op: CmpOp) {
         match rep {

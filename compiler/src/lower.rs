@@ -668,11 +668,26 @@ impl<'a> Lowering<'a, '_> {
         (left, left_node): (Expr, &impl Ranged),
         (right, right_node): (Expr, &impl Ranged),
     ) -> Result<Expr, Error> {
-        if left.rep() == Rep::Str && right.rep() == Rep::Str {
-            return match op {
-                ast::Operator::Add => Ok(Expr::Concat(Box::new(left), Box::new(right))),
-                _ => Err(unsupported(node, "this operator")),
-            };
+        match (op, left.rep(), right.rep()) {
+            (ast::Operator::Add, Rep::Str, Rep::Str) => {
+                return Ok(Expr::Concat(Box::new(left), Box::new(right)));
+            }
+            (ast::Operator::Mult, Rep::Str, _) => {
+                return Ok(Expr::Repeat {
+                    left: Box::new(left),
+                    right: Box::new(self.int_value(right, right_node)?),
+                    site: self.site(node.range()),
+                });
+            }
+            (ast::Operator::Mult, _, Rep::Str) => {
+                return Ok(Expr::Repeat {
+                    left: Box::new(self.int_value(left, left_node)?),
+                    right: Box::new(right),
+                    site: self.site(node.range()),
+                });
+            }
+            (_, Rep::Str, _) | (_, _, Rep::Str) => return Err(unsupported(node, "this operator")),
+            _ => {}
         }
         let op = arith_op(op).ok_or_else(|| unsupported(node, "this operator"))?;
         Ok(Expr::Arith {

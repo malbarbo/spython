@@ -256,6 +256,41 @@ fn a_chain_of_comparisons_stops_at_the_first_false() {
 }
 
 #[test]
+fn the_product_of_a_str_and_an_int_repeats_the_str() {
+    same_as_cpython(
+        "the_product_of_a_str_and_an_int_repeats_the_str",
+        "n = 3\nprint('ab' * n, n * 'é', 'ab' * 0, 'ab' * -2, '' * 5, 'x' * True, False * 'x')\ns = 'ab'\ns *= 5\nprint(s)\nprint('xyz' * 7)\n",
+    );
+}
+
+#[test]
+fn the_product_of_an_int_and_a_str_evaluates_the_int_first() {
+    same_as_cpython(
+        "the_product_of_an_int_and_a_str_evaluates_the_int_first",
+        "def f(s: str) -> str:\n    print(s)\n    return s\n\n\ndef g(n: int) -> int:\n    print(n)\n    return n\n\n\nprint(g(2) * f('a'))\nprint(f('b') * g(3))\n",
+    );
+}
+
+#[test]
+fn a_str_longer_than_an_array_raises_memory_error() {
+    let output = run(
+        "a_str_longer_than_an_array_raises_memory_error",
+        "s = 'abc'\nprint(1)\nprint(s * 1073741823)\n",
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n", "stdout");
+    let path = path("a_str_longer_than_an_array_raises_memory_error", "py");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "Traceback (most recent call last):\n  File \"{}\", line 3, in <module>\n    print(s * 1073741823)\n          ~~^~~~~~~~~~~~\nMemoryError\n",
+            path.display()
+        ),
+        "stderr"
+    );
+    assert_eq!(output.status.code(), Some(1), "exit code");
+}
+
+#[test]
 fn the_comparisons_of_str_follow_the_order_of_the_code_points() {
     let strs = [
         "",

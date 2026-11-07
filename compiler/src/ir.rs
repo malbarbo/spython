@@ -122,6 +122,14 @@ pub(crate) enum Expr {
     },
     /// Two `str`s, one after the other.
     Concat(Box<Expr>, Box<Expr>),
+    /// A `str` repeated an `int` number of times, where either operand may
+    /// come first. The result raises `MemoryError` at the site when it is
+    /// too long.
+    Repeat {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        site: Site,
+    },
     /// The truth of an `int` or a `str`, as a `bool`. An `int` is true
     /// when it is not 0, and a `str` when it is not empty.
     Truth(Box<Expr>),
@@ -179,7 +187,7 @@ pub(crate) enum Rep {
 impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
-            Expr::Str(_) | Expr::Concat(..) => Rep::Str,
+            Expr::Str(_) | Expr::Concat(..) | Expr::Repeat { .. } => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
