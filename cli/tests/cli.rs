@@ -2011,6 +2011,88 @@ fn level5_allows_a_float_exponent_with_a_positive_base_or_a_whole_exponent() {
 }
 
 #[test]
+fn level0_rejects_is_with_an_int_and_suggests_eq() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def is_zero(n: int) -> bool:
+            return n is 0
+    "},
+    );
+    assert!(!success);
+    assert!(
+        err.contains(
+            "error[is-comparison]: Whether two values of type `int` are the same object \
+             depends on the implementation; use `==`"
+        ),
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level5_rejects_is_with_a_value_whose_identity_depends_on_the_implementation() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        from typing import Any
+        def f[T](n: int, x: float, z: complex, b: bool, s: str, by: bytes,
+                 t: tuple[int, int], m: int | None, a: Any, o: object,
+                 v: T, w: T) -> None:
+            print(n is 1000)
+            print(x is x)
+            print(z is z)
+            print(b is True)
+            print(s is 'a')
+            print(by is b'a')
+            print(t is (1, 2))
+            print(m is n)
+            print(a is a)
+            print(o is o)
+            print(v is w)
+            print(n is not 1000)
+            print(0 < n is n)
+    "},
+    );
+    assert!(!success);
+    for line in 5..=17 {
+        assert!(
+            err.contains(&format!(":{line}:")),
+            "line {line}, stderr: {err}"
+        );
+    }
+    assert_eq!(
+        err.matches("error[is-comparison]").count(),
+        13,
+        "stderr: {err}"
+    );
+    assert!(err.contains("use `!=`"), "stderr: {err}");
+}
+
+#[test]
+fn level5_allows_is_with_none_enum_members_and_objects() {
+    let (out, err, success) = run_level(
+        5,
+        indoc! {"
+        from dataclasses import dataclass
+        from enum import Enum, IntEnum
+        class Color(Enum):
+            RED = 1
+        class Size(IntEnum):
+            SMALL = 1
+        @dataclass
+        class Point:
+            x: int
+        def f(n: int | None, c: Color, s: Size, p: Point, xs: list[int]) -> None:
+            print(n is None, None is not n, c is Color.RED, s is Size.SMALL)
+            print(p is p, p is Point(1), type(p) is Point, xs is xs, xs is [])
+        f(None, Color.RED, Size.SMALL, Point(1), [])
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "True False True True\nTrue False True True False\n");
+}
+
+#[test]
 fn level4_allows_non_bool_if() {
     let (out, err, success) = run_level(
         4,

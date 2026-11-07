@@ -29,7 +29,7 @@ use crate::lints::{
     FORBIDDEN_COLLECTION_LITERAL, FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT,
     FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP, FORBIDDEN_MATCH, FORBIDDEN_SELECTION,
     INVALID_ARGUMENT_NAME, INVALID_CLASS_NAME, INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD,
-    INVALID_FUNCTION_NAME, LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION,
+    INVALID_FUNCTION_NAME, IS_COMPARISON, LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION,
     MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL,
     NON_BOOLEAN_CONDITION, NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER,
     NONE_COMPARISON, NOT_IN_TEST, NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME,
@@ -743,6 +743,87 @@ impl Checker<'_> {
         }
     }
 
+    /// Check every `is` and `is not` of `cmp`.
+    fn check_is_comparisons(&mut self, cmp: &ruff_python_ast::ExprCompare) {
+        let mut left = cmp.first_operand();
+        for (op, right) in cmp.ops.iter().zip(cmp.comparators()) {
+            if matches!(op, CmpOp::Is | CmpOp::IsNot) {
+                self.check_is_comparison(*op, left, right);
+            }
+            left = right;
+        }
+    }
+
+    /// Reject `left is right` when a side can be a value whose identity
+    /// depends on the implementation. A side that is `None` makes the
+    /// comparison fine, because no other value is the same object as `None`.
+    fn check_is_comparison(&mut self, op: CmpOp, left: &Expr, right: &Expr) {
+        let (Some(left_ty), Some(right_ty)) = (
+            left.inferred_type(self.model),
+            right.inferred_type(self.model),
+        ) else {
+            return;
+        };
+        let db = self.model.db();
+        if left_ty.is_none(db) || right_ty.is_none(db) {
+            return;
+        }
+        let value_ty = if self.identity_depends_on_implementation(left_ty) {
+            left_ty
+        } else if self.identity_depends_on_implementation(right_ty) {
+            right_ty
+        } else {
+            return;
+        };
+        let env = self.model.program_environment();
+        let instead = if op == CmpOp::Is { "==" } else { "!=" };
+        self.push(
+            &IS_COMPARISON,
+            TextRange::new(left.start(), right.end()),
+            format!(
+                "Whether two values of type `{}` are the same object depends on the \
+                 implementation; use `{instead}`",
+                value_ty.display(db, &env)
+            ),
+        );
+    }
+
+    /// Returns `true` if a value of type `ty` can be an `int`, a `float`, a
+    /// `complex`, a `bool`, a `str`, a `bytes` or a `tuple`, `false`
+    /// otherwise.
+    fn identity_depends_on_implementation(&self, ty: Type) -> bool {
+        let db = self.model.db();
+        let env = self.model.program_environment();
+        let object_ty = KnownClass::Object.to_instance(db, &env);
+        let classes = [
+            KnownClass::Int.to_instance(db, &env),
+            KnownClass::Float.to_instance(db, &env),
+            KnownClass::Complex.to_instance(db, &env),
+            KnownClass::Bool.to_instance(db, &env),
+            KnownClass::Str.to_instance(db, &env),
+            KnownClass::Bytes.to_instance(db, &env),
+            Type::homogeneous_tuple(db, &env, object_ty),
+        ];
+        let enum_ty = KnownClass::Enum.to_instance(db, &env);
+        let members = match ty {
+            Type::Union(union) => union.elements(db).to_vec(),
+            ty => vec![ty],
+        };
+        members.iter().any(|member| match member {
+            Type::Never => false,
+            Type::Dynamic(_) => true,
+            // A `TypeVar` can stand for any of the classes, and the checker
+            // cannot read its bound.
+            Type::TypeVar(_) => true,
+            // An `IntEnum` member is an `int`, but every member is one object.
+            _ if member.is_none(db) || member.is_assignable_to(db, &env, enum_ty) => false,
+            _ => classes.iter().any(|class| {
+                member.is_assignable_to(db, &env, *class)
+                    || class.is_assignable_to(db, &env, *member)
+            }),
+        })
+    }
+
     /// E713 / E714: `not <a> in <b>` → `<a> not in <b>`; `not <a> is <b>` →
     /// `<a> is not <b>`. Only fires for a single-op comparison.
     fn check_not_test(&mut self, unary: &ruff_python_ast::ExprUnaryOp) {
@@ -1319,6 +1400,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 UnaryOp::Invert => {}
             },
             Expr::If(e) => self.check_bool_ctx(&e.test),
+            Expr::Compare(cmp) => self.check_is_comparisons(cmp),
             _ => {}
         }
 

@@ -334,6 +334,35 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Rejects `is` and `is not` at every level when a side can be an `int`,
+    /// a `float`, a `complex`, a `bool`, a `str`, a `bytes` or a `tuple`,
+    /// unless the other side is `None`.
+    ///
+    /// ## Why is this bad?
+    /// Whether two equal values of these classes are the same object depends
+    /// on the implementation. With `n = 1000`, `n is 1000` is `True` in
+    /// CPython and `False` in spython.
+    ///
+    /// ## Example
+    /// ```python
+    /// def is_zero(n: int) -> bool:
+    ///     return n is 0   # error: is comparison
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def is_zero(n: int) -> bool:
+    ///     return n == 0
+    /// ```
+    pub(crate) static IS_COMPARISON = {
+        summary: "is comparison with a value whose identity depends on the implementation",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects chained comparisons like `a < b < c` or `a == b != c` at
     /// teaching levels 0–3.
     ///
