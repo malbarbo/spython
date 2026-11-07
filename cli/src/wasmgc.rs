@@ -3,7 +3,7 @@
 
 use std::io::Write as _;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use engine::check::check_file_keeping_db;
 use engine::{Level, SpythonError, read_file};
@@ -35,24 +35,38 @@ pub fn run(file: &Path, level: Level) -> Result<(), SpythonError> {
         .map_err(|err| other(format!("cannot write the module file: {err}")))?;
 
     // The stack of 8 MiB holds the 1000 frames of the recursion limit of
-    // CPython.
-    let status = Command::new("wasmtime")
+    // CPython, and a backtrace of 2000 frames holds them too. The module
+    // writes to the standard error only before it ends, so the error
+    // comes after the standard output when it waits for the end.
+    let output = Command::new("wasmtime")
         .args([
             "run",
             "-W",
             "gc=y,function-references=y,exceptions=y,max-wasm-stack=8388608",
+            "-D",
+            "max-backtrace=2000",
             "--invoke",
             "_start",
         ])
         .arg(wasm.path())
-        .status()
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::piped())
+        .output()
         .map_err(|err| other(format!("cannot run wasmtime: {err}")))?;
-    // The module wrote the traceback of a program that failed.
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SpythonError::ProgramFailed)
+    if output.status.success() {
+        return Ok(());
     }
+    // The module wrote the traceback of a program that failed, unless
+    // wasmtime stopped it.
+    let error = String::from_utf8_lossy(&output.stderr);
+    let mut stderr = std::io::stderr();
+    let written = match module.memory_error(&error) {
+        Some(traceback) => stderr.write_all(traceback.as_bytes()),
+        None => stderr.write_all(&output.stderr),
+    };
+    written.map_err(|err| other(format!("cannot write the error: {err}")))?;
+    Err(SpythonError::ProgramFailed)
 }
 
 /// The line and the column of `offset` in `source`, both from 1, where the

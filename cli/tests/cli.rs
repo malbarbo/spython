@@ -250,6 +250,26 @@ fn the_wasmgc_backend_runs_a_file() {
     }
 }
 
+/// A `str` of 4.8 GB is more than the GC heap of wasmtime holds.
+#[test]
+fn the_wasmgc_backend_writes_the_traceback_of_a_memory_error() {
+    let source = "print('start')\ns = 'ab' * 600_000_000\n";
+    let dir = new_dir_with("wasmgc_memory", &[("main.py", source)]);
+    let (out, err, success) = run_spython_native(&["--backend=wasmgc", "main.py"], dir.path());
+    assert!(!success);
+    assert_eq!(out, "start\n");
+    assert_eq!(
+        err,
+        indoc! {r#"
+            Traceback (most recent call last):
+              File "main.py", line 2, in <module>
+                s = 'ab' * 600_000_000
+                    ~~~~~^~~~~~~~~~~~~
+            MemoryError
+        "#}
+    );
+}
+
 /// The column counts code points, as the diagnostics of the checker do.
 #[test]
 fn the_wasmgc_backend_names_the_place_of_what_it_does_not_support() {
