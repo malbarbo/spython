@@ -1,8 +1,11 @@
 //! Each test compiles a program, runs it in wasmtime and in CPython, and
 //! compares what the two print and how they exit.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use engine::Level;
 use engine::check::check_source;
@@ -30,12 +33,12 @@ fn wasmtime(name: &str, module: &[u8]) -> Output {
     let path = path(name, "wasm");
     std::fs::write(&path, module).expect("the module written to disk");
     let wasmtime = std::env::var("WASMTIME").unwrap_or_else(|_| "wasmtime".to_owned());
-    Command::new(wasmtime)
+    let mut command = Command::new(wasmtime);
+    command
         .args(["run", "-W", "gc=y,function-references=y,exceptions=y"])
         .args(["--invoke", "_start"])
-        .arg(&path)
-        .output()
-        .expect("wasmtime to start")
+        .arg(&path);
+    output_within_limit(command)
 }
 
 /// Runs `source` in the python3 on the `PATH`, or in the one that `PYTHON`
@@ -44,10 +47,51 @@ fn cpython(name: &str, source: &str) -> Output {
     let path = path(name, "py");
     std::fs::write(&path, source).expect("the program written to disk");
     let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
-    Command::new(python)
-        .arg(&path)
-        .output()
-        .expect("python3 to start")
+    let mut command = Command::new(python);
+    command.arg(&path);
+    output_within_limit(command)
+}
+
+/// Runs `command` and collects what it prints. A test fails when the
+/// program runs for more than 10 seconds, which is a program that never
+/// ends, so the other tests still run.
+fn output_within_limit(mut command: Command) -> Output {
+    let limit = Duration::from_secs(10);
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the program to start");
+    // Each pipe has its own reader, so a program that fills one pipe does
+    // not stop while the test waits on the other.
+    let stdout = read_in_thread(child.stdout.take().expect("a piped stdout"));
+    let stderr = read_in_thread(child.stderr.take().expect("a piped stderr"));
+    let start = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("the status of the program") {
+            break status;
+        }
+        if start.elapsed() > limit {
+            child.kill().expect("the program to stop");
+            child.wait().expect("the program to stop");
+            panic!("{command:?} ran for more than {limit:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    Output {
+        status,
+        stdout: stdout.join().expect("the reader of stdout"),
+        stderr: stderr.join().expect("the reader of stderr"),
+    }
+}
+
+fn read_in_thread(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        pipe.read_to_end(&mut bytes)
+            .expect("the output of the program");
+        bytes
+    })
 }
 
 /// Asserts that the compiled `source` prints what CPython prints, and exits
