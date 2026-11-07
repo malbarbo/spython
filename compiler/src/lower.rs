@@ -197,7 +197,7 @@ impl Lowering<'_, '_> {
                     let body = self.body(&clause.body)?;
                     else_ = match &clause.test {
                         Some(test) => vec![Stmt::If {
-                            cond: self.cond(test)?,
+                            cond: self.truth_of(test)?,
                             then: body,
                             else_,
                         }],
@@ -205,13 +205,13 @@ impl Lowering<'_, '_> {
                     };
                 }
                 Ok(Some(Stmt::If {
-                    cond: self.cond(&i.test)?,
+                    cond: self.truth_of(&i.test)?,
                     then: self.body(&i.body)?,
                     else_,
                 }))
             }
             ast::Stmt::While(w) => Ok(Some(Stmt::While {
-                cond: self.cond(&w.test)?,
+                cond: self.truth_of(&w.test)?,
                 body: self.body(&w.body)?,
                 else_: self.body(&w.orelse)?,
             })),
@@ -222,9 +222,50 @@ impl Lowering<'_, '_> {
         }
     }
 
-    /// The condition of an `if` or a `while`.
-    fn cond(&self, test: &ast::Expr) -> Result<Expr, Error> {
-        truth(self.expr(test)?, test)
+    /// The truth of `expr` as a `bool`, where only the truth matters, as
+    /// in a condition. The truth of `a and b` is the truth of `a` and the
+    /// truth of `b`, so `a` and `b` may have two types.
+    fn truth_of(&self, expr: &ast::Expr) -> Result<Expr, Error> {
+        match expr {
+            ast::Expr::BoolOp(b) => self.bool_op(b, Self::truth_of),
+            ast::Expr::UnaryOp(ast::ExprUnaryOp {
+                op: ast::UnaryOp::Not,
+                operand,
+                ..
+            }) => Ok(Expr::Not(Box::new(self.truth_of(operand)?))),
+            _ => truth(self.expr(expr)?, expr),
+        }
+    }
+
+    /// `and` or `or`, with each operand lowered by `operand`.
+    fn bool_op(
+        &self,
+        b: &ast::ExprBoolOp,
+        operand: impl Fn(&Self, &ast::Expr) -> Result<Expr, Error>,
+    ) -> Result<Expr, Error> {
+        let op = match b.op {
+            ast::BoolOp::And => LogicOp::And,
+            ast::BoolOp::Or => LogicOp::Or,
+        };
+        let (first, rest) = b
+            .values
+            .split_first()
+            .expect("a bool operator has operands");
+        let first = operand(self, first)?;
+        let rep = first.rep();
+        // `a and b and c` gives the value of `(a and b) and c`, and
+        // evaluates the same operands.
+        rest.iter().try_fold(first, |left, right| {
+            let lowered = operand(self, right)?;
+            if lowered.rep() != rep {
+                return Err(unsupported(b, "operands of two types"));
+            }
+            Ok(Expr::Logic {
+                op,
+                left: Box::new(left),
+                right: Box::new(lowered),
+            })
+        })
     }
 
     /// The variable that `target` names, which has to hold the rep of
@@ -298,31 +339,7 @@ impl Lowering<'_, '_> {
                     site: self.site(b.range()),
                 })
             }
-            ast::Expr::BoolOp(b) => {
-                let op = match b.op {
-                    ast::BoolOp::And => LogicOp::And,
-                    ast::BoolOp::Or => LogicOp::Or,
-                };
-                let (first, rest) = b
-                    .values
-                    .split_first()
-                    .expect("a bool operator has operands");
-                let first = self.logic_operand(first)?;
-                let rep = first.rep();
-                // `a and b and c` gives the value of `(a and b) and c`, and
-                // evaluates the same operands.
-                rest.iter().try_fold(first, |left, right| {
-                    let lowered = self.logic_operand(right)?;
-                    if lowered.rep() != rep {
-                        return Err(unsupported(expr, "operands of two types"));
-                    }
-                    Ok(Expr::Logic {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(lowered),
-                    })
-                })
-            }
+            ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
             ast::Expr::Compare(c) => {
                 let first = self.int_operand(c.first_operand())?;
                 let rest = c
@@ -368,10 +385,7 @@ impl Lowering<'_, '_> {
                 }
             },
             ast::UnaryOp::UAdd => self.int_operand(&u.operand),
-            ast::UnaryOp::Not => {
-                let operand = truth(self.expr(&u.operand)?, &*u.operand)?;
-                Ok(Expr::Not(Box::new(operand)))
-            }
+            ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.truth_of(&u.operand)?))),
             ast::UnaryOp::Invert => Err(unsupported(u, "this operator")),
         }
     }

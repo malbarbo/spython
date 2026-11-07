@@ -554,6 +554,19 @@ fn and_and_or_give_an_operand_of_int_or_str() {
 }
 
 #[test]
+fn and_and_or_of_two_types_take_the_truth_of_each_where_only_the_truth_matters() {
+    same_as_cpython(
+        "and_and_or_of_two_types_take_the_truth_of_each_where_only_the_truth_matters",
+        "m = 3\nt = 'abc'\n\
+         while m and t:\n    m -= 1\n\
+         print(m)\n\
+         if not (m or t) or m and not t:\n    print('nunca')\nelif t and (m == 0 or t):\n    print('sim')\n\
+         print(not (m and t), not ('' or 2), not (m or t and 1 > 2))\n\
+         print(not (0 and 1 // 0))  # ty: ignore[division-by-zero]\n",
+    );
+}
+
+#[test]
 fn and_of_operands_of_two_types_is_unsupported() {
     assert_eq!(
         unsupported("t = True\nprint(t and 1)\n"),
