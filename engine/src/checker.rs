@@ -1857,7 +1857,6 @@ fn forbidden_msg(construct: &str, level: Level, min_level: Level) -> String {
     format!("{construct} is not allowed at level {level}, requires level {min_level}")
 }
 
-/// Create a lint diagnostic that matches ty's format.
 /// Add a note to each error of ty about a power of two ints that is not an
 /// `int`. The type of `2 ** n` is `int | float`, because a negative `n`
 /// gives a `float`, and the message of ty does not say why.
@@ -1984,6 +1983,7 @@ fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
     powers.ranges
 }
 
+/// Create a lint diagnostic that matches ty's format.
 pub(crate) fn make_lint_diagnostic(
     lint: &LintMetadata,
     file: File,
