@@ -672,6 +672,12 @@ dependencies = [
 name = "compiler"
 version = "0.3.0"
 dependencies = [
+ "engine",
+ "ruff_db",
+ "ruff_python_ast",
+ "ruff_text_size",
+ "ty_module_resolver",
+ "ty_python_semantic",
  "wasm-encoder",
  "wasmparser",
 ]

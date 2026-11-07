@@ -7,5 +7,14 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+ruff_db = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_python_ast = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ruff_text_size = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ty_module_resolver = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
+ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
 wasm-encoder = { version = "0.263", default-features = false, features = ["std"] }
 wasmparser = { version = "0.263", default-features = false, features = ["std", "validate", "features"] }
+
+[dev-dependencies]
+# The in-memory checker builds the database the tests compile from.
+engine = { path = "../engine" }

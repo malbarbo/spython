@@ -1,39 +1,36 @@
 //! The compiler from the Python of spython to a WasmGC module.
 
-use wasm_encoder::{
-    CodeSection, ExportKind, ExportSection, Function, FunctionSection, Module, TypeSection,
-};
+mod emit;
+mod ir;
+mod lower;
+mod repr;
+
+use ruff_db::files::File;
+use ruff_text_size::TextRange;
+use ty_python_semantic::Db;
 use wasmparser::{BinaryReaderError, Validator, WasmFeatures};
 
-/// The module of a program that does nothing.
-///
-/// It is a WASI command, so `wasmtime run` calls its `_start`.
-pub fn compile() -> Result<Vec<u8>, BinaryReaderError> {
-    let mut types = TypeSection::new();
-    types.ty().function([], []);
-    let mut functions = FunctionSection::new();
-    functions.function(0);
-    let mut exports = ExportSection::new();
-    exports.export("_start", ExportKind::Func, 0);
-    let mut code = CodeSection::new();
-    let mut start = Function::new([]);
-    start.instructions().end();
-    code.function(&start);
+/// Why a program did not compile.
+#[derive(Debug)]
+pub enum Error {
+    /// The program uses something the compiler does not cover yet.
+    Unsupported { range: TextRange, what: String },
+    /// The compiler made an invalid module, which is a bug in the compiler.
+    Invalid(BinaryReaderError),
+}
 
-    let mut module = Module::new();
-    module
-        .section(&types)
-        .section(&functions)
-        .section(&exports)
-        .section(&code);
-    let bytes = module.finish();
-    validate(&bytes)?;
+/// The module of the program in `file`, which the checker has accepted.
+///
+/// The module is a WASI command, and its `_start` runs the program.
+pub fn compile(db: &dyn Db, file: File) -> Result<Vec<u8>, Error> {
+    let program = lower::lower(db, file)?;
+    let bytes = emit::emit(&program);
+    validate(&bytes).map_err(Error::Invalid)?;
     Ok(bytes)
 }
 
 /// Returns `Ok` if `bytes` is a valid module for the features the compiler
-/// uses, and the reason it is not otherwise. An invalid module is a bug in
-/// the compiler.
+/// uses, and the reason it is not otherwise.
 fn validate(bytes: &[u8]) -> Result<(), BinaryReaderError> {
     let features = WasmFeatures::default()
         | WasmFeatures::GC
