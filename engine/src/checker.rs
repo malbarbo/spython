@@ -356,12 +356,7 @@ impl Checker<'_> {
 
     /// Check the base and the exponent of a call to `pow`.
     fn check_pow_call(&mut self, call: &ExprCall) {
-        let is_pow = call
-            .func
-            .inferred_type(self.model)
-            .and_then(Type::as_function_literal)
-            .is_some_and(|function| function.known(self.model.db()) == Some(KnownFunction::Pow));
-        if !is_pow {
+        if !is_builtin_pow(self.model, call) {
             return;
         }
         let arguments = &call.arguments;
@@ -1453,6 +1448,14 @@ fn is_arithmetic_op(op: Operator) -> bool {
     )
 }
 
+/// Returns `true` if `call` calls the builtin `pow`, `false` otherwise.
+fn is_builtin_pow(model: &SemanticModel, call: &ExprCall) -> bool {
+    call.func
+        .inferred_type(model)
+        .and_then(Type::as_function_literal)
+        .is_some_and(|function| function.known(model.db()) == Some(KnownFunction::Pow))
+}
+
 /// The value of `expr` when it is a `float` literal, with or without a unary
 /// `+` or `-`.
 fn float_literal(expr: &Expr) -> Option<f64> {
@@ -1959,19 +1962,12 @@ fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
                 Expr::BinOp(e) => e.op == Operator::Pow && self.are_ints([&*e.left, &*e.right]),
                 Expr::Call(call) => {
                     let arguments = &call.arguments;
-                    let is_pow = call
-                        .func
-                        .inferred_type(self.model)
-                        .and_then(Type::as_function_literal)
-                        .is_some_and(|function| {
-                            function.known(self.model.db()) == Some(KnownFunction::Pow)
-                        });
                     match (
                         arguments.find_argument_value("base", 0),
                         arguments.find_argument_value("exp", 1),
                     ) {
                         (Some(base), Some(exp)) => {
-                            is_pow
+                            is_builtin_pow(self.model, call)
                                 && arguments.find_argument_value("mod", 2).is_none()
                                 && self.are_ints([base, exp])
                         }
