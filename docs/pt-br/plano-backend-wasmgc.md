@@ -98,9 +98,9 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
     inteiro, exceto a base 0 e o expoente `-0.0`, em que o RustPython
     diverge do CPython. No compilador, `int | float` é uma união na forma
     `(ref null eq)`, e o expoente negativo deixa de parar o programa. O
-    `complex` ainda existe no spython, pelo tipo `complex`, pelos literais
-    como `2j` e pelo `**` sobre `Any`, e pela decisão 3 o compilador pede um
-    diagnóstico do checker para ele.
+    `complex` ainda existe no spython, pelo tipo `complex` e pelos literais
+    como `2j`, e pela decisão 3 o compilador pede um diagnóstico do checker
+    para ele.
 12. O lint `is-comparison`, em todos os níveis, rejeita `is` e `is not`
     quando um dos lados pode ser `int`, `float`, `complex`, `bool`, `str`,
     `bytes` ou `tuple`, ou é `Any` ou um `TypeVar`, a não ser que o outro
@@ -113,6 +113,20 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
 14. O corpus da decisão 3 inclui as transcrições de REPL dos `.md`. Por
     causa do `2 ** 80` de uma aula, o RustPython só sai depois dos
     inteiros grandes.
+15. O compilador nunca vê um tipo dinâmico. Com `Any`, ele não sabe a
+    representação do valor nem qual operação emitir. Despachar todo operador
+    em tempo de execução custaria caro, e testar o tipo na conversão pararia
+    o programa onde o CPython segue. O lint `dynamic-type`, em todos os
+    níveis, rejeita um valor cujo tipo é `Any` ou `Unknown`, ou tem um deles
+    dentro, como o `list[Unknown]` de um `[]` sem contexto. O erro aparece
+    onde o tipo nasce: numa expressão cujas partes têm tipo conhecido, numa
+    anotação, num parâmetro de lambda ou num nome importado de uma
+    biblioteca. Quando há outro erro, os do `dynamic-type` somem, porque um
+    nome que não resolve espalha `Unknown` por tudo que o usa. O resultado
+    de `eval`, `getattr` e `open` é dinâmico, e o lint o rejeita. No corpus,
+    a regra rejeita `lst == []`, em quatro exemplos de recursividade, e o
+    `>>> lst = []` de um doctest. Se o compilador encontrar um tipo
+    dinâmico, é bug do checker, e ele para com um erro interno.
 
 
 ## Desenho
