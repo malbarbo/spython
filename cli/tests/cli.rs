@@ -3822,6 +3822,22 @@ fn level5_rejects_a_lambda_parameter_without_a_type() {
 }
 
 #[test]
+fn level5_rejects_a_name_imported_from_a_library_with_a_dynamic_type() {
+    // The stub of `enum` declares `_auto_null: Any`.
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        from enum import _auto_null
+
+        print(_auto_null)
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("dynamic-type").count(), 1, "stderr: {err}");
+    assert!(err.contains("`_auto_null` has type `Any`"), "stderr: {err}");
+}
+
+#[test]
 fn level5_rejects_an_empty_list_without_a_type_in_a_doctest() {
     let (_, err, success) = run_level(
         5,
