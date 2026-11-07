@@ -68,9 +68,15 @@ fn wasmtime(name: &str, module: &compiler::Module, heap: Option<u32>) -> Output 
 fn cpython(name: &str, source: &str) -> Output {
     let path = path(name, "py");
     std::fs::write(&path, source).expect("the program written to disk");
+    python(&path)
+}
+
+/// Runs the program in `file` in the python3 on the `PATH`, or in the one
+/// that `PYTHON` names.
+fn python(file: &Path) -> Output {
     let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
     let mut command = Command::new(python);
-    command.arg(&path);
+    command.arg(file);
     output_within_limit(command)
 }
 
@@ -1336,3 +1342,4 @@ fn a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out() {
         ),
     );
 }
+
