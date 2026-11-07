@@ -101,9 +101,14 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
     `complex` ainda existe no spython, pelo tipo `complex`, pelos literais
     como `2j` e pelo `**` sobre `Any`, e pela decisão 3 o compilador pede um
     diagnóstico do checker para ele.
-12. Um lint, em todos os níveis, só aceita `is` com `None`, com membros de
-    Enum e com instâncias de classe. Com números e strings, o resultado de
-    `is` depende da representação.
+12. O lint `is-comparison`, em todos os níveis, rejeita `is` e `is not`
+    quando um dos lados pode ser `int`, `float`, `complex`, `bool`, `str`,
+    `bytes` ou `tuple`, ou é `Any` ou um `TypeVar`, a não ser que o outro
+    lado seja `None`. Com esses tipos, o resultado de `is` depende da
+    representação. Com `n = 1000`, `n is 1000` já dava `True` no CPython e
+    `False` no RustPython. Membros de Enum, instâncias de classe, `list`,
+    `dict` e `set` continuam aceitos, e o compilador os compara com
+    `ref.eq`.
 13. As mensagens de erro e o traceback seguem o CPython, sempre.
 14. O corpus da decisão 3 inclui as transcrições de REPL dos `.md`. Por
     causa do `2 ** 80` de uma aula, o RustPython só sai depois dos
