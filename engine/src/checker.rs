@@ -261,10 +261,7 @@ impl Checker<'_> {
         let is_bool = |ty: &Type| {
             ty.is_assignable_to(db, &env, bool_ty) && !ty.is_assignable_to(db, &env, str_ty)
         };
-        let has_bool = match ty {
-            Type::Union(union) => union.elements(db).iter().any(is_bool),
-            ty => is_bool(&ty),
-        };
+        let has_bool = union_members(db, &ty).iter().any(is_bool);
         if has_bool {
             self.push(
                 &BOOL_IN_ARITHMETIC,
@@ -294,14 +291,8 @@ impl Checker<'_> {
         };
         let db = self.model.db();
         let env = self.model.program_environment();
-        let base_members = match base_ty {
-            Type::Union(union) => union.elements(db).to_vec(),
-            ty => vec![ty],
-        };
-        let exponent_members = match exponent_ty {
-            Type::Union(union) => union.elements(db).to_vec(),
-            ty => vec![ty],
-        };
+        let base_members = union_members(db, &base_ty);
+        let exponent_members = union_members(db, &exponent_ty);
         let float_ty = KnownClass::Float.to_instance(db, &env);
         let is_real = |ty: &Type| {
             ty.as_int_literal().is_some()
@@ -827,10 +818,7 @@ impl Checker<'_> {
             Type::homogeneous_tuple(db, &env, object_ty),
         ];
         let enum_ty = KnownClass::Enum.to_instance(db, &env);
-        let members = match ty {
-            Type::Union(union) => union.elements(db).to_vec(),
-            ty => vec![ty],
-        };
+        let members = union_members(db, &ty);
         members.iter().any(|member| match member {
             Type::Never => false,
             Type::Dynamic(_) => true,
@@ -1446,6 +1434,17 @@ fn is_arithmetic_op(op: Operator) -> bool {
             | Operator::LShift
             | Operator::RShift
     )
+}
+
+/// The members of `ty` when it is a union, and `ty` alone otherwise.
+fn union_members<'a, 'db>(db: &'db dyn ty_python_semantic::Db, ty: &'a Type<'db>) -> &'a [Type<'db>]
+where
+    'db: 'a,
+{
+    match ty {
+        Type::Union(union) => union.elements(db),
+        ty => std::slice::from_ref(ty),
+    }
 }
 
 /// Returns `true` if `call` calls the builtin `pow`, `false` otherwise.
