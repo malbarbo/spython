@@ -34,5 +34,4 @@ print(
 )
 s = join(fill(red), stroke(blue), none, fill(green, opacity=0.1))
 print(s)
-print(eval(repr(s)) == s)
 print([circle(5, fill(red))])

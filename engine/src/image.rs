@@ -1537,3 +1537,27 @@ pub(crate) mod _spython_image {
             .map_err(|e| vm.new_value_error(e.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// The checker rejects `eval`, so the source runs in the interpreter
+    /// alone. A failed assert fails the run.
+    #[test]
+    fn the_repr_of_a_value_evaluates_to_an_equal_value() {
+        let source = "\
+from spython import *
+
+for value in [
+    red,
+    Color(1, 2, 3, 0.5),
+    Font(family='mono', size=20, style=ITALIC, weight=BOLD, underline=True),
+    none,
+    fill(red, opacity=0.5, rule=FillRule.EVENODD),
+    stroke(blue, width=2, dash_array=[1, 2.5], linecap=LineCap.ROUND, linejoin=LineJoin.BEVEL),
+    join(fill(red), stroke(blue), none, fill(green, opacity=0.1)),
+]:
+    assert eval(repr(value)) == value, repr(value)
+";
+        assert!(crate::run::run_source(source, "repr_test.py", ".").is_ok());
+    }
+}
