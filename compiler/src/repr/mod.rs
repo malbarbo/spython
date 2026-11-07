@@ -126,6 +126,12 @@ impl Reprs {
         self.exc.raise(f);
     }
 
+    /// Pops a `str` and raises an exception with it as the last line of its
+    /// traceback.
+    pub fn raise_message(&self, f: &mut FuncState) {
+        self.exc.raise(f);
+    }
+
     /// Pushes the `str` with the text `s`.
     pub fn str_literal(&mut self, m: &mut ModuleState, f: &mut FuncState, s: &str) {
         self.str.literal(m, f, s);

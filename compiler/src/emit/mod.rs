@@ -5,8 +5,12 @@ pub(crate) mod module;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use crate::ir::{CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, Stmt, VarId};
+use crate::ir::{
+    Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
+    Undefined, VarId,
+};
 use crate::repr::Reprs;
+use crate::suggest::MAX_CANDIDATE_ITEMS;
 use host::Host;
 use module::{FuncState, ModuleState};
 
@@ -20,7 +24,7 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
         .map(|var| Slots {
             value: reprs.global(&mut m, var.rep),
             defined: var
-                .checked
+                .flagged
                 .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
         })
         .collect();
@@ -42,6 +46,9 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
             }
         })
         .collect();
+    let ordered =
+        program.vars.iter().any(|var| var.ordered) || program.funcs.iter().any(|func| func.ordered);
+    let order = ordered.then(|| m.global(ValType::I32, &ConstExpr::i32_const(0)));
     let mut e = Emitter {
         m,
         host,
@@ -49,6 +56,7 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
         program,
         vars,
         funcs,
+        order,
         code: Code::default(),
     };
     let start_ty = e.m.func_type(&[], &[]);
@@ -82,6 +90,10 @@ struct Emitter<'a> {
     /// The globals of each variable of the module.
     vars: Vec<Slots>,
     funcs: Vec<FuncSlots>,
+    /// The number of ordered globals with a value, which a global gets as
+    /// its flag at its first binding, when the program has an ordered
+    /// global.
+    order: Option<u32>,
     code: Code,
 }
 
@@ -116,13 +128,16 @@ struct Loop {
 /// a function.
 struct Slots {
     value: u32,
-    /// 1 once the variable has a value, for a variable whose read checks it.
+    /// Not 0 once the variable has a value, for a flagged variable. An
+    /// ordered variable holds the place of its first binding among the
+    /// ordered globals, from 1.
     defined: Option<u32>,
 }
 
 struct FuncSlots {
     index: u32,
-    /// The global that is 1 once the `def` has run.
+    /// The global that is not 0 once the `def` has run, as the flag of a
+    /// variable.
     defined: u32,
 }
 
@@ -140,7 +155,7 @@ impl Emitter<'_> {
                         .expect("a variable has a value"),
                 ),
             };
-            let defined = var.checked.then(|| f.local(ValType::I32));
+            let defined = var.flagged.then(|| f.local(ValType::I32));
             vars.push(Slots { value, defined });
         }
         // A parameter has a value from the start.
@@ -190,7 +205,8 @@ impl Emitter<'_> {
             }
             Stmt::Def(func) => {
                 let defined = self.func_slots(*func).defined;
-                f.ins().i32_const(1).global_set(defined);
+                let ordered = self.program_func(*func).ordered;
+                self.define_global(f, defined, ordered);
             }
             Stmt::Return(value) => {
                 if let Some(value) = value {
@@ -278,7 +294,8 @@ impl Emitter<'_> {
             Place::Global(_) => {
                 ins.global_set(value);
                 if let Some(defined) = defined {
-                    ins.i32_const(1).global_set(defined);
+                    let ordered = self.var(place).ordered;
+                    self.define_global(f, defined, ordered);
                 }
             }
             Place::Local(_) => {
@@ -290,22 +307,188 @@ impl Emitter<'_> {
         }
     }
 
-    fn load(&mut self, f: &mut FuncState, place: Place, rep: Rep, check: Option<Site>) {
+    /// Sets the flag `defined` of a global that gets a value. The flag of
+    /// an ordered global keeps the place of its first binding.
+    fn define_global(&mut self, f: &mut FuncState, defined: u32, ordered: bool) {
+        if !ordered {
+            f.ins().i32_const(1).global_set(defined);
+            return;
+        }
+        let order = self.order.expect("an ordered global has an order");
+        f.ins()
+            .global_get(defined)
+            .i32_eqz()
+            .if_(BlockType::Empty)
+            .global_get(order)
+            .i32_const(1)
+            .i32_add()
+            .global_set(order)
+            .global_get(order)
+            .global_set(defined)
+            .end();
+    }
+
+    fn load(&mut self, f: &mut FuncState, place: Place, rep: Rep, check: Option<&Check>) {
         let slots = self.slots(place);
         let value = slots.value;
-        if let Some(site) = check {
-            let defined = slots.defined.expect("a checked variable has a flag");
-            match place {
-                Place::Global(_) => f.ins().global_get(defined),
-                Place::Local(_) => f.ins().local_get(defined),
-            };
-            let message = self.var(place).undefined.clone();
-            self.raise_if_zero(f, site, &message);
+        if let Some(check) = check {
+            self.bound(f, binding(place));
+            self.raise_if_undefined(f, check);
         }
         match place {
             Place::Global(_) => self.reprs.load_global(f, rep, value),
             Place::Local(_) => self.reprs.load(f, rep, value),
         }
+    }
+
+    /// Pops the flag of a name, and raises the error of `check` when it is
+    /// 0.
+    fn raise_if_undefined(&mut self, f: &mut FuncState, check: &Check) {
+        f.ins()
+            .i32_eqz()
+            .if_(BlockType::Empty)
+            .i32_const(site_index(check.site))
+            .local_set(self.code.site);
+        match &check.error {
+            Undefined::Local(message) => self.reprs.raise(&mut self.m, f, message),
+            Undefined::Global(error) => {
+                self.name_error_message(f, error);
+                self.reprs.raise_message(f);
+            }
+        }
+        f.ins().end();
+    }
+
+    /// Pushes the message of `error`, with the suggestion of CPython for
+    /// what the frame has now.
+    fn name_error_message(&mut self, f: &mut FuncState, error: &NameError) {
+        let name = &error.name;
+        let message = format!("NameError: name '{name}' is not defined");
+        let (import, or_import) = if error.module {
+            (
+                format!(". Did you forget to import '{name}'?"),
+                format!(" Or did you forget to import '{name}'?"),
+            )
+        } else {
+            (String::new(), String::new())
+        };
+        if error.groups.is_empty() && error.self_attr.is_none() {
+            self.reprs
+                .str_literal(&mut self.m, f, &format!("{message}{import}"));
+            return;
+        }
+        // A local starts as null, and the code of the raise runs once.
+        let str_type = self.reprs.local_type(Rep::Str).expect("a str has a value");
+        let found = f.local(str_type);
+        f.ins().block(BlockType::Empty);
+        if let Some(binding) = error.self_attr {
+            self.suggest_if_bound(f, binding, &format!("self.{name}"), found);
+        }
+        if let Some(limit) = &error.limit {
+            f.ins().i32_const(count(limit.always));
+            if let Some(order) = self.order {
+                f.ins()
+                    .global_get(order)
+                    .i32_const(count(limit.globals))
+                    .i32_mul()
+                    .i32_add();
+            }
+            for local in &limit.locals {
+                self.bound(f, Binding::Local(*local));
+                f.ins().i32_add();
+            }
+            f.ins()
+                .i32_const(count(
+                    u32::try_from(MAX_CANDIDATE_ITEMS).expect("a small limit"),
+                ))
+                .i32_ge_u()
+                .br_if(0);
+        }
+        for group in &error.groups {
+            for (local, candidate) in &group.locals {
+                self.suggest_if_bound(f, Binding::Local(*local), candidate, found);
+            }
+            if let [(global, candidate)] = group.globals.as_slice() {
+                self.suggest_if_bound(f, *global, candidate, found);
+            } else if !group.globals.is_empty() {
+                // The global with the least place wins. A global without a
+                // value has 0, whose place less 1 is the greatest.
+                let best = f.local(ValType::I32);
+                let place = f.local(ValType::I32);
+                for (global, candidate) in &group.globals {
+                    self.bound(f, *global);
+                    f.ins()
+                        .local_tee(place)
+                        .i32_const(1)
+                        .i32_sub()
+                        .local_get(best)
+                        .i32_const(1)
+                        .i32_sub()
+                        .i32_lt_u()
+                        .if_(BlockType::Empty)
+                        .local_get(place)
+                        .local_set(best);
+                    self.reprs.str_literal(&mut self.m, f, candidate);
+                    f.ins().local_set(found).end();
+                }
+                f.ins().local_get(best).br_if(0);
+            }
+            if let Some(candidate) = &group.always {
+                self.reprs.str_literal(&mut self.m, f, candidate);
+                f.ins().local_set(found).br(0);
+            }
+        }
+        f.ins().end();
+
+        let str_value = self.reprs.value_type(Rep::Str).expect("a str has a value");
+        f.ins()
+            .local_get(found)
+            .ref_is_null()
+            .if_(BlockType::Result(str_value));
+        self.reprs
+            .str_literal(&mut self.m, f, &format!("{message}{import}"));
+        f.ins().else_();
+        self.reprs
+            .str_literal(&mut self.m, f, &format!("{message}. Did you mean: '"));
+        self.reprs.load(f, Rep::Str, found);
+        self.reprs.str_concat(f);
+        self.reprs
+            .str_literal(&mut self.m, f, &format!("'?{or_import}"));
+        self.reprs.str_concat(f);
+        f.ins().end();
+    }
+
+    /// Sets `found` to `candidate` and leaves the block of the suggestion
+    /// when `binding` has a value.
+    fn suggest_if_bound(
+        &mut self,
+        f: &mut FuncState,
+        binding: Binding,
+        candidate: &str,
+        found: u32,
+    ) {
+        self.bound(f, binding);
+        f.ins().if_(BlockType::Empty);
+        self.reprs.str_literal(&mut self.m, f, candidate);
+        f.ins().local_set(found).br(1).end();
+    }
+
+    /// Pushes an `i32` that is not 0 when `binding` has a value. The flag of
+    /// a local is 1.
+    fn bound(&self, f: &mut FuncState, binding: Binding) {
+        match binding {
+            Binding::Local(var) => match self.slots(Place::Local(var)).defined {
+                Some(defined) => f.ins().local_get(defined),
+                // A parameter has a value from the start.
+                None => f.ins().i32_const(1),
+            },
+            Binding::Global(var) => f.ins().global_get(
+                self.slots(Place::Global(var))
+                    .defined
+                    .expect("a flagged global"),
+            ),
+            Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined),
+        };
     }
 
     /// Pops an `i32`, and raises an exception with `message` at `site` when
@@ -326,14 +509,12 @@ impl Emitter<'_> {
         func: FuncId,
         args: &[Expr],
         site: Site,
-        check: Option<Site>,
+        check: Option<&Check>,
     ) {
-        let slots = self.func_slots(func);
-        let (index, defined) = (slots.index, slots.defined);
+        let index = self.func_slots(func).index;
         if let Some(check) = check {
-            f.ins().global_get(defined);
-            let message = self.program_func(func).undefined.clone();
-            self.raise_if_zero(f, check, &message);
+            self.bound(f, Binding::Func(func));
+            self.raise_if_undefined(f, check);
         }
         for arg in args {
             self.expr(f, arg);
@@ -384,14 +565,14 @@ impl Emitter<'_> {
             Expr::Str(s) => self.reprs.str_literal(&mut self.m, f, s),
             Expr::Int(value) => self.reprs.int_literal(f, *value),
             Expr::Bool(value) => self.reprs.bool_literal(f, *value),
-            Expr::Load { place, rep, check } => self.load(f, *place, *rep, *check),
+            Expr::Load { place, rep, check } => self.load(f, *place, *rep, check.as_ref()),
             Expr::Call {
                 func,
                 args,
                 site,
                 check,
                 ..
-            } => self.call(f, *func, args, *site, *check),
+            } => self.call(f, *func, args, *site, check.as_ref()),
             Expr::BoolAsInt(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);
@@ -538,6 +719,17 @@ impl Emitter<'_> {
             .call(self.host.write_char)
             .call(self.host.flush);
     }
+}
+
+fn binding(place: Place) -> Binding {
+    match place {
+        Place::Global(var) => Binding::Global(var),
+        Place::Local(var) => Binding::Local(var),
+    }
+}
+
+fn count(n: u32) -> i32 {
+    i32::try_from(n).expect("fewer than 2^31 names")
 }
 
 fn index(var: VarId) -> usize {

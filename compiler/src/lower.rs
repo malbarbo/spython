@@ -4,6 +4,7 @@ use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
 use ruff_db::source::source_text;
 use ruff_python_ast as ast;
+use ruff_python_ast::visitor::{Visitor, walk_expr};
 use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::types::lowering::{
@@ -13,13 +14,13 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::ir::{
-    ArithOp, CmpOp, Expr, Func, FuncId, LogicOp, Place, Program, Rep, Site, SiteFrame, Stmt, Var,
-    VarId,
+    ArithOp, Binding, Check, CmpOp, Expr, Func, FuncId, Group, Limit, LogicOp, NameError, Place,
+    Program, Rep, Site, SiteFrame, Stmt, Undefined, Var, VarId,
 };
-use crate::{names, traceback};
+use crate::{names, suggest, traceback};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -45,9 +46,13 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     lowering.declare_vars(suite)?;
     let body = lowering.body(suite)?;
     let count = lowering.funcs.borrow().sigs.len();
-    let funcs = (0..count)
+    let mut funcs: Vec<Func> = (0..count)
         .map(|i| lowering.func(FuncId(u32::try_from(i).expect("fewer than 2^32 functions"))))
         .collect::<Result<_, _>>()?;
+    // The lowering of a later function may order an earlier one.
+    for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
+        func.ordered = *ordered;
+    }
     Ok(Program {
         body,
         vars: lowering.vars.into_inner().list,
@@ -98,14 +103,25 @@ impl Vars {
             .expect("a variable of the scope")
     }
 
-    fn add(&mut self, name: &str, rep: Rep, undefined: String) {
+    fn add(&mut self, name: &str, rep: Rep) {
         let id = VarId(u32::try_from(self.list.len()).expect("fewer than 2^32 variables"));
         self.ids.insert(name.to_owned(), id);
         self.list.push(Var {
             rep,
-            undefined,
-            checked: false,
+            flagged: false,
+            ordered: false,
         });
+    }
+
+    /// The name of each variable, by its id.
+    fn names(&self) -> Vec<(VarId, &str)> {
+        let mut names: Vec<_> = self
+            .ids
+            .iter()
+            .map(|(name, id)| (*id, name.as_str()))
+            .collect();
+        names.sort_by_key(|(id, _)| id.0);
+        names
     }
 }
 
@@ -113,6 +129,9 @@ impl Vars {
 struct Funcs<'a> {
     ids: HashMap<String, FuncId>,
     sigs: Vec<Sig<'a>>,
+    /// Whether the program asks which globals got a value first, by the id
+    /// of the function.
+    ordered: Vec<bool>,
 }
 
 impl<'a> Funcs<'a> {
@@ -141,6 +160,8 @@ struct Scope {
     locals: HashSet<String>,
     /// The names of the `global` statements of the function.
     globals: HashSet<String>,
+    /// The locals in the order of the frame of CPython.
+    order: Vec<String>,
     vars: Vars,
 }
 
@@ -205,13 +226,13 @@ impl<'a> Lowering<'a, '_> {
     fn declare_var(&self, name: &str, rep: Rep, value: &ast::Expr) -> Result<(), Error> {
         let mut scope = self.scope.borrow_mut();
         let mut module = self.vars.borrow_mut();
-        let (vars, undefined) = match scope.as_mut() {
-            Some(scope) => (&mut scope.vars, unbound_local(name)),
+        let vars = match scope.as_mut() {
+            Some(scope) => &mut scope.vars,
             None => {
                 if self.funcs.borrow().ids.contains_key(name) {
                     return Err(unsupported(value, "a name of a function and of a variable"));
                 }
-                (&mut *module, name_error(name))
+                &mut *module
             }
         };
         match vars.find(name) {
@@ -220,7 +241,7 @@ impl<'a> Lowering<'a, '_> {
             }
             Some(_) => Ok(()),
             None => {
-                vars.add(name, rep, undefined);
+                vars.add(name, rep);
                 Ok(())
             }
         }
@@ -269,6 +290,7 @@ impl<'a> Lowering<'a, '_> {
         let id = FuncId(u32::try_from(funcs.sigs.len()).expect("fewer than 2^32 functions"));
         funcs.ids.insert(name.to_owned(), id);
         funcs.sigs.push(Sig { def, params, ret });
+        funcs.ordered.push(false);
         Ok(())
     }
 
@@ -278,20 +300,30 @@ impl<'a> Lowering<'a, '_> {
         let def = sig.def;
         let mut vars = Vars::default();
         let mut locals = HashSet::new();
+        let mut order = Vec::new();
         for (param, rep) in def.parameters.args.iter().zip(&sig.params) {
             let name = param.parameter.name.as_str();
-            vars.add(name, *rep, unbound_local(name));
+            vars.add(name, *rep);
             locals.insert(name.to_owned());
+            order.push(name);
         }
         local_names(&def.body, &mut locals);
         let mut globals = HashSet::new();
         global_names(&def.body, &mut globals);
         locals.retain(|name| !globals.contains(name));
+        code_order(&def.body, &mut order);
+        let mut seen = HashSet::new();
+        let order = order
+            .into_iter()
+            .filter(|name| locals.contains(*name) && seen.insert(*name))
+            .map(str::to_owned)
+            .collect();
         *self.scope.borrow_mut() = Some(Scope {
             name: def.name.to_string(),
             ret: sig.ret,
             locals,
             globals,
+            order,
             vars,
         });
         self.declare_vars(&def.body)?;
@@ -304,7 +336,7 @@ impl<'a> Lowering<'a, '_> {
         }
         let scope = self.scope.take().expect("the scope of the function");
         Ok(Func {
-            undefined: name_error(def.name.as_str()),
+            ordered: false,
             params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
             vars: scope.vars.list,
             ret: sig.ret,
@@ -511,9 +543,12 @@ impl<'a> Lowering<'a, '_> {
                 None
             } else {
                 if let Some(scope) = self.scope.borrow_mut().as_mut() {
-                    scope.vars.get_mut(var).checked = true;
+                    scope.vars.get_mut(var).flagged = true;
                 }
-                Some(self.site(name.range()))
+                Some(Check {
+                    site: self.site(name.range()),
+                    error: Undefined::Local(unbound_local(id)),
+                })
             };
             return Ok(Expr::Load {
                 place: Place::Local(var),
@@ -530,7 +565,7 @@ impl<'a> Lowering<'a, '_> {
         };
         let check = self.global_check(name)?;
         if check.is_some() {
-            self.vars.borrow_mut().get_mut(var).checked = true;
+            self.vars.borrow_mut().get_mut(var).flagged = true;
         }
         Ok(Expr::Load {
             place: Place::Global(var),
@@ -542,7 +577,7 @@ impl<'a> Lowering<'a, '_> {
     /// The site where the read of the global `name` raises `NameError`, and
     /// `None` when the read always finds a value. A function may run before
     /// the module assigns the global, so every read in a function checks.
-    fn global_check(&self, name: &ast::ExprName) -> Result<Option<Site>, Error> {
+    fn global_check(&self, name: &ast::ExprName) -> Result<Option<Check>, Error> {
         if self.scope.borrow().is_none() && is_definitely_bound(self.model, name) {
             return Ok(None);
         }
@@ -550,7 +585,153 @@ impl<'a> Lowering<'a, '_> {
             // Without a value, the read takes the builtin of the name.
             return Err(unsupported(name, "a name that may be a builtin"));
         }
-        Ok(Some(self.site(name.range())))
+        Ok(Some(Check {
+            site: self.site(name.range()),
+            error: Undefined::Global(Box::new(self.name_error(name.id.as_str()))),
+        }))
+    }
+
+    /// The `NameError` of `name` in the frame that the lowering is in, with
+    /// the candidates of the suggestion of CPython. Each candidate that the
+    /// program asks about gets a flag.
+    fn name_error(&self, name: &str) -> NameError {
+        let mut scope = self.scope.borrow_mut();
+        let mut module = self.vars.borrow_mut();
+        let mut funcs = self.funcs.borrow_mut();
+        let locals: Vec<(VarId, String)> = scope.as_ref().map_or_else(Vec::new, |scope| {
+            scope
+                .order
+                .iter()
+                .filter_map(|local| Some((scope.vars.find(local)?.0, local.clone())))
+                .collect()
+        });
+        let globals: Vec<(Binding, String)> = module
+            .names()
+            .into_iter()
+            .map(|(id, global)| (Binding::Global(id), global.to_owned()))
+            .chain(
+                funcs
+                    .ids
+                    .iter()
+                    .map(|(func, id)| (Binding::Func(*id), func.clone())),
+            )
+            .collect();
+
+        // CPython lists the locals, the globals and the builtins, and the
+        // frame of the module lists its globals as its locals too.
+        let (factor, params) = match scope.as_ref() {
+            Some(scope) => {
+                let id = funcs
+                    .ids
+                    .get(&scope.name)
+                    .expect("the function of the scope");
+                (1, funcs.get(*id).params.len())
+            }
+            None => (2, 0),
+        };
+        let most = locals.len()
+            + factor * (names::MODULE_GLOBALS.len() + globals.len())
+            + names::BUILTINS.len();
+        let limit = (most >= suggest::MAX_CANDIDATE_ITEMS).then(|| Limit {
+            always: count(params + factor * names::MODULE_GLOBALS.len() + names::BUILTINS.len()),
+            globals: count(factor),
+            locals: locals.iter().skip(params).map(|(id, _)| *id).collect(),
+        });
+
+        let mut by_distance: BTreeMap<usize, Group> = BTreeMap::new();
+        for (id, local) in &locals {
+            if let Some(group) = group_of(&mut by_distance, name, local) {
+                group.locals.push((*id, local.clone()));
+            }
+        }
+        // The globals of the module come before the globals of the program.
+        for global in names::MODULE_GLOBALS {
+            if let Some(group) = group_of(&mut by_distance, name, global) {
+                group.always.get_or_insert_with(|| (*global).to_owned());
+            }
+        }
+        for (binding, global) in &globals {
+            if let Some(group) = group_of(&mut by_distance, name, global)
+                && group.always.is_none()
+            {
+                group.globals.push((*binding, global.clone()));
+            }
+        }
+        for builtin in names::BUILTINS {
+            if let Some(group) = group_of(&mut by_distance, name, builtin) {
+                group.always.get_or_insert_with(|| (*builtin).to_owned());
+            }
+        }
+        let mut groups = Vec::new();
+        for group in by_distance.into_values() {
+            let last = group.always.is_some();
+            groups.push(group);
+            if last {
+                break;
+            }
+        }
+
+        let self_attr = match scope.as_ref() {
+            Some(scope) => scope
+                .vars
+                .find("self")
+                .filter(|_| scope.locals.contains("self"))
+                .filter(|(_, rep)| has_attribute(Some(*rep), name))
+                .map(|(id, _)| Binding::Local(id)),
+            None => match (module.find("self"), funcs.ids.get("self")) {
+                (Some((id, rep)), _) if has_attribute(Some(rep), name) => Some(Binding::Global(id)),
+                (_, Some(id)) if has_attribute(None, name) => Some(Binding::Func(*id)),
+                _ => None,
+            },
+        };
+
+        let mut flag = |binding: Binding, ordered: bool| match binding {
+            Binding::Local(id) => {
+                if let Some(scope) = scope.as_mut() {
+                    scope.vars.get_mut(id).flagged = true;
+                }
+            }
+            Binding::Global(id) => {
+                let var = module.get_mut(id);
+                var.flagged = true;
+                var.ordered |= ordered;
+            }
+            Binding::Func(id) => {
+                *funcs
+                    .ordered
+                    .get_mut(id.0 as usize)
+                    .expect("a function of the module") |= ordered;
+            }
+        };
+        // The number of globals with a value is the number of ordered
+        // globals with a value.
+        let all_ordered = limit.is_some();
+        if all_ordered {
+            for (binding, _) in &globals {
+                flag(*binding, true);
+            }
+        }
+        for local in limit.iter().flat_map(|limit| &limit.locals) {
+            flag(Binding::Local(*local), false);
+        }
+        for group in &groups {
+            for (id, _) in &group.locals {
+                flag(Binding::Local(*id), false);
+            }
+            for (binding, _) in &group.globals {
+                flag(*binding, group.globals.len() > 1);
+            }
+        }
+        if let Some(binding) = self_attr {
+            flag(binding, false);
+        }
+        NameError {
+            name: name.to_owned(),
+            self_attr,
+            limit,
+            groups,
+            module: names::STDLIB_MODULES.binary_search(&name).is_ok(),
+        }
     }
 
     /// A call of a function of the module, with positional arguments.
@@ -863,14 +1044,102 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
     }
 }
 
-/// The message of the `NameError` of `name`. CPython asks about an import
-/// when the name is the name of a module of the standard library.
-fn name_error(name: &str) -> String {
-    let mut message = format!("NameError: name '{name}' is not defined");
-    if names::STDLIB_MODULES.binary_search(&name).is_ok() {
-        message.push_str(&format!(". Did you forget to import '{name}'?"));
+/// Returns `true` if a value of `rep` has the attribute `name`, `false`
+/// otherwise. A `rep` of `None` stands for a function.
+fn has_attribute(rep: Option<Rep>, name: &str) -> bool {
+    let attributes = match rep {
+        Some(Rep::Int) => names::INT_ATTRIBUTES,
+        Some(Rep::Bool) => names::BOOL_ATTRIBUTES,
+        Some(Rep::Str) => names::STR_ATTRIBUTES,
+        Some(Rep::None) => return false,
+        None => names::FUNCTION_ATTRIBUTES,
+    };
+    attributes.binary_search(&name).is_ok()
+}
+
+/// The group of the distance from `name` to `candidate`, and `None` when
+/// CPython would not suggest `candidate` for `name`.
+fn group_of<'m>(
+    groups: &'m mut BTreeMap<usize, Group>,
+    name: &str,
+    candidate: &str,
+) -> Option<&'m mut Group> {
+    if candidate == name {
+        return None;
     }
-    message
+    let max = suggest::max_distance(name, candidate);
+    let distance = suggest::distance(name, candidate, max);
+    (distance <= max).then(|| {
+        groups.entry(distance).or_insert_with(|| Group {
+            locals: Vec::new(),
+            globals: Vec::new(),
+            always: None,
+        })
+    })
+}
+
+fn count(n: usize) -> u32 {
+    u32::try_from(n).expect("fewer than 2^32 names")
+}
+
+/// Adds to `names` each name of `body` in the order of the code that
+/// CPython makes for it, which gives the order of the locals of a frame.
+/// The value of an assignment comes before its targets.
+fn code_order<'a>(body: &'a [ast::Stmt], names: &mut Vec<&'a str>) {
+    struct Names<'a, 'b>(&'b mut Vec<&'a str>);
+    impl<'a> Visitor<'a> for Names<'a, '_> {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if let ast::Expr::Name(name) = expr {
+                self.0.push(name.id.as_str());
+            }
+            walk_expr(self, expr);
+        }
+    }
+    let visit = |expr: &'a ast::Expr, names: &mut Vec<&'a str>| {
+        Names(names).visit_expr(expr);
+    };
+    for stmt in body {
+        match stmt {
+            ast::Stmt::Expr(e) => visit(&e.value, names),
+            ast::Stmt::Assign(a) => {
+                visit(&a.value, names);
+                for target in &a.targets {
+                    visit(target, names);
+                }
+            }
+            ast::Stmt::AnnAssign(a) => {
+                if let Some(value) = &a.value {
+                    visit(value, names);
+                }
+                visit(&a.target, names);
+            }
+            ast::Stmt::AugAssign(a) => {
+                visit(&a.target, names);
+                visit(&a.value, names);
+            }
+            ast::Stmt::If(i) => {
+                visit(&i.test, names);
+                code_order(&i.body, names);
+                for clause in &i.elif_else_clauses {
+                    if let Some(test) = &clause.test {
+                        visit(test, names);
+                    }
+                    code_order(&clause.body, names);
+                }
+            }
+            ast::Stmt::While(w) => {
+                visit(&w.test, names);
+                code_order(&w.body, names);
+                code_order(&w.orelse, names);
+            }
+            ast::Stmt::Return(r) => {
+                if let Some(value) = &r.value {
+                    visit(value, names);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn unbound_local(name: &str) -> String {

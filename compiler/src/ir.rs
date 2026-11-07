@@ -37,12 +37,12 @@ pub(crate) enum Place {
 
 pub(crate) struct Var {
     pub rep: Rep,
-    /// The message of the `NameError` or of the `UnboundLocalError` that a
-    /// read before the first assignment raises.
-    pub undefined: String,
-    /// `true` when some read of the variable may come before its first
-    /// assignment.
-    pub checked: bool,
+    /// `true` when the program asks whether the variable has a value, as a
+    /// read that may come before the first assignment does.
+    pub flagged: bool,
+    /// `true` when the program asks which globals got a value first. Only a
+    /// flagged variable of the module is ordered.
+    pub ordered: bool,
 }
 
 /// A function of the module.
@@ -50,8 +50,8 @@ pub(crate) struct Var {
 pub(crate) struct FuncId(pub u32);
 
 pub(crate) struct Func {
-    /// The message of the `NameError` that a call before the `def` raises.
-    pub undefined: String,
+    /// `true` when the program asks which globals got a value first.
+    pub ordered: bool,
     /// The first variables are the parameters, in order.
     pub params: u32,
     pub vars: Vec<Var>,
@@ -94,22 +94,21 @@ pub(crate) enum Expr {
     /// An `int` that fits in 31 bits.
     Int(i32),
     Bool(bool),
-    /// The value of a variable. The read raises `NameError` at the site when
-    /// the variable has no value yet, and only a read with a site may come
-    /// before the first assignment.
+    /// The value of a variable. Only a read with a check may come before
+    /// the first assignment.
     Load {
         place: Place,
         rep: Rep,
-        check: Option<Site>,
+        check: Option<Check>,
     },
-    /// A call with one argument for each parameter, of the same rep. The
-    /// call raises `NameError` at `check` when the `def` has not run yet.
+    /// A call with one argument for each parameter, of the same rep. Only a
+    /// call with a check may come before the `def`.
     Call {
         func: FuncId,
         args: Vec<Expr>,
         rep: Rep,
         site: Site,
-        check: Option<Site>,
+        check: Option<Check>,
     },
     /// A `bool` read as an `int`, as an operand of an operator of `int`.
     BoolAsInt(Box<Expr>),
@@ -161,6 +160,66 @@ pub(crate) enum Expr {
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
     /// `print` with the default `sep` and `end`.
     Print(Vec<Expr>),
+}
+
+/// What a read or a call raises at the site when the name has no value.
+pub(crate) struct Check {
+    pub site: Site,
+    pub error: Undefined,
+}
+
+pub(crate) enum Undefined {
+    /// The message of the `UnboundLocalError`.
+    Local(String),
+    Global(Box<NameError>),
+}
+
+/// A `NameError`, whose message suggests a name that the frame has at the
+/// raise, as CPython does. The candidates are the locals of the frame, the
+/// globals in the order of their first binding, and the builtins.
+pub(crate) struct NameError {
+    pub name: String,
+    /// A `self` whose value has an attribute of the name, which CPython
+    /// suggests before any candidate when it has a value.
+    pub self_attr: Option<Binding>,
+    /// The candidates with a value count against the limit of CPython, when
+    /// the frame may have that many.
+    pub limit: Option<Limit>,
+    /// The candidates that may be the suggestion, by their distance to the
+    /// name, from the least. The first group with a candidate that has a
+    /// value gives the suggestion.
+    pub groups: Vec<Group>,
+    /// `true` when the name is a module of the standard library, which
+    /// CPython asks about.
+    pub module: bool,
+}
+
+/// The candidates at one distance from the name.
+pub(crate) struct Group {
+    /// The first local with a value wins, in the order of the frame.
+    pub locals: Vec<(VarId, String)>,
+    /// Otherwise the global that got a value first wins.
+    pub globals: Vec<(Binding, String)>,
+    /// Otherwise a name that the frame always has wins.
+    pub always: Option<String>,
+}
+
+/// A name that may have a value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Binding {
+    Local(VarId),
+    Global(VarId),
+    Func(FuncId),
+}
+
+pub(crate) struct Limit {
+    /// The candidates that the frame always has.
+    pub always: u32,
+    /// How many times each global with a value counts. The frame of the
+    /// module lists its globals twice.
+    pub globals: u32,
+    /// The locals of the frame that count when they have a value.
+    pub locals: Vec<VarId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

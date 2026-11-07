@@ -5,6 +5,7 @@ mod ir;
 mod lower;
 mod names;
 mod repr;
+mod suggest;
 mod traceback;
 
 use ruff_db::files::File;
