@@ -324,6 +324,22 @@ impl Checker<'_> {
         {
             return;
         }
+        let can_be_negative = !float_literal(base)
+            .is_some_and(|x| x == 0.0 && x.is_sign_positive())
+            && !base_members.iter().all(|ty| {
+                ty.as_int_literal().is_some_and(|n| n >= 0)
+                    || ty.is_assignable_to(db, &env, KnownClass::Bool.to_instance(db, &env))
+            });
+        if !can_be_negative {
+            self.push(
+                &FLOAT_EXPONENT,
+                range,
+                "A `float` exponent of `-0.0` with the base `0` raises `ZeroDivisionError`; \
+                 use `math.pow`"
+                    .to_owned(),
+            );
+            return;
+        }
         let advice = if float_literal(exponent) == Some(0.5) {
             "use `math.sqrt` for a square root"
         } else if is_math_e(base) {

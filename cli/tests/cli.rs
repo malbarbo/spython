@@ -2013,6 +2013,33 @@ fn level5_rejects_a_float_exponent_with_a_base_that_can_be_negative() {
 }
 
 #[test]
+fn level5_rejects_a_float_exponent_of_a_zero_base_for_the_exponent_minus_zero() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        def f(x: float, b: bool) -> None:
+            print(0 ** x)
+            print(0.0 ** x)
+            print(b ** x)
+            print(pow(False, x))
+            print((-0.0) ** x)
+    "},
+    );
+    assert!(!success);
+    assert_eq!(
+        err.matches("of `-0.0` with the base `0` raises `ZeroDivisionError`")
+            .count(),
+        4,
+        "stderr: {err}"
+    );
+    assert_eq!(
+        err.matches("when the base is negative").count(),
+        1,
+        "stderr: {err}"
+    );
+}
+
+#[test]
 fn level5_allows_a_float_exponent_with_a_positive_base_or_a_whole_exponent() {
     let (out, err, success) = run_level(
         5,
