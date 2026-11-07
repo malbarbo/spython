@@ -135,9 +135,12 @@ struct Scope {
     /// The name of the function, which its frames in a traceback show.
     name: String,
     ret: Rep,
-    /// Every name the function assigns, which makes the name local to the
-    /// function, whether the variable has a rep or not.
+    /// Every name the function assigns and does not declare `global`,
+    /// which makes the name local to the function, whether the variable has
+    /// a rep or not.
     locals: HashSet<String>,
+    /// The names of the `global` statements of the function.
+    globals: HashSet<String>,
     vars: Vars,
 }
 
@@ -147,39 +150,51 @@ impl<'a> Lowering<'a, '_> {
     /// A read or a call may come before the assignment, as in a loop, so
     /// every variable has a rep before the lowering of the code starts.
     fn declare_vars(&self, body: &'a [ast::Stmt]) -> Result<(), Error> {
-        for stmt in body {
-            let (targets, value): (&[ast::Expr], &ast::Expr) = match stmt {
-                ast::Stmt::If(i) => {
-                    self.declare_vars(&i.body)?;
-                    for clause in &i.elif_else_clauses {
-                        self.declare_vars(&clause.body)?;
-                    }
-                    continue;
-                }
-                ast::Stmt::While(w) => {
-                    self.declare_vars(&w.body)?;
-                    self.declare_vars(&w.orelse)?;
-                    continue;
-                }
-                // The lowering of a function rejects a `def` in its body.
-                ast::Stmt::FunctionDef(def) if self.scope.borrow().is_none() => {
-                    self.declare_func(def)?;
-                    continue;
-                }
-                ast::Stmt::Assign(a) => (&a.targets, &a.value),
-                ast::Stmt::AnnAssign(ast::StmtAnnAssign {
-                    target,
-                    value: Some(value),
-                    ..
-                }) => (std::slice::from_ref(target), value),
-                _ => continue,
-            };
+        let mut assigned = Vec::new();
+        let mut defs = Vec::new();
+        assignments(body, &mut assigned, &mut defs);
+        // The lowering of a function rejects a `def` in its body.
+        if self.scope.borrow().is_none() {
+            for def in defs {
+                self.declare_func(def)?;
+                self.declare_globals(def)?;
+            }
+        }
+        let globals = self
+            .scope
+            .borrow()
+            .as_ref()
+            .map(|scope| scope.globals.clone())
+            .unwrap_or_default();
+        self.declare_assigned(&assigned, |name| !globals.contains(name))
+    }
+
+    /// Declares in the module each global that `def` assigns, since the
+    /// code of the module may read it.
+    fn declare_globals(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
+        let mut globals = HashSet::new();
+        global_names(&def.body, &mut globals);
+        let mut assigned = Vec::new();
+        assignments(&def.body, &mut assigned, &mut Vec::new());
+        self.declare_assigned(&assigned, |name| globals.contains(name))
+    }
+
+    /// Declares each variable of `assigned` whose name `keep` accepts, in
+    /// the scope that the lowering is in.
+    fn declare_assigned(
+        &self,
+        assigned: &[Assigned<'a>],
+        keep: impl Fn(&str) -> bool,
+    ) -> Result<(), Error> {
+        for (targets, value) in assigned {
             // The lowering of the assignment rejects a value without a rep.
             let Some(rep) = shape_rep(expr_shape(self.model, value)) else {
                 continue;
             };
-            for target in targets {
-                if let ast::Expr::Name(name) = target {
+            for target in *targets {
+                if let ast::Expr::Name(name) = target
+                    && keep(name.id.as_str())
+                {
                     self.declare_var(name.id.as_str(), rep, value)?;
                 }
             }
@@ -269,10 +284,14 @@ impl<'a> Lowering<'a, '_> {
             locals.insert(name.to_owned());
         }
         local_names(&def.body, &mut locals);
+        let mut globals = HashSet::new();
+        global_names(&def.body, &mut globals);
+        locals.retain(|name| !globals.contains(name));
         *self.scope.borrow_mut() = Some(Scope {
             name: def.name.to_string(),
             ret: sig.ret,
             locals,
+            globals,
             vars,
         });
         self.declare_vars(&def.body)?;
@@ -367,7 +386,8 @@ impl<'a> Lowering<'a, '_> {
             })),
             ast::Stmt::Break(_) => Ok(Some(Stmt::Break)),
             ast::Stmt::Continue(_) => Ok(Some(Stmt::Continue)),
-            ast::Stmt::Pass(_) => Ok(None),
+            // `declare_vars` and `func` read the names.
+            ast::Stmt::Pass(_) | ast::Stmt::Global(_) => Ok(None),
             ast::Stmt::FunctionDef(def) => {
                 if self.scope.borrow().is_some() {
                     return Err(unsupported(def, "a def in a function"));
@@ -456,11 +476,11 @@ impl<'a> Lowering<'a, '_> {
         };
         let name = name.id.as_str();
         let found = match self.scope.borrow().as_ref() {
-            Some(scope) => scope
+            Some(scope) if !scope.globals.contains(name) => scope
                 .vars
                 .find(name)
                 .map(|(id, rep)| (Place::Local(id), rep)),
-            None => self
+            _ => self
                 .vars
                 .borrow()
                 .find(name)
@@ -837,6 +857,60 @@ fn unbound_local(name: &str) -> String {
         "UnboundLocalError: cannot access local variable '{name}' where it is not \
          associated with a value"
     )
+}
+
+/// The targets of an assignment, with the value.
+type Assigned<'a> = (&'a [ast::Expr], &'a ast::Expr);
+
+/// Adds to `assigned` each assignment of a value in `body`, and to `defs`
+/// each `def`, out of the `if`s and the `while`s too.
+fn assignments<'a>(
+    body: &'a [ast::Stmt],
+    assigned: &mut Vec<Assigned<'a>>,
+    defs: &mut Vec<&'a ast::StmtFunctionDef>,
+) {
+    for stmt in body {
+        match stmt {
+            ast::Stmt::If(i) => {
+                assignments(&i.body, assigned, defs);
+                for clause in &i.elif_else_clauses {
+                    assignments(&clause.body, assigned, defs);
+                }
+            }
+            ast::Stmt::While(w) => {
+                assignments(&w.body, assigned, defs);
+                assignments(&w.orelse, assigned, defs);
+            }
+            ast::Stmt::FunctionDef(def) => defs.push(def),
+            ast::Stmt::Assign(a) => assigned.push((&a.targets, &a.value)),
+            ast::Stmt::AnnAssign(ast::StmtAnnAssign {
+                target,
+                value: Some(value),
+                ..
+            }) => assigned.push((std::slice::from_ref(target), value)),
+            _ => {}
+        }
+    }
+}
+
+/// Adds to `names` each name of a `global` statement in `body`.
+fn global_names(body: &[ast::Stmt], names: &mut HashSet<String>) {
+    for stmt in body {
+        match stmt {
+            ast::Stmt::Global(g) => names.extend(g.names.iter().map(|name| name.id.to_string())),
+            ast::Stmt::If(i) => {
+                global_names(&i.body, names);
+                for clause in &i.elif_else_clauses {
+                    global_names(&clause.body, names);
+                }
+            }
+            ast::Stmt::While(w) => {
+                global_names(&w.body, names);
+                global_names(&w.orelse, names);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Adds to `names` each name that `body` assigns. Any other way to bind a

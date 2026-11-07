@@ -825,6 +825,40 @@ fn a_function_takes_its_arguments_and_returns_its_result() {
 }
 
 #[test]
+fn a_function_assigns_a_global_that_it_declares() {
+    same_as_cpython(
+        "a_function_assigns_a_global_that_it_declares",
+        "count = 0\nname = 'a'\n\n\ndef bump(n: int) -> int:\n    global count, name\n    count += n\n    if count > 2:\n        name = name + 'b'\n    return count\n\n\ndef local() -> None:\n    count = 10\n    print(count)\n\n\nprint(bump(1), bump(2), count, name)\nlocal()\nprint(count)\n",
+    );
+}
+
+#[test]
+fn a_global_that_only_a_function_assigns_has_a_value_after_the_call() {
+    same_as_cpython(
+        "a_global_that_only_a_function_assigns_has_a_value_after_the_call",
+        "name: str\n\n\ndef init() -> None:\n    global name\n    name = 'ana'\n\n\ndef show() -> None:\n    print(name)\n\n\ninit()\nshow()\nprint(name)  # ty: ignore[possibly-unresolved-reference]\n",
+    );
+}
+
+#[test]
+fn a_global_read_before_its_assignment_raises_name_error() {
+    same_as_cpython(
+        "a_global_read_before_its_assignment_raises_name_error",
+        "def bump() -> None:\n    global total\n    total += 1\n\n\nbump()\ntotal = 0\n",
+    );
+}
+
+#[test]
+fn a_global_with_values_of_two_types_is_unsupported() {
+    assert_eq!(
+        unsupported(
+            "x = 1\n\n\ndef f() -> None:\n    global x\n    x = 'a'  # ty: ignore[invalid-assignment]\n"
+        ),
+        "a variable with values of two types"
+    );
+}
+
+#[test]
 fn a_function_reads_the_globals_and_calls_a_function_defined_after_it() {
     same_as_cpython(
         "a_function_reads_the_globals_and_calls_a_function_defined_after_it",
