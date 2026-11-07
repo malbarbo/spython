@@ -1900,6 +1900,20 @@ fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
     }
 
     impl Powers<'_> {
+        /// Returns `true` if every expression of `operands` is an `int`,
+        /// `false` otherwise. A power of two ints is a `float` only for a
+        /// negative exponent, which is the case the note explains.
+        fn are_ints<'e>(&self, operands: impl IntoIterator<Item = &'e Expr>) -> bool {
+            let db = self.model.db();
+            let env = self.model.program_environment();
+            let int_ty = KnownClass::Int.to_instance(db, &env);
+            operands.into_iter().all(|operand| {
+                operand
+                    .inferred_type(self.model)
+                    .is_some_and(|ty| ty.is_assignable_to(db, &env, int_ty))
+            })
+        }
+
         fn is_int_or_float(&self, ty: Option<Type>) -> bool {
             let db = self.model.db();
             let env = self.model.program_environment();
@@ -1918,6 +1932,7 @@ fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
             // The target has its declared type, not the type of the power.
             if let Stmt::AugAssign(aug) = stmt
                 && aug.op == Operator::Pow
+                && self.are_ints([&*aug.target, &*aug.value])
             {
                 self.ranges.push(aug.target.range());
             }
@@ -1926,14 +1941,28 @@ fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
 
         fn visit_expr(&mut self, expr: &'a Expr) {
             let is_power = match expr {
-                Expr::BinOp(e) => e.op == Operator::Pow,
-                Expr::Call(call) => call
-                    .func
-                    .inferred_type(self.model)
-                    .and_then(Type::as_function_literal)
-                    .is_some_and(|function| {
-                        function.known(self.model.db()) == Some(KnownFunction::Pow)
-                    }),
+                Expr::BinOp(e) => e.op == Operator::Pow && self.are_ints([&*e.left, &*e.right]),
+                Expr::Call(call) => {
+                    let arguments = &call.arguments;
+                    let is_pow = call
+                        .func
+                        .inferred_type(self.model)
+                        .and_then(Type::as_function_literal)
+                        .is_some_and(|function| {
+                            function.known(self.model.db()) == Some(KnownFunction::Pow)
+                        });
+                    match (
+                        arguments.find_argument_value("base", 0),
+                        arguments.find_argument_value("exp", 1),
+                    ) {
+                        (Some(base), Some(exp)) => {
+                            is_pow
+                                && arguments.find_argument_value("mod", 2).is_none()
+                                && self.are_ints([base, exp])
+                        }
+                        _ => false,
+                    }
+                }
                 _ => false,
             };
             if is_power && self.is_int_or_float(expr.inferred_type(self.model)) {

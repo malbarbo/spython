@@ -1906,6 +1906,25 @@ fn level0_rejects_a_power_of_ints_where_the_annotation_says_int() {
 }
 
 #[test]
+fn level5_does_not_blame_the_exponent_of_a_float_base() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        def f(x: int | float, n: int) -> int:
+            y: int = 2
+            y **= x
+            return x ** 2 + pow(x, n)
+    "},
+    );
+    assert!(!success);
+    assert!(err.contains("found `int | float`"), "stderr: {err}");
+    assert!(
+        !err.contains("The exponent can be negative"),
+        "stderr: {err}"
+    );
+}
+
+#[test]
 fn level3_explains_why_a_power_assignment_is_not_an_int() {
     let (_, err, success) = run_level(
         3,
