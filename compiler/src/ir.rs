@@ -31,13 +31,25 @@ pub(crate) enum Stmt {
     /// An expression whose value the program drops.
     Expr(Expr),
     /// The value goes to each variable, from the first one.
-    Assign { targets: Vec<VarId>, value: Expr },
+    Assign {
+        targets: Vec<VarId>,
+        value: Expr,
+    },
     /// The condition is a `bool`.
     If {
         cond: Expr,
         then: Vec<Stmt>,
         else_: Vec<Stmt>,
     },
+    /// The condition is a `bool`, and `else_` runs when the condition is
+    /// false, not after a `break`.
+    While {
+        cond: Expr,
+        body: Vec<Stmt>,
+        else_: Vec<Stmt>,
+    },
+    Break,
+    Continue,
 }
 
 pub(crate) enum Expr {

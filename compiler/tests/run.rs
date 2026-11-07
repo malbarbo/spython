@@ -464,3 +464,65 @@ fn an_if_with_a_condition_that_is_not_a_bool_is_unsupported() {
         "a condition that is not a bool"
     );
 }
+
+#[test]
+fn a_while_repeats_while_the_condition_is_true() {
+    same_as_cpython(
+        "a_while_repeats_while_the_condition_is_true",
+        "i = 0\ntotal = 0\n\
+         while i < 5:\n    i += 1\n    if i == 2:\n        continue\n    total += i\n    print(i, total)\n\
+         print(total)\n\
+         while False:\n    print('nunca')\n",
+    );
+}
+
+#[test]
+fn a_break_leaves_the_innermost_loop_without_its_else() {
+    same_as_cpython(
+        "a_break_leaves_the_innermost_loop_without_its_else",
+        "i = 0\n\
+         while True:\n    j = 0\n    while j < 10:\n        if j == 2:\n            break\n        print(i, j)\n        j += 1\n    else:\n        print('nunca')\n    i += 1\n    if i == 3:\n        break\n\
+         print(i)\n\
+         n = 3\n\
+         while n > 0:\n    n -= 1\nelse:\n    print('fim', n)\n",
+    );
+}
+
+#[test]
+fn a_read_after_an_assignment_in_a_loop_finds_the_value() {
+    same_as_cpython(
+        "a_read_after_an_assignment_in_a_loop_finds_the_value",
+        "i = 0\nwhile i < 3:\n    if i == 1:\n        x = 10\n    i += 1\n\
+         print(x)  # ty: ignore[possibly-unresolved-reference]\n\
+         while True:\n    y = 1\n    break\nprint(y)\n",
+    );
+}
+
+#[test]
+fn a_read_without_an_assignment_in_a_loop_raises_name_error() {
+    same_as_cpython(
+        "a_read_without_an_assignment_in_a_loop_raises_name_error",
+        "i = 0\nwhile i < 3:\n    if i == 5:\n        x = 10\n    i += 1\n\
+         print(i)\nprint(x)  # ty: ignore[possibly-unresolved-reference]\n",
+    );
+}
+
+#[test]
+fn a_division_by_a_variable_that_is_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "a_division_by_a_variable_that_is_zero_raises_zero_division_error",
+        "d = 3\nwhile d > 0:\n    print(12 // d, 12 % d)\n    d -= 1\nprint(12 // d)\n",
+    );
+}
+
+#[test]
+fn a_loop_that_doubles_an_int_stops_at_the_int_limit() {
+    stops_at_the_int_limit(
+        "a_loop_that_doubles_an_int_stops_at_the_int_limit",
+        "n = 1\nwhile True:\n    n *= 2\n",
+        "",
+        3,
+        "    n *= 2\n",
+        "1073741824",
+    );
+}

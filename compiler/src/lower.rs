@@ -94,6 +94,11 @@ impl Lowering<'_, '_> {
                     }
                     continue;
                 }
+                ast::Stmt::While(w) => {
+                    self.declare_vars(&w.body)?;
+                    self.declare_vars(&w.orelse)?;
+                    continue;
+                }
                 ast::Stmt::Assign(a) => (&a.targets, &a.value),
                 ast::Stmt::AnnAssign(ast::StmtAnnAssign {
                     target,
@@ -205,6 +210,13 @@ impl Lowering<'_, '_> {
                     else_,
                 }))
             }
+            ast::Stmt::While(w) => Ok(Some(Stmt::While {
+                cond: self.cond(&w.test)?,
+                body: self.body(&w.body)?,
+                else_: self.body(&w.orelse)?,
+            })),
+            ast::Stmt::Break(_) => Ok(Some(Stmt::Break)),
+            ast::Stmt::Continue(_) => Ok(Some(Stmt::Continue)),
             _ => Err(unsupported(stmt, "this statement")),
         }
     }
