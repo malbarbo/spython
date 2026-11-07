@@ -74,6 +74,8 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// `not` on a `bool`.
+    Not(Box<Expr>),
     /// A chain of comparisons of `int`s, as in `a < b <= c`. Each operand
     /// after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
@@ -114,7 +116,7 @@ impl Expr {
         match self {
             Expr::Str(_) => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
-            Expr::Bool(_) | Expr::Compare(..) => Rep::Bool,
+            Expr::Bool(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } => *rep,
             Expr::Print(_) => Rep::None,
         }

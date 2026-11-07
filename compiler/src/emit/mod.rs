@@ -228,6 +228,10 @@ impl Emitter<'_> {
                 f.ins().i32_const(site_index(*site)).local_set(self.site);
                 self.reprs.int_arith(f, *op);
             }
+            Expr::Not(operand) => {
+                self.expr(f, operand);
+                self.reprs.bool_not(f);
+            }
             Expr::Compare(first, rest) => self.compare(f, first, rest),
             Expr::Print(args) => self.print(f, args),
         }

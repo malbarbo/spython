@@ -106,6 +106,11 @@ impl Reprs {
         f.ins().i32_const(i32::from(value));
     }
 
+    /// Pops a `bool` and pushes its negation.
+    pub fn bool_not(&self, f: &mut FuncState) {
+        f.ins().i32_eqz();
+    }
+
     /// Pops a `bool` and pushes it as an `int`.
     pub fn bool_as_int(&self, f: &mut FuncState) {
         self.int.bool_as_int(f);

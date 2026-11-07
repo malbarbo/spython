@@ -347,7 +347,8 @@ impl Lowering<'_, '_> {
                 }
             },
             ast::UnaryOp::UAdd => self.int_operand(&u.operand),
-            _ => Err(unsupported(u, "this operator")),
+            ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.bool_operand(&u.operand)?))),
+            ast::UnaryOp::Invert => Err(unsupported(u, "this operator")),
         }
     }
 
@@ -356,6 +357,14 @@ impl Lowering<'_, '_> {
         let mut sites = self.sites.borrow_mut();
         sites.push(traceback::frame(self.path, "<module>", self.source, range));
         Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
+    }
+
+    fn bool_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
+        let lowered = self.expr(operand)?;
+        match lowered.rep() {
+            Rep::Bool => Ok(lowered),
+            _ => Err(unsupported(operand, "an operand that is not a bool")),
+        }
     }
 
     /// The operand of an operator of `int`, which may be a `bool`.

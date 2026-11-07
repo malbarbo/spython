@@ -487,6 +487,26 @@ fn a_variable_of_none_is_unsupported() {
 }
 
 #[test]
+fn not_negates_a_bool() {
+    same_as_cpython(
+        "not_negates_a_bool",
+        "t = True\n\
+         print(not t, not not t, not 1 > 2)\n\
+         n = 0\n\
+         while not n == 3:\n    n += 1\n\
+         print(n, not t + 1 == 2)\n",
+    );
+}
+
+#[test]
+fn not_of_an_operand_that_is_not_a_bool_is_unsupported() {
+    assert_eq!(
+        unsupported("print(not 1)\n"),
+        "an operand that is not a bool"
+    );
+}
+
+#[test]
 fn an_if_runs_the_first_clause_whose_condition_is_true() {
     same_as_cpython(
         "an_if_runs_the_first_clause_whose_condition_is_true",
