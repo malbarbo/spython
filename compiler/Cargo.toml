@@ -1,0 +1,11 @@
+[package]
+name = "compiler"
+version = "0.3.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+wasm-encoder = { version = "0.263", default-features = false, features = ["std"] }
+wasmparser = { version = "0.263", default-features = false, features = ["std", "validate", "features"] }
