@@ -9,7 +9,7 @@ use ruff_db::system::SystemPathBuf;
 use ty_project::{Db as _, ProjectDatabase};
 
 use crate::error::color_stderr;
-use crate::{Level, SpythonError};
+use crate::{Level, SpythonError, checker};
 
 use super::{
     TypeErrors, annotation_check, check_file_doctests, collect_import_files, modules_beside,
@@ -66,6 +66,7 @@ pub fn check_file(file: &Path, level: Level) -> Result<Vec<(String, String)>, Sp
     for f in &user_files {
         diagnostics.extend(check_file_doctests(&db, *f, &root, level));
     }
+    checker::drop_dynamic_types_beside_errors(&mut diagnostics);
     // An error stops the file; a warning is printed and the file goes on, as in
     // the in-memory check the page runs.
     if diagnostics.iter().any(|d| d.severity() == Severity::Error) {

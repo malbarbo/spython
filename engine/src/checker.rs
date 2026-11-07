@@ -24,16 +24,17 @@ use ty_python_semantic::types::{KnownClass, KnownFunction, Type};
 use ty_python_semantic::{HasType, SemanticModel};
 
 use crate::lints::{
-    BARE_EXPRESSION, BOOL_IN_ARITHMETIC, CHAINED_COMPARISON, F_STRING_MISSING_PLACEHOLDERS,
-    FLOAT_EXPONENT, FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS, FORBIDDEN_CLASS_METHOD,
-    FORBIDDEN_COLLECTION_LITERAL, FORBIDDEN_COMPREHENSION, FORBIDDEN_CONSTRUCT,
-    FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP, FORBIDDEN_MATCH, FORBIDDEN_SELECTION,
-    INVALID_ARGUMENT_NAME, INVALID_CLASS_NAME, INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD,
-    INVALID_FUNCTION_NAME, IS_COMPARISON, LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION,
-    MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL,
-    NON_BOOLEAN_CONDITION, NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER,
-    NONE_COMPARISON, NOT_IN_TEST, NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME,
-    SHADOWED_MODULE, TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
+    BARE_EXPRESSION, BOOL_IN_ARITHMETIC, CHAINED_COMPARISON, DYNAMIC_TYPE,
+    F_STRING_MISSING_PLACEHOLDERS, FLOAT_EXPONENT, FORBIDDEN_AUG_ASSIGN, FORBIDDEN_CLASS,
+    FORBIDDEN_CLASS_METHOD, FORBIDDEN_COLLECTION_LITERAL, FORBIDDEN_COMPREHENSION,
+    FORBIDDEN_CONSTRUCT, FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP, FORBIDDEN_MATCH,
+    FORBIDDEN_SELECTION, INVALID_ARGUMENT_NAME, INVALID_CLASS_NAME,
+    INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD, INVALID_FUNCTION_NAME, IS_COMPARISON,
+    LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
+    MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
+    NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
+    NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME, SHADOWED_MODULE,
+    TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
 };
 
 /// The start of the names that spython gives to the code it generates.
@@ -489,7 +490,10 @@ impl Checker<'_> {
                     func.name.as_str()
                 ),
             ),
-            Some(ret) => self.check_annotation(ret),
+            Some(ret) => {
+                self.check_annotation(ret);
+                self.check_dynamic_annotation(ret);
+            }
         }
     }
 
@@ -503,7 +507,176 @@ impl Checker<'_> {
                     param.name.as_str()
                 ),
             ),
-            Some(ann) => self.check_annotation(ann),
+            Some(ann) => {
+                self.check_annotation(ann);
+                self.check_dynamic_annotation(ann);
+            }
+        }
+    }
+
+    /// Returns `true` if `ty` is `Any` or `Unknown`, or has one of them
+    /// inside it, `false` otherwise.
+    fn is_dynamic(&self, ty: Type) -> bool {
+        ty.has_dynamic(self.model.db(), &self.model.program_environment())
+    }
+
+    fn display(&self, ty: Type) -> String {
+        ty.display(self.model.db(), &self.model.program_environment())
+            .to_string()
+    }
+
+    /// Report `expr` if its type is dynamic and the types of its parts are
+    /// not. A name takes its type from where it is bound, and the report
+    /// goes there.
+    fn check_dynamic_expr(&mut self, expr: &Expr) {
+        if let Expr::Lambda(lambda) = expr
+            && let Some(parameters) = &lambda.parameters
+        {
+            self.check_dynamic_lambda_parameters(parameters);
+        }
+        let assigned = match expr {
+            Expr::Name(_) => true,
+            Expr::Attribute(e) => e.ctx != ExprContext::Load,
+            Expr::Subscript(e) => e.ctx != ExprContext::Load,
+            Expr::List(e) => e.ctx != ExprContext::Load,
+            Expr::Tuple(e) => e.ctx != ExprContext::Load,
+            Expr::Starred(e) => e.ctx != ExprContext::Load,
+            _ => false,
+        };
+        if assigned {
+            return;
+        }
+        let Some(ty) = expr.inferred_type(self.model) else {
+            return;
+        };
+        if !self.is_dynamic(ty) {
+            return;
+        }
+        let mut parts = Parts(Vec::new());
+        walk_expr(&mut parts, expr);
+        if parts.0.into_iter().any(|part| {
+            part.inferred_type(self.model)
+                .is_some_and(|ty| self.is_dynamic(ty))
+        }) {
+            return;
+        }
+        let ty = self.display(ty);
+        let message = match expr {
+            Expr::List(list) if list.elts.is_empty() => format!(
+                "The list `[]` has type `{ty}` here; give it a type with an annotated \
+                 variable, as in `xs: list[int] = []`"
+            ),
+            Expr::Dict(dict) if dict.items.is_empty() => format!(
+                "The dict `{{}}` has type `{ty}` here; give it a type with an annotated \
+                 variable, as in `d: dict[str, int] = {{}}`"
+            ),
+            _ => {
+                format!("Expression has type `{ty}`; spython needs to know the type of every value")
+            }
+        };
+        self.push(&DYNAMIC_TYPE, expr.range(), message);
+    }
+
+    /// Report the parameters of a lambda that have a dynamic type, which
+    /// they get when nothing around the lambda says what they are.
+    fn check_dynamic_lambda_parameters(&mut self, parameters: &Parameters) {
+        let with_defaults = parameters
+            .posonlyargs
+            .iter()
+            .chain(&parameters.args)
+            .chain(&parameters.kwonlyargs)
+            .map(|parameter| (&parameter.parameter, parameter.inferred_type(self.model)));
+        let variadic = [&parameters.vararg, &parameters.kwarg]
+            .into_iter()
+            .flatten()
+            .map(|parameter| (parameter.as_ref(), parameter.inferred_type(self.model)));
+        let dynamic: Vec<(&Parameter, Type)> = with_defaults
+            .chain(variadic)
+            .filter_map(|(parameter, ty)| Some((parameter, ty?)))
+            .filter(|(_, ty)| self.is_dynamic(*ty))
+            .collect();
+        for (parameter, ty) in dynamic {
+            let name = parameter.name.as_str();
+            let ty = self.display(ty);
+            self.push(
+                &DYNAMIC_TYPE,
+                parameter.range(),
+                format!(
+                    "Parameter `{name}` has type `{ty}`; annotate the variable that holds \
+                     the lambda, as in `f: Callable[[int], int] = lambda {name}: ...`"
+                ),
+            );
+        }
+    }
+
+    /// Report the parts of the annotation `expr` where a dynamic type
+    /// appears first, and return `true` if `expr` has a dynamic type,
+    /// `false` otherwise.
+    fn check_dynamic_annotation(&mut self, expr: &Expr) -> bool {
+        let Some(ty) = expr.inferred_type(self.model) else {
+            return false;
+        };
+        if !self.is_dynamic(ty) {
+            return false;
+        }
+        let parts: Vec<&Expr> = match expr {
+            Expr::Subscript(sub) => vec![&sub.value, &sub.slice],
+            Expr::BinOp(b) => vec![&b.left, &b.right],
+            Expr::Tuple(t) => t.elts.iter().collect(),
+            Expr::List(l) => l.elts.iter().collect(),
+            Expr::Starred(s) => vec![&s.value],
+            _ => Vec::new(),
+        };
+        // Every part gets its report, so the loop does not stop at the
+        // first dynamic one.
+        let mut dynamic_part = false;
+        for part in parts {
+            dynamic_part |= self.check_dynamic_annotation(part);
+        }
+        if !dynamic_part {
+            let ty = self.display(ty);
+            self.push(
+                &DYNAMIC_TYPE,
+                expr.range(),
+                format!(
+                    "Type `{ty}` does not say what the value is; use a specific type, or \
+                     `object` for a value of any type"
+                ),
+            );
+        }
+        true
+    }
+
+    /// Returns `true` if `import` names a module that the student did not
+    /// write, `false` otherwise. A name from a module of the student gets its
+    /// type there, and the report goes there.
+    fn imports_from_a_library(&self, import: &ruff_python_ast::StmtImportFrom) -> bool {
+        let Some(module) = import.module.as_ref().filter(|_| import.level == 0) else {
+            return false;
+        };
+        let Some(name) = ModuleName::new(&module.id) else {
+            return false;
+        };
+        let db = self.model.db();
+        let importing = ImportingFile::ResolverFile(db.program_file(self.file).resolver_file(db));
+        resolve_module(db, importing, &name)
+            .and_then(|module| module.search_path(db))
+            .is_some_and(|path| !path.is_first_party())
+    }
+
+    /// Report a name in `from ... import` whose type is dynamic.
+    fn check_dynamic_alias(&mut self, alias: &ruff_python_ast::Alias) {
+        let Some(ty) = alias.inferred_type(self.model) else {
+            return;
+        };
+        if self.is_dynamic(ty) {
+            let name = alias.name.as_str();
+            let ty = self.display(ty);
+            self.push(
+                &DYNAMIC_TYPE,
+                alias.range(),
+                format!("`{name}` has type `{ty}`; spython needs to know the type of every value"),
+            );
         }
     }
 
@@ -1234,6 +1407,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 }
                 self.visit_assign_target_subexprs(&ann.target);
                 self.check_annotation(&ann.annotation);
+                self.check_dynamic_annotation(&ann.annotation);
                 if let Some(value) = &ann.value {
                     self.visit_expr(value);
                 }
@@ -1283,6 +1457,11 @@ impl<'a> Visitor<'a> for Checker<'_> {
                 {
                     self.check_module(&module.id, module.range());
                 }
+                if self.imports_from_a_library(import) {
+                    for alias in &import.names {
+                        self.check_dynamic_alias(alias);
+                    }
+                }
             }
             // Always allowed (or allowed at level 5): no checks, no
             // sub-expressions to recurse into.
@@ -1298,6 +1477,7 @@ impl<'a> Visitor<'a> for Checker<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
+        self.check_dynamic_expr(expr);
         // In `dict[str, int]` the tuple holds the type arguments, and in
         // `Callable[[int], int]` the list holds the parameters. Neither one is
         // a literal.
@@ -1992,6 +2172,29 @@ fn int_or_float_powers(db: &dyn Db, file: File) -> Vec<TextRange> {
     };
     powers.visit_body(module.suite());
     powers.ranges
+}
+
+/// The expressions directly inside an expression.
+struct Parts<'a>(Vec<&'a Expr>);
+
+impl<'a> Visitor<'a> for Parts<'a> {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        self.0.push(expr);
+    }
+}
+
+/// Drop every `dynamic-type` error when there is another error. A name
+/// that does not resolve, a module that is not available, or a function
+/// without annotations gives a dynamic type to what uses it, in its file and
+/// in the files that import it, and those errors would bury the first one.
+pub(crate) fn drop_dynamic_types_beside_errors(diagnostics: &mut Vec<Diagnostic>) {
+    let is_dynamic_type = |diag: &Diagnostic| diag.id().is_lint_named(DYNAMIC_TYPE.name().as_str());
+    if diagnostics
+        .iter()
+        .any(|diag| diag.severity() == Severity::Error && !is_dynamic_type(diag))
+    {
+        diagnostics.retain(|diag| !is_dynamic_type(diag));
+    }
 }
 
 /// Create a lint diagnostic that matches ty's format.

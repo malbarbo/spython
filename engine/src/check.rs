@@ -291,6 +291,7 @@ fn check_project(
             level,
         ));
     }
+    checker::drop_dynamic_types_beside_errors(&mut diagnostics);
     diagnostics
 }
 /// What ty finds in `db`, with the notes spython adds to its errors.

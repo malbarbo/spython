@@ -794,6 +794,36 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
+    /// Rejects a value whose type is `Any` or `Unknown`, or has one of them
+    /// inside it, as `list[Unknown]` does. The error goes where the type
+    /// first appears: an expression whose parts all have known types, an
+    /// annotation, a parameter of a lambda, or a name in an import.
+    ///
+    /// ## Why is this bad?
+    /// spython checks every operation before the program runs. With a
+    /// dynamic type, the checker accepts any operation, and the error shows
+    /// up only when the program runs.
+    ///
+    /// ## Example
+    /// ```python
+    /// def f(xs: list[int]) -> bool:
+    ///     return xs == []     # error: `[]` is `list[Unknown]`
+    /// ```
+    ///
+    /// Use instead:
+    /// ```python
+    /// def f(xs: list[int]) -> bool:
+    ///     return len(xs) == 0
+    /// ```
+    pub(crate) static DYNAMIC_TYPE = {
+        summary: "value whose type is not fully known",
+        status: LintStatus::stable("0.0.0"),
+        default_level: Level::Error,
+    }
+}
+
+declare_lint! {
+    /// ## What it does
     /// Rejects `list` used as a type annotation without a parameter. Write
     /// `list[int]` (or whatever element type you mean) instead of bare `list`.
     ///

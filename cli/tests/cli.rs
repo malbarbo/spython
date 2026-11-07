@@ -178,12 +178,6 @@ fn run_spython(path: &Path) -> (String, String) {
     (out, err)
 }
 
-fn run_level_native_only(level: u8, code: &str) -> (String, String, bool) {
-    let dir = new_dir_with("level_native", &[("main.py", code)]);
-    let level_str = level.to_string();
-    run_spython_native(&["run", "--level", &level_str, "main.py"], dir.path())
-}
-
 #[test]
 fn bare_file_shorthand_runs() {
     // `spython FILE` (no subcommand) runs the file like `spython run FILE`.
@@ -1360,7 +1354,8 @@ fn level4_allows_lambda() {
     let (out, _, success) = run_level(
         4,
         indoc! {"
-        f = lambda x: x + 1
+        from typing import Callable
+        f: Callable[[int], int] = lambda x: x + 1
         print(f(2))
     "},
     );
@@ -1416,17 +1411,23 @@ fn level5_allows_try() {
 
 #[test]
 fn level5_allows_with() {
-    // Native-only: `open()` on /dev/null requires WASI `path_open`, which
-    // the minimal WASI polyfill used by the Deno wrapper does not provide.
-    let null_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
-    let code = formatdoc! {"
-        with open('{null_path}') as f:
-            pass
-        print('ok')
-    "};
-    let (out, _, success) = run_level_native_only(5, &code);
-    assert!(success);
-    assert_eq!(out, "ok\n");
+    let (out, err, success) = run_level(
+        5,
+        indoc! {"
+        class Block:
+            def __enter__(self) -> str:
+                print('enter')
+                return 'ok'
+
+            def __exit__(self, *args: object) -> None:
+                print('exit')
+
+        with Block() as value:
+            print(value)
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "enter\nok\nexit\n");
 }
 
 // --- Non-boolean condition tests (levels 0–3) ---
@@ -1809,23 +1810,6 @@ fn level0_allows_unary_minus_int() {
 }
 
 #[test]
-fn level0_allows_any_typed_operand_in_arithmetic() {
-    // `Any` is assignable to every type (including `bool`), so the
-    // bool-in-arithmetic lint must not treat it as a `bool` operand.
-    let (out, err, success) = run_level(
-        0,
-        indoc! {"
-        from typing import Any
-        def f(x: Any) -> float:
-            return x / 2
-        print(f(1))
-    "},
-    );
-    assert!(success, "stderr: {err}");
-    assert_eq!(out, "0.5\n");
-}
-
-#[test]
 fn level4_allows_bool_arithmetic() {
     let (out, err, success) = run_level(
         4,
@@ -2156,7 +2140,7 @@ fn level5_allows_is_with_none_enum_members_and_objects() {
             x: int
         def f(n: int | None, c: Color, s: Size, p: Point, xs: list[int]) -> None:
             print(n is None, None is not n, c is Color.RED, s is Size.SMALL)
-            print(p is p, p is Point(1), type(p) is Point, xs is xs, xs is [])
+            print(p is p, p is Point(1), type(p) is Point, xs is xs, xs is [0])
         f(None, Color.RED, Size.SMALL, Point(1), [])
     "},
     );
@@ -3747,4 +3731,156 @@ fn a_reader_that_went_away_is_not_a_crash() {
             .expect("failed to wait for spython");
         assert_eq!(String::from_utf8_lossy(&out.stderr), "", "args: {args:?}");
     }
+}
+
+#[test]
+fn level0_rejects_a_dynamic_type_where_it_appears_first() {
+    let (_, err, success) = run_level(
+        0,
+        indoc! {"
+        def f(s: str) -> int:
+            return eval(s) + 1
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("dynamic-type").count(), 1, "stderr: {err}");
+    assert!(
+        err.contains("Expression has type `Any`; spython needs to know the type of every value"),
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level5_rejects_any_in_an_annotation() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        from typing import Any
+
+        def f(b: Any, xs: list[Any]) -> Any:
+            y: Any = b + 1
+            return y
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("dynamic-type").count(), 4, "stderr: {err}");
+    assert_eq!(
+        err.matches("Type `Any` does not say what the value is")
+            .count(),
+        4,
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level5_rejects_an_empty_list_or_dict_without_a_type() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        def f(lst: list[int], d: dict[str, int]) -> None:
+            print(lst == [], d == {})
+            xs = []
+            for x in xs:
+                print(x + 1)
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("dynamic-type").count(), 3, "stderr: {err}");
+    assert_eq!(
+        err.matches("The list `[]` has type `list[Unknown]` here")
+            .count(),
+        2,
+        "stderr: {err}"
+    );
+    assert_eq!(
+        err.matches("The dict `{}` has type `dict[Unknown, Unknown]` here")
+            .count(),
+        1,
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level5_rejects_a_lambda_parameter_without_a_type() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        from typing import Callable
+
+        def main() -> None:
+            h = lambda b: b
+            k: Callable[[int], int] = lambda n: n + 1
+            print(h, k, sorted([3, 1], key=lambda v: -v))
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("dynamic-type").count(), 1, "stderr: {err}");
+    assert!(
+        err.contains("Parameter `b` has type `Unknown`"),
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level5_rejects_an_empty_list_without_a_type_in_a_doctest() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+        def size(lst: list[int]) -> int:
+            '''
+            >>> xs = []
+            >>> size(xs)
+            0
+            >>> size([])
+            0
+            '''
+            return len(lst)
+    "},
+    );
+    assert!(!success);
+    assert_eq!(err.matches("dynamic-type").count(), 1, "stderr: {err}");
+    assert!(
+        err.contains("in doctest of size: The list `[]`"),
+        "stderr: {err}"
+    );
+}
+
+#[test]
+fn level5_accepts_values_whose_types_are_known() {
+    let (out, err, success) = run_level(
+        5,
+        indoc! {"
+        def size(lst: list[int]) -> int:
+            return len(lst)
+
+        xs = []
+        xs.append(3)
+        ys: list[int] = []
+        d: dict[str, int] = {'a': 1}
+        print(xs, ys, size([]), d.get('b', 0), max(xs), sorted(xs, key=lambda v: -v))
+    "},
+    );
+    assert!(success, "stderr: {err}");
+    assert_eq!(out, "[3] [] 0 0 3 [3]\n");
+}
+
+#[test]
+fn level5_drops_the_dynamic_types_when_there_is_another_error() {
+    let dir = new_dir_with(
+        "dynamic_beside_errors",
+        &[
+            (
+                "main.py",
+                "import helper\nprint(helper.f(1) + 1)\nprint(eval('1'))\n",
+            ),
+            ("helper.py", "def f(x):\n    return x\n"),
+        ],
+    );
+    let (_, err, success) = run_spython_native(&["run", "main.py"], dir.path());
+    assert!(!success);
+    assert!(
+        err.contains("missing-parameter-annotation"),
+        "stderr: {err}"
+    );
+    assert!(!err.contains("dynamic-type"), "stderr: {err}");
 }
