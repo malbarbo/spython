@@ -4,6 +4,7 @@ compile_error!("spython CLI cannot be compiled for wasm32; use spython-wasm inst
 use bpaf::{Bpaf, Parser};
 mod config;
 mod repl_reader;
+mod wasmgc;
 
 use repl_reader::{ReplReader, Theme};
 
@@ -26,6 +27,21 @@ fn level_arg() -> impl bpaf::Parser<Level> {
         .parse(|n| Level::from_u8(n).ok_or(format!("invalid level {n}: must be 0-5")))
 }
 
+/// The name of what runs a program, which `main` reads. A name the parser
+/// turned down would get the error of the `repl` shorthand, which takes no
+/// backend, so the parser takes any name.
+///
+/// `wasmgc` is the compiler to WasmGC, with the module run in the wasmtime
+/// on the `PATH`. It stays hidden until it covers the programs of the
+/// students.
+fn backend_arg() -> impl bpaf::Parser<String> {
+    bpaf::long("backend")
+        .help("Backend that runs the program: rustpython or wasmgc")
+        .argument::<String>("BACKEND")
+        .fallback("rustpython".to_owned())
+        .hide()
+}
+
 #[derive(Debug, Clone, Bpaf)]
 enum Command {
     /// Start an interactive Python REPL (default)
@@ -42,6 +58,8 @@ enum Command {
     Run {
         #[bpaf(external(level_arg), fallback(Level::Full))]
         level: Level,
+        #[bpaf(external(backend_arg))]
+        backend: String,
         /// Python script to run
         #[bpaf(positional("FILE"))]
         file: PathBuf,
@@ -95,8 +113,13 @@ enum Command {
 /// since the bare options already take an empty command line.
 fn cli() -> bpaf::OptionParser<Option<Command>> {
     let level = level_arg().fallback(Level::Full);
+    let backend = backend_arg();
     let file = bpaf::positional::<PathBuf>("FILE");
-    let file_as_run = bpaf::construct!(Command::Run { level, file });
+    let file_as_run = bpaf::construct!(Command::Run {
+        level,
+        backend,
+        file
+    });
 
     let level = level_arg().fallback(Level::Full);
     let file = bpaf::pure(None);
@@ -170,7 +193,17 @@ fn main() -> ExitCode {
         Command::Repl { file, level } => {
             run_interactive(file.as_deref(), level, config::load().theme)
         }
-        Command::Run { file, level } => run::run_main(&file, level),
+        Command::Run {
+            file,
+            level,
+            backend,
+        } => match backend.as_str() {
+            "rustpython" => run::run_main(&file, level),
+            "wasmgc" => wasmgc::run(&file, level),
+            _ => Err(SpythonError::Other(
+                format!("invalid backend {backend}: must be rustpython or wasmgc").into(),
+            )),
+        },
         Command::Check { file, level } => check::check_file(&file, level).map(drop),
         Command::Format { check, paths } => format::run(check, &paths),
         Command::Test {

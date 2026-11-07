@@ -214,6 +214,75 @@ fn bare_file_shorthand_after_dashdash() {
     assert_eq!(out, "2\n");
 }
 
+/// `--backend=wasmgc` compiles the file and runs it in the wasmtime on the
+/// `PATH`, which writes the traceback of CPython.
+#[test]
+fn the_wasmgc_backend_runs_a_file() {
+    let source = indoc! {"
+        def f(n: int) -> int:
+            return 10 // n
+
+        print('ok', f(2))
+        print(f(0))
+    "};
+    let dir = new_dir_with("wasmgc", &[("main.py", source)]);
+    for args in [
+        ["--backend=wasmgc", "main.py"].as_slice(),
+        ["run", "--backend", "wasmgc", "main.py"].as_slice(),
+    ] {
+        let (out, err, success) = run_spython_native(args, dir.path());
+        assert!(!success, "{args:?}");
+        assert_eq!(out, "ok 5\n", "{args:?}");
+        assert_eq!(
+            err,
+            indoc! {r#"
+                Traceback (most recent call last):
+                  File "main.py", line 5, in <module>
+                    print(f(0))
+                          ~^^^
+                  File "main.py", line 2, in f
+                    return 10 // n
+                           ~~~^^~~
+                ZeroDivisionError: integer division or modulo by zero
+            "#},
+            "{args:?}"
+        );
+    }
+}
+
+/// The column counts code points, as the diagnostics of the checker do.
+#[test]
+fn the_wasmgc_backend_names_the_place_of_what_it_does_not_support() {
+    let dir = new_dir_with(
+        "wasmgc_unsupported",
+        &[("main.py", "s = 'a'\nprint('é' + s[0:])\n")],
+    );
+    let (out, err, success) = run_spython_native(&["--backend=wasmgc", "main.py"], dir.path());
+    assert!(!success);
+    assert_eq!(out, "");
+    assert_eq!(
+        err,
+        "spython: main.py:2:15: the wasmgc backend does not support a slice\n"
+    );
+}
+
+#[test]
+fn an_unknown_backend_is_an_error() {
+    let dir = new_dir_with("backend", &[("main.py", "print(1)\n")]);
+    for args in [
+        ["--backend=x", "main.py"].as_slice(),
+        ["run", "--backend=x", "main.py"].as_slice(),
+    ] {
+        let (out, err, success) = run_spython_native(args, dir.path());
+        assert!(!success, "{args:?}");
+        assert_eq!(out, "", "{args:?}");
+        assert_eq!(
+            err, "spython: invalid backend x: must be rustpython or wasmgc\n",
+            "{args:?}"
+        );
+    }
+}
+
 #[test]
 fn help_names_the_program_in_its_usage() {
     let (out, err, success) = run_spython_native(&["help"], Path::new("."));

@@ -4944,6 +4944,7 @@ version = "0.3.0"
 dependencies = [
  "assert_cmd",
  "bpaf",
+ "compiler",
  "dirs-next",
  "engine",
  "indoc",
