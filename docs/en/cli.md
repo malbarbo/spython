@@ -92,6 +92,12 @@ because Python gives a complex number for `(-8) ** 0.5`. So `a ** 0.5` with
 type `int | float`, because `2 ** -1` is `0.5`. So `x: int = 2 ** n` is an
 error, and `int(2 ** n)` is the way to write it when `n` is never negative.
 
+At every level, `is` needs `None` on one side, or objects whose identity
+Python fixes, such as members of an `Enum`, instances of a class, and lists.
+With numbers, `bool` values, strings, `bytes` and tuples, whether two equal
+values are the same object depends on the implementation, so `n is 0` is an
+error and `n == 0` is the way to write it.
+
 
 ## Required annotations
 

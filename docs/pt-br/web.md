@@ -89,6 +89,12 @@ negativa, porque o Python dá um número complexo para `(-8) ** 0.5`. Então
 `int | float`, porque `2 ** -1` é `0.5`. Então `x: int = 2 ** n` é erro, e
 `int(2 ** n)` é o jeito de escrever quando `n` nunca é negativo.
 
+Em todos os níveis, o `is` precisa de `None` de um dos lados, ou de objetos
+cuja identidade o Python fixa, como membros de um `Enum`, instâncias de uma
+classe e listas. Com números, valores `bool`, strings, `bytes` e tuplas,
+saber se dois valores iguais são o mesmo objeto depende da implementação,
+então `n is 0` é erro, e o jeito de escrever é `n == 0`.
+
 
 # Comandos do REPL
 
