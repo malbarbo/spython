@@ -8,12 +8,14 @@ use engine::Level;
 use engine::check::check_source;
 
 /// The module of `source`, which has to pass the checker at the last level.
-fn compile(source: &str) -> Result<Vec<u8>, compiler::Error> {
+/// A traceback names the file by `path`.
+fn compile(source: &str, path: &Path) -> Result<Vec<u8>, compiler::Error> {
     let checked = match check_source(source, Level::Full, false) {
         Ok(checked) => checked,
         Err(errors) => panic!("the checker rejects the program: {:?}", errors.diagnostics),
     };
-    compiler::compile(&checked.db, checked.file)
+    let path = path.to_str().expect("a path in utf-8");
+    compiler::compile(&checked.db, checked.file, path)
 }
 
 /// The path of a file for the test `name`. Tests run at the same time, so
@@ -68,20 +70,31 @@ fn same_as_cpython(name: &str, source: &str) {
 
 /// Compiles `source` and runs it in wasmtime.
 fn run(name: &str, source: &str) -> Output {
-    let module = compile(source).expect("the program to compile");
+    let module = compile(source, &path(name, "py")).expect("the program to compile");
     wasmtime(name, &module)
 }
 
-/// Asserts that the compiled `source` stops with the error of an `int`
-/// outside 31 bits, after it prints `stdout`.
-fn stops_at_the_int_limit(name: &str, source: &str, stdout: &str, result: &str) {
+/// Asserts that the compiled `source` prints `stdout`, then stops with the
+/// error of an `int` outside 31 bits at `line`, with `lines` under the
+/// `File` line of the traceback.
+fn stops_at_the_int_limit(
+    name: &str,
+    source: &str,
+    stdout: &str,
+    line: u32,
+    lines: &str,
+    result: &str,
+) {
     let output = run(name, source);
     assert_eq!(String::from_utf8_lossy(&output.stdout), stdout, "stdout");
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         format!(
-            "spython: the result {result} does not fit in an int, \
-             which goes from -1073741824 to 1073741823\n"
+            "Traceback (most recent call last):\n  \
+             File \"{}\", line {line}, in <module>\n{lines}\
+             spython: the result {result} does not fit in an int, \
+             which goes from -1073741824 to 1073741823\n",
+            path(name, "py").display()
         ),
         "stderr"
     );
@@ -89,7 +102,7 @@ fn stops_at_the_int_limit(name: &str, source: &str, stdout: &str, result: &str) 
 }
 
 fn unsupported(source: &str) -> String {
-    match compile(source) {
+    match compile(source, Path::new("unsupported.py")) {
         Err(compiler::Error::Unsupported { what, .. }) => what,
         Err(error) => panic!("an invalid module: {error:?}"),
         Ok(_) => panic!("the program compiled"),
@@ -207,6 +220,8 @@ fn a_sum_outside_31_bits_stops_the_program() {
         "a_sum_outside_31_bits_stops_the_program",
         "print('antes')\nprint(1073741823 + 1)\nprint('depois')\n",
         "antes\n",
+        2,
+        "    print(1073741823 + 1)\n          ~~~~~~~~~~~^~~\n",
         "1073741824",
     );
 }
@@ -217,6 +232,8 @@ fn a_difference_outside_31_bits_stops_the_program() {
         "a_difference_outside_31_bits_stops_the_program",
         "print(-1073741824 - 1)\n",
         "",
+        1,
+        "    print(-1073741824 - 1)\n          ~~~~~~~~~~~~^~~\n",
         "-1073741825",
     );
 }
@@ -227,6 +244,8 @@ fn a_product_outside_31_bits_stops_the_program() {
         "a_product_outside_31_bits_stops_the_program",
         "print(65536 * 65536)\n",
         "",
+        1,
+        "    print(65536 * 65536)\n          ~~~~~~^~~~~~~\n",
         "4294967296",
     );
 }
@@ -237,6 +256,8 @@ fn the_negation_of_the_least_int_stops_the_program() {
         "the_negation_of_the_least_int_stops_the_program",
         "print(-(-1073741823 - 1))\n",
         "",
+        1,
+        "    print(-(-1073741823 - 1))\n          ^^^^^^^^^^^^^^^^^^\n",
         "1073741824",
     );
 }
@@ -247,6 +268,8 @@ fn print_evaluates_every_argument_before_it_writes() {
         "print_evaluates_every_argument_before_it_writes",
         "print('a', 1073741823 + 1)\n",
         "",
+        1,
+        "    print('a', 1073741823 + 1)\n               ~~~~~~~~~~~^~~\n",
         "1073741824",
     );
 }
@@ -261,4 +284,28 @@ fn an_int_literal_outside_31_bits_is_unsupported() {
 #[test]
 fn the_floor_division_is_unsupported() {
     assert_eq!(unsupported("print(7 // 2)\n"), "this operator");
+}
+
+#[test]
+fn the_traceback_of_the_int_limit_shows_every_line_of_the_operator() {
+    stops_at_the_int_limit(
+        "the_traceback_of_the_int_limit_shows_every_line_of_the_operator",
+        "print('日本', (1073741823 +\n       1))\n",
+        "",
+        1,
+        "    print('日本', (1073741823 +\n                   ~~~~~~~~~~~^\n           1))\n           ~\n",
+        "1073741824",
+    );
+}
+
+#[test]
+fn the_traceback_of_the_int_limit_has_no_carets_under_a_whole_line() {
+    stops_at_the_int_limit(
+        "the_traceback_of_the_int_limit_has_no_carets_under_a_whole_line",
+        "-(-1073741823 - 1)\n",
+        "",
+        1,
+        "    -(-1073741823 - 1)\n",
+        "1073741824",
+    );
 }

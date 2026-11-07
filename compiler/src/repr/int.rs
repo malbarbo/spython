@@ -2,6 +2,7 @@
 
 use wasm_encoder::{BlockType, ValType};
 
+use super::exc::Exceptions;
 use super::str::StrRepr;
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
@@ -25,9 +26,9 @@ pub(super) enum IntRepr {
 }
 
 impl IntRepr {
-    pub fn i31(m: &mut ModuleState, host: &Host, str: &mut StrRepr) -> Self {
+    pub fn i31(m: &mut ModuleState, host: &Host, str: &mut StrRepr, exc: &Exceptions) -> Self {
         let write = add_write(m, host);
-        let overflow = add_overflow(m, host, str, write);
+        let overflow = add_overflow(m, str, exc);
         let check = add_check(m, overflow);
         IntRepr::I31 {
             add: add_arith(m, check, |f| {
@@ -144,23 +145,23 @@ fn add_check(m: &mut ModuleState, overflow: u32) -> u32 {
     m.add_func(ty, f.finish())
 }
 
-/// `(func (param i64))`, which writes the error of a result outside 31
-/// bits to the standard error and ends the program.
-fn add_overflow(m: &mut ModuleState, host: &Host, str: &mut StrRepr, write: u32) -> u32 {
+/// `(func (param i64))`, which raises the error of a result outside 31
+/// bits, with the result and the range.
+fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32 {
     let ty = m.func_type(&[ValType::I64], &[]);
     let v = 0;
     let mut f = FuncState::new(1);
-    f.ins().call(host.to_stderr);
     str.literal(m, &mut f, "spython: the result ");
-    str.write(&mut f);
-    f.ins().local_get(v).call(write);
+    f.ins().local_get(v);
+    str.decimal(&mut f);
+    str.concat(&mut f);
     str.literal(
         m,
         &mut f,
-        &format!(" does not fit in an int, which goes from {MIN} to {MAX}\n"),
+        &format!(" does not fit in an int, which goes from {MIN} to {MAX}"),
     );
-    str.write(&mut f);
-    f.ins().i32_const(1).call(host.exit);
+    str.concat(&mut f);
+    exc.raise(&mut f);
     m.add_func(ty, f.finish())
 }
 

@@ -3,7 +3,13 @@
 
 pub(crate) struct Program {
     pub body: Vec<Stmt>,
+    /// The text of the frame of each place that can raise, by its [`Site`].
+    pub sites: Vec<String>,
 }
+
+/// A place in the program that can raise an exception.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Site(pub u32);
 
 pub(crate) enum Stmt {
     /// An expression whose value the program drops.
@@ -18,7 +24,12 @@ pub(crate) enum Expr {
     /// A `bool` read as an `int`, as an operand of an operator of `int`.
     BoolAsInt(Box<Expr>),
     /// An operator on two `int`s.
-    Arith(ArithOp, Box<Expr>, Box<Expr>),
+    Arith {
+        op: ArithOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        site: Site,
+    },
     /// A chain of comparisons of `int`s, as in `a < b <= c`. Each operand
     /// after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
@@ -56,7 +67,7 @@ impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
             Expr::Str(_) => Rep::Str,
-            Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith(..) => Rep::Int,
+            Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Print(_) => Rep::None,
         }

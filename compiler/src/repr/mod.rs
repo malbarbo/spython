@@ -1,5 +1,6 @@
 //! How each value is laid out in wasm. No other module knows it.
 
+mod exc;
 mod int;
 mod str;
 
@@ -8,19 +9,40 @@ use wasm_encoder::{BlockType, ValType};
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::{ArithOp, CmpOp, Rep};
+use exc::Exceptions;
 use int::IntRepr;
 use str::StrRepr;
 
 pub(crate) struct Reprs {
     int: IntRepr,
     str: StrRepr,
+    exc: Exceptions,
 }
 
 impl Reprs {
     pub fn new(m: &mut ModuleState, host: &Host) -> Self {
         let mut str = StrRepr::ucs4(m, host);
-        let int = IntRepr::i31(m, host, &mut str);
-        Reprs { int, str }
+        let exc = Exceptions::new(m, host, &mut str);
+        let int = IntRepr::i31(m, host, &mut str, &exc);
+        Reprs { int, str, exc }
+    }
+
+    /// Opens the code of the module, where an exception that nothing
+    /// catches writes the traceback and ends the program.
+    pub fn begin_module(&self, f: &mut FuncState) {
+        self.exc.begin_module(f);
+    }
+
+    /// Closes what [`Self::begin_module`] opened. `site` is the local that
+    /// holds the site of the instruction that may raise.
+    pub fn end_module(&self, f: &mut FuncState, site: u32) {
+        self.exc.end_module(f, site);
+    }
+
+    /// Adds what the module needs once the program is emitted, with the
+    /// text of the frame of each site.
+    pub fn finish(&mut self, m: &mut ModuleState, sites: &[String]) {
+        self.exc.finish(m, &mut self.str, sites);
     }
 
     /// The type of a local that holds a value of `rep`, and `None` for a

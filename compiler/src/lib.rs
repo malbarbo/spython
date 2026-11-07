@@ -4,6 +4,7 @@ mod emit;
 mod ir;
 mod lower;
 mod repr;
+mod traceback;
 
 use ruff_db::files::File;
 use ruff_text_size::TextRange;
@@ -20,10 +21,11 @@ pub enum Error {
 }
 
 /// The module of the program in `file`, which the checker has accepted.
+/// A traceback names the file by `path`.
 ///
 /// The module is a WASI command, and its `_start` runs the program.
-pub fn compile(db: &dyn Db, file: File) -> Result<Vec<u8>, Error> {
-    let program = lower::lower(db, file)?;
+pub fn compile(db: &dyn Db, file: File, path: &str) -> Result<Vec<u8>, Error> {
+    let program = lower::lower(db, file, path)?;
     let bytes = emit::emit(&program);
     validate(&bytes).map_err(Error::Invalid)?;
     Ok(bytes)

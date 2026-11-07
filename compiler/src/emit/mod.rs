@@ -3,9 +3,9 @@
 pub(crate) mod host;
 pub(crate) mod module;
 
-use wasm_encoder::BlockType;
+use wasm_encoder::{BlockType, ValType};
 
-use crate::ir::{CmpOp, Expr, Program, Rep, Stmt};
+use crate::ir::{CmpOp, Expr, Program, Rep, Site, Stmt};
 use crate::repr::Reprs;
 use host::Host;
 use module::{FuncState, ModuleState};
@@ -14,13 +14,23 @@ pub(crate) fn emit(program: &Program) -> Vec<u8> {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m);
     let reprs = Reprs::new(&mut m, &host);
-    let mut e = Emitter { m, host, reprs };
+    let mut e = Emitter {
+        m,
+        host,
+        reprs,
+        site: 0,
+    };
     let start_ty = e.m.func_type(&[], &[]);
     let start = e.m.reserve(start_ty);
     let mut f = FuncState::new(0);
+    let site = f.local(ValType::I32);
+    e.site = site;
+    e.reprs.begin_module(&mut f);
     for stmt in &program.body {
         e.stmt(&mut f, stmt);
     }
+    e.reprs.end_module(&mut f, site);
+    e.reprs.finish(&mut e.m, &program.sites);
     let init = std::mem::take(&mut e.m.init);
     e.m.define(start, f.finish_with_prefix(&init));
     e.m.export_func("_start", start);
@@ -31,6 +41,8 @@ struct Emitter {
     m: ModuleState,
     host: Host,
     reprs: Reprs,
+    /// The local that holds the site of the instruction that may raise.
+    site: u32,
 }
 
 impl Emitter {
@@ -55,9 +67,15 @@ impl Emitter {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);
             }
-            Expr::Arith(op, left, right) => {
+            Expr::Arith {
+                op,
+                left,
+                right,
+                site,
+            } => {
                 self.expr(f, left);
                 self.expr(f, right);
+                f.ins().i32_const(site_index(*site)).local_set(self.site);
                 self.reprs.int_arith(f, *op);
             }
             Expr::Compare(first, rest) => self.compare(f, first, rest),
@@ -116,4 +134,8 @@ impl Emitter {
             .call(self.host.write_char)
             .call(self.host.flush);
     }
+}
+
+fn site_index(site: Site) -> i32 {
+    i32::try_from(site.0).expect("fewer than 2^31 sites")
 }

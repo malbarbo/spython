@@ -675,6 +675,7 @@ dependencies = [
  "engine",
  "ruff_db",
  "ruff_python_ast",
+ "ruff_python_parser",
  "ruff_text_size",
  "ty_module_resolver",
  "ty_python_semantic",

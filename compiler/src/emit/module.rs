@@ -5,8 +5,9 @@ use std::collections::HashMap;
 
 use wasm_encoder::{
     CodeSection, ConstExpr, DataCountSection, DataSection, EntityType, ExportKind, ExportSection,
-    Function, FunctionSection, GlobalSection, GlobalType, ImportSection, InstructionSink,
-    MemorySection, MemoryType, Module, StorageType, TypeSection, ValType,
+    FieldType, Function, FunctionSection, GlobalSection, GlobalType, ImportSection,
+    InstructionSink, MemorySection, MemoryType, Module, StorageType, TagKind, TagSection, TagType,
+    TypeSection, ValType,
 };
 
 pub(crate) struct ModuleState {
@@ -19,6 +20,8 @@ pub(crate) struct ModuleState {
     /// order of their indices. A reserved function has no body yet.
     funcs: Vec<(u32, Option<Function>)>,
     memories: MemorySection,
+    tags: TagSection,
+    tag_count: u32,
     globals: GlobalSection,
     global_count: u32,
     exports: ExportSection,
@@ -38,6 +41,8 @@ impl ModuleState {
             imported_funcs: 0,
             funcs: Vec::new(),
             memories: MemorySection::new(),
+            tags: TagSection::new(),
+            tag_count: 0,
             globals: GlobalSection::new(),
             global_count: 0,
             exports: ExportSection::new(),
@@ -63,6 +68,33 @@ impl ModuleState {
     pub fn array_type(&mut self, element: StorageType, mutable: bool) -> u32 {
         self.types.ty().array(&element, mutable);
         self.next_type()
+    }
+
+    /// A struct type with the fields, each with its type and whether it is
+    /// mutable. A field can refer to the struct by [`Self::next_type_index`].
+    pub fn struct_type(&mut self, fields: &[(StorageType, bool)]) -> u32 {
+        self.types
+            .ty()
+            .struct_(fields.iter().map(|&(element_type, mutable)| FieldType {
+                element_type,
+                mutable,
+            }));
+        self.next_type()
+    }
+
+    /// The index the next type will have.
+    pub fn next_type_index(&self) -> u32 {
+        self.type_count
+    }
+
+    /// An exception tag whose payload is the parameters of `func_type`.
+    pub fn tag(&mut self, func_type: u32) -> u32 {
+        self.tags.tag(TagType {
+            kind: TagKind::Exception,
+            func_type_idx: func_type,
+        });
+        self.tag_count += 1;
+        self.tag_count - 1
     }
 
     fn next_type(&mut self) -> u32 {
@@ -154,6 +186,7 @@ impl ModuleState {
             .section(&self.imports)
             .section(&functions)
             .section(&self.memories)
+            .section(&self.tags)
             .section(&self.globals)
             .section(&self.exports)
             .section(&DataCountSection {

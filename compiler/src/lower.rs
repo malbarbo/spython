@@ -4,19 +4,22 @@ use ruff_db::files::File;
 use ruff_db::parsed::parsed_module;
 use ruff_db::source::source_text;
 use ruff_python_ast as ast;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
-use crate::ir::{ArithOp, CmpOp, Expr, Program, Rep, Stmt};
+use std::cell::RefCell;
+
+use crate::ir::{ArithOp, CmpOp, Expr, Program, Rep, Site, Stmt};
+use crate::traceback;
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
 const INT_MAX: i64 = (1 << 30) - 1;
 
-pub(crate) fn lower(db: &dyn Db, file: File) -> Result<Program, Error> {
+pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Error> {
     let program_file = db.program_file(file);
     let parsed = parsed_module(db, program_file.python_file(db));
     let module = parsed.load(db);
@@ -25,18 +28,26 @@ pub(crate) fn lower(db: &dyn Db, file: File) -> Result<Program, Error> {
     let lowering = Lowering {
         model: &model,
         source: source.as_str(),
+        path,
+        sites: RefCell::new(Vec::new()),
     };
     let body = module
         .suite()
         .iter()
         .map(|stmt| lowering.stmt(stmt))
         .collect::<Result<_, _>>()?;
-    Ok(Program { body })
+    Ok(Program {
+        body,
+        sites: lowering.sites.into_inner(),
+    })
 }
 
 struct Lowering<'a, 'db> {
     model: &'a SemanticModel<'db>,
     source: &'a str,
+    /// The path of the file in a traceback.
+    path: &'a str,
+    sites: RefCell<Vec<String>>,
 }
 
 impl Lowering<'_, '_> {
@@ -80,7 +91,12 @@ impl Lowering<'_, '_> {
                 };
                 let left = self.int_operand(&b.left)?;
                 let right = self.int_operand(&b.right)?;
-                Ok(Expr::Arith(op, Box::new(left), Box::new(right)))
+                Ok(Expr::Arith {
+                    op,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    site: self.site(b.range()),
+                })
             }
             ast::Expr::Compare(c) => {
                 let first = self.int_operand(c.first_operand())?;
@@ -118,16 +134,24 @@ impl Lowering<'_, '_> {
                 }) => int_literal(u, i.as_i64().map(|i| -i)),
                 operand => {
                     let operand = self.int_operand(operand)?;
-                    Ok(Expr::Arith(
-                        ArithOp::Sub,
-                        Box::new(Expr::Int(0)),
-                        Box::new(operand),
-                    ))
+                    Ok(Expr::Arith {
+                        op: ArithOp::Sub,
+                        left: Box::new(Expr::Int(0)),
+                        right: Box::new(operand),
+                        site: self.site(u.range()),
+                    })
                 }
             },
             ast::UnaryOp::UAdd => self.int_operand(&u.operand),
             _ => Err(unsupported(u, "this operator")),
         }
+    }
+
+    /// A new site for the instruction at `range`, in the code of the module.
+    fn site(&self, range: TextRange) -> Site {
+        let mut sites = self.sites.borrow_mut();
+        sites.push(traceback::frame(self.path, "<module>", self.source, range));
+        Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
     }
 
     /// The operand of an operator of `int`, which may be a `bool`.
