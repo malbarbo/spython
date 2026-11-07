@@ -226,9 +226,20 @@ do tipo, e também `numeric.rs` quando o tipo é `int` ou `float`.
 
 O wasm só aceita a leitura de um local não anulável dentro do bloco que o
 atribuiu. Por isso o local é guardado anulável e lido com
-`ref.as_non_null`. As variáveis globais do módulo ficam na forma uniforme,
-com a sentinela `$Undef`, e ler uma que ainda não foi atribuída lança
-`NameError`, como no CPython.
+`ref.as_non_null`. As variáveis globais do módulo ficam em globais do wasm
+na forma local, e as de uma função em locais do wasm. Quando o `ty` não
+prova que uma leitura vem depois da atribuição, a variável ganha uma flag,
+e a leitura testa a flag e lança `NameError` ou `UnboundLocalError`, como
+no CPython. Dentro de uma função, a leitura de uma global e a chamada de
+outra função sempre testam a flag, porque a função pode rodar antes da
+atribuição ou do `def`.
+
+A verdade de um valor é decidida pelo tipo estático: um `int` é
+verdadeiro quando não é 0, e um `str` quando não é vazio. `and` e `or`
+com operandos do mesmo tipo devolvem um dos operandos. Numa condição e
+no operando de `not`, só a verdade importa, e os operandos podem ter
+tipos diferentes. O despacho pela vtable só entra com as uniões e com o
+`__bool__` e o `__len__` das classes.
 
 `+` e `-` de `int` rodam em `i32` e testam os 31 bits. `*` roda em `i64`,
 porque `65536 * 65536` dá 0 em `i32` e passaria no teste. `-x`, `abs` e
@@ -270,7 +281,7 @@ Os tipos do runtime ficam num único rec group.
   (type $Exc (sub $Object (struct
     (field $vt (ref $VT)) (field $args (ref $Values))
     (field $tb (mut (ref null $Frame))) (field $ctx (mut (ref null $Exc))))))
-  (type $Frame (struct (field $func i32) (field $line i32)
+  (type $Frame (struct (field $site i32)
                        (field $next (ref null $Frame)))))
 ```
 
@@ -302,10 +313,16 @@ Uma tag só carrega a exceção, `$Exc {vt, args, tb, ctx}`. A classe
 calcula `str(e)` a partir de `args`. O erro sempre sai de uma chamada a
 `$raise_*`, e as mensagens e o formato do traceback são os do CPython.
 
-O traceback é montado no desenrolar, sem offsets do host. Cada função
-atualiza um local `$line` antes do que pode lançar. O corpo fica num
-`try_table` com `catch_ref`, e o handler acrescenta um `$Frame {func, line}`
-à frente do traceback e relança com `throw_ref`. O `except` do Python
+O traceback é montado no desenrolar, sem offsets do host. Um site é um
+lugar do programa que pode lançar, e o compilador guarda o texto do quadro
+de cada site, com o arquivo, a linha, a função, a linha do código e as
+marcas `~~^^` do CPython 3.13. Cada função atualiza um local `$site` antes
+do que pode lançar. O corpo fica num `try_table`, e o handler acrescenta
+um `$Frame {site}` à frente do traceback e lança de novo. Cada site também
+tem uma chave de linha, o par da função e do número da linha, e o
+traceback escreve os três primeiros quadros de uma sequência com a mesma
+chave e depois "[Previous line repeated N more times]", como o
+`StackSummary.format` do CPython. O `except` do Python
 testa a classe e relança quando ela não casa. Quando casa, acrescenta o
 quadro da própria função, como o CPython. Um global `$handling` dá o
 "During handling of the above exception", e só as funções com `except`
@@ -322,16 +339,22 @@ os nomes das funções.
 ### Recursão e Stop
 
 Um estouro real da pilha não é capturável pelo wasm. Por isso um contador
-global de profundidade lança `RecursionError` a 1000 quadros. Ele é
-testado na entrada da função, antes do `try_table`, e zerado a cada
-`wasm_call`. Uma função folha, que não chama outra função Python, fica sem
-contador.
+global de profundidade lança `RecursionError` a 1000 quadros, contando o
+do módulo, como o CPython. O teste fica na chamada, depois dos
+argumentos, e o erro aponta a linha da chamada. A função soma 1 ao
+contador na entrada e tira 1 antes de cada `return` e no handler que
+relança a exceção. O contador vai ser zerado a cada `wasm_call`. Uma
+função folha, que não chama outra função Python, ainda conta, e tirar o
+contador dela é uma otimização para depois.
 
 O Stop usa a mesma comparação. O host zera o limite, e o caminho lento
 confere a interrupção e dá trap por `unreachable`, que atravessa os
 `except`. Os laços também testam o limite na cabeça. Na CLI, o
-`max_wasm_stack` fica em 4 MiB. Se mesmo assim a pilha estourar, o host
-traduz o trap ou o `RangeError` num `RecursionError` sem traceback.
+`max_wasm_stack` fica em 8 MiB. Uma função pequena usa de 64 a 96 bytes
+por quadro, mas uma com 30 variáveis locais precisou de 256 a 512 KiB para
+999 quadros, o que esgota os 512 KiB padrão do wasmtime. Se mesmo assim a
+pilha estourar, o host traduz o trap ou o `RangeError` num
+`RecursionError` sem traceback.
 
 As chamadas entre funções Python não usam `return_call`, porque o
 traceback precisa dos quadros.
@@ -386,7 +409,7 @@ No navegador e no deno, o módulo roda pelo `wasm_instantiate` e pelo
 compilação some. Lá o que importa é o tamanho do download.
 
 Na CLI, o wasmtime 48 roda hoje como processo externo, com
-`-W gc=y,function-references=y,exceptions=y`. Quando for embutido, ele
+`-W gc=y,function-references=y,exceptions=y,max-wasm-stack=8388608`. Quando for embutido, ele
 roda com as features `runtime`, `std`, `cranelift`,
 `gc`, `gc-drc` e `parallel-compilation`, e o `cranelift_opt_level` fica em
 Speed. Compilar um prelude do tamanho do da sondagem levou 0,2 s em 28
@@ -426,7 +449,12 @@ corpus.
 
 - **−1. Sondagens.** Feitas, com o resultado na seção seguinte.
 - **0a. CLI.** `def`, `int`, `if`, `while`, `print` e a exceção não
-  capturada com linha, rodando no wasmtime externo.
+  capturada com linha, rodando no wasmtime externo. Já compila `int`,
+  `bool` e `str` com seus operadores, `len`, as variáveis do módulo e das
+  funções, `if`, `while`, `break`, `continue`, `pass`, `def` com
+  parâmetros posicionais, `return`, a recursão até o limite do CPython e
+  o traceback com as marcas do CPython. Defaults, argumentos nomeados,
+  `def` dentro de função e função como valor ainda são recusados.
 - **0b. Navegador.** O mesmo no deno, com o diferencial contra o
   RustPython.
 - **1. Prelude.** Arrays, classes sem herança, a `$Class` e os métodos
@@ -489,3 +517,7 @@ O hello world leva hoje 141 ms no `main`, com o checker.
   de pilha dependem do host.
 - As imagens: chamar o Image em Rust do sinteract pela fronteira ou
   reescrever a biblioteca no prelude.
+- A memória esgotada. O wasmtime aloca um array de 400 milhões de
+  elementos e dá um trap perto de 4 GB de heap de GC, sem traceback, onde
+  o CPython lança `MemoryError` ou consegue. Hoje só um `str` mais longo
+  que um comprimento `i32` lança `MemoryError`.
