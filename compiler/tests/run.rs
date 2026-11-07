@@ -441,3 +441,26 @@ fn a_variable_with_values_of_two_types_is_unsupported() {
 fn a_variable_of_none_is_unsupported() {
     assert_eq!(unsupported("x = print(1)\n"), "a variable of this type");
 }
+
+#[test]
+fn an_if_runs_the_first_clause_whose_condition_is_true() {
+    same_as_cpython(
+        "an_if_runs_the_first_clause_whose_condition_is_true",
+        "n = 7\n\
+         if n > 5:\n    print('maior')\n\
+         if n < 5:\n    print('menor')\n\
+         if n < 5:\n    print('a')\nelse:\n    print('b')\n\
+         if n < 0:\n    s = 'negativo'\nelif n == 0:\n    s = 'zero'\nelif n % 2 == 0:\n    s = 'par'\nelse:\n    s = 'ímpar'\n\
+         print(s)\n\
+         if n > 0:\n    if n > 10:\n        print('grande')\n    else:\n        print('pequeno')\n    n = n * 2\n\
+         print(n)\n",
+    );
+}
+
+#[test]
+fn an_if_with_a_condition_that_is_not_a_bool_is_unsupported() {
+    assert_eq!(
+        unsupported("n = 1\nif n:\n    print(n)\n"),
+        "a condition that is not a bool"
+    );
+}

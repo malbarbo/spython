@@ -32,6 +32,12 @@ pub(crate) enum Stmt {
     Expr(Expr),
     /// The value goes to each variable, from the first one.
     Assign { targets: Vec<VarId>, value: Expr },
+    /// The condition is a `bool`.
+    If {
+        cond: Expr,
+        then: Vec<Stmt>,
+        else_: Vec<Stmt>,
+    },
 }
 
 pub(crate) enum Expr {

@@ -84,6 +84,20 @@ impl Emitter<'_> {
                     self.store(f, *var);
                 }
             }
+            Stmt::If { cond, then, else_ } => {
+                self.expr(f, cond);
+                f.ins().if_(BlockType::Empty);
+                for stmt in then {
+                    self.stmt(f, stmt);
+                }
+                if !else_.is_empty() {
+                    f.ins().else_();
+                    for stmt in else_ {
+                        self.stmt(f, stmt);
+                    }
+                }
+                f.ins().end();
+            }
         }
     }
 

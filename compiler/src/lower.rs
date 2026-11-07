@@ -87,6 +87,13 @@ impl Lowering<'_, '_> {
     fn declare_vars(&self, body: &[ast::Stmt]) -> Result<(), Error> {
         for stmt in body {
             let (targets, value): (&[ast::Expr], &ast::Expr) = match stmt {
+                ast::Stmt::If(i) => {
+                    self.declare_vars(&i.body)?;
+                    for clause in &i.elif_else_clauses {
+                        self.declare_vars(&clause.body)?;
+                    }
+                    continue;
+                }
                 ast::Stmt::Assign(a) => (&a.targets, &a.value),
                 ast::Stmt::AnnAssign(ast::StmtAnnAssign {
                     target,
@@ -178,7 +185,36 @@ impl Lowering<'_, '_> {
                     value,
                 }))
             }
+            ast::Stmt::If(i) => {
+                let mut else_ = Vec::new();
+                // Each `elif` is an `if` in the `else` of the clause before it.
+                for clause in i.elif_else_clauses.iter().rev() {
+                    let body = self.body(&clause.body)?;
+                    else_ = match &clause.test {
+                        Some(test) => vec![Stmt::If {
+                            cond: self.cond(test)?,
+                            then: body,
+                            else_,
+                        }],
+                        None => body,
+                    };
+                }
+                Ok(Some(Stmt::If {
+                    cond: self.cond(&i.test)?,
+                    then: self.body(&i.body)?,
+                    else_,
+                }))
+            }
             _ => Err(unsupported(stmt, "this statement")),
+        }
+    }
+
+    /// The condition of an `if` or a `while`.
+    fn cond(&self, test: &ast::Expr) -> Result<Expr, Error> {
+        let lowered = self.expr(test)?;
+        match lowered.rep() {
+            Rep::Bool => Ok(lowered),
+            _ => Err(unsupported(test, "a condition that is not a bool")),
         }
     }
 
