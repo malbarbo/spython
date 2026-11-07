@@ -180,12 +180,26 @@ impl Reprs {
     pub fn str_repeat(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.as_i32(f);
         self.str.repeat(f);
+        self.raise_if_null(m, f, "MemoryError");
+    }
+
+    /// Pops a `str` and an `int`, and pushes the code point at that index
+    /// as a `str`. An index out of range raises `IndexError`.
+    pub fn str_index(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.str.index(f);
+        self.raise_if_null(m, f, "IndexError: string index out of range");
+    }
+
+    /// Raises an exception with `message` when the `str` on the stack is
+    /// null, and leaves it as a `str` otherwise.
+    fn raise_if_null(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &str) {
         let result = f.local(self.str.val_type(true));
         f.ins()
             .local_tee(result)
             .ref_is_null()
             .if_(BlockType::Empty);
-        self.raise(m, f, "MemoryError");
+        self.raise(m, f, message);
         f.ins().end();
         self.load(f, Rep::Str, result);
     }

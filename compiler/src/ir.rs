@@ -130,6 +130,13 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// The code point of a `str` at an `int` index, as a `str`. An index
+    /// out of range raises `IndexError` at the site.
+    Index {
+        value: Box<Expr>,
+        index: Box<Expr>,
+        site: Site,
+    },
     /// `len` of a `str`. A length outside 31 bits stops the program at the
     /// site.
     Len {
@@ -193,7 +200,7 @@ pub(crate) enum Rep {
 impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
-            Expr::Str(_) | Expr::Concat(..) | Expr::Repeat { .. } => Rep::Str,
+            Expr::Str(_) | Expr::Concat(..) | Expr::Repeat { .. } | Expr::Index { .. } => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,

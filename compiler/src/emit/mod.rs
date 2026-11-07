@@ -429,6 +429,14 @@ impl Emitter<'_> {
                     .local_set(self.code.site);
                 self.reprs.str_repeat(&mut self.m, f);
             }
+            Expr::Index { value, index, site } => {
+                self.expr(f, value);
+                self.expr(f, index);
+                f.ins()
+                    .i32_const(site_index(*site))
+                    .local_set(self.code.site);
+                self.reprs.str_index(&mut self.m, f);
+            }
             Expr::Len { operand, site } => {
                 self.expr(f, operand);
                 f.ins()

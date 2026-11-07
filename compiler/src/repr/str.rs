@@ -26,6 +26,10 @@ pub(super) enum StrRepr {
         /// `(func (param (ref $Str) i32) (result (ref null $Str)))`, which
         /// repeats the `str`, and gives null when the result is too long.
         repeat: u32,
+        /// `(func (param (ref $Str) i32) (result (ref null $Str)))`, which
+        /// gives the code point at the index as a `str`, from the end when
+        /// the index is negative, and null when the index is out of range.
+        index: u32,
         /// `(func (param (ref $Str) (ref $Str)) (result i32))`, which gives
         /// -1, 0 or 1 as the first `str` comes before, with or after the
         /// second one.
@@ -45,6 +49,7 @@ impl StrRepr {
             decimal: add_decimal(m, array),
             concat: add_concat(m, array),
             repeat: add_repeat(m, array),
+            index: add_index(m, array),
             compare: add_compare(m, array),
             literals: HashMap::new(),
         }
@@ -141,6 +146,16 @@ impl StrRepr {
         match self {
             StrRepr::Ucs4 { repeat, .. } => {
                 f.ins().call(*repeat);
+            }
+        }
+    }
+
+    /// Pops a `str` and an `i32`, and pushes the code point at that index
+    /// as a `str`, or null when the index is out of range.
+    pub fn index(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { index, .. } => {
+                f.ins().call(*index);
             }
         }
     }
@@ -477,5 +492,75 @@ fn add_repeat(m: &mut ModuleState, array: u32) -> u32 {
         .end()
         .end()
         .local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The code points below this one each have one `str`, which the first
+/// index that gives the code point builds.
+const SHARED_CHARS: i32 = 256;
+
+fn add_index(m: &mut ModuleState, array: u32) -> u32 {
+    let table = m.array_type(StorageType::Val(ref_to(array, true)), true);
+    let shared = m.global(
+        ref_to(table, true),
+        &ConstExpr::ref_null(HeapType::Concrete(table)),
+    );
+    wasm_encoder::InstructionSink::new(&mut m.init)
+        .i32_const(SHARED_CHARS)
+        .array_new_default(table)
+        .global_set(shared);
+    let ty = m.func_type(
+        &[ref_to(array, false), ValType::I32],
+        &[ref_to(array, true)],
+    );
+    let (s, i) = (0, 1);
+    let mut f = FuncState::new(2);
+    let c = f.local(ValType::I32);
+    let one = f.local(ref_to(array, true));
+    f.ins()
+        .local_get(i)
+        .i32_const(0)
+        .i32_lt_s()
+        .if_(BlockType::Empty)
+        .local_get(i)
+        .local_get(s)
+        .array_len()
+        .i32_add()
+        .local_set(i)
+        .end()
+        // A negative index that stays negative is out of range too.
+        .local_get(i)
+        .local_get(s)
+        .array_len()
+        .i32_ge_u()
+        .if_(BlockType::Empty)
+        .ref_null(HeapType::Concrete(array))
+        .return_()
+        .end()
+        .local_get(s)
+        .local_get(i)
+        .array_get(array)
+        .local_tee(c)
+        .i32_const(SHARED_CHARS)
+        .i32_ge_u()
+        .if_(BlockType::Empty)
+        .local_get(c)
+        .array_new_fixed(array, 1)
+        .return_()
+        .end()
+        .global_get(shared)
+        .local_get(c)
+        .array_get(table)
+        .local_tee(one)
+        .ref_is_null()
+        .if_(BlockType::Empty)
+        .global_get(shared)
+        .local_get(c)
+        .local_get(c)
+        .array_new_fixed(array, 1)
+        .local_tee(one)
+        .array_set(table)
+        .end()
+        .local_get(one);
     m.add_func(ty, f.finish())
 }

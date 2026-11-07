@@ -307,6 +307,43 @@ fn len_of_a_bool_or_an_int_is_unsupported() {
 }
 
 #[test]
+fn an_index_gives_the_code_point_of_a_str() {
+    same_as_cpython(
+        "an_index_gives_the_code_point_of_a_str",
+        "s = 'aé\u{1f600}z'\nn = 2\nprint(s[0], s[1], s[n], s[3], s[-1], s[-4], s[True], s[0][0][-1])\nprint(s[0] + s[0] == 'aa', s[2] * 2, len(s[2]))\n",
+    );
+}
+
+#[test]
+fn an_index_evaluates_the_str_first() {
+    same_as_cpython(
+        "an_index_evaluates_the_str_first",
+        "def f(s: str) -> str:\n    print(s)\n    return s\n\n\ndef g(n: int) -> int:\n    print(n)\n    return n\n\n\nprint(f('ab')[g(1)])\n",
+    );
+}
+
+#[test]
+fn an_index_out_of_range_raises_index_error() {
+    same_as_cpython(
+        "an_index_out_of_range_raises_index_error",
+        "def at(s: str, n: int) -> str:\n    return s[n]\n\n\nprint(at('abc', -3))\nprint(at('abc', 3))\n",
+    );
+    same_as_cpython(
+        "an_index_out_of_range_raises_index_error_from_the_end",
+        "def at(s: str, n: int) -> str:\n    return s[n]\n\n\nprint(at('abc', -4))\n",
+    );
+    same_as_cpython(
+        "an_index_of_the_empty_str_raises_index_error",
+        "def at(s: str, n: int) -> str:\n    return s[n]\n\n\nprint(at('', 0))\n",
+    );
+}
+
+#[test]
+fn a_slice_is_unsupported() {
+    assert_eq!(unsupported("print('abc'[1:2])\n"), "a slice");
+}
+
+#[test]
 fn the_comparisons_of_str_follow_the_order_of_the_code_points() {
     let strs = [
         "",

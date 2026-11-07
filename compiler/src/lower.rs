@@ -634,6 +634,21 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
             ast::Expr::Compare(c) => self.compare(c),
+            ast::Expr::Subscript(sub) => {
+                let value = self.expr(&sub.value)?;
+                if value.rep() != Rep::Str {
+                    return Err(unsupported(&*sub.value, "a subscript of this type"));
+                }
+                if matches!(&*sub.slice, ast::Expr::Slice(_)) {
+                    return Err(unsupported(&*sub.slice, "a slice"));
+                }
+                let index = self.int_operand(&sub.slice)?;
+                Ok(Expr::Index {
+                    value: Box::new(value),
+                    index: Box::new(index),
+                    site: self.site(sub.range()),
+                })
+            }
             ast::Expr::Call(call) if self.is_builtin(&call.func, "print") => self.print(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
             ast::Expr::Call(call) => self.call(call),
