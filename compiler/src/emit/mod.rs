@@ -409,6 +409,11 @@ impl Emitter<'_> {
                     .local_set(self.code.site);
                 self.reprs.int_arith(f, *op);
             }
+            Expr::Concat(left, right) => {
+                self.expr(f, left);
+                self.expr(f, right);
+                self.reprs.str_concat(f);
+            }
             Expr::Truth(operand) => {
                 self.expr(f, operand);
                 self.reprs.truth(f, operand.rep());

@@ -433,6 +433,14 @@ fn an_augmented_assignment_follows_python() {
 }
 
 #[test]
+fn the_sum_of_two_strs_joins_them() {
+    same_as_cpython(
+        "the_sum_of_two_strs_joins_them",
+        "s = 'ab' + 'çd'\nprint(s + '' + s)\nprint('' + '')\nt = 'x'\nt += s\nt += t\nprint(t)\n",
+    );
+}
+
+#[test]
 fn an_augmented_assignment_by_zero_raises_zero_division_error() {
     same_as_cpython(
         "an_augmented_assignment_by_zero_raises_zero_division_error",

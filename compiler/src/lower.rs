@@ -331,14 +331,9 @@ impl<'a> Lowering<'a, '_> {
                 let ast::Expr::Name(name) = &*a.target else {
                     return Err(unsupported(&*a.target, "this target"));
                 };
-                let left = self.int_value(self.load(name)?, name)?;
-                let right = self.int_operand(&a.value)?;
-                let value = Expr::Arith {
-                    op: arith_op(a.op).ok_or_else(|| unsupported(a, "this operator"))?,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                    site: self.site(a.range()),
-                };
+                let left = self.load(name)?;
+                let right = self.expr(&a.value)?;
+                let value = self.binary(a, a.op, (left, name), (right, &*a.value))?;
                 let target = self.target(&a.target, &value)?;
                 Ok(Some(Stmt::Assign {
                     targets: vec![target],
@@ -613,15 +608,9 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Name(name) => self.load(name),
             ast::Expr::UnaryOp(u) => self.unary(u),
             ast::Expr::BinOp(b) => {
-                let op = arith_op(b.op).ok_or_else(|| unsupported(expr, "this operator"))?;
-                let left = self.int_operand(&b.left)?;
-                let right = self.int_operand(&b.right)?;
-                Ok(Expr::Arith {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                    site: self.site(b.range()),
-                })
+                let left = self.expr(&b.left)?;
+                let right = self.expr(&b.right)?;
+                self.binary(b, b.op, (left, &*b.left), (right, &*b.right))
             }
             ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
             ast::Expr::Compare(c) => {
@@ -649,6 +638,30 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Call(call) => self.call(call),
             _ => Err(unsupported(expr, "this expression")),
         }
+    }
+
+    /// The operator `op` of `node` on two lowered operands, each with the
+    /// node it comes from.
+    fn binary(
+        &self,
+        node: &impl Ranged,
+        op: ast::Operator,
+        (left, left_node): (Expr, &impl Ranged),
+        (right, right_node): (Expr, &impl Ranged),
+    ) -> Result<Expr, Error> {
+        if left.rep() == Rep::Str && right.rep() == Rep::Str {
+            return match op {
+                ast::Operator::Add => Ok(Expr::Concat(Box::new(left), Box::new(right))),
+                _ => Err(unsupported(node, "this operator")),
+            };
+        }
+        let op = arith_op(op).ok_or_else(|| unsupported(node, "this operator"))?;
+        Ok(Expr::Arith {
+            op,
+            left: Box::new(self.int_value(left, left_node)?),
+            right: Box::new(self.int_value(right, right_node)?),
+            site: self.site(node.range()),
+        })
     }
 
     fn unary(&self, u: &ast::ExprUnaryOp) -> Result<Expr, Error> {

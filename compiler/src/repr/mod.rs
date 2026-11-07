@@ -149,6 +149,11 @@ impl Reprs {
         }
     }
 
+    /// Pops two `str`s and pushes the second one after the first.
+    pub fn str_concat(&self, f: &mut FuncState) {
+        self.str.concat(f);
+    }
+
     /// Pops a `bool` and pushes its negation.
     pub fn bool_not(&self, f: &mut FuncState) {
         f.ins().i32_eqz();

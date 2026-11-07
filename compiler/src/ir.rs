@@ -120,6 +120,8 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// Two `str`s, one after the other.
+    Concat(Box<Expr>, Box<Expr>),
     /// The truth of an `int` or a `str`, as a `bool`. An `int` is true
     /// when it is not 0, and a `str` when it is not empty.
     Truth(Box<Expr>),
@@ -177,7 +179,7 @@ pub(crate) enum Rep {
 impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
-            Expr::Str(_) => Rep::Str,
+            Expr::Str(_) | Expr::Concat(..) => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
