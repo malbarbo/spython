@@ -6,6 +6,7 @@ use super::str::StrRepr;
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::SiteFrame;
+use crate::traceback::RECURSIVE_CUTOFF;
 
 pub(super) struct Exceptions {
     /// `(struct (field $message (ref $Str)) (field $tb (mut (ref null $Frame))))`.
@@ -40,10 +41,6 @@ pub(super) struct Exceptions {
 /// The most frames CPython keeps, with its default recursion limit. The
 /// frame of the module counts.
 const MAX_DEPTH: i32 = 1000;
-
-/// The traceback writes the first frames of a run of frames on the same
-/// line, and then how many more there are.
-const RECURSIVE_CUTOFF: i32 = 3;
 
 impl Exceptions {
     pub fn new(m: &mut ModuleState, host: &Host, str: &mut StrRepr) -> Self {
