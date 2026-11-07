@@ -1,5 +1,5 @@
-//! What the module asks of the WASI host: the standard output, written
-//! through a buffer in linear memory.
+//! What the module asks of the WASI host: the standard output and the
+//! standard error, written through a buffer in linear memory, and the exit.
 
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
@@ -14,12 +14,19 @@ const BUFFER_END: i32 = 65536;
 /// The longest UTF-8 encoding of a code point.
 const MAX_CHAR_BYTES: i32 = 4;
 const STDOUT: i32 = 1;
+const STDERR: i32 = 2;
 
 pub(crate) struct Host {
     /// `(func (param i32))`, which writes a code point to the standard output.
     pub write_char: u32,
     /// `(func)`, which sends what the buffer holds to the host.
     pub flush: u32,
+    /// `(func)`, which flushes the buffer and sends what comes after it to
+    /// the standard error.
+    pub to_stderr: u32,
+    /// `(func (param i32))`, which flushes the buffer and ends the program
+    /// with the exit code.
+    pub exit: u32,
 }
 
 impl Host {
@@ -29,12 +36,23 @@ impl Host {
             &[ValType::I32],
         );
         let fd_write = m.import_func("wasi_snapshot_preview1", "fd_write", fd_write_ty);
+        let proc_exit_ty = m.func_type(&[ValType::I32], &[]);
+        let proc_exit = m.import_func("wasi_snapshot_preview1", "proc_exit", proc_exit_ty);
         // WASI reads the buffers from the memory the module exports by this name.
         m.memory("memory");
         let pos = m.global(ValType::I32, &ConstExpr::i32_const(BUFFER_START));
-        let flush = add_flush(m, fd_write, pos);
+        // The file descriptor the buffer goes to.
+        let fd = m.global(ValType::I32, &ConstExpr::i32_const(STDOUT));
+        let flush = add_flush(m, fd_write, pos, fd);
         let write_char = add_write_char(m, flush, pos);
-        Host { write_char, flush }
+        let to_stderr = add_to_stderr(m, flush, fd);
+        let exit = add_exit(m, flush, proc_exit);
+        Host {
+            write_char,
+            flush,
+            to_stderr,
+            exit,
+        }
     }
 }
 
@@ -47,7 +65,7 @@ fn mem(offset: u64, align: u32) -> MemArg {
     }
 }
 
-fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32) -> u32 {
+fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32) -> u32 {
     let ty = m.func_type(&[], &[]);
     let mut f = FuncState::new(0);
     let ptr = f.local(ValType::I32);
@@ -73,7 +91,7 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32) -> u32 {
         .i32_const(0)
         .local_get(len)
         .i32_store(mem(IOVEC + 4, 2))
-        .i32_const(STDOUT)
+        .global_get(fd)
         .i32_const(IOVEC as i32)
         .i32_const(1)
         .i32_const(NWRITTEN as i32)
@@ -94,6 +112,25 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32) -> u32 {
         .end()
         .i32_const(BUFFER_START)
         .global_set(pos);
+    m.add_func(ty, f.finish())
+}
+
+fn add_to_stderr(m: &mut ModuleState, flush: u32, fd: u32) -> u32 {
+    let ty = m.func_type(&[], &[]);
+    let mut f = FuncState::new(0);
+    f.ins().call(flush).i32_const(STDERR).global_set(fd);
+    m.add_func(ty, f.finish())
+}
+
+fn add_exit(m: &mut ModuleState, flush: u32, proc_exit: u32) -> u32 {
+    let ty = m.func_type(&[ValType::I32], &[]);
+    let code = 0;
+    let mut f = FuncState::new(1);
+    f.ins()
+        .call(flush)
+        .local_get(code)
+        .call(proc_exit)
+        .unreachable();
     m.add_func(ty, f.finish())
 }
 

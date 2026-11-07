@@ -51,8 +51,7 @@ fn cpython(name: &str, source: &str) -> Output {
 /// Asserts that the compiled `source` prints what CPython prints, and exits
 /// as CPython exits.
 fn same_as_cpython(name: &str, source: &str) {
-    let module = compile(source).expect("the program to compile");
-    let ours = wasmtime(name, &module);
+    let ours = run(name, source);
     let theirs = cpython(name, source);
     assert_eq!(
         String::from_utf8_lossy(&ours.stdout),
@@ -65,6 +64,28 @@ fn same_as_cpython(name: &str, source: &str) {
         "stderr"
     );
     assert_eq!(ours.status.code(), theirs.status.code(), "exit code");
+}
+
+/// Compiles `source` and runs it in wasmtime.
+fn run(name: &str, source: &str) -> Output {
+    let module = compile(source).expect("the program to compile");
+    wasmtime(name, &module)
+}
+
+/// Asserts that the compiled `source` stops with the error of an `int`
+/// outside 31 bits, after it prints `stdout`.
+fn stops_at_the_int_limit(name: &str, source: &str, stdout: &str, result: &str) {
+    let output = run(name, source);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), stdout, "stdout");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "spython: the result {result} does not fit in an int, \
+             which goes from -1073741824 to 1073741823\n"
+        ),
+        "stderr"
+    );
+    assert_eq!(output.status.code(), Some(1), "exit code");
 }
 
 fn unsupported(source: &str) -> String {
@@ -129,4 +150,115 @@ fn print_with_a_keyword_argument_is_unsupported() {
         unsupported("print('a', end='')\n"),
         "print with keyword arguments"
     );
+}
+
+#[test]
+fn print_writes_an_int() {
+    same_as_cpython(
+        "print_writes_an_int",
+        "print(0, 7, -7, 10, 1073741823, -1073741824)\n",
+    );
+}
+
+#[test]
+fn the_operators_of_int_follow_python() {
+    same_as_cpython(
+        "the_operators_of_int_follow_python",
+        "print(2 + 3 * 4, 7 - 10, -(3 - 5), +4, 2 * -3, 32768 * 32767)\n",
+    );
+}
+
+#[test]
+fn a_bool_is_an_int_in_an_operator() {
+    same_as_cpython(
+        "a_bool_is_an_int_in_an_operator",
+        "print(True, False, True + True, -True, +False, True * 3)\n",
+    );
+}
+
+#[test]
+fn the_comparisons_of_int_give_a_bool() {
+    same_as_cpython(
+        "the_comparisons_of_int_give_a_bool",
+        "print(1 < 2, 2 <= 1, 3 == 3, 3 != 3, 4 > 5, 5 >= 5, -1 < 0, False < True)\n\
+         print(1 < 2 < 3, 1 < 3 < 2, 3 > 2 > 1 > 0, 1 == 1 != 2)\n",
+    );
+}
+
+#[test]
+fn a_chain_of_comparisons_stops_at_the_first_false() {
+    same_as_cpython(
+        "a_chain_of_comparisons_stops_at_the_first_false",
+        "print(2 < 1 < 1073741823 + 1)\n",
+    );
+}
+
+#[test]
+fn an_int_expression_as_a_statement_prints_nothing() {
+    same_as_cpython(
+        "an_int_expression_as_a_statement_prints_nothing",
+        "1 + 2\n2 < 3\nTrue\nprint(1)\n",
+    );
+}
+
+#[test]
+fn a_sum_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "a_sum_outside_31_bits_stops_the_program",
+        "print('antes')\nprint(1073741823 + 1)\nprint('depois')\n",
+        "antes\n",
+        "1073741824",
+    );
+}
+
+#[test]
+fn a_difference_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "a_difference_outside_31_bits_stops_the_program",
+        "print(-1073741824 - 1)\n",
+        "",
+        "-1073741825",
+    );
+}
+
+#[test]
+fn a_product_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "a_product_outside_31_bits_stops_the_program",
+        "print(65536 * 65536)\n",
+        "",
+        "4294967296",
+    );
+}
+
+#[test]
+fn the_negation_of_the_least_int_stops_the_program() {
+    stops_at_the_int_limit(
+        "the_negation_of_the_least_int_stops_the_program",
+        "print(-(-1073741823 - 1))\n",
+        "",
+        "1073741824",
+    );
+}
+
+#[test]
+fn print_evaluates_every_argument_before_it_writes() {
+    stops_at_the_int_limit(
+        "print_evaluates_every_argument_before_it_writes",
+        "print('a', 1073741823 + 1)\n",
+        "",
+        "1073741824",
+    );
+}
+
+#[test]
+fn an_int_literal_outside_31_bits_is_unsupported() {
+    for source in ["print(1073741824)\n", "print(-1073741825)\n"] {
+        assert_eq!(unsupported(source), "an int that does not fit in 31 bits");
+    }
+}
+
+#[test]
+fn the_floor_division_is_unsupported() {
+    assert_eq!(unsupported("print(7 // 2)\n"), "this operator");
 }

@@ -59,6 +59,12 @@ impl StrRepr {
         }
     }
 
+    pub fn val_type(&self, nullable: bool) -> ValType {
+        match self {
+            StrRepr::Ucs4 { array, .. } => ref_to(*array, nullable),
+        }
+    }
+
     pub fn write(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { write, .. } => {
