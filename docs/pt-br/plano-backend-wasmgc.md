@@ -462,10 +462,7 @@ chamadas em 0,06 s.
 ## Testes
 
 O oráculo é o CPython, para o stdout e também para as mensagens de erro e
-o traceback no stderr. O oráculo dos doctests é o runner atual. O
-diferencial contra o spython de hoje, sobre o RustPython, compara só o
-stdout, porque as mensagens dele diferem das do CPython ("division by
-zero" no lugar de "integer modulo by zero").
+o traceback no stderr. O oráculo dos doctests é o runner atual.
 
 O corpus é o `na-programacao`, os programas dos branches antigos, o
 `cli/tests/inputs`, os exemplos e as transcrições de REPL da documentação
@@ -488,21 +485,23 @@ corpus.
   limite do CPython, o `NameError` com a sugestão do CPython, a memória
   esgotada e o traceback com as marcas do CPython. Defaults, argumentos nomeados,
   `def` dentro de função e função como valor ainda são recusados.
-- **0b. Navegador.** O mesmo no deno, com o diferencial contra o
-  RustPython. Os testes do `compiler` já rodam cada módulo no deno
-  também, com o mesmo resultado do wasmtime.
+- **0b. Deno.** O mesmo no deno. Feita. Os testes do `compiler` rodam
+  cada módulo no deno também, com o mesmo resultado do wasmtime.
 - **1. Prelude.** Arrays, classes sem herança, a `$Class` e os métodos
   especiais. Depois o prelude de `str` e de `int`, e os doctests.
 - **2. Níveis 0 e 1**, com o diferencial do corpus verde.
 - **3. Nível 2.** Enum, dataclass e `match` com todos os padrões.
 - **4. REPL na CLI.**
 - **5. Nível 3.** `list`, `for`, `range`, fatias e `+=`.
-- **6. Nível 4**, com o REPL no navegador. Classes com herança, `dict`,
+- **6. Nível 4.** Classes com herança, `dict`,
   `set`, compreensões, lambda e closures. É a fatia de maior risco.
 - **7. Imagens e programas interativos.**
 - **8. Nível 5 por partes**, até o corpus passar. Depois os inteiros
   grandes e a saída do RustPython.
 - **9. O wasmtime embutido na CLI.**
+- **10. Navegador.** O compilador no crate `wasm/`, o `backend=wasmgc`
+  no `repl_new`, o programa e o REPL na página. Fica por último, porque
+  os programas standalone vêm primeiro.
 
 A estimativa é de 5 a 8 meses de trabalho ativo até a fatia 6.
 
