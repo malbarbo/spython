@@ -87,6 +87,8 @@ impl Lowering<'_, '_> {
                     ast::Operator::Add => ArithOp::Add,
                     ast::Operator::Sub => ArithOp::Sub,
                     ast::Operator::Mult => ArithOp::Mul,
+                    ast::Operator::FloorDiv => ArithOp::FloorDiv,
+                    ast::Operator::Mod => ArithOp::Mod,
                     _ => return Err(unsupported(expr, "this operator")),
                 };
                 let left = self.int_operand(&b.left)?;

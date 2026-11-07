@@ -42,6 +42,8 @@ pub(crate) enum ArithOp {
     Add,
     Sub,
     Mul,
+    FloorDiv,
+    Mod,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

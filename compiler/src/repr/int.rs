@@ -15,10 +15,13 @@ pub(super) enum IntRepr {
     /// An `i32` in a local and an `i31ref` in a uniform slot. A result
     /// outside 31 bits stops the program, so a value never wraps.
     I31 {
-        /// `(func (param i32 i32) (result i32))` for `+`, `-` and `*`.
+        /// `(func (param i32 i32) (result i32))` for `+`, `-`, `*`, `//`
+        /// and `%`.
         add: u32,
         sub: u32,
         mul: u32,
+        floor_div: u32,
+        modulo: u32,
         /// `(func (param i64))`, which writes the number in decimal to the
         /// standard output.
         write: u32,
@@ -40,6 +43,8 @@ impl IntRepr {
             mul: add_arith(m, check, |f| {
                 f.ins().i64_mul();
             }),
+            floor_div: add_floor_div(m, str, exc, check),
+            modulo: add_modulo(m, str, exc),
             write,
         }
     }
@@ -69,11 +74,20 @@ impl IntRepr {
     /// Pops two `int`s and pushes the result of `op`.
     pub fn arith(&self, f: &mut FuncState, op: ArithOp) {
         match self {
-            IntRepr::I31 { add, sub, mul, .. } => {
+            IntRepr::I31 {
+                add,
+                sub,
+                mul,
+                floor_div,
+                modulo,
+                ..
+            } => {
                 let func = match op {
                     ArithOp::Add => add,
                     ArithOp::Sub => sub,
                     ArithOp::Mul => mul,
+                    ArithOp::FloorDiv => floor_div,
+                    ArithOp::Mod => modulo,
                 };
                 f.ins().call(*func);
             }
@@ -119,6 +133,94 @@ fn add_arith(m: &mut ModuleState, check: u32, op: impl FnOnce(&mut FuncState)) -
         .i64_extend_i32_s();
     op(&mut f);
     f.ins().call(check);
+    m.add_func(ty, f.finish())
+}
+
+/// Raises `ZeroDivisionError` with `message` when the divisor, the second
+/// parameter, is 0.
+fn check_divisor(
+    m: &mut ModuleState,
+    f: &mut FuncState,
+    str: &mut StrRepr,
+    exc: &Exceptions,
+    message: &str,
+) {
+    f.ins().local_get(1).i32_eqz().if_(BlockType::Empty);
+    str.literal(m, f, message);
+    exc.raise(f);
+    f.ins().end();
+}
+
+/// `//` rounds the quotient down, and the division of `i64` rounds it
+/// toward 0. The quotient is one less when the signs differ and the
+/// division has a remainder. Only `-1073741824 // -1` leaves 31 bits.
+fn add_floor_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, check: u32) -> u32 {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let (a, b) = (0, 1);
+    let mut f = FuncState::new(2);
+    check_divisor(
+        m,
+        &mut f,
+        str,
+        exc,
+        "ZeroDivisionError: integer division or modulo by zero",
+    );
+    f.ins()
+        .local_get(a)
+        .i64_extend_i32_s()
+        .local_get(b)
+        .i64_extend_i32_s()
+        .i64_div_s()
+        .local_get(a)
+        .local_get(b)
+        .i32_rem_s()
+        .i32_const(0)
+        .i32_ne()
+        .local_get(a)
+        .local_get(b)
+        .i32_xor()
+        .i32_const(0)
+        .i32_lt_s()
+        .i32_and()
+        .i64_extend_i32_u()
+        .i64_sub()
+        .call(check);
+    m.add_func(ty, f.finish())
+}
+
+/// `%` takes the sign of the divisor, and the remainder of `i32` takes the
+/// sign of the dividend. When the signs differ, the divisor goes back into
+/// a remainder that is not 0.
+fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32 {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let (a, b) = (0, 1);
+    let mut f = FuncState::new(2);
+    let r = f.local(ValType::I32);
+    check_divisor(
+        m,
+        &mut f,
+        str,
+        exc,
+        "ZeroDivisionError: integer modulo by zero",
+    );
+    f.ins()
+        .local_get(a)
+        .local_get(b)
+        .i32_rem_s()
+        .local_tee(r)
+        .local_get(b)
+        .i32_const(0)
+        .local_get(r)
+        .i32_const(0)
+        .i32_ne()
+        .local_get(r)
+        .local_get(b)
+        .i32_xor()
+        .i32_const(0)
+        .i32_lt_s()
+        .i32_and()
+        .select()
+        .i32_add();
     m.add_func(ty, f.finish())
 }
 

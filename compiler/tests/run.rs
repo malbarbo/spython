@@ -282,8 +282,30 @@ fn an_int_literal_outside_31_bits_is_unsupported() {
 }
 
 #[test]
-fn the_floor_division_is_unsupported() {
-    assert_eq!(unsupported("print(7 // 2)\n"), "this operator");
+fn the_floor_division_and_the_modulo_follow_python() {
+    same_as_cpython(
+        "the_floor_division_and_the_modulo_follow_python",
+        "print(7 // 2, -7 // 2, 7 // -2, -7 // -2, 6 // 3, -6 // 3, 0 // -5)\n\
+         print(7 % 3, -7 % 3, 7 % -3, -7 % -3, 6 % 3, -6 % -3, 0 % 5)\n\
+         print(-1073741824 // 1, 1073741823 // -1, -1073741824 % -1, True // True)\n",
+    );
+}
+
+#[test]
+fn the_floor_division_of_the_least_int_by_minus_one_stops_the_program() {
+    stops_at_the_int_limit(
+        "the_floor_division_of_the_least_int_by_minus_one_stops_the_program",
+        "print(-1073741824 // -1)\n",
+        "",
+        1,
+        "    print(-1073741824 // -1)\n          ~~~~~~~~~~~~^^~~~\n",
+        "1073741824",
+    );
+}
+
+#[test]
+fn the_true_division_is_unsupported() {
+    assert_eq!(unsupported("print(7 / 2)\n"), "this operator");
 }
 
 #[test]
