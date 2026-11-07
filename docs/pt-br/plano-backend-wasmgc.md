@@ -359,6 +359,30 @@ pilha estourar, o host traduz o trap ou o `RangeError` num
 As chamadas entre funções Python não usam `return_call`, porque o
 traceback precisa dos quadros.
 
+### Memória esgotada
+
+O wasm não captura a falta de memória. O wasmtime para com um trap ("GC
+heap out of memory" ou "allocation size too large") e escreve o
+backtrace dele, com o offset de cada quadro no módulo. O compilador
+devolve, junto com o módulo, a faixa de código de cada site, e o host
+troca o trap pelo traceback do CPython terminado em `MemoryError`. O
+quadro interno dá o offset da instrução que falhou, e os outros o da
+chamada. Nada disso custa em tempo de execução. A CLI pede 2000 quadros
+ao wasmtime (`-D max-backtrace=2000`), porque o padrão é 20. Se o quadro
+do módulo faltar, ou se algum offset cair fora de um site, o host mostra
+o erro do wasmtime como veio, para nunca escrever um traceback errado.
+
+O erro do wasmtime aparece em dois casos. O primeiro é a memória acabar
+no handler que acrescenta o `$Frame` e relança, porque os quadros por
+onde a exceção já passou ficam no heap e se perdem com o trap. O
+segundo é ela acabar na construção dos literais, antes do programa.
+
+O heap de GC do wasmtime tem teto de 4 GiB, e o `str` em UCS-4 usa 4
+bytes por caractere. Um texto de cerca de mil milhões de caracteres dá
+`MemoryError` aqui e funciona no CPython, que guarda 1, 2 ou 4 bytes por
+caractere conforme o texto. Um `str` compacto, com as três larguras,
+fecharia a diferença até um texto que o CPython também não comporta.
+
 ### Módulos e REPL
 
 Até o REPL entrar, o programa e o runtime viram um módulo wasm só. Os
@@ -450,10 +474,11 @@ corpus.
 - **−1. Sondagens.** Feitas, com o resultado na seção seguinte.
 - **0a. CLI.** `def`, `int`, `if`, `while`, `print` e a exceção não
   capturada com linha, rodando no wasmtime externo. Já compila `int`,
-  `bool` e `str` com seus operadores, `len`, as variáveis do módulo e das
-  funções, `if`, `while`, `break`, `continue`, `pass`, `def` com
-  parâmetros posicionais, `return`, a recursão até o limite do CPython e
-  o traceback com as marcas do CPython. Defaults, argumentos nomeados,
+  `bool` e `str` com seus operadores, `len`, `s[i]`, as variáveis do
+  módulo e das funções, `global`, `if`, `while`, `break`, `continue`,
+  `pass`, `def` com parâmetros posicionais, `return`, a recursão até o
+  limite do CPython, o `NameError` com a sugestão do CPython, a memória
+  esgotada e o traceback com as marcas do CPython. Defaults, argumentos nomeados,
   `def` dentro de função e função como valor ainda são recusados.
 - **0b. Navegador.** O mesmo no deno, com o diferencial contra o
   RustPython.
@@ -517,7 +542,9 @@ O hello world leva hoje 141 ms no `main`, com o checker.
   de pilha dependem do host.
 - As imagens: chamar o Image em Rust do sinteract pela fronteira ou
   reescrever a biblioteca no prelude.
-- A memória esgotada. O wasmtime aloca um array de 400 milhões de
-  elementos e dá um trap perto de 4 GB de heap de GC, sem traceback, onde
-  o CPython lança `MemoryError` ou consegue. Hoje só um `str` mais longo
-  que um comprimento `i32` lança `MemoryError`.
+- O `str` compacto, com 1, 2 ou 4 bytes por caractere, para o teto de
+  4 GiB do heap do wasmtime.
+- O que o V8 faz quando o heap de GC acaba, se lança um `RangeError` que
+  o host traduz ou se derruba o processo inteiro.
+- A memória que acaba no handler que relança uma exceção ou na
+  construção dos literais, que hoje mostra o erro do wasmtime.
