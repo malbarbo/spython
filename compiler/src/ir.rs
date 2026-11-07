@@ -74,6 +74,9 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// The truth of an `int` or a `str`, as a `bool`. An `int` is true
+    /// when it is not 0, and a `str` when it is not empty.
+    Truth(Box<Expr>),
     /// `not` on a `bool`.
     Not(Box<Expr>),
     /// `and` or `or` on two `bool`s. The right operand runs only when the
@@ -129,7 +132,11 @@ impl Expr {
         match self {
             Expr::Str(_) => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
-            Expr::Bool(_) | Expr::Not(_) | Expr::Logic { .. } | Expr::Compare(..) => Rep::Bool,
+            Expr::Bool(_)
+            | Expr::Truth(_)
+            | Expr::Not(_)
+            | Expr::Logic { .. }
+            | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } => *rep,
             Expr::Print(_) => Rep::None,
         }

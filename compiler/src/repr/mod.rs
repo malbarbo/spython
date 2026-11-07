@@ -106,6 +106,16 @@ impl Reprs {
         f.ins().i32_const(i32::from(value));
     }
 
+    /// Pops a value of `rep` and pushes its truth as a `bool`.
+    pub fn truth(&self, f: &mut FuncState, rep: Rep) {
+        match rep {
+            Rep::Int => self.int.truth(f),
+            Rep::Bool => {}
+            Rep::Str => self.str.truth(f),
+            Rep::None => unreachable!("None has no value"),
+        }
+    }
+
     /// Pops a `bool` and pushes its negation.
     pub fn bool_not(&self, f: &mut FuncState) {
         f.ins().i32_eqz();

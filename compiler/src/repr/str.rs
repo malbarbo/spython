@@ -93,6 +93,15 @@ impl StrRepr {
         }
     }
 
+    /// Pops a `str` and pushes `true` if it is not empty.
+    pub fn truth(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { .. } => {
+                f.ins().array_len().i32_const(0).i32_ne();
+            }
+        }
+    }
+
     /// Pops two `str`s and pushes the second one after the first.
     pub fn concat(&self, f: &mut FuncState) {
         match self {

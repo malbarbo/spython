@@ -558,10 +558,26 @@ fn an_if_runs_the_first_clause_whose_condition_is_true() {
 }
 
 #[test]
-fn an_if_with_a_condition_that_is_not_a_bool_is_unsupported() {
+fn a_condition_takes_the_truth_of_an_int_or_a_str() {
+    same_as_cpython(
+        "a_condition_takes_the_truth_of_an_int_or_a_str",
+        "zero = 0\n\
+         if zero:\n    print('nunca')\nelse:\n    print('zero')\n\
+         if -3:\n    print('-3')\n\
+         if '':\n    print('nunca')\nelif 'a':\n    print('a')\n\
+         n = 3\n\
+         while n:\n    print(n)\n    n -= 1\n\
+         s = 'abc'\n\
+         while s:\n    print(s)\n    s = ''\n\
+         if n - 1:\n    print(n - 1)\n",
+    );
+}
+
+#[test]
+fn a_condition_of_none_is_unsupported() {
     assert_eq!(
-        unsupported("n = 1\nif n:\n    print(n)\n"),
-        "a condition that is not a bool"
+        unsupported("if print(1):\n    print(2)\n"),
+        "the truth of None"
     );
 }
 

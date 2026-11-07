@@ -118,6 +118,15 @@ impl IntRepr {
         }
     }
 
+    /// Pops an `int` and pushes `true` if it is not 0.
+    pub fn truth(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { .. } => {
+                f.ins().i32_const(0).i32_ne();
+            }
+        }
+    }
+
     /// Pops an `int` and writes it to the standard output.
     pub fn write(&self, f: &mut FuncState) {
         match self {

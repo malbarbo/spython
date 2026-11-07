@@ -224,11 +224,7 @@ impl Lowering<'_, '_> {
 
     /// The condition of an `if` or a `while`.
     fn cond(&self, test: &ast::Expr) -> Result<Expr, Error> {
-        let lowered = self.expr(test)?;
-        match lowered.rep() {
-            Rep::Bool => Ok(lowered),
-            _ => Err(unsupported(test, "a condition that is not a bool")),
-        }
+        truth(self.expr(test)?, test)
     }
 
     /// The variable that `target` names, which has to hold the rep of
@@ -447,6 +443,15 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
         ast::Operator::FloorDiv => Some(ArithOp::FloorDiv),
         ast::Operator::Mod => Some(ArithOp::Mod),
         _ => None,
+    }
+}
+
+/// The truth of `lowered`, the value of `node`, as a `bool`.
+fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
+    match lowered.rep() {
+        Rep::Bool => Ok(lowered),
+        Rep::Int | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
+        Rep::None => Err(unsupported(node, "the truth of None")),
     }
 }
 
