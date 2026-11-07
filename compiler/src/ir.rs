@@ -77,7 +77,7 @@ pub(crate) enum Expr {
     /// The truth of an `int` or a `str`, as a `bool`. An `int` is true
     /// when it is not 0, and a `str` when it is not empty.
     Truth(Box<Expr>),
-    /// `not` on a `bool`.
+    /// `not` on a `bool`, which may be the truth of another value.
     Not(Box<Expr>),
     /// `and` or `or` on two `bool`s. The right operand runs only when the
     /// left one does not decide the result.

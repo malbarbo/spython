@@ -499,11 +499,19 @@ fn not_negates_a_bool() {
 }
 
 #[test]
-fn not_of_an_operand_that_is_not_a_bool_is_unsupported() {
-    assert_eq!(
-        unsupported("print(not 1)\n"),
-        "an operand that is not a bool"
+fn not_takes_the_truth_of_an_int_or_a_str() {
+    same_as_cpython(
+        "not_takes_the_truth_of_an_int_or_a_str",
+        "n = 0\ns = 'a'\n\
+         print(not n, not n + 1, not -1, not s, not '', not not s)\n\
+         while not n:\n    n += 1\n\
+         print(n)\n",
     );
+}
+
+#[test]
+fn not_of_none_is_unsupported() {
+    assert_eq!(unsupported("print(not print(1))\n"), "the truth of None");
 }
 
 #[test]

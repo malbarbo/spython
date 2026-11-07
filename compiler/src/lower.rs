@@ -363,7 +363,10 @@ impl Lowering<'_, '_> {
                 }
             },
             ast::UnaryOp::UAdd => self.int_operand(&u.operand),
-            ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.bool_operand(&u.operand)?))),
+            ast::UnaryOp::Not => {
+                let operand = truth(self.expr(&u.operand)?, &*u.operand)?;
+                Ok(Expr::Not(Box::new(operand)))
+            }
             ast::UnaryOp::Invert => Err(unsupported(u, "this operator")),
         }
     }
