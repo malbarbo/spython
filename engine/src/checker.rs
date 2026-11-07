@@ -30,8 +30,8 @@ use crate::lints::{
     FORBIDDEN_CONSTRUCT, FORBIDDEN_DEFAULT_ARG, FORBIDDEN_LAMBDA, FORBIDDEN_LOOP, FORBIDDEN_MATCH,
     FORBIDDEN_SELECTION, INVALID_ARGUMENT_NAME, INVALID_CLASS_NAME,
     INVALID_FIRST_ARGUMENT_NAME_FOR_METHOD, INVALID_FUNCTION_NAME, IS_COMPARISON,
-    LOCAL_UNKNOWN_TYPE, MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION,
-    MISSING_RETURN_ANNOTATION, MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
+    MISSING_ATTRIBUTE_ANNOTATION, MISSING_PARAMETER_ANNOTATION, MISSING_RETURN_ANNOTATION,
+    MISSING_TYPE_PARAMETER, NEEDLESS_BOOL, NON_BOOLEAN_CONDITION,
     NON_LOWERCASE_VARIABLE_IN_FUNCTION, NON_UPPERCASE_ENUM_MEMBER, NONE_COMPARISON, NOT_IN_TEST,
     NOT_IS_TEST, REDEFINED_FUNCTION_OR_CLASS, RESERVED_NAME, SHADOWED_MODULE,
     TRUE_FALSE_COMPARISON, UNAVAILABLE_MODULE, UNNECESSARY_PASS, UNUSED_VARIABLE,
@@ -1048,48 +1048,6 @@ impl Checker<'_> {
         }
     }
 
-    /// Flag every `Name` target in `assign` (recursing through tuple / list /
-    /// starred unpacking) with `LOCAL_UNKNOWN_TYPE` when the RHS type is
-    /// `Unknown`. Skipped inside synthetic doctest functions because the
-    /// generated wrappers don't carry meaningful types.
-    fn check_unknown_local(&mut self, assign: &ruff_python_ast::StmtAssign) {
-        if self.in_doctest {
-            return;
-        }
-        let Some(ty) = assign.value.inferred_type(self.model) else {
-            return;
-        };
-        if !ty.is_unknown() {
-            return;
-        }
-        for target in &assign.targets {
-            self.flag_unknown_local_target(target);
-        }
-    }
-
-    fn flag_unknown_local_target(&mut self, target: &Expr) {
-        match target {
-            Expr::Name(n) => self.push(
-                &LOCAL_UNKNOWN_TYPE,
-                n.range(),
-                format!(
-                    "Local variable `{}` has Unknown type; add a type annotation",
-                    n.id.as_str()
-                ),
-            ),
-            Expr::Tuple(t) => t
-                .elts
-                .iter()
-                .for_each(|e| self.flag_unknown_local_target(e)),
-            Expr::List(l) => l
-                .elts
-                .iter()
-                .for_each(|e| self.flag_unknown_local_target(e)),
-            Expr::Starred(s) => self.flag_unknown_local_target(&s.value),
-            _ => {}
-        }
-    }
-
     /// Flag function/class definitions whose name was already defined by an
     /// earlier function/class in the same body. `@overload` stubs and
     /// synthetic doctest functions are ignored. The caller decides when this
@@ -1394,7 +1352,6 @@ impl<'a> Visitor<'a> for Checker<'_> {
                     for target in &assign.targets {
                         self.check_assign_target_names(target);
                     }
-                    self.check_unknown_local(assign);
                 }
                 for target in &assign.targets {
                     self.visit_assign_target_subexprs(target);
@@ -2813,54 +2770,6 @@ C = Callable[[int], int]\n";
             Level::Repetition,
         );
         assert_eq!(count(&diags, "missing-type-parameter"), 0, "{diags:?}");
-    }
-
-    // -- local-unknown-type --------------------------------------------------
-
-    #[test]
-    fn bare_assign_with_unknown_rhs_is_flagged() {
-        // `undefined_name` is unresolved, so the RHS and therefore `x` have
-        // type `Unknown`.
-        let diags = check(
-            "def f() -> None:\n    x = undefined_name\n    return None\n",
-            Level::Repetition,
-        );
-        assert_eq!(count(&diags, "local-unknown-type"), 1, "{diags:?}");
-    }
-
-    #[test]
-    fn annotated_assign_with_unknown_rhs_is_not_flagged() {
-        // The annotation provides the type even if the RHS is Unknown.
-        let diags = check(
-            "def f() -> None:\n    x: int = undefined_name\n    return None\n",
-            Level::Repetition,
-        );
-        assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
-    }
-
-    #[test]
-    fn bare_assign_with_known_rhs_is_not_flagged() {
-        let diags = check(
-            "def f() -> None:\n    x = 5\n    return None\n",
-            Level::Repetition,
-        );
-        assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
-    }
-
-    #[test]
-    fn module_level_assign_with_unknown_rhs_is_not_flagged() {
-        // "em locais" means that only function-scoped assignments are flagged.
-        let diags = check("x = undefined_name\n", Level::Repetition);
-        assert_eq!(count(&diags, "local-unknown-type"), 0, "{diags:?}");
-    }
-
-    #[test]
-    fn tuple_unpack_with_unknown_rhs_is_flagged() {
-        let diags = check(
-            "def f() -> None:\n    a, b = undefined_name\n    return None\n",
-            Level::Full,
-        );
-        assert!(count(&diags, "local-unknown-type") >= 1, "{diags:?}");
     }
 
     #[test]

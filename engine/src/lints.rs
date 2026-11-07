@@ -761,39 +761,6 @@ declare_lint! {
 
 declare_lint! {
     /// ## What it does
-    /// Rejects unannotated local variable assignments inside a function when
-    /// the inferred right-hand-side type is `Unknown`. Add an explicit type
-    /// annotation so the variable has a known type.
-    ///
-    /// ## Why is this bad?
-    /// If the type checker can't figure out the type, the variable is
-    /// effectively untyped and any later use slips through unchecked. An
-    /// explicit annotation forces a decision and lets the type checker
-    /// catch bugs at the use sites.
-    ///
-    /// Variables that already carry an annotation (`x: int = ...`) are
-    /// exempt, as the annotation supplies the type.
-    ///
-    /// ## Example
-    /// ```python
-    /// def f() -> None:
-    ///     x = some_untyped_thing()    # error: x has Unknown type
-    /// ```
-    ///
-    /// Use instead:
-    /// ```python
-    /// def f() -> None:
-    ///     x: int = some_untyped_thing()
-    /// ```
-    pub(crate) static LOCAL_UNKNOWN_TYPE = {
-        summary: "local variable has Unknown type; specify it with an annotation",
-        status: LintStatus::stable("0.0.0"),
-        default_level: Level::Error,
-    }
-}
-
-declare_lint! {
-    /// ## What it does
     /// Rejects a value whose type is `Any` or `Unknown`, or has one of them
     /// inside it, as `list[Unknown]` does. The error goes where the type
     /// first appears: an expression whose parts all have known types, an
