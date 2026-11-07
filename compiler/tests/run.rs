@@ -303,6 +303,24 @@ fn the_floor_division_of_the_least_int_by_minus_one_stops_the_program() {
     );
 }
 
+// The checker rejects a divisor that it knows to be 0, unless a comment
+// silences the error.
+#[test]
+fn the_floor_division_by_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_floor_division_by_zero_raises_zero_division_error",
+        "print(1)\nprint(7 // 0)  # ty: ignore[division-by-zero]\n",
+    );
+}
+
+#[test]
+fn the_modulo_by_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_modulo_by_zero_raises_zero_division_error",
+        "print(-7 % 0)  # ty: ignore[division-by-zero]\n",
+    );
+}
+
 #[test]
 fn the_true_division_is_unsupported() {
     assert_eq!(unsupported("print(7 / 2)\n"), "this operator");
