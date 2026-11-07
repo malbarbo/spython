@@ -79,8 +79,9 @@ pub(crate) enum Expr {
     Truth(Box<Expr>),
     /// `not` on a `bool`, which may be the truth of another value.
     Not(Box<Expr>),
-    /// `and` or `or` on two `bool`s. The right operand runs only when the
-    /// left one does not decide the result.
+    /// `and` or `or` on two values of the same rep, which gives one of
+    /// them. The right operand runs only when the truth of the left one
+    /// does not decide the result.
     Logic {
         op: LogicOp,
         left: Box<Expr>,
@@ -132,12 +133,9 @@ impl Expr {
         match self {
             Expr::Str(_) => Rep::Str,
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
-            Expr::Bool(_)
-            | Expr::Truth(_)
-            | Expr::Not(_)
-            | Expr::Logic { .. }
-            | Expr::Compare(..) => Rep::Bool,
+            Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } => *rep,
+            Expr::Logic { left, .. } => left.rep(),
             Expr::Print(_) => Rep::None,
         }
     }

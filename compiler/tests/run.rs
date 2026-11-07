@@ -539,15 +539,31 @@ fn and_and_or_skip_the_right_operand_when_the_left_decides() {
 }
 
 #[test]
-fn and_of_an_operand_that_is_not_a_bool_is_unsupported() {
+fn and_and_or_give_an_operand_of_int_or_str() {
+    same_as_cpython(
+        "and_and_or_give_an_operand_of_int_or_str",
+        "n = 0\nm = 5\ns = ''\nt = 'abc'\n\
+         print(n and m, m and n, m and 7, n or m, m or n, n or 0)\n\
+         print(s and t, t and s, t and 'x', s or t, t or s, s or '')\n\
+         print(n or m and 3, n and m or -1, n or n or 9)\n\
+         r = s or 'vazio'\n\
+         print(r)\n\
+         while m and m - 3:\n    m -= 1\n\
+         print(m)\n",
+    );
+}
+
+#[test]
+fn and_of_operands_of_two_types_is_unsupported() {
     assert_eq!(
         unsupported("t = True\nprint(t and 1)\n"),
-        "an operand that is not a bool"
+        "operands of two types"
     );
     assert_eq!(
-        unsupported("t = True\nprint('a' or t)\n"),
-        "an operand that is not a bool"
+        unsupported("n = 0\nprint('a' or n)\n"),
+        "operands of two types"
     );
+    assert_eq!(unsupported("print(print(1) or 1)\n"), "the truth of None");
 }
 
 #[test]

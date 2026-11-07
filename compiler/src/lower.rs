@@ -307,16 +307,21 @@ impl Lowering<'_, '_> {
                     .values
                     .split_first()
                     .expect("a bool operator has operands");
+                let first = self.logic_operand(first)?;
+                let rep = first.rep();
                 // `a and b and c` gives the value of `(a and b) and c`, and
                 // evaluates the same operands.
-                rest.iter()
-                    .try_fold(self.bool_operand(first)?, |left, right| {
-                        Ok(Expr::Logic {
-                            op,
-                            left: Box::new(left),
-                            right: Box::new(self.bool_operand(right)?),
-                        })
+                rest.iter().try_fold(first, |left, right| {
+                    let lowered = self.logic_operand(right)?;
+                    if lowered.rep() != rep {
+                        return Err(unsupported(expr, "operands of two types"));
+                    }
+                    Ok(Expr::Logic {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(lowered),
                     })
+                })
             }
             ast::Expr::Compare(c) => {
                 let first = self.int_operand(c.first_operand())?;
@@ -378,11 +383,12 @@ impl Lowering<'_, '_> {
         Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
     }
 
-    fn bool_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
+    /// An operand of `and` or `or`, which has to have a truth.
+    fn logic_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
         let lowered = self.expr(operand)?;
         match lowered.rep() {
-            Rep::Bool => Ok(lowered),
-            _ => Err(unsupported(operand, "an operand that is not a bool")),
+            Rep::None => Err(unsupported(operand, "the truth of None")),
+            _ => Ok(lowered),
         }
     }
 

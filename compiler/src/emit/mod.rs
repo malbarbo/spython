@@ -236,30 +236,37 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.bool_not(f);
             }
-            Expr::Logic { op, left, right } => {
-                self.expr(f, left);
-                f.ins().if_(BlockType::Result(
-                    self.reprs
-                        .local_type(Rep::Bool)
-                        .expect("a bool has a value"),
-                ));
-                match op {
-                    LogicOp::And => {
-                        self.expr(f, right);
-                        f.ins().else_();
-                        self.reprs.bool_literal(f, false);
-                    }
-                    LogicOp::Or => {
-                        self.reprs.bool_literal(f, true);
-                        f.ins().else_();
-                        self.expr(f, right);
-                    }
-                }
-                f.ins().end();
-            }
+            Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
             Expr::Compare(first, rest) => self.compare(f, first, rest),
             Expr::Print(args) => self.print(f, args),
         }
+    }
+
+    /// The left operand goes to a local, which gives both its truth and,
+    /// when the truth decides the result, the result.
+    fn logic(&mut self, f: &mut FuncState, op: LogicOp, left: &Expr, right: &Expr) {
+        let rep = left.rep();
+        let left_local = f.local(self.reprs.local_type(rep).expect("an operand has a value"));
+        self.expr(f, left);
+        f.ins().local_set(left_local);
+        self.reprs.load(f, rep, left_local);
+        self.reprs.truth(f, rep);
+        f.ins().if_(BlockType::Result(
+            self.reprs.value_type(rep).expect("an operand has a value"),
+        ));
+        match op {
+            LogicOp::And => {
+                self.expr(f, right);
+                f.ins().else_();
+                self.reprs.load(f, rep, left_local);
+            }
+            LogicOp::Or => {
+                self.reprs.load(f, rep, left_local);
+                f.ins().else_();
+                self.expr(f, right);
+            }
+        }
+        f.ins().end();
     }
 
     /// A chain stops at the first comparison that is false, and the operands

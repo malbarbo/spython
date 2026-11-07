@@ -58,6 +58,15 @@ impl Reprs {
         }
     }
 
+    /// The type of a value of `rep` on the stack, and `None` for a rep that
+    /// has no value.
+    pub fn value_type(&self, rep: Rep) -> Option<ValType> {
+        match rep {
+            Rep::Str => Some(self.str.val_type(false)),
+            _ => self.local_type(rep),
+        }
+    }
+
     /// Pushes the value of `rep` that `local` holds.
     pub fn load(&self, f: &mut FuncState, rep: Rep, local: u32) {
         f.ins().local_get(local);
