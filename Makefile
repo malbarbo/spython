@@ -43,7 +43,7 @@ check:
 	cargo clippy --target $(WASM_TARGET) -p wasm --features wasm-backend -- -D warnings
 	cargo fmt -- --check
 	ruff format --check lib/spython/
-	deno fmt --check wasm/tests/ wasm/spython.ts
+	deno fmt --check wasm/tests/ wasm/spython.ts compiler/tests/
 
 docs:
 	bash docs/build-docs.sh

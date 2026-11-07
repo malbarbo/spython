@@ -143,9 +143,26 @@ fn same_as_cpython(name: &str, source: &str) {
 }
 
 /// Compiles `source` and runs it in wasmtime.
+/// Compiles `source` and runs it in wasmtime and in deno, which have to
+/// print the same and exit the same.
 fn run(name: &str, source: &str) -> Output {
     let module = compile(source, &path(name, "py")).expect("the program to compile");
-    wasmtime(name, &module, None)
+    let output = wasmtime(name, &module, None);
+    assert_eq!(deno(name), output, "deno and wasmtime");
+    output
+}
+
+/// Runs the module of the test `name`, which [`wasmtime`] wrote, in the
+/// deno on the `PATH`, or in the one that `DENO` names.
+fn deno(name: &str) -> Output {
+    let deno = std::env::var("DENO").unwrap_or_else(|_| "deno".to_owned());
+    let runner = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wasi.ts");
+    let mut command = Command::new(deno);
+    command
+        .args(["run", "--quiet", "--allow-read"])
+        .arg(runner)
+        .arg(path(name, "wasm"));
+    output_within_limit(command)
 }
 
 /// Asserts that the compiled `source` prints `stdout`, then stops with the
@@ -1346,7 +1363,8 @@ fn a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out() {
 }
 
 /// Each program of the corpus that the checker accepts and the compiler
-/// covers prints what CPython prints, and exits as CPython exits. The
+/// covers prints what CPython prints, and exits as CPython exits, in
+/// wasmtime and in deno. The
 /// corpus is `cli/tests/inputs` and the `na-programacao` beside this
 /// repository, when it is there.
 #[test]
@@ -1418,6 +1436,7 @@ fn run_from_corpus(file: &Path) -> Outcome {
     let theirs = python(file);
     if (&ours.stdout, &ours.stderr, ours.status.code())
         == (&theirs.stdout, &theirs.stderr, theirs.status.code())
+        && deno(&name) == ours
     {
         Outcome::Same
     } else {
