@@ -429,6 +429,13 @@ impl Emitter<'_> {
                     .local_set(self.code.site);
                 self.reprs.str_repeat(&mut self.m, f);
             }
+            Expr::Len { operand, site } => {
+                self.expr(f, operand);
+                f.ins()
+                    .i32_const(site_index(*site))
+                    .local_set(self.code.site);
+                self.reprs.str_len(f);
+            }
             Expr::Truth(operand) => {
                 self.expr(f, operand);
                 self.reprs.truth(f, operand.rep());

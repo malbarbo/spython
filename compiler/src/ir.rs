@@ -130,6 +130,12 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// `len` of a `str`. A length outside 31 bits stops the program at the
+    /// site.
+    Len {
+        operand: Box<Expr>,
+        site: Site,
+    },
     /// The truth of an `int` or a `str`, as a `bool`. An `int` is true
     /// when it is not 0, and a `str` when it is not empty.
     Truth(Box<Expr>),
@@ -188,7 +194,7 @@ impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
             Expr::Str(_) | Expr::Concat(..) | Expr::Repeat { .. } => Rep::Str,
-            Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } => Rep::Int,
+            Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),

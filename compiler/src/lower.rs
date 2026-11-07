@@ -614,7 +614,8 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
             ast::Expr::Compare(c) => self.compare(c),
-            ast::Expr::Call(call) if self.is_builtin_print(&call.func) => self.print(call),
+            ast::Expr::Call(call) if self.is_builtin(&call.func, "print") => self.print(call),
+            ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
             ast::Expr::Call(call) => self.call(call),
             _ => Err(unsupported(expr, "this expression")),
         }
@@ -785,12 +786,27 @@ impl<'a> Lowering<'a, '_> {
         Ok(Expr::Print(args))
     }
 
-    /// Returns `true` if `func` is the `print` of the builtins, `false`
-    /// otherwise.
-    fn is_builtin_print(&self, func: &ast::Expr) -> bool {
+    /// `len` of one `str`.
+    fn len(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let ([arg], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
+            return Err(unsupported(call, "this call of len"));
+        };
+        let operand = self.expr(arg)?;
+        if operand.rep() != Rep::Str {
+            return Err(unsupported(arg, "len of this type"));
+        }
+        Ok(Expr::Len {
+            operand: Box::new(operand),
+            site: self.site(call.range()),
+        })
+    }
+
+    /// Returns `true` if `func` is the function `name` of the builtins,
+    /// `false` otherwise.
+    fn is_builtin(&self, func: &ast::Expr, name: &str) -> bool {
         matches!(
             expr_shape(self.model, func),
-            Some(Shape::Function(def)) if def.name == "print" && is_builtins(self.model.db(), def.file)
+            Some(Shape::Function(def)) if def.name == name && is_builtins(self.model.db(), def.file)
         )
     }
 }

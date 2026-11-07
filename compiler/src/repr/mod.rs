@@ -169,6 +169,12 @@ impl Reprs {
         self.int.arith(f, op);
     }
 
+    /// Pops a `str` and pushes its number of code points as an `int`.
+    pub fn str_len(&self, f: &mut FuncState) {
+        self.str.len(f);
+        self.int.len_as_int(f);
+    }
+
     /// Pops a `str` and an `int`, and pushes the `str` repeated that many
     /// times. A result too long for memory raises `MemoryError`.
     pub fn str_repeat(&mut self, m: &mut ModuleState, f: &mut FuncState) {

@@ -291,6 +291,22 @@ fn a_str_longer_than_an_array_raises_memory_error() {
 }
 
 #[test]
+fn len_gives_the_number_of_code_points_of_a_str() {
+    same_as_cpython(
+        "len_gives_the_number_of_code_points_of_a_str",
+        "s = 'aé\u{1f600}'\nprint(len(s), len(''), len(s * 100) + 1, len('ab' + s) == 5)\n",
+    );
+}
+
+#[test]
+fn len_of_a_bool_or_an_int_is_unsupported() {
+    assert_eq!(
+        unsupported("print(len(1))  # ty: ignore[invalid-argument-type]\n"),
+        "len of this type"
+    );
+}
+
+#[test]
 fn the_comparisons_of_str_follow_the_order_of_the_code_points() {
     let strs = [
         "",

@@ -22,6 +22,9 @@ pub(super) enum IntRepr {
         mul: u32,
         floor_div: u32,
         modulo: u32,
+        /// `(func (param i64) (result i32))`, which stops the program when
+        /// the value does not fit in 31 bits.
+        check: u32,
         /// `(func (param i64))`, which writes the number in decimal to the
         /// standard output.
         write: u32,
@@ -45,6 +48,7 @@ impl IntRepr {
             }),
             floor_div: add_floor_div(m, str, exc, check),
             modulo: add_modulo(m, str, exc),
+            check,
             write,
         }
     }
@@ -75,6 +79,16 @@ impl IntRepr {
         match self {
             // A `bool` is already the `i32` 0 or 1.
             IntRepr::I31 { .. } => {}
+        }
+    }
+
+    /// Pops an `i32` without sign, the length of a value, and pushes it as
+    /// an `int`.
+    pub fn len_as_int(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { check, .. } => {
+                f.ins().i64_extend_i32_u().call(*check);
+            }
         }
     }
 

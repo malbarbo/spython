@@ -115,6 +115,16 @@ impl StrRepr {
         }
     }
 
+    /// Pops a `str` and pushes its number of code points as an `i32`
+    /// without sign.
+    pub fn len(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { .. } => {
+                f.ins().array_len();
+            }
+        }
+    }
+
     /// Pops two `str`s and pushes the second one after the first.
     pub fn concat(&self, f: &mut FuncState) {
         match self {
