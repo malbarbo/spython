@@ -776,13 +776,24 @@ impl Checker<'_> {
             return;
         };
         let env = self.model.program_environment();
-        let instead = if op == CmpOp::Is { "==" } else { "!=" };
+        // `== True` would trip true-false-comparison, so a literal `True` or
+        // `False` asks for the value itself.
+        let literal = [left, right].into_iter().find_map(|side| match side {
+            Expr::BooleanLiteral(literal) => Some(literal.value),
+            _ => None,
+        });
+        let instead = match literal {
+            Some(value) if value == (op == CmpOp::Is) => "the value directly",
+            Some(_) => "`not` and the value",
+            None if op == CmpOp::Is => "`==`",
+            None => "`!=`",
+        };
         self.push(
             &IS_COMPARISON,
             TextRange::new(left.start(), right.end()),
             format!(
                 "Whether two values of type `{}` are the same object depends on the \
-                 implementation; use `{instead}`",
+                 implementation; use {instead}",
                 value_ty.display(db, &env)
             ),
         );

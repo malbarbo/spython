@@ -2069,6 +2069,32 @@ fn level5_rejects_is_with_a_value_whose_identity_depends_on_the_implementation()
 }
 
 #[test]
+fn level5_rejects_is_with_a_bool_literal_and_suggests_the_value() {
+    let (_, err, success) = run_level(
+        5,
+        indoc! {"
+            def f(b: bool) -> None:
+                print(b is True)
+                print(b is not False)
+                print(False is b)
+                print(b is not True)
+    "},
+    );
+    assert!(!success);
+    assert_eq!(
+        err.matches("use the value directly").count(),
+        2,
+        "stderr: {err}"
+    );
+    assert_eq!(
+        err.matches("use `not` and the value").count(),
+        2,
+        "stderr: {err}"
+    );
+    assert!(!err.contains("true-false-comparison"), "stderr: {err}");
+}
+
+#[test]
 fn level5_allows_is_with_none_enum_members_and_objects() {
     let (out, err, success) = run_level(
         5,
