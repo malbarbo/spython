@@ -89,7 +89,8 @@ impl StrRepr {
                         .i32_const(0)
                         .i32_const(len)
                         .array_new_data(array.0, data.0)
-                        .global_set(global.0);
+                        .global_set(global.0)
+                        .data_drop(data.0);
                     global
                 })
             }
