@@ -5,6 +5,8 @@ const STDOUT = 1;
 const STDERR = 2;
 const WASI_ESUCCESS = 0;
 const WASI_EBADF = 8;
+const WASI_EIO = 29;
+const WASI_ENOSPC = 51;
 
 /** What `proc_exit` throws, so that `_start` stops where it calls it. */
 class Exit {
@@ -29,8 +31,12 @@ const wasi = {
       const start = view.getUint32(iovs + 8 * i, true);
       const length = view.getUint32(iovs + 8 * i + 4, true);
       const bytes = new Uint8Array(memory.buffer, start, length);
-      for (let done = 0; done < length;) {
-        done += out.writeSync(bytes.subarray(done));
+      try {
+        for (let done = 0; done < length;) {
+          done += out.writeSync(bytes.subarray(done));
+        }
+      } catch (error) {
+        return wasiError(error);
       }
       total += length;
     }
@@ -41,6 +47,18 @@ const wasi = {
     throw new Exit(code);
   },
 };
+
+/**
+ * The error of WASI that wasmtime gives for `error`, of the ones the tests
+ * make. It gives `ENOSPC` for a full device, and `EIO` for a pipe that the
+ * reader closed.
+ */
+function wasiError(error: unknown): number {
+  if (error instanceof Error && "code" in error && error.code === "ENOSPC") {
+    return WASI_ENOSPC;
+  }
+  return WASI_EIO;
+}
 
 const bytes = await Deno.readFile(Deno.args[0]);
 const { instance } = await WebAssembly.instantiate(bytes, {

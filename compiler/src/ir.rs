@@ -163,8 +163,12 @@ pub(crate) enum Expr {
     /// A chain of comparisons of `int`s or of `str`s, as in `a < b <= c`.
     /// Each operand after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
-    /// `print` with the default `sep` and `end`.
-    Print(Vec<Expr>),
+    /// `print` with the default `sep` and `end`. A write that fails raises
+    /// `OSError` at the site.
+    Print {
+        args: Vec<Expr>,
+        site: Site,
+    },
 }
 
 /// What a read or a call raises at the site when the name has no value.
@@ -275,7 +279,7 @@ impl Expr {
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
-            Expr::Print(_) => Rep::None,
+            Expr::Print { .. } => Rep::None,
         }
     }
 }

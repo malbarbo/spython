@@ -34,6 +34,11 @@ pub(in crate::emit) enum StrRepr {
         /// -1, 0 or 1 as the first `str` comes before, with or after the
         /// second one.
         compare: u32,
+        /// `(array i8)`, the bytes of an ASCII text.
+        bytes: u32,
+        /// `(func (param (ref $Bytes)) (result (ref $Str)))`, the `str` of
+        /// an ASCII text.
+        ascii: u32,
         /// The global that holds each literal, by its text.
         literals: HashMap<String, u32>,
     },
@@ -43,6 +48,7 @@ impl StrRepr {
     pub fn ucs4(m: &mut ModuleState, host: &Host) -> Self {
         let array = m.array_type(StorageType::Val(ValType::I32), true);
         let write = add_write(m, host, array);
+        let bytes = m.array_type(StorageType::I8, false);
         StrRepr::Ucs4 {
             array,
             write,
@@ -51,6 +57,8 @@ impl StrRepr {
             repeat: add_repeat(m, array),
             index: add_index(m, array),
             compare: add_compare(m, array),
+            bytes,
+            ascii: add_ascii(m, array, bytes),
             literals: HashMap::new(),
         }
     }
@@ -93,6 +101,23 @@ impl StrRepr {
     pub fn type_index(&self) -> u32 {
         match self {
             StrRepr::Ucs4 { array, .. } => *array,
+        }
+    }
+
+    /// The index of `(array i8)`, the type that [`Self::ascii`] takes.
+    pub fn bytes_type(&self) -> u32 {
+        match self {
+            StrRepr::Ucs4 { bytes, .. } => *bytes,
+        }
+    }
+
+    /// Pops the bytes of an ASCII text and pushes its `str`. A text that
+    /// only a run time error needs is cheaper as bytes than as a literal.
+    pub fn ascii(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { ascii, .. } => {
+                f.ins().call(*ascii);
+            }
         }
     }
 
@@ -185,6 +210,42 @@ fn ref_to(index: u32, nullable: bool) -> ValType {
         nullable,
         heap_type: HeapType::Concrete(index),
     })
+}
+
+fn add_ascii(m: &mut ModuleState, array: u32, bytes: u32) -> u32 {
+    let ty = m.func_type(&[ref_to(bytes, false)], &[ref_to(array, false)]);
+    let text = 0;
+    let mut f = FuncState::new(1);
+    let s = f.local(ref_to(array, true));
+    let i = f.local(ValType::I32);
+    f.ins()
+        .local_get(text)
+        .array_len()
+        .array_new_default(array)
+        .local_set(s)
+        .block(BlockType::Empty)
+        .loop_(BlockType::Empty)
+        .local_get(i)
+        .local_get(text)
+        .array_len()
+        .i32_ge_u()
+        .br_if(1)
+        .local_get(s)
+        .local_get(i)
+        .local_get(text)
+        .local_get(i)
+        .array_get_u(bytes)
+        .array_set(array)
+        .local_get(i)
+        .i32_const(1)
+        .i32_add()
+        .local_set(i)
+        .br(0)
+        .end()
+        .end()
+        .local_get(s)
+        .ref_as_non_null();
+    m.add_func(ty, f.finish())
 }
 
 fn add_write(m: &mut ModuleState, host: &Host, array: u32) -> u32 {

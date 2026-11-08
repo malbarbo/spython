@@ -77,7 +77,10 @@ impl<'a> Lowering<'a, '_> {
                 }
             })
             .collect::<Result<_, _>>()?;
-        Ok(Expr::Print(args))
+        Ok(Expr::Print {
+            args,
+            site: self.site(call.range()),
+        })
     }
 
     /// `len` of one `str`.

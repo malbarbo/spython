@@ -45,6 +45,15 @@ fn path(name: &str, extension: &str) -> PathBuf {
 /// runs out of the heap writes the traceback of
 /// [`compiler::Module::memory_error`], as the CLI does.
 fn wasmtime(name: &str, module: &compiler::Module, heap: Option<u32>) -> Output {
+    let mut output = output_within_limit(wasmtime_command(name, module, heap));
+    if let Some(traceback) = module.memory_error(&String::from_utf8_lossy(&output.stderr)) {
+        output.stderr = traceback.into_bytes();
+    }
+    output
+}
+
+/// The command that runs `module` in wasmtime, as [`wasmtime`] says.
+fn wasmtime_command(name: &str, module: &compiler::Module, heap: Option<u32>) -> Command {
     let path = path(name, "wasm");
     std::fs::write(&path, &module.bytes).expect("the module written to disk");
     let wasmtime = std::env::var("WASMTIME").unwrap_or_else(|_| "wasmtime".to_owned());
@@ -67,11 +76,7 @@ fn wasmtime(name: &str, module: &compiler::Module, heap: Option<u32>) -> Output 
         ]);
     }
     command.arg(&path);
-    let mut output = output_within_limit(command);
-    if let Some(traceback) = module.memory_error(&String::from_utf8_lossy(&output.stderr)) {
-        output.stderr = traceback.into_bytes();
-    }
-    output
+    command
 }
 
 /// Runs `source` in the python3 on the `PATH`, or in the one that `PYTHON`
@@ -94,16 +99,23 @@ fn python(file: &Path) -> Output {
 /// Runs `command` and collects what it prints. A test fails when the
 /// program runs for more than 10 seconds, which is a program that never
 /// ends, so the other tests still run.
-fn output_within_limit(mut command: Command) -> Output {
+fn output_within_limit(command: Command) -> Output {
+    output_with_stdout(command, Stdio::piped())
+}
+
+/// Runs `command` as [`output_within_limit`] does, with `stdout` as its
+/// standard output. The output has what the program printed only when
+/// `stdout` is a pipe.
+fn output_with_stdout(mut command: Command, stdout: Stdio) -> Output {
     let limit = Duration::from_secs(10);
     let mut child = command
-        .stdout(Stdio::piped())
+        .stdout(stdout)
         .stderr(Stdio::piped())
         .spawn()
         .expect("the program to start");
     // Each pipe has its own reader, so a program that fills one pipe does
     // not stop while the test waits on the other.
-    let stdout = read_in_thread(child.stdout.take().expect("a piped stdout"));
+    let stdout = child.stdout.take().map(read_in_thread);
     let stderr = read_in_thread(child.stderr.take().expect("a piped stderr"));
     let start = Instant::now();
     let status = loop {
@@ -119,7 +131,9 @@ fn output_within_limit(mut command: Command) -> Output {
     };
     Output {
         status,
-        stdout: stdout.join().expect("the reader of stdout"),
+        stdout: stdout.map_or_else(Vec::new, |stdout| {
+            stdout.join().expect("the reader of stdout")
+        }),
         stderr: stderr.join().expect("the reader of stderr"),
     }
 }
@@ -164,6 +178,12 @@ fn run(name: &str, source: &str) -> Output {
 /// Runs the module of the test `name`, which [`wasmtime`] wrote, in the
 /// deno on the `PATH`, or in the one that `DENO` names.
 fn deno(name: &str) -> Output {
+    output_within_limit(deno_command(name))
+}
+
+/// The command that runs the module of the test `name` in deno, as
+/// [`deno`] says.
+fn deno_command(name: &str) -> Command {
     let deno = std::env::var("DENO").unwrap_or_else(|_| "deno".to_owned());
     let runner = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/wasi.ts");
     let mut command = Command::new(deno);
@@ -171,7 +191,22 @@ fn deno(name: &str) -> Output {
         .args(["run", "--quiet", "--allow-read"])
         .arg(runner)
         .arg(path(name, "wasm"));
-    output_within_limit(command)
+    command
+}
+
+/// Asserts that the compiled `source`, run in wasmtime and in deno with
+/// the standard output that `stdout` gives, writes `stderr`, where `{file}`
+/// stands for the path of the program, and exits with 1.
+fn fails_to_write(name: &str, source: &str, stdout: impl Fn() -> Stdio, stderr: &str) {
+    let module = compile(source, &path(name, "py")).expect("the program to compile");
+    let stderr = stderr.replace("{file}", &path(name, "py").display().to_string());
+    for output in [
+        output_with_stdout(wasmtime_command(name, &module, None), stdout()),
+        output_with_stdout(deno_command(name), stdout()),
+    ] {
+        assert_eq!(String::from_utf8_lossy(&output.stderr), stderr, "stderr");
+        assert_eq!(output.status.code(), Some(1), "exit code");
+    }
 }
 
 /// Asserts that the compiled `source` prints `stdout`, then stops with the

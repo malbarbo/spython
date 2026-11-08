@@ -19,3 +19,4 @@ wasmparser = { version = "0.263", default-features = false, features = ["std", "
 [dev-dependencies]
 # The in-memory checker builds the database the tests compile from.
 engine = { path = "../engine" }
+indoc = "2"

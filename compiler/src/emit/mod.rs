@@ -609,7 +609,7 @@ impl Emitter<'_> {
             }
             Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
             Expr::Compare(first, rest) => self.compare(f, first, rest),
-            Expr::Print(args) => self.print(f, args),
+            Expr::Print { args, site } => self.print(f, args, *site),
         }
     }
 
@@ -672,7 +672,7 @@ impl Emitter<'_> {
     }
 
     /// Python evaluates every argument before it writes the first one.
-    fn print(&mut self, f: &mut FuncState, args: &[Expr]) {
+    fn print(&mut self, f: &mut FuncState, args: &[Expr], site: Site) {
         let mut values = Vec::new();
         for arg in args {
             self.expr(f, arg);
@@ -692,6 +692,16 @@ impl Emitter<'_> {
             .i32_const('\n' as i32)
             .call(self.host.write_char)
             .call(self.host.flush);
+        self.at(f, site, |e, f| {
+            f.ins()
+                .global_get(e.host.error)
+                .if_(BlockType::Empty)
+                .global_get(e.host.error)
+                .i32_const(0)
+                .global_set(e.host.error);
+            e.reprs.raise_os_error(f);
+            f.ins().end();
+        });
     }
 }
 

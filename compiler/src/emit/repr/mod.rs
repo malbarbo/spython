@@ -126,6 +126,11 @@ impl Reprs {
         self.exc.raise(f);
     }
 
+    /// Pops an error of WASI and raises its `OSError`.
+    pub fn raise_os_error(&self, f: &mut FuncState) {
+        self.exc.raise_os_error(f);
+    }
+
     /// Pops a `str` and raises an exception with it as the last line of its
     /// traceback.
     pub fn raise_message(&self, f: &mut FuncState) {

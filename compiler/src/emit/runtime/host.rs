@@ -21,6 +21,9 @@ pub(crate) struct Host {
     pub write_char: u32,
     /// `(func)`, which sends what the buffer holds to the host.
     pub flush: u32,
+    /// The global with the error of WASI of the last write that failed,
+    /// and 0 when none did since the program last read it.
+    pub error: u32,
     /// `(func)`, which flushes the buffer and sends what comes after it to
     /// the standard error.
     pub to_stderr: u32,
@@ -43,13 +46,15 @@ impl Host {
         let pos = m.global(ValType::I32, &ConstExpr::i32_const(BUFFER_START));
         // The file descriptor the buffer goes to.
         let fd = m.global(ValType::I32, &ConstExpr::i32_const(STDOUT));
-        let flush = add_flush(m, fd_write, pos, fd);
+        let error = m.global(ValType::I32, &ConstExpr::i32_const(0));
+        let flush = add_flush(m, fd_write, pos, fd, error);
         let write_char = add_write_char(m, flush, pos);
         let to_stderr = add_to_stderr(m, flush, fd);
         let exit = add_exit(m, flush, proc_exit);
         Host {
             write_char,
             flush,
+            error,
             to_stderr,
             exit,
         }
@@ -65,11 +70,12 @@ fn mem(offset: u64, align: u32) -> MemArg {
     }
 }
 
-fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32) -> u32 {
+fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) -> u32 {
     let ty = m.func_type(&[], &[]);
     let mut f = FuncState::new(0);
     let ptr = f.local(ValType::I32);
     let len = f.local(ValType::I32);
+    let result = f.local(ValType::I32);
     f.ins()
         .i32_const(BUFFER_START)
         .local_set(ptr)
@@ -78,8 +84,9 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32) -> u32 {
         .i32_sub()
         .local_set(len)
         // A write can take fewer bytes than it was given, so the loop asks
-        // again for the rest. An error drops the rest, because the program
-        // has no exceptions to raise yet.
+        // again for the rest. An error drops the rest, as CPython drops
+        // what it fails to write, and waits in `error` for the code that
+        // raises it.
         .block(BlockType::Empty)
         .loop_(BlockType::Empty)
         .local_get(len)
@@ -96,7 +103,12 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32) -> u32 {
         .i32_const(1)
         .i32_const(NWRITTEN as i32)
         .call(fd_write)
-        .br_if(1)
+        .local_tee(result)
+        .if_(BlockType::Empty)
+        .local_get(result)
+        .global_set(error)
+        .br(2)
+        .end()
         .local_get(ptr)
         .i32_const(0)
         .i32_load(mem(NWRITTEN, 2))

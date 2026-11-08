@@ -3,7 +3,7 @@
 use wasm_encoder::{BlockType, Catch, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use crate::cpython::{
-    MORE_TIME, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
+    MORE_TIME, OS_ERRORS, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
 };
 use crate::emit::module::{FuncState, ModuleState};
 use crate::emit::repr::str::StrRepr;
@@ -19,6 +19,9 @@ pub(in crate::emit) struct Exceptions {
     /// `(func (param (ref $Str)))`, which raises an exception with the
     /// message.
     raise: u32,
+    /// `(func (param i32))`, which raises the `OSError` of the error of
+    /// WASI.
+    os_error: u32,
     /// `(func (param (ref $Exc) i32))`, which adds the frame of the site to
     /// the traceback, writes the traceback to the standard error, and ends
     /// the program with 1.
@@ -77,6 +80,7 @@ impl Exceptions {
             .struct_new(exc)
             .throw(tag);
         let raise = m.add_func(raise_type, f.finish());
+        let os_error = add_os_error(m, str, raise);
 
         let frame_type = m.func_type(&[ref_to(exc, false), ValType::I32], &[]);
         let (e, site) = (0, 1);
@@ -183,6 +187,7 @@ impl Exceptions {
             exc,
             tag,
             raise,
+            os_error,
             uncaught,
             reraise,
             sites,
@@ -223,6 +228,11 @@ impl Exceptions {
     /// Pops the message and raises an exception with it.
     pub fn raise(&self, f: &mut FuncState) {
         f.ins().call(self.raise).unreachable();
+    }
+
+    /// Pops an error of WASI and raises its `OSError`.
+    pub fn raise_os_error(&self, f: &mut FuncState) {
+        f.ins().call(self.os_error).unreachable();
     }
 
     /// Opens the code of the module or of a function, where the handler
@@ -336,4 +346,48 @@ fn ref_to(index: u32, nullable: bool) -> ValType {
         nullable,
         heap_type: HeapType::Concrete(index),
     })
+}
+
+/// The function that raises the `OSError` of an error of WASI. The texts
+/// are bytes in one segment, which costs less than a literal for each.
+fn add_os_error(m: &mut ModuleState, str: &StrRepr, raise: u32) -> u32 {
+    let mut texts = Vec::new();
+    let mut places = Vec::new();
+    for (errno, text) in OS_ERRORS {
+        let start = i32::try_from(texts.len()).expect("texts shorter than 2^31");
+        let len = i32::try_from(text.len()).expect("a text shorter than 2^31");
+        texts.extend_from_slice(text.as_bytes());
+        places.push((errno, start, len));
+    }
+    let data = m.passive_data(texts);
+    let ty = m.func_type(&[ValType::I32], &[]);
+    let errno = 0;
+    let mut f = FuncState::new(1);
+    let start = f.local(ValType::I32);
+    let len = f.local(ValType::I32);
+    f.ins().block(BlockType::Empty);
+    for (code, at, size) in places {
+        f.ins()
+            .local_get(errno)
+            .i32_const(code)
+            .i32_eq()
+            .if_(BlockType::Empty)
+            .i32_const(at)
+            .local_set(start)
+            .i32_const(size)
+            .local_set(len)
+            .br(1)
+            .end();
+    }
+    // wasmtime gives `fd_write` no other error, and neither does the deno
+    // of the tests.
+    f.ins()
+        .unreachable()
+        .end()
+        .local_get(start)
+        .local_get(len)
+        .array_new_data(str.bytes_type(), data);
+    str.ascii(&mut f);
+    f.ins().call(raise).unreachable();
+    m.add_func(ty, f.finish())
 }

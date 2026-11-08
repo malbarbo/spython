@@ -673,6 +673,7 @@ name = "compiler"
 version = "0.3.0"
 dependencies = [
  "engine",
+ "indoc",
  "ruff_db",
  "ruff_python_ast",
  "ruff_python_parser",
