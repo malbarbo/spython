@@ -294,6 +294,8 @@ fn offset(n: impl TryInto<u32>) -> u32 {
 pub(crate) struct FuncState {
     params: u32,
     locals: Vec<ValType>,
+    /// The temporaries that no code uses now.
+    free: Vec<(ValType, u32)>,
     code: Vec<u8>,
     sites: Vec<SiteRange>,
 }
@@ -303,6 +305,7 @@ impl FuncState {
         FuncState {
             params,
             locals: Vec::new(),
+            free: Vec::new(),
             code: Vec::new(),
             sites: Vec::new(),
         }
@@ -323,6 +326,24 @@ impl FuncState {
     pub fn local(&mut self, ty: ValType) -> u32 {
         self.locals.push(ty);
         self.params + u32::try_from(self.locals.len() - 1).expect("fewer than 2^32 locals")
+    }
+
+    /// A local for a value that lives inside one expression, which goes
+    /// back with `free`. Its value is whatever the last user left, so the
+    /// code sets it before it reads it.
+    pub fn temp(&mut self, ty: ValType) -> u32 {
+        match self.free.iter().position(|&(free, _)| free == ty) {
+            Some(i) => self.free.swap_remove(i).1,
+            None => self.local(ty),
+        }
+    }
+
+    pub fn free(&mut self, local: u32) {
+        let ty = local
+            .checked_sub(self.params)
+            .and_then(|i| self.locals.get(usize::try_from(i).ok()?))
+            .expect("a temporary is a local of the function");
+        self.free.push((*ty, local));
     }
 
     pub fn ins(&mut self) -> InstructionSink<'_> {

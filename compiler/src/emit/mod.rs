@@ -376,10 +376,15 @@ impl Emitter<'_> {
             self.reprs.str_literal(&mut self.m, f, &error.message);
             return;
         }
-        // A local starts as null, and the code of the raise runs once.
         let str_type = self.reprs.local_type(Rep::Str).expect("a str has a value");
-        let found = f.local(str_type);
-        f.ins().block(BlockType::Empty);
+        let ValType::Ref(str_ref) = str_type else {
+            unreachable!("a str is a reference");
+        };
+        let found = f.temp(str_type);
+        f.ins()
+            .ref_null(str_ref.heap_type)
+            .local_set(found)
+            .block(BlockType::Empty);
         if let Some((binding, candidate)) = &error.self_attr {
             self.suggest_if_bound(f, *binding, candidate, found);
         }
@@ -407,8 +412,9 @@ impl Emitter<'_> {
             } else if !group.globals.is_empty() {
                 // The global with the least place wins. A global without a
                 // value has 0, whose place less 1 is the greatest.
-                let best = f.local(ValType::I32);
-                let place = f.local(ValType::I32);
+                let best = f.temp(ValType::I32);
+                let place = f.temp(ValType::I32);
+                f.ins().i32_const(0).local_set(best);
                 for (global, candidate) in &group.globals {
                     self.bound(f, *global);
                     f.ins()
@@ -426,6 +432,8 @@ impl Emitter<'_> {
                     f.ins().local_set(found).end();
                 }
                 f.ins().local_get(best).br_if(0);
+                f.free(best);
+                f.free(place);
             }
             if let Some(candidate) = &group.always {
                 self.reprs.str_literal(&mut self.m, f, candidate);
@@ -448,6 +456,7 @@ impl Emitter<'_> {
         self.reprs.str_literal(&mut self.m, f, after);
         self.reprs.str_concat(f);
         f.ins().end();
+        f.free(found);
     }
 
     /// Sets `found` to `candidate` and leaves the block of the suggestion
@@ -582,11 +591,13 @@ impl Emitter<'_> {
                 self.expr(f, left);
                 self.expr(f, right);
                 if left.rep() != Rep::Str {
-                    let s = f.local(self.reprs.local_type(Rep::Str).expect("a str has a value"));
-                    let n = f.local(self.reprs.local_type(Rep::Int).expect("an int has a value"));
+                    let s = f.temp(self.reprs.local_type(Rep::Str).expect("a str has a value"));
+                    let n = f.temp(self.reprs.local_type(Rep::Int).expect("an int has a value"));
                     f.ins().local_set(s).local_set(n);
                     self.reprs.load(f, Rep::Str, s);
                     self.reprs.load(f, Rep::Int, n);
+                    f.free(s);
+                    f.free(n);
                 }
                 self.at(f, *site, |e, f| e.reprs.str_repeat(&mut e.m, f));
             }
@@ -617,7 +628,7 @@ impl Emitter<'_> {
     /// when the truth decides the result, the result.
     fn logic(&mut self, f: &mut FuncState, op: LogicOp, left: &Expr, right: &Expr) {
         let rep = left.rep();
-        let left_local = f.local(self.reprs.local_type(rep).expect("an operand has a value"));
+        let left_local = f.temp(self.reprs.local_type(rep).expect("an operand has a value"));
         self.expr(f, left);
         f.ins().local_set(left_local);
         self.reprs.load(f, rep, left_local);
@@ -638,6 +649,7 @@ impl Emitter<'_> {
             }
         }
         f.ins().end();
+        f.free(left_local);
     }
 
     /// A chain stops at the first comparison that is false, and the operands
@@ -654,7 +666,7 @@ impl Emitter<'_> {
         ));
         self.expr(f, first);
         if !init.is_empty() {
-            let right = f.local(self.reprs.local_type(rep).expect("an operand has a value"));
+            let right = f.temp(self.reprs.local_type(rep).expect("an operand has a value"));
             for (op, operand) in init {
                 self.expr(f, operand);
                 f.ins().local_set(right);
@@ -665,6 +677,7 @@ impl Emitter<'_> {
                 f.ins().br(1).end();
                 self.reprs.load(f, rep, right);
             }
+            f.free(right);
         }
         self.expr(f, last);
         self.reprs.compare(f, rep, *last_op);
@@ -677,7 +690,7 @@ impl Emitter<'_> {
         for arg in args {
             self.expr(f, arg);
             let rep = arg.rep();
-            let local = f.local(self.reprs.local_type(rep).expect("an argument has a value"));
+            let local = f.temp(self.reprs.local_type(rep).expect("an argument has a value"));
             f.ins().local_set(local);
             values.push((rep, local));
         }
@@ -687,6 +700,7 @@ impl Emitter<'_> {
             }
             self.reprs.load(f, rep, local);
             self.reprs.write(&mut self.m, f, rep);
+            f.free(local);
         }
         f.ins()
             .i32_const('\n' as i32)

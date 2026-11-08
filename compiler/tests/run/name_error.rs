@@ -1,5 +1,7 @@
 //! The `NameError` with the suggestion of CPython.
 
+use indoc::indoc;
+
 use super::same_as_cpython;
 
 #[test]
@@ -202,4 +204,22 @@ fn the_name_error_of_a_function_counts_its_locals_with_a_value() {
             &many_names(bound, 0, locals, true),
         );
     }
+}
+
+/// The local of the suggestion may be one that a `print` used before.
+#[test]
+fn the_name_error_without_a_suggestion_follows_a_print() {
+    same_as_cpython(
+        "the_name_error_without_a_suggestion_follows_a_print",
+        indoc! {"
+            def f(c: bool) -> int:
+                print('olá')
+                if c:
+                    totals = 1
+                return total
+
+            print(f(False))
+            total = 2
+        "},
+    );
 }

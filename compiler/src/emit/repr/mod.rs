@@ -205,7 +205,7 @@ impl Reprs {
     /// Raises an exception with `message` when the `str` on the stack is
     /// null, and leaves it as a `str` otherwise.
     fn raise_if_null(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &str) {
-        let result = f.local(self.str.val_type(true));
+        let result = f.temp(self.str.val_type(true));
         f.ins()
             .local_tee(result)
             .ref_is_null()
@@ -213,6 +213,7 @@ impl Reprs {
         self.raise(m, f, message);
         f.ins().end();
         self.load(f, Rep::Str, result);
+        f.free(result);
     }
 
     /// Pops two values of `rep` and pushes the `bool` of `op`.

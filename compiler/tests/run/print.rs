@@ -5,7 +5,7 @@ use std::process::Stdio;
 
 use indoc::indoc;
 
-use super::{fails_to_write, same_as_cpython, stops_at_the_int_limit, unsupported};
+use super::{compile, fails_to_write, path, same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn an_empty_program_prints_nothing() {
@@ -125,4 +125,21 @@ fn print_to_a_closed_pipe_raises_os_error() {
             OSError: [Errno 5] Input/output error
         "#},
     );
+}
+
+/// Each argument of `print` takes a temporary local, and so do an `and`,
+/// a chain of comparisons, a repetition and an index. A function has at
+/// most 50000 locals. A module this large takes minutes in wasmtime, so
+/// the test only compiles it.
+#[test]
+fn many_prints_reuse_their_locals() {
+    let head = indoc! {"
+        s = 'ab'
+        n = 1
+    "};
+    let args = "n, ".repeat(1000);
+    let line = format!("print(n and 2, 0 < n < 2, 2 * s, s[0], {args})\n");
+    let source = format!("{head}{}", line.repeat(50));
+    compile(&source, &path("many_prints_reuse_their_locals", "py"))
+        .expect("the program to compile");
 }
