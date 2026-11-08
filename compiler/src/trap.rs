@@ -13,23 +13,30 @@ impl Module {
     /// standard error of a wasmtime run that stopped because the program
     /// asked for more memory than its GC heap holds.
     ///
+    /// Returns `None` for any other error, and in the cases of
+    /// [`Self::uncaught_trap`].
+    pub fn memory_error(&self, stderr: &str) -> Option<String> {
+        self.uncaught_trap(stderr, &OUT_OF_MEMORY, MEMORY_ERROR)
+    }
+
+    /// The traceback of an exception with `message` as its last line, for
+    /// the standard error of a wasmtime run that stopped with one of
+    /// `traps`.
+    ///
     /// Returns `None` for any other error, when a frame stopped in code
     /// without a site, and when the backtrace lacks the frame of the
     /// module. The code that passes an exception on to the caller has no
     /// site, and neither has the code that builds the literals. Wasmtime
     /// keeps 20 frames of the backtrace unless `-D max-backtrace` asks for
     /// more.
-    pub fn memory_error(&self, stderr: &str) -> Option<String> {
+    fn uncaught_trap(&self, stderr: &str, traps: &[&str], message: &str) -> Option<String> {
         // What the program wrote comes first, and no line of it starts with
         // `Error: `, which starts the error of wasmtime.
         let wasmtime_error = stderr
             .rsplit_once("\nError: ")
             .map(|(_, error)| error)
             .or_else(|| stderr.strip_prefix("Error: "))?;
-        if !OUT_OF_MEMORY
-            .iter()
-            .any(|trap| wasmtime_error.contains(trap))
-        {
+        if !traps.iter().any(|trap| wasmtime_error.contains(trap)) {
             return None;
         }
         let mut frames = Vec::new();
@@ -54,7 +61,7 @@ impl Module {
             return None;
         }
         frames.reverse();
-        Some(uncaught(&frames, MEMORY_ERROR))
+        Some(uncaught(&frames, message))
     }
 }
 
