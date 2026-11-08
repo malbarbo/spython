@@ -17,11 +17,11 @@ pub(crate) const RECURSIVE_CUTOFF: i32 = 3;
 pub(crate) const TRACEBACK: &str = "Traceback (most recent call last):\n";
 
 /// The line of a traceback for a run of frames past the cutoff is
-/// `REPEATED`, the count, `MORE_TIME`, an `s` for more than one, and
-/// `REPEATED_END`.
+/// `REPEATED`, the count, and `MORE_TIME` for one frame or `MORE_TIMES`
+/// for more.
 pub(crate) const REPEATED: &str = "  [Previous line repeated ";
-pub(crate) const MORE_TIME: &str = " more time";
-pub(crate) const REPEATED_END: &str = "]\n";
+pub(crate) const MORE_TIME: &str = " more time]\n";
+pub(crate) const MORE_TIMES: &str = " more times]\n";
 
 /// The line before the error of the flush of `sys.stdout` at the exit.
 pub(crate) const FLUSH_FAILED: &str = "Exception ignored on flushing sys.stdout:\n";

@@ -3,8 +3,8 @@
 use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use crate::cpython::{
-    FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, OS_ERRORS, RECURSION_LIMIT, RECURSIVE_CUTOFF,
-    REPEATED, REPEATED_END, TRACEBACK,
+    FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, MORE_TIMES, OS_ERRORS, RECURSION_LIMIT,
+    RECURSIVE_CUTOFF, REPEATED, TRACEBACK,
 };
 use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, ModuleState, TagIdx, TypeIdx};
 use crate::emit::repr::str::StrRepr;
@@ -345,15 +345,14 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
     f.ins().local_get(count).i64_extend_i32_s();
     str.decimal(&mut f);
     str.write(&mut f);
-    str.literal(m, &mut f, MORE_TIME);
-    str.write(&mut f);
     f.ins().local_get(count).i32_const(1).i32_gt_s();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, "s");
+    str.literal(m, &mut f, MORE_TIMES);
+    str.write(&mut f);
+    f.else_();
+    str.literal(m, &mut f, MORE_TIME);
     str.write(&mut f);
     f.end();
-    str.literal(m, &mut f, REPEATED_END);
-    str.write(&mut f);
     f.end();
     m.add_func(ty, f.finish())
 }

@@ -9,7 +9,7 @@
 
 mod wide;
 
-use super::{MORE_TIME, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK};
+use super::{MORE_TIME, MORE_TIMES, RECURSIVE_CUTOFF, REPEATED, TRACEBACK};
 use ruff_python_ast::{Expr, Stmt};
 use ruff_python_parser::parse_module;
 use ruff_text_size::{Ranged, TextRange, TextSize};
@@ -609,8 +609,8 @@ pub(crate) fn uncaught(frames: &[(u32, &str)], message: &str) -> String {
 fn repeated(text: &mut String, count: usize, cutoff: usize) {
     if count > cutoff {
         let more = count - cutoff;
-        let s = if more > 1 { "s" } else { "" };
-        text.push_str(&format!("{REPEATED}{more}{MORE_TIME}{s}{REPEATED_END}"));
+        let end = if more > 1 { MORE_TIMES } else { MORE_TIME };
+        text.push_str(&format!("{REPEATED}{more}{end}"));
     }
 }
 
