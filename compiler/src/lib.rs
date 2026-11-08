@@ -1,4 +1,18 @@
 //! The compiler from the Python of spython to a WasmGC module.
+//!
+//! `lower` turns the syntax tree and the types of the checker into the IR
+//! of `ir`, and `emit` turns the IR into wasm. The layout keeps these rules:
+//!
+//! - `lower` never uses `wasm_encoder`, and `emit` never uses ruff or ty.
+//!   The IR is all that goes from one to the other.
+//! - `emit` makes up no message of an exception and no line of a
+//!   traceback. They come in the IR or from `cpython`, except the message
+//!   of the limit of an `int`, which belongs to the representation of
+//!   `int`.
+//! - `lower` turns a construct into nodes that the IR already has whenever
+//!   it can, as `x += 1` becomes an assignment of a sum, so `emit` grows only
+//!   with a new kind of node.
+//! - Every file opens with a `//!` that says what it holds.
 
 mod cpython;
 mod emit;
