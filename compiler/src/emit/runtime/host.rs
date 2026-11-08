@@ -3,7 +3,7 @@
 
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
-use crate::emit::module::{FuncState, ModuleState};
+use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, ModuleState};
 
 /// Where `fd_write` reads the one iovec of a write.
 const IOVEC: u64 = 0;
@@ -18,18 +18,18 @@ const STDERR: i32 = 2;
 
 pub(crate) struct Host {
     /// `(func (param i32))`, which writes a code point to the standard output.
-    pub write_char: u32,
+    pub write_char: FuncIdx,
     /// `(func)`, which sends what the buffer holds to the host.
-    pub flush: u32,
+    pub flush: FuncIdx,
     /// The global with the error of WASI of the last write that failed,
     /// and 0 when none did since the program last read it.
-    pub error: u32,
+    pub error: GlobalIdx,
     /// `(func)`, which flushes the buffer and sends what comes after it to
     /// the standard error.
-    pub to_stderr: u32,
+    pub to_stderr: FuncIdx,
     /// `(func (param i32))`, which flushes the buffer and ends the program
     /// with the exit code.
-    pub exit: u32,
+    pub exit: FuncIdx,
 }
 
 impl Host {
@@ -70,7 +70,13 @@ fn mem(offset: u64, align: u32) -> MemArg {
     }
 }
 
-fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) -> u32 {
+fn add_flush(
+    m: &mut ModuleState,
+    fd_write: FuncIdx,
+    pos: GlobalIdx,
+    fd: GlobalIdx,
+    error: GlobalIdx,
+) -> FuncIdx {
     let ty = m.func_type(&[], &[]);
     let mut f = FuncState::new(0);
     let ptr = f.local(ValType::I32);
@@ -79,7 +85,7 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) 
     f.ins()
         .i32_const(BUFFER_START)
         .local_set(ptr)
-        .global_get(pos)
+        .global_get(pos.0)
         .i32_const(BUFFER_START)
         .i32_sub()
         .local_set(len);
@@ -97,14 +103,14 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) 
         .i32_const(0)
         .local_get(len)
         .i32_store(mem(IOVEC + 4, 2))
-        .global_get(fd)
+        .global_get(fd.0)
         .i32_const(IOVEC as i32)
         .i32_const(1)
         .i32_const(NWRITTEN as i32)
-        .call(fd_write)
+        .call(fd_write.0)
         .local_tee(result);
     f.if_(BlockType::Empty);
-    f.ins().local_get(result).global_set(error);
+    f.ins().local_get(result).global_set(error.0);
     f.br(done);
     f.end();
     f.ins()
@@ -121,40 +127,40 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) 
     f.br(rest);
     f.end();
     f.end();
-    f.ins().i32_const(BUFFER_START).global_set(pos);
+    f.ins().i32_const(BUFFER_START).global_set(pos.0);
     m.add_func(ty, f.finish())
 }
 
-fn add_to_stderr(m: &mut ModuleState, flush: u32, fd: u32) -> u32 {
+fn add_to_stderr(m: &mut ModuleState, flush: FuncIdx, fd: GlobalIdx) -> FuncIdx {
     let ty = m.func_type(&[], &[]);
     let mut f = FuncState::new(0);
-    f.ins().call(flush).i32_const(STDERR).global_set(fd);
+    f.ins().call(flush.0).i32_const(STDERR).global_set(fd.0);
     m.add_func(ty, f.finish())
 }
 
-fn add_exit(m: &mut ModuleState, flush: u32, proc_exit: u32) -> u32 {
+fn add_exit(m: &mut ModuleState, flush: FuncIdx, proc_exit: FuncIdx) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32], &[]);
     let code = 0;
     let mut f = FuncState::new(1);
     f.ins()
-        .call(flush)
+        .call(flush.0)
         .local_get(code)
-        .call(proc_exit)
+        .call(proc_exit.0)
         .unreachable();
     m.add_func(ty, f.finish())
 }
 
 /// The function that encodes a code point in UTF-8 at the end of the buffer.
-fn add_write_char(m: &mut ModuleState, flush: u32, pos: u32) -> u32 {
+fn add_write_char(m: &mut ModuleState, flush: FuncIdx, pos: GlobalIdx) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32], &[]);
     let c = 0;
     let mut f = FuncState::new(1);
     f.ins()
-        .global_get(pos)
+        .global_get(pos.0)
         .i32_const(BUFFER_END - MAX_CHAR_BYTES)
         .i32_gt_u();
     f.if_(BlockType::Empty);
-    f.ins().call(flush);
+    f.ins().call(flush.0);
     f.end();
     // The bytes of each length, as (shift, mark) for the lead byte and the
     // continuation bytes after it.
@@ -169,7 +175,7 @@ fn add_write_char(m: &mut ModuleState, flush: u32, pos: u32) -> u32 {
         f.if_(BlockType::Empty);
         for (offset, (shift, mark)) in bytes.iter().enumerate() {
             let mut ins = f.ins();
-            ins.global_get(pos).local_get(c);
+            ins.global_get(pos.0).local_get(c);
             if *shift > 0 {
                 ins.i32_const(*shift).i32_shr_u();
             }
@@ -180,10 +186,10 @@ fn add_write_char(m: &mut ModuleState, flush: u32, pos: u32) -> u32 {
             ins.i32_store8(mem(offset as u64, 0));
         }
         f.ins()
-            .global_get(pos)
+            .global_get(pos.0)
             .i32_const(bytes.len() as i32)
             .i32_add()
-            .global_set(pos)
+            .global_set(pos.0)
             .return_();
         f.end();
     }

@@ -14,15 +14,35 @@ use wasmparser::{Parser, Payload};
 
 use crate::ir::Site;
 
+/// The index of a function in the module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FuncIdx(pub u32);
+
+/// The index of a global in the module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GlobalIdx(pub u32);
+
+/// The index of a type in the module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TypeIdx(pub u32);
+
+/// The index of an exception tag in the module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TagIdx(pub u32);
+
+/// The index of a data segment in the module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DataIdx(pub u32);
+
 pub(crate) struct ModuleState {
     types: TypeSection,
     type_count: u32,
-    func_types: HashMap<(Vec<ValType>, Vec<ValType>), u32>,
+    func_types: HashMap<(Vec<ValType>, Vec<ValType>), TypeIdx>,
     imports: ImportSection,
     imported_funcs: u32,
     /// The type and the body of each function the module defines, in the
     /// order of their indices. A reserved function has no body yet.
-    funcs: Vec<(u32, Option<Function>)>,
+    funcs: Vec<(TypeIdx, Option<Function>)>,
     memories: MemorySection,
     tags: TagSection,
     tag_count: u32,
@@ -79,7 +99,7 @@ impl ModuleState {
         }
     }
 
-    pub fn func_type(&mut self, params: &[ValType], results: &[ValType]) -> u32 {
+    pub fn func_type(&mut self, params: &[ValType], results: &[ValType]) -> TypeIdx {
         let key = (params.to_vec(), results.to_vec());
         if let Some(&index) = self.func_types.get(&key) {
             return index;
@@ -92,14 +112,14 @@ impl ModuleState {
         index
     }
 
-    pub fn array_type(&mut self, element: StorageType, mutable: bool) -> u32 {
+    pub fn array_type(&mut self, element: StorageType, mutable: bool) -> TypeIdx {
         self.types.ty().array(&element, mutable);
         self.next_type()
     }
 
     /// A struct type with the fields, each with its type and whether it is
     /// mutable. A field can refer to the struct by [`Self::next_type_index`].
-    pub fn struct_type(&mut self, fields: &[(StorageType, bool)]) -> u32 {
+    pub fn struct_type(&mut self, fields: &[(StorageType, bool)]) -> TypeIdx {
         self.types
             .ty()
             .struct_(fields.iter().map(|&(element_type, mutable)| FieldType {
@@ -110,56 +130,59 @@ impl ModuleState {
     }
 
     /// The index the next type will have.
-    pub fn next_type_index(&self) -> u32 {
-        self.type_count
+    pub fn next_type_index(&self) -> TypeIdx {
+        TypeIdx(self.type_count)
     }
 
     /// An exception tag whose payload is the parameters of `func_type`.
-    pub fn tag(&mut self, func_type: u32) -> u32 {
+    pub fn tag(&mut self, func_type: TypeIdx) -> TagIdx {
         self.tags.tag(TagType {
             kind: TagKind::Exception,
-            func_type_idx: func_type,
+            func_type_idx: func_type.0,
         });
         self.tag_count += 1;
-        self.tag_count - 1
+        TagIdx(self.tag_count - 1)
     }
 
-    fn next_type(&mut self) -> u32 {
+    fn next_type(&mut self) -> TypeIdx {
         self.type_count += 1;
-        self.type_count - 1
+        TypeIdx(self.type_count - 1)
     }
 
     /// Imports a function. The imports have to come before every function
     /// the module defines, because they take the first indices.
-    pub fn import_func(&mut self, module: &str, name: &str, ty: u32) -> u32 {
+    pub fn import_func(&mut self, module: &str, name: &str, ty: TypeIdx) -> FuncIdx {
         assert!(
             self.funcs.is_empty(),
             "an import after a defined function shifts its index"
         );
-        self.imports.import(module, name, EntityType::Function(ty));
+        self.imports
+            .import(module, name, EntityType::Function(ty.0));
         self.imported_funcs += 1;
-        self.imported_funcs - 1
+        FuncIdx(self.imported_funcs - 1)
     }
 
     /// The index of a new function, whose body [`Self::define`] gives later.
-    pub fn reserve(&mut self, ty: u32) -> u32 {
+    pub fn reserve(&mut self, ty: TypeIdx) -> FuncIdx {
         self.funcs.push((ty, None));
-        self.imported_funcs
-            + u32::try_from(self.funcs.len() - 1).expect("fewer than 2^32 functions")
+        FuncIdx(
+            self.imported_funcs
+                + u32::try_from(self.funcs.len() - 1).expect("fewer than 2^32 functions"),
+        )
     }
 
-    pub fn define(&mut self, index: u32, body: Function) {
+    pub fn define(&mut self, index: FuncIdx, body: Function) {
         let slot = self
             .funcs
-            .get_mut((index - self.imported_funcs) as usize)
+            .get_mut((index.0 - self.imported_funcs) as usize)
             .expect("a reserved function");
-        assert!(slot.1.is_none(), "function {index} defined twice");
+        assert!(slot.1.is_none(), "function {} defined twice", index.0);
         slot.1 = Some(body);
     }
 
     /// Defines the function of a Python frame, which runs `prefix` before
     /// the code of `f`.
-    pub fn define_frame(&mut self, index: u32, f: FuncState, prefix: &[u8]) {
+    pub fn define_frame(&mut self, index: FuncIdx, f: FuncState, prefix: &[u8]) {
         let shift = u32::try_from(prefix.len()).expect("a prefix shorter than 2^32 bytes");
         let sites = f
             .sites
@@ -171,11 +194,11 @@ impl ModuleState {
             })
             .collect();
         self.frames
-            .push(((index - self.imported_funcs) as usize, sites));
+            .push(((index.0 - self.imported_funcs) as usize, sites));
         self.define(index, f.finish_with_prefix(prefix));
     }
 
-    pub fn add_func(&mut self, ty: u32, body: Function) -> u32 {
+    pub fn add_func(&mut self, ty: TypeIdx, body: Function) -> FuncIdx {
         let index = self.reserve(ty);
         self.define(index, body);
         index
@@ -192,7 +215,7 @@ impl ModuleState {
         self.exports.export(export, ExportKind::Memory, 0);
     }
 
-    pub fn global(&mut self, ty: ValType, init: &ConstExpr) -> u32 {
+    pub fn global(&mut self, ty: ValType, init: &ConstExpr) -> GlobalIdx {
         self.globals.global(
             GlobalType {
                 val_type: ty,
@@ -202,26 +225,26 @@ impl ModuleState {
             init,
         );
         self.global_count += 1;
-        self.global_count - 1
+        GlobalIdx(self.global_count - 1)
     }
 
-    pub fn passive_data(&mut self, bytes: Vec<u8>) -> u32 {
+    pub fn passive_data(&mut self, bytes: Vec<u8>) -> DataIdx {
         self.data.passive(bytes);
         self.data_count += 1;
-        self.data_count - 1
+        DataIdx(self.data_count - 1)
     }
 
-    pub fn export_func(&mut self, name: &str, index: u32) {
-        self.exports.export(name, ExportKind::Func, index);
+    pub fn export_func(&mut self, name: &str, index: FuncIdx) {
+        self.exports.export(name, ExportKind::Func, index.0);
     }
 
     /// The bytes of the module, with the place of the code of the Python
     /// frames. The function `module_frame` runs the frame of the module.
-    pub fn finish(self, module_frame: u32) -> (Vec<u8>, CodeMap) {
+    pub fn finish(self, module_frame: FuncIdx) -> (Vec<u8>, CodeMap) {
         let mut functions = FunctionSection::new();
         let mut code = CodeSection::new();
         for (index, (ty, body)) in self.funcs.iter().enumerate() {
-            functions.function(*ty);
+            functions.function(ty.0);
             let body = body
                 .as_ref()
                 .unwrap_or_else(|| panic!("function {index} reserved and never defined"));
@@ -245,7 +268,7 @@ impl ModuleState {
         let map = code_map(
             &bytes,
             &self.frames,
-            (module_frame - self.imported_funcs) as usize,
+            (module_frame.0 - self.imported_funcs) as usize,
         );
         (bytes, map)
     }
@@ -379,9 +402,9 @@ impl FuncState {
 
     /// Opens a `try_table` whose `catch` goes to `target` with the
     /// exception of `tag`.
-    pub fn try_table(&mut self, ty: BlockType, tag: u32, target: Label) -> Label {
+    pub fn try_table(&mut self, ty: BlockType, tag: TagIdx, target: Label) -> Label {
         let label = self.depth(target);
-        self.ins().try_table(ty, [Catch::One { tag, label }]);
+        self.ins().try_table(ty, [Catch::One { tag: tag.0, label }]);
         self.open()
     }
 

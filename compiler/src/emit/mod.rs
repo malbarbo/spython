@@ -11,7 +11,7 @@ use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
     Undefined, VarId,
 };
-use module::{CodeMap, FuncState, Label, ModuleState};
+use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, ModuleState};
 use repr::Reprs;
 use runtime::host::Host;
 
@@ -90,12 +90,12 @@ struct Emitter<'a> {
     reprs: Reprs,
     program: &'a Program,
     /// The globals of each variable of the module.
-    vars: Vec<Slots>,
+    vars: Vec<Slots<GlobalIdx>>,
     funcs: Vec<FuncSlots>,
     /// The number of ordered globals with a value, which a global gets as
     /// its flag at its first binding, when the program has an ordered
     /// global.
-    order: Option<u32>,
+    order: Option<GlobalIdx>,
     code: Code,
 }
 
@@ -110,7 +110,7 @@ struct Code {
     /// that encloses the current statement.
     loops: Vec<Loop>,
     /// The locals of each variable of the function.
-    vars: Vec<Slots>,
+    vars: Vec<Slots<u32>>,
 }
 
 struct Loop {
@@ -120,19 +120,19 @@ struct Loop {
 
 /// The globals of a variable of the module, or the locals of a variable of
 /// a function.
-struct Slots {
-    value: u32,
+struct Slots<I> {
+    value: I,
     /// Not 0 once the variable has a value, for a flagged variable. An
     /// ordered variable holds the place of its first binding among the
     /// ordered globals, from 1.
-    defined: Option<u32>,
+    defined: Option<I>,
 }
 
 struct FuncSlots {
-    index: u32,
+    index: FuncIdx,
     /// The global that is not 0 once the `def` has run, as the flag of a
     /// variable.
-    defined: u32,
+    defined: GlobalIdx,
 }
 
 impl Emitter<'_> {
@@ -188,10 +188,9 @@ impl Emitter<'_> {
                 let (first, rest) = targets.split_first().expect("an assignment has a target");
                 self.store(f, *first);
                 for place in rest {
-                    let value = self.slots(*first).value;
-                    match first {
-                        Place::Global(_) => f.ins().global_get(value),
-                        Place::Local(_) => f.ins().local_get(value),
+                    match *first {
+                        Place::Global(var) => f.ins().global_get(self.global_slots(var).value.0),
+                        Place::Local(var) => f.ins().local_get(self.local_slots(var).value),
                     };
                     self.store(f, *place);
                 }
@@ -262,20 +261,21 @@ impl Emitter<'_> {
 
     /// Pops a value into `place`.
     fn store(&mut self, f: &mut FuncState, place: Place) {
-        let slots = self.slots(place);
-        let (value, defined) = (slots.value, slots.defined);
-        let mut ins = f.ins();
         match place {
-            Place::Global(_) => {
-                ins.global_set(value);
+            Place::Global(var) => {
+                let slots = self.global_slots(var);
+                let (value, defined) = (slots.value, slots.defined);
+                f.ins().global_set(value.0);
                 if let Some(defined) = defined {
                     let ordered = self.var(place).ordered;
                     self.define_global(f, defined, ordered);
                 }
             }
-            Place::Local(_) => {
-                ins.local_set(value);
-                if let Some(defined) = defined {
+            Place::Local(var) => {
+                let slots = self.local_slots(var);
+                let mut ins = f.ins();
+                ins.local_set(slots.value);
+                if let Some(defined) = slots.defined {
                     ins.i32_const(1).local_set(defined);
                 }
             }
@@ -284,34 +284,32 @@ impl Emitter<'_> {
 
     /// Sets the flag `defined` of a global that gets a value. The flag of
     /// an ordered global keeps the place of its first binding.
-    fn define_global(&mut self, f: &mut FuncState, defined: u32, ordered: bool) {
+    fn define_global(&mut self, f: &mut FuncState, defined: GlobalIdx, ordered: bool) {
         if !ordered {
-            f.ins().i32_const(1).global_set(defined);
+            f.ins().i32_const(1).global_set(defined.0);
             return;
         }
         let order = self.order.expect("an ordered global has an order");
-        f.ins().global_get(defined).i32_eqz();
+        f.ins().global_get(defined.0).i32_eqz();
         f.if_(BlockType::Empty);
         f.ins()
-            .global_get(order)
+            .global_get(order.0)
             .i32_const(1)
             .i32_add()
-            .global_set(order)
-            .global_get(order)
-            .global_set(defined);
+            .global_set(order.0)
+            .global_get(order.0)
+            .global_set(defined.0);
         f.end();
     }
 
     fn load(&mut self, f: &mut FuncState, place: Place, rep: Rep, check: Option<&Check>) {
-        let slots = self.slots(place);
-        let value = slots.value;
         if let Some(check) = check {
             self.bound(f, binding(place));
             self.raise_if_undefined(f, check);
         }
         match place {
-            Place::Global(_) => self.reprs.load_global(f, rep, value),
-            Place::Local(_) => self.reprs.load(f, rep, value),
+            Place::Global(var) => self.reprs.load_global(f, rep, self.global_slots(var).value),
+            Place::Local(var) => self.reprs.load(f, rep, self.local_slots(var).value),
         }
     }
 
@@ -363,7 +361,7 @@ impl Emitter<'_> {
             f.ins().i32_const(count(limit.always));
             if let Some(order) = self.order {
                 f.ins()
-                    .global_get(order)
+                    .global_get(order.0)
                     .i32_const(count(limit.globals))
                     .i32_mul()
                     .i32_add();
@@ -453,17 +451,15 @@ impl Emitter<'_> {
     /// a local is 1.
     fn bound(&self, f: &mut FuncState, binding: Binding) {
         match binding {
-            Binding::Local(var) => match self.slots(Place::Local(var)).defined {
+            Binding::Local(var) => match self.local_slots(var).defined {
                 Some(defined) => f.ins().local_get(defined),
                 // A parameter has a value from the start.
                 None => f.ins().i32_const(1),
             },
-            Binding::Global(var) => f.ins().global_get(
-                self.slots(Place::Global(var))
-                    .defined
-                    .expect("a flagged global"),
-            ),
-            Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined),
+            Binding::Global(var) => f
+                .ins()
+                .global_get(self.global_slots(var).defined.expect("a flagged global").0),
+            Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined.0),
         };
     }
 
@@ -494,16 +490,19 @@ impl Emitter<'_> {
         self.at(f, site, |e, f| {
             e.reprs.call_fits(f);
             e.raise_if_zero(f, RECURSION_ERROR);
-            f.ins().call(index);
+            f.ins().call(index.0);
         });
     }
 
-    fn slots(&self, place: Place) -> &Slots {
-        match place {
-            Place::Global(var) => self.vars.get(index(var)),
-            Place::Local(var) => self.code.vars.get(index(var)),
-        }
-        .expect("a variable of the program")
+    fn global_slots(&self, var: VarId) -> &Slots<GlobalIdx> {
+        self.vars.get(index(var)).expect("a variable of the module")
+    }
+
+    fn local_slots(&self, var: VarId) -> &Slots<u32> {
+        self.code
+            .vars
+            .get(index(var))
+            .expect("a variable of the function")
     }
 
     fn var(&self, place: Place) -> &crate::ir::Var {
@@ -674,7 +673,7 @@ impl Emitter<'_> {
         }
         for (i, (rep, local)) in values.into_iter().enumerate() {
             if i > 0 {
-                f.ins().i32_const(' ' as i32).call(self.host.write_char);
+                f.ins().i32_const(' ' as i32).call(self.host.write_char.0);
             }
             self.reprs.load(f, rep, local);
             self.reprs.write(&mut self.m, f, rep);
@@ -682,15 +681,15 @@ impl Emitter<'_> {
         }
         f.ins()
             .i32_const('\n' as i32)
-            .call(self.host.write_char)
-            .call(self.host.flush);
+            .call(self.host.write_char.0)
+            .call(self.host.flush.0);
         self.at(f, site, |e, f| {
-            f.ins().global_get(e.host.error);
+            f.ins().global_get(e.host.error.0);
             f.if_(BlockType::Empty);
             f.ins()
-                .global_get(e.host.error)
+                .global_get(e.host.error.0)
                 .i32_const(0)
-                .global_set(e.host.error);
+                .global_set(e.host.error.0);
             e.reprs.raise_os_error(f);
             f.end();
         });

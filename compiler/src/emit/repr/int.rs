@@ -4,7 +4,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{DIVISION_BY_ZERO, MODULO_BY_ZERO};
-use crate::emit::module::{FuncState, ModuleState};
+use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
 use crate::ir::{ArithOp, CmpOp};
@@ -18,17 +18,17 @@ pub(super) enum IntRepr {
     I31 {
         /// `(func (param i32 i32) (result i32))` for `+`, `-`, `*`, `//`
         /// and `%`.
-        add: u32,
-        sub: u32,
-        mul: u32,
-        floor_div: u32,
-        modulo: u32,
+        add: FuncIdx,
+        sub: FuncIdx,
+        mul: FuncIdx,
+        floor_div: FuncIdx,
+        modulo: FuncIdx,
         /// `(func (param i64) (result i32))`, which stops the program when
         /// the value does not fit in 31 bits.
-        check: u32,
+        check: FuncIdx,
         /// `(func (param i64))`, which writes the number in decimal to the
         /// standard output.
-        write: u32,
+        write: FuncIdx,
     },
 }
 
@@ -88,7 +88,7 @@ impl IntRepr {
     pub fn len_as_int(&self, f: &mut FuncState) {
         match self {
             IntRepr::I31 { check, .. } => {
-                f.ins().i64_extend_i32_u().call(*check);
+                f.ins().i64_extend_i32_u().call(check.0);
             }
         }
     }
@@ -118,7 +118,7 @@ impl IntRepr {
                     ArithOp::FloorDiv => floor_div,
                     ArithOp::Mod => modulo,
                 };
-                f.ins().call(*func);
+                f.ins().call(func.0);
             }
         }
     }
@@ -153,7 +153,7 @@ impl IntRepr {
     pub fn write(&self, f: &mut FuncState) {
         match self {
             IntRepr::I31 { write, .. } => {
-                f.ins().i64_extend_i32_s().call(*write);
+                f.ins().i64_extend_i32_s().call(write.0);
             }
         }
     }
@@ -161,7 +161,7 @@ impl IntRepr {
 
 /// The function of an operator, which runs `op` on the two operands in
 /// `i64`, where no result of two 31-bit operands wraps.
-fn add_arith(m: &mut ModuleState, check: u32, op: impl FnOnce(&mut FuncState)) -> u32 {
+fn add_arith(m: &mut ModuleState, check: FuncIdx, op: impl FnOnce(&mut FuncState)) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let mut f = FuncState::new(2);
     f.ins()
@@ -170,7 +170,7 @@ fn add_arith(m: &mut ModuleState, check: u32, op: impl FnOnce(&mut FuncState)) -
         .local_get(1)
         .i64_extend_i32_s();
     op(&mut f);
-    f.ins().call(check);
+    f.ins().call(check.0);
     m.add_func(ty, f.finish())
 }
 
@@ -193,7 +193,12 @@ fn check_divisor(
 /// `//` rounds the quotient down, and the division of `i64` rounds it
 /// toward 0. The quotient is one less when the signs differ and the
 /// division has a remainder. Only `-1073741824 // -1` leaves 31 bits.
-fn add_floor_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, check: u32) -> u32 {
+fn add_floor_div(
+    m: &mut ModuleState,
+    str: &mut StrRepr,
+    exc: &Exceptions,
+    check: FuncIdx,
+) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
@@ -217,14 +222,14 @@ fn add_floor_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, check
         .i32_and()
         .i64_extend_i32_u()
         .i64_sub()
-        .call(check);
+        .call(check.0);
     m.add_func(ty, f.finish())
 }
 
 /// `%` takes the sign of the divisor, and the remainder of `i32` takes the
 /// sign of the dividend. When the signs differ, the divisor goes back into
 /// a remainder that is not 0.
-fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32 {
+fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
@@ -253,7 +258,7 @@ fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32 {
 
 /// `(func (param i64) (result i32))`, which stops the program when the
 /// value does not fit in 31 bits.
-fn add_check(m: &mut ModuleState, overflow: u32) -> u32 {
+fn add_check(m: &mut ModuleState, overflow: FuncIdx) -> FuncIdx {
     let ty = m.func_type(&[ValType::I64], &[ValType::I32]);
     let v = 0;
     let mut f = FuncState::new(1);
@@ -266,13 +271,13 @@ fn add_check(m: &mut ModuleState, overflow: u32) -> u32 {
     f.if_(BlockType::Empty);
     f.ins().local_get(v).i32_wrap_i64().return_();
     f.end();
-    f.ins().local_get(v).call(overflow).unreachable();
+    f.ins().local_get(v).call(overflow.0).unreachable();
     m.add_func(ty, f.finish())
 }
 
 /// `(func (param i64))`, which raises the error of a result outside 31
 /// bits, with the result and the range.
-fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32 {
+fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
     let ty = m.func_type(&[ValType::I64], &[]);
     let v = 0;
     let mut f = FuncState::new(1);
@@ -291,7 +296,7 @@ fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32
 }
 
 /// `(func (param i64))`, which writes the number in decimal.
-fn add_write(m: &mut ModuleState, host: &Host) -> u32 {
+fn add_write(m: &mut ModuleState, host: &Host) -> FuncIdx {
     let ty = m.func_type(&[ValType::I64], &[]);
     let digits = m.reserve(ty);
     let v = 0;
@@ -300,7 +305,11 @@ fn add_write(m: &mut ModuleState, host: &Host) -> u32 {
     let mut f = FuncState::new(1);
     f.ins().local_get(v).i64_const(10).i64_ge_u();
     f.if_(BlockType::Empty);
-    f.ins().local_get(v).i64_const(10).i64_div_u().call(digits);
+    f.ins()
+        .local_get(v)
+        .i64_const(10)
+        .i64_div_u()
+        .call(digits.0);
     f.end();
     f.ins()
         .local_get(v)
@@ -309,7 +318,7 @@ fn add_write(m: &mut ModuleState, host: &Host) -> u32 {
         .i32_wrap_i64()
         .i32_const('0' as i32)
         .i32_add()
-        .call(host.write_char);
+        .call(host.write_char.0);
     m.define(digits, f.finish());
 
     let mut f = FuncState::new(1);
@@ -317,12 +326,12 @@ fn add_write(m: &mut ModuleState, host: &Host) -> u32 {
     f.if_(BlockType::Empty);
     f.ins()
         .i32_const('-' as i32)
-        .call(host.write_char)
+        .call(host.write_char.0)
         .i64_const(0)
         .local_get(v)
         .i64_sub()
         .local_set(v);
     f.end();
-    f.ins().local_get(v).call(digits);
+    f.ins().local_get(v).call(digits.0);
     m.add_func(ty, f.finish())
 }
