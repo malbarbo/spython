@@ -15,24 +15,23 @@ use ruff_python_parser::parse_module;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 /// The text CPython writes for a frame of the function `name`, in the file
-/// at `path`, when the instruction that failed covers `range` of `source`.
-pub(crate) fn frame(path: &str, name: &str, source: &str, range: TextRange) -> String {
-    let (lineno, _) = FileLines::new(source).position(range.start());
+/// at `path`, when the instruction that failed covers `range` of `file`.
+pub(crate) fn frame(path: &str, name: &str, file: &FileLines, range: TextRange) -> String {
     format!(
-        "  File \"{path}\", line {lineno}, in {name}\n{}",
-        source_lines(source, range)
+        "  File \"{path}\", line {}, in {name}\n{}",
+        line(file, range),
+        source_lines(file, range)
     )
 }
 
-/// The number of the line where `range` of `source` starts, from 1.
-pub(crate) fn line(source: &str, range: TextRange) -> usize {
-    FileLines::new(source).position(range.start()).0
+/// The number of the line where `range` of `file` starts, from 1.
+pub(crate) fn line(file: &FileLines, range: TextRange) -> usize {
+    file.position(range.start()).0
 }
 
 /// The lines CPython writes under the `File` line of a frame. Each line
 /// ends in a newline, and an instruction on blank lines gives no line.
-fn source_lines(source: &str, range: TextRange) -> String {
-    let file = FileLines::new(source);
+fn source_lines(file: &FileLines, range: TextRange) -> String {
     let (lineno, colno) = file.position(range.start());
     let (end_lineno, end_colno) = file.position(range.end());
     let original: String = (lineno..=end_lineno)
@@ -48,7 +47,7 @@ fn source_lines(source: &str, range: TextRange) -> String {
 
 /// The lines of a file as `linecache` reads them, with the universal
 /// newlines of the text mode.
-struct FileLines<'a> {
+pub(crate) struct FileLines<'a> {
     source: &'a str,
     /// The start and the end of each line, without its newline.
     lines: Vec<(usize, usize)>,
@@ -57,7 +56,7 @@ struct FileLines<'a> {
 }
 
 impl<'a> FileLines<'a> {
-    fn new(source: &'a str) -> Self {
+    pub fn new(source: &'a str) -> Self {
         let bom = if source.starts_with('\u{feff}') { 3 } else { 0 };
         let bytes = source.as_bytes();
         let mut lines = Vec::new();

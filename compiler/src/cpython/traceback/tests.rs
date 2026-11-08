@@ -5,7 +5,7 @@ use std::process::Command;
 
 use ruff_text_size::{TextRange, TextSize};
 
-use super::source_lines;
+use super::{FileLines, source_lines};
 
 /// Writes the source of each case to a file, and the character offsets of
 /// the instruction to another, then asks python3 for the lines of each.
@@ -109,7 +109,7 @@ fn the_lines_of_a_frame_are_the_ones_of_cpython() {
             TextSize::try_from(start).expect("a small offset"),
             TextSize::try_from(end).expect("a small offset"),
         );
-        ours.push(source_lines(&source, range));
+        ours.push(source_lines(&FileLines::new(&source), range));
     }
     let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
     let output = Command::new(python)

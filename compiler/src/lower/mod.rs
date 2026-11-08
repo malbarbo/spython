@@ -19,7 +19,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape, function_info};
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
-use crate::cpython::traceback;
+use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{Func, FuncId, Program, Rep, Site, SiteFrame, Var, VarId};
 use flow::{Assigned, always_returns, assignments, code_order, global_names, local_names};
 use name_error::unbound_local;
@@ -33,6 +33,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let lowering = Lowering {
         model: &model,
         source: source.as_str(),
+        file: FileLines::new(source.as_str()),
         path,
         sites: RefCell::new(Vec::new()),
         vars: RefCell::new(Vars::default()),
@@ -62,6 +63,8 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
 struct Lowering<'a, 'db> {
     model: &'a SemanticModel<'db>,
     source: &'a str,
+    /// The lines of `source`, for the frames of the sites.
+    file: FileLines<'a>,
     /// The path of the file in a traceback.
     path: &'a str,
     sites: RefCell<Vec<SiteFrame>>,
@@ -350,8 +353,8 @@ impl<'a> Lowering<'a, '_> {
             .borrow()
             .as_ref()
             .map_or_else(|| "<module>".to_owned(), |scope| scope.name.clone());
-        let number = traceback::line(self.source, range);
-        let text = traceback::frame(self.path, &name, self.source, range);
+        let number = traceback::line(&self.file, range);
+        let text = traceback::frame(self.path, &name, &self.file, range);
         let mut lines = self.lines.borrow_mut();
         let count = u32::try_from(lines.len()).expect("fewer than 2^32 lines");
         let line = *lines.entry((name, number)).or_insert(count);
