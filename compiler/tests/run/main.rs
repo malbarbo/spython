@@ -4,6 +4,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output, Stdio};
+use std::sync::OnceLock;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -111,10 +112,35 @@ fn python(file: &Path) -> Output {
 
 /// The command that runs the program in `file`, as [`python`] says.
 fn python_command(file: &Path) -> Command {
-    let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
-    let mut command = Command::new(python);
+    let mut command = Command::new(python_program());
     command.arg(file);
     command
+}
+
+/// The version of CPython that the expected output follows. Another
+/// version differs in the Unicode data, the dedent of a traceback, and
+/// the colour.
+const PYTHON_VERSION: &str = "3.13";
+
+/// The python3 on the `PATH`, or the one that `PYTHON` names. The first
+/// call checks that it is CPython [`PYTHON_VERSION`], so a test fails with
+/// that reason and not with a diff.
+fn python_program() -> &'static str {
+    static PROGRAM: OnceLock<String> = OnceLock::new();
+    PROGRAM.get_or_init(|| {
+        let program = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
+        let output = Command::new(&program)
+            .args(["-c", "import sys; print(*sys.version_info[:2], sep='.')"])
+            .output()
+            .unwrap_or_else(|error| panic!("{program} does not run: {error}"));
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        assert_eq!(
+            version, PYTHON_VERSION,
+            "the tests compare with CPython {PYTHON_VERSION}, and {program} is {version}. \
+             Set PYTHON to a python{PYTHON_VERSION}."
+        );
+        program
+    })
 }
 
 /// Runs `command` with the standard output and the standard error in one
