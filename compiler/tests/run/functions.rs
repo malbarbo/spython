@@ -1,5 +1,7 @@
 //! Functions, their calls, and the globals that they read and assign.
 
+use indoc::formatdoc;
+
 use super::{same_as_cpython, unsupported};
 
 #[test]
@@ -166,6 +168,14 @@ fn a_def_outside_what_the_compiler_covers_is_unsupported() {
     assert_eq!(
         unsupported("def f(n: int = 1) -> int:\n    return n\n"),
         "a parameter with a default"
+    );
+    let params = (0..1001).map(|i| format!("p{i}: int")).collect::<Vec<_>>();
+    assert_eq!(
+        unsupported(&formatdoc! {"
+            def f({}) -> int:
+                return 1
+        ", params.join(", ")}),
+        "a def with more than 1000 parameters"
     );
     assert_eq!(
         unsupported("def f(n: int) -> int:\n    return n\n\nprint(f)\n"),

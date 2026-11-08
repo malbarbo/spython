@@ -263,6 +263,9 @@ impl<'a> Lowering<'a, '_> {
         if let Some(param) = parameters.args.iter().find(|p| p.default.is_some()) {
             return Err(unsupported(param, "a parameter with a default"));
         }
+        if let Some(param) = parameters.args.get(MAX_PARAMS) {
+            return Err(unsupported(param, "a def with more than 1000 parameters"));
+        }
         let info = function_info(self.model, def).ok_or_else(|| unsupported(def, "this def"))?;
         let params = parameters
             .args
@@ -363,6 +366,9 @@ impl<'a> Lowering<'a, '_> {
         Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
     }
 }
+
+/// The most parameters that a wasm engine accepts in a function.
+const MAX_PARAMS: usize = 1000;
 
 fn count(n: usize) -> u32 {
     u32::try_from(n).expect("fewer than 2^32 names")
