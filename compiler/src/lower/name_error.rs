@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Lowering, count};
+use super::Lowering;
 use crate::cpython::{names, suggest};
 use crate::ir::{Binding, Group, Limit, NameError, Rep, VarId};
 
@@ -201,4 +201,8 @@ pub(super) fn unbound_local(name: &str) -> String {
         "UnboundLocalError: cannot access local variable '{name}' where it is not \
          associated with a value"
     )
+}
+
+fn count(n: usize) -> u32 {
+    u32::try_from(n).expect("fewer than 2^32 names")
 }

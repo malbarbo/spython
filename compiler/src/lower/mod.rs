@@ -369,10 +369,6 @@ impl<'a> Lowering<'a, '_> {
 /// The most parameters that a wasm engine accepts in a function.
 const MAX_PARAMS: usize = 1000;
 
-fn count(n: usize) -> u32 {
-    u32::try_from(n).expect("fewer than 2^32 names")
-}
-
 /// The rep of the values of `shape`, and `None` when the compiler has no rep
 /// for them.
 fn shape_rep(shape: Option<Shape>) -> Option<Rep> {
