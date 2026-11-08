@@ -153,6 +153,12 @@ fn a_function_that_may_end_without_a_return_is_unsupported() {
         ),
         "a function that may end without a return"
     );
+    assert_eq!(
+        unsupported(
+            "def f(n: int) -> int:  # ty: ignore[invalid-return-type]\n    while True:\n        while n > 0:\n            n = n - 1\n        else:\n            break\n"
+        ),
+        "a function that may end without a return"
+    );
 }
 
 #[test]

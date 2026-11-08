@@ -185,6 +185,9 @@ fn breaks(body: &[ast::Stmt]) -> bool {
                     .iter()
                     .any(|clause| breaks(&clause.body))
         }
+        // A `break` in the body of an inner loop leaves that loop, and one
+        // in its `else` leaves this one.
+        ast::Stmt::While(w) => breaks(&w.orelse),
         _ => false,
     })
 }
