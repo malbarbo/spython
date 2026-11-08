@@ -192,3 +192,28 @@ fn a_def_outside_what_the_compiler_covers_is_unsupported() {
         "a call with keyword arguments"
     );
 }
+
+#[test]
+fn each_call_outside_what_the_compiler_covers_has_its_own_message() {
+    assert_eq!(
+        unsupported("print('a'.upper())\n"),
+        "a call of an expression other than a name"
+    );
+    assert_eq!(
+        unsupported(&formatdoc! {"
+            def g() -> None:
+                pass
+
+
+            def f() -> None:
+                while True:
+                    h()  # ty: ignore[possibly-unresolved-reference]
+                    h = g
+        "}),
+        "a call of a local variable"
+    );
+    assert_eq!(
+        unsupported("print(abs(1))\n"),
+        "a call of a function that the module does not define"
+    );
+}

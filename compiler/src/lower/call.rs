@@ -15,7 +15,10 @@ impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
     pub(super) fn call(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let ast::Expr::Name(name) = &*call.func else {
-            return Err(unsupported(call, "this call"));
+            return Err(unsupported(
+                call,
+                "a call of an expression other than a name",
+            ));
         };
         let callee = name.id.as_str();
         if self
@@ -24,10 +27,13 @@ impl<'a> Lowering<'a, '_> {
             .as_ref()
             .is_some_and(|scope| scope.is_local(callee))
         {
-            return Err(unsupported(call, "this call"));
+            return Err(unsupported(call, "a call of a local variable"));
         }
         let Some(func) = self.funcs.borrow().ids.get(callee).copied() else {
-            return Err(unsupported(call, "this call"));
+            return Err(unsupported(
+                call,
+                "a call of a function that the module does not define",
+            ));
         };
         // The `def` is the one binding of the name in the module, so the call
         // finds the function, or raises `NameError` before the `def` runs.
