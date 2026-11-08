@@ -21,7 +21,7 @@ use ty_python_semantic::{Db, SemanticModel};
 use crate::Error;
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{Func, FuncId, Program, Rep, Site, SiteFrame, Var, VarId};
-use flow::{Assigned, always_returns, assignments, code_order, global_names, local_names};
+use flow::{Assigned, Bindings, always_returns};
 use name_error::unbound_local;
 
 pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Error> {
@@ -42,7 +42,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         lines: RefCell::new(HashMap::new()),
     };
     let suite = module.suite().as_slice();
-    lowering.declare_vars(suite)?;
+    lowering.declare_vars(&Bindings::of(suite))?;
     let body = lowering.body(suite)?;
     let count = lowering.funcs.borrow().sigs.len();
     let mut funcs: Vec<Func> = (0..count)
@@ -171,13 +171,10 @@ impl<'a> Lowering<'a, '_> {
     /// which the checker infers, and declares each function of the module.
     /// A read or a call may come before the assignment, as in a loop, so
     /// every variable has a rep before the lowering of the code starts.
-    fn declare_vars(&self, body: &'a [ast::Stmt]) -> Result<(), Error> {
-        let mut assigned = Vec::new();
-        let mut defs = Vec::new();
-        assignments(body, &mut assigned, &mut defs);
+    fn declare_vars(&self, bindings: &Bindings<'a>) -> Result<(), Error> {
         // The lowering of a function rejects a `def` in its body.
         if self.scope.borrow().is_none() {
-            for def in defs {
+            for def in &bindings.defs {
                 self.declare_func(def)?;
                 self.declare_globals(def)?;
             }
@@ -188,17 +185,16 @@ impl<'a> Lowering<'a, '_> {
             .as_ref()
             .map(|scope| scope.globals.clone())
             .unwrap_or_default();
-        self.declare_assigned(&assigned, |name| !globals.contains(name))
+        self.declare_assigned(&bindings.assignments, |name| !globals.contains(name))
     }
 
     /// Declares in the module each global that `def` assigns, since the
     /// code of the module may read it.
     fn declare_globals(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
-        let mut globals = HashSet::new();
-        global_names(&def.body, &mut globals);
-        let mut assigned = Vec::new();
-        assignments(&def.body, &mut assigned, &mut Vec::new());
-        self.declare_assigned(&assigned, |name| globals.contains(name))
+        let bindings = Bindings::of(&def.body);
+        self.declare_assigned(&bindings.assignments, |name| {
+            bindings.globals.contains(name)
+        })
     }
 
     /// Declares each variable of `assigned` whose name `keep` accepts, in
@@ -311,14 +307,18 @@ impl<'a> Lowering<'a, '_> {
             locals.insert(name.to_owned());
             order.push(name);
         }
-        local_names(&def.body, &mut locals);
-        let mut globals = HashSet::new();
-        global_names(&def.body, &mut globals);
-        locals.retain(|name| !globals.contains(name));
-        code_order(&def.body, &mut order);
+        let bindings = Bindings::of(&def.body);
+        locals.extend(bindings.assigned.iter().map(|name| (*name).to_owned()));
+        locals.retain(|name| !bindings.globals.contains(name.as_str()));
+        let globals = bindings
+            .globals
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect();
         let mut seen = HashSet::new();
         let order = order
             .into_iter()
+            .chain(bindings.order.iter().copied())
             .filter(|name| locals.contains(*name) && seen.insert(*name))
             .map(str::to_owned)
             .collect();
@@ -330,7 +330,7 @@ impl<'a> Lowering<'a, '_> {
             order,
             vars,
         });
-        self.declare_vars(&def.body)?;
+        self.declare_vars(&bindings)?;
         let body = self.body(&def.body)?;
         if sig.ret != Rep::None && !always_returns(&def.body) {
             return Err(unsupported(

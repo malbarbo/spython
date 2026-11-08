@@ -7,149 +7,106 @@ use std::collections::HashSet;
 use ruff_python_ast as ast;
 use ruff_python_ast::visitor::{Visitor, walk_expr};
 
-/// Adds to `names` each name of `body` in the order of the code that
-/// CPython makes for it, which gives the order of the locals of a frame.
-/// The value of an assignment comes before its targets.
-pub(super) fn code_order<'a>(body: &'a [ast::Stmt], names: &mut Vec<&'a str>) {
-    struct Names<'a, 'b>(&'b mut Vec<&'a str>);
-    impl<'a> Visitor<'a> for Names<'a, '_> {
-        fn visit_expr(&mut self, expr: &'a ast::Expr) {
-            if let ast::Expr::Name(name) = expr {
-                self.0.push(name.id.as_str());
-            }
-            walk_expr(self, expr);
-        }
-    }
-    let visit = |expr: &'a ast::Expr, names: &mut Vec<&'a str>| {
-        Names(names).visit_expr(expr);
-    };
-    for stmt in body {
-        match stmt {
-            ast::Stmt::Expr(e) => visit(&e.value, names),
-            ast::Stmt::Assign(a) => {
-                visit(&a.value, names);
-                for target in &a.targets {
-                    visit(target, names);
-                }
-            }
-            // CPython makes no code for a declaration without a value.
-            ast::Stmt::AnnAssign(a) => {
-                if let Some(value) = &a.value {
-                    visit(value, names);
-                    visit(&a.target, names);
-                }
-            }
-            ast::Stmt::AugAssign(a) => {
-                visit(&a.target, names);
-                visit(&a.value, names);
-            }
-            ast::Stmt::If(i) => {
-                visit(&i.test, names);
-                code_order(&i.body, names);
-                for clause in &i.elif_else_clauses {
-                    if let Some(test) = &clause.test {
-                        visit(test, names);
-                    }
-                    code_order(&clause.body, names);
-                }
-            }
-            ast::Stmt::While(w) => {
-                visit(&w.test, names);
-                code_order(&w.body, names);
-                code_order(&w.orelse, names);
-            }
-            ast::Stmt::Return(r) => {
-                if let Some(value) = &r.value {
-                    visit(value, names);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 /// The targets of an assignment, with the value.
 pub(super) type Assigned<'a> = (&'a [ast::Expr], &'a ast::Expr);
 
-/// Adds to `assigned` each assignment of a value in `body`, and to `defs`
-/// each `def`, out of the `if`s and the `while`s too.
-pub(super) fn assignments<'a>(
-    body: &'a [ast::Stmt],
-    assigned: &mut Vec<Assigned<'a>>,
-    defs: &mut Vec<&'a ast::StmtFunctionDef>,
-) {
-    for stmt in body {
-        match stmt {
-            ast::Stmt::If(i) => {
-                assignments(&i.body, assigned, defs);
-                for clause in &i.elif_else_clauses {
-                    assignments(&clause.body, assigned, defs);
-                }
-            }
-            ast::Stmt::While(w) => {
-                assignments(&w.body, assigned, defs);
-                assignments(&w.orelse, assigned, defs);
-            }
-            ast::Stmt::FunctionDef(def) => defs.push(def),
-            ast::Stmt::Assign(a) => assigned.push((&a.targets, &a.value)),
-            ast::Stmt::AnnAssign(ast::StmtAnnAssign {
-                target,
-                value: Some(value),
-                ..
-            }) => assigned.push((std::slice::from_ref(target), value)),
-            _ => {}
-        }
-    }
+/// What a body binds, out of its `if`s and its `while`s too.
+#[derive(Default)]
+pub(super) struct Bindings<'a> {
+    /// Each assignment of a value.
+    pub assignments: Vec<Assigned<'a>>,
+    pub defs: Vec<&'a ast::StmtFunctionDef>,
+    /// The names of the `global` statements.
+    pub globals: HashSet<&'a str>,
+    /// Each name that the body assigns. Any other way to bind a name, as a
+    /// `for` or a `:=`, makes the lowering of the function fail.
+    pub assigned: HashSet<&'a str>,
+    /// Each name of the body in the order of the code that CPython makes
+    /// for it, which gives the order of the locals of a frame. The value of
+    /// an assignment comes before its targets.
+    pub order: Vec<&'a str>,
 }
 
-/// Adds to `names` each name of a `global` statement in `body`.
-pub(super) fn global_names(body: &[ast::Stmt], names: &mut HashSet<String>) {
-    for stmt in body {
-        match stmt {
-            ast::Stmt::Global(g) => names.extend(g.names.iter().map(|name| name.id.to_string())),
-            ast::Stmt::If(i) => {
-                global_names(&i.body, names);
-                for clause in &i.elif_else_clauses {
-                    global_names(&clause.body, names);
+impl<'a> Bindings<'a> {
+    pub fn of(body: &'a [ast::Stmt]) -> Self {
+        let mut bindings = Bindings::default();
+        bindings.add(body);
+        bindings
+    }
+
+    fn add(&mut self, body: &'a [ast::Stmt]) {
+        for stmt in body {
+            match stmt {
+                ast::Stmt::Expr(e) => self.visit(&e.value),
+                ast::Stmt::Assign(a) => {
+                    self.visit(&a.value);
+                    for target in &a.targets {
+                        self.visit(target);
+                        self.assign(target);
+                    }
+                    self.assignments.push((&a.targets, &a.value));
                 }
+                ast::Stmt::AnnAssign(a) => {
+                    // CPython makes no code for a declaration without a value.
+                    if let Some(value) = &a.value {
+                        self.visit(value);
+                        self.visit(&a.target);
+                        self.assignments
+                            .push((std::slice::from_ref(&a.target), value));
+                    }
+                    self.assign(&a.target);
+                }
+                ast::Stmt::AugAssign(a) => {
+                    self.visit(&a.target);
+                    self.visit(&a.value);
+                    self.assign(&a.target);
+                }
+                ast::Stmt::If(i) => {
+                    self.visit(&i.test);
+                    self.add(&i.body);
+                    for clause in &i.elif_else_clauses {
+                        if let Some(test) = &clause.test {
+                            self.visit(test);
+                        }
+                        self.add(&clause.body);
+                    }
+                }
+                ast::Stmt::While(w) => {
+                    self.visit(&w.test);
+                    self.add(&w.body);
+                    self.add(&w.orelse);
+                }
+                ast::Stmt::Return(r) => {
+                    if let Some(value) = &r.value {
+                        self.visit(value);
+                    }
+                }
+                ast::Stmt::Global(g) => self
+                    .globals
+                    .extend(g.names.iter().map(|name| name.id.as_str())),
+                ast::Stmt::FunctionDef(def) => self.defs.push(def),
+                _ => {}
             }
-            ast::Stmt::While(w) => {
-                global_names(&w.body, names);
-                global_names(&w.orelse, names);
-            }
-            _ => {}
         }
     }
-}
 
-/// Adds to `names` each name that `body` assigns. Any other way to bind a
-/// name, as a `for` or a `:=`, makes the lowering of the function fail.
-pub(super) fn local_names(body: &[ast::Stmt], names: &mut HashSet<String>) {
-    fn add(target: &ast::Expr, names: &mut HashSet<String>) {
+    /// Adds each name of `expr` to the order.
+    fn visit(&mut self, expr: &'a ast::Expr) {
+        struct Names<'a, 'b>(&'b mut Vec<&'a str>);
+        impl<'a> Visitor<'a> for Names<'a, '_> {
+            fn visit_expr(&mut self, expr: &'a ast::Expr) {
+                if let ast::Expr::Name(name) = expr {
+                    self.0.push(name.id.as_str());
+                }
+                walk_expr(self, expr);
+            }
+        }
+        Names(&mut self.order).visit_expr(expr);
+    }
+
+    fn assign(&mut self, target: &'a ast::Expr) {
         if let ast::Expr::Name(name) = target {
-            names.insert(name.id.to_string());
-        }
-    }
-    for stmt in body {
-        match stmt {
-            ast::Stmt::Assign(a) => {
-                for target in &a.targets {
-                    add(target, names);
-                }
-            }
-            ast::Stmt::AnnAssign(a) => add(&a.target, names),
-            ast::Stmt::AugAssign(a) => add(&a.target, names),
-            ast::Stmt::If(i) => {
-                local_names(&i.body, names);
-                for clause in &i.elif_else_clauses {
-                    local_names(&clause.body, names);
-                }
-            }
-            ast::Stmt::While(w) => {
-                local_names(&w.body, names);
-                local_names(&w.orelse, names);
-            }
-            _ => {}
+            self.assigned.insert(name.id.as_str());
         }
     }
 }
