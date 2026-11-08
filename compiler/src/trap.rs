@@ -16,8 +16,8 @@ impl Module {
     /// standard error of a wasmtime run that stopped because the program
     /// asked for more memory than its GC heap holds.
     ///
-    /// Returns `None` for any other error, and in the cases of
-    /// [`Self::uncaught_trap`].
+    /// Returns `None` for any other error, and when the backtrace lacks a
+    /// frame that the traceback needs.
     pub fn memory_error(&self, stderr: &str) -> Option<String> {
         self.uncaught_trap(stderr, &OUT_OF_MEMORY, MEMORY_ERROR)
     }
@@ -28,8 +28,8 @@ impl Module {
     /// before the recursion limit, so the traceback has fewer frames than
     /// the one of CPython.
     ///
-    /// Returns `None` for any other error, and in the cases of
-    /// [`Self::uncaught_trap`].
+    /// Returns `None` for any other error, and when the backtrace lacks a
+    /// frame that the traceback needs.
     pub fn recursion_error(&self, stderr: &str) -> Option<String> {
         self.uncaught_trap(stderr, &STACK_EXHAUSTED, RECURSION_ERROR)
     }
