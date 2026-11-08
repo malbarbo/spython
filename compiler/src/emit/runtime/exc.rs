@@ -1,6 +1,6 @@
 //! The exceptions, and the traceback of an exception that nothing catches.
 
-use wasm_encoder::{BlockType, Catch, ConstExpr, HeapType, RefType, StorageType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use crate::cpython::{
     MORE_TIME, OS_ERRORS, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
@@ -129,48 +129,49 @@ impl Exceptions {
             .struct_get(exc, 1)
             .local_set(next)
             .i32_const(-1)
-            .local_set(last)
-            .block(BlockType::Empty)
-            .loop_(BlockType::Empty)
-            .local_get(next)
-            .ref_is_null()
-            .br_if(1)
+            .local_set(last);
+        let done = f.block(BlockType::Empty);
+        let frames = f.loop_(BlockType::Empty);
+        f.ins().local_get(next).ref_is_null();
+        f.br_if(done);
+        f.ins()
             .global_get(lines_global)
             .local_get(next)
             .struct_get(frame, 0)
             .array_get(lines)
             .local_tee(line)
             .local_get(last)
-            .i32_ne()
-            .if_(BlockType::Empty)
+            .i32_ne();
+        f.if_(BlockType::Empty);
+        f.ins()
             .local_get(count)
             .call(repeated)
             .local_get(line)
             .local_set(last)
             .i32_const(0)
-            .local_set(count)
-            .end()
+            .local_set(count);
+        f.end();
+        f.ins()
             .local_get(count)
             .i32_const(1)
             .i32_add()
             .local_tee(count)
             .i32_const(RECURSIVE_CUTOFF)
-            .i32_le_s()
-            .if_(BlockType::Empty)
+            .i32_le_s();
+        f.if_(BlockType::Empty);
+        f.ins()
             .global_get(sites_global)
             .local_get(next)
             .struct_get(frame, 0)
             .array_get(sites)
             .ref_as_non_null();
         str.write(&mut f);
+        f.end();
+        f.ins().local_get(next).struct_get(frame, 1).local_set(next);
+        f.br(frames);
+        f.end();
+        f.end();
         f.ins()
-            .end()
-            .local_get(next)
-            .struct_get(frame, 1)
-            .local_set(next)
-            .br(0)
-            .end()
-            .end()
             .local_get(count)
             .call(repeated)
             .local_get(e)
@@ -239,40 +240,28 @@ impl Exceptions {
     /// that [`Self::end_module`] or [`Self::end_function`] adds catches an
     /// exception.
     pub fn begin(&self, f: &mut FuncState) {
-        f.ins()
-            .block(BlockType::Result(ref_to(self.exc, false)))
-            .try_table(
-                BlockType::Empty,
-                [Catch::One {
-                    tag: self.tag,
-                    label: 0,
-                }],
-            );
+        let caught = f.block(BlockType::Result(ref_to(self.exc, false)));
+        f.try_table(BlockType::Empty, self.tag, caught);
     }
 
     /// Closes what [`Self::begin`] opened in the module, where an exception
     /// that nothing catches ends the program. `site` is the local that holds
     /// the site of the instruction that may raise.
     pub fn end_module(&self, f: &mut FuncState, site: u32) {
-        f.ins()
-            .end()
-            .return_()
-            .end()
-            .local_get(site)
-            .call(self.uncaught);
+        f.end();
+        f.ins().return_();
+        f.end();
+        f.ins().local_get(site).call(self.uncaught);
     }
 
     /// Closes what [`Self::begin`] opened in a function, where an exception
     /// goes on to the caller with the frame of the function. Every path of
     /// the code of a function ends in a `return`.
     pub fn end_function(&self, f: &mut FuncState, site: u32) {
-        f.ins()
-            .end()
-            .unreachable()
-            .end()
-            .local_get(site)
-            .call(self.reraise)
-            .unreachable();
+        f.end();
+        f.ins().unreachable();
+        f.end();
+        f.ins().local_get(site).call(self.reraise).unreachable();
     }
 
     /// Fills the arrays of the sites, with the text and the line of the
@@ -314,8 +303,9 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> u32 {
     f.ins()
         .local_get(count)
         .i32_const(RECURSIVE_CUTOFF)
-        .i32_gt_s()
-        .if_(BlockType::Empty)
+        .i32_gt_s();
+    f.if_(BlockType::Empty);
+    f.ins()
         .local_get(count)
         .i32_const(RECURSIVE_CUTOFF)
         .i32_sub()
@@ -327,17 +317,14 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> u32 {
     str.write(&mut f);
     str.literal(m, &mut f, MORE_TIME);
     str.write(&mut f);
-    f.ins()
-        .local_get(count)
-        .i32_const(1)
-        .i32_gt_s()
-        .if_(BlockType::Empty);
+    f.ins().local_get(count).i32_const(1).i32_gt_s();
+    f.if_(BlockType::Empty);
     str.literal(m, &mut f, "s");
     str.write(&mut f);
-    f.ins().end();
+    f.end();
     str.literal(m, &mut f, REPEATED_END);
     str.write(&mut f);
-    f.ins().end();
+    f.end();
     m.add_func(ty, f.finish())
 }
 
@@ -365,25 +352,23 @@ fn add_os_error(m: &mut ModuleState, str: &StrRepr, raise: u32) -> u32 {
     let mut f = FuncState::new(1);
     let start = f.local(ValType::I32);
     let len = f.local(ValType::I32);
-    f.ins().block(BlockType::Empty);
+    let found = f.block(BlockType::Empty);
     for (code, at, size) in places {
+        f.ins().local_get(errno).i32_const(code).i32_eq();
+        f.if_(BlockType::Empty);
         f.ins()
-            .local_get(errno)
-            .i32_const(code)
-            .i32_eq()
-            .if_(BlockType::Empty)
             .i32_const(at)
             .local_set(start)
             .i32_const(size)
-            .local_set(len)
-            .br(1)
-            .end();
+            .local_set(len);
+        f.br(found);
+        f.end();
     }
     // wasmtime gives `fd_write` no other error, and neither does the deno
     // of the tests.
+    f.ins().unreachable();
+    f.end();
     f.ins()
-        .unreachable()
-        .end()
         .local_get(start)
         .local_get(len)
         .array_new_data(str.bytes_type(), data);

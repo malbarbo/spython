@@ -82,16 +82,15 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) 
         .global_get(pos)
         .i32_const(BUFFER_START)
         .i32_sub()
-        .local_set(len)
-        // A write can take fewer bytes than it was given, so the loop asks
-        // again for the rest. An error drops the rest, as CPython drops
-        // what it fails to write, and waits in `error` for the code that
-        // raises it.
-        .block(BlockType::Empty)
-        .loop_(BlockType::Empty)
-        .local_get(len)
-        .i32_eqz()
-        .br_if(1)
+        .local_set(len);
+    // A write can take fewer bytes than it was given, so the loop asks
+    // again for the rest. An error drops the rest, as CPython drops what
+    // it fails to write, and waits in `error` for the code that raises it.
+    let done = f.block(BlockType::Empty);
+    let rest = f.loop_(BlockType::Empty);
+    f.ins().local_get(len).i32_eqz();
+    f.br_if(done);
+    f.ins()
         .i32_const(0)
         .local_get(ptr)
         .i32_store(mem(IOVEC, 2))
@@ -103,12 +102,12 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) 
         .i32_const(1)
         .i32_const(NWRITTEN as i32)
         .call(fd_write)
-        .local_tee(result)
-        .if_(BlockType::Empty)
-        .local_get(result)
-        .global_set(error)
-        .br(2)
-        .end()
+        .local_tee(result);
+    f.if_(BlockType::Empty);
+    f.ins().local_get(result).global_set(error);
+    f.br(done);
+    f.end();
+    f.ins()
         .local_get(ptr)
         .i32_const(0)
         .i32_load(mem(NWRITTEN, 2))
@@ -118,12 +117,11 @@ fn add_flush(m: &mut ModuleState, fd_write: u32, pos: u32, fd: u32, error: u32) 
         .i32_const(0)
         .i32_load(mem(NWRITTEN, 2))
         .i32_sub()
-        .local_set(len)
-        .br(0)
-        .end()
-        .end()
-        .i32_const(BUFFER_START)
-        .global_set(pos);
+        .local_set(len);
+    f.br(rest);
+    f.end();
+    f.end();
+    f.ins().i32_const(BUFFER_START).global_set(pos);
     m.add_func(ty, f.finish())
 }
 
@@ -154,10 +152,10 @@ fn add_write_char(m: &mut ModuleState, flush: u32, pos: u32) -> u32 {
     f.ins()
         .global_get(pos)
         .i32_const(BUFFER_END - MAX_CHAR_BYTES)
-        .i32_gt_u()
-        .if_(BlockType::Empty)
-        .call(flush)
-        .end();
+        .i32_gt_u();
+    f.if_(BlockType::Empty);
+    f.ins().call(flush);
+    f.end();
     // The bytes of each length, as (shift, mark) for the lead byte and the
     // continuation bytes after it.
     let encodings: [(i32, &[(i32, i32)]); 4] = [
@@ -167,11 +165,8 @@ fn add_write_char(m: &mut ModuleState, flush: u32, pos: u32) -> u32 {
         (0x110000, &[(18, 0xF0), (12, 0x80), (6, 0x80), (0, 0x80)]),
     ];
     for (limit, bytes) in encodings {
-        f.ins()
-            .local_get(c)
-            .i32_const(limit)
-            .i32_lt_u()
-            .if_(BlockType::Empty);
+        f.ins().local_get(c).i32_const(limit).i32_lt_u();
+        f.if_(BlockType::Empty);
         for (offset, (shift, mark)) in bytes.iter().enumerate() {
             let mut ins = f.ins();
             ins.global_get(pos).local_get(c);
@@ -189,8 +184,8 @@ fn add_write_char(m: &mut ModuleState, flush: u32, pos: u32) -> u32 {
             .i32_const(bytes.len() as i32)
             .i32_add()
             .global_set(pos)
-            .return_()
-            .end();
+            .return_();
+        f.end();
     }
     f.ins().unreachable();
     m.add_func(ty, f.finish())

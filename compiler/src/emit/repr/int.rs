@@ -183,10 +183,11 @@ fn check_divisor(
     exc: &Exceptions,
     message: &str,
 ) {
-    f.ins().local_get(1).i32_eqz().if_(BlockType::Empty);
+    f.ins().local_get(1).i32_eqz();
+    f.if_(BlockType::Empty);
     str.literal(m, f, message);
     exc.raise(f);
-    f.ins().end();
+    f.end();
 }
 
 /// `//` rounds the quotient down, and the division of `i64` rounds it
@@ -261,15 +262,11 @@ fn add_check(m: &mut ModuleState, overflow: u32) -> u32 {
         .i64_const(-MIN)
         .i64_add()
         .i64_const(MAX - MIN + 1)
-        .i64_lt_u()
-        .if_(BlockType::Empty)
-        .local_get(v)
-        .i32_wrap_i64()
-        .return_()
-        .end()
-        .local_get(v)
-        .call(overflow)
-        .unreachable();
+        .i64_lt_u();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(v).i32_wrap_i64().return_();
+    f.end();
+    f.ins().local_get(v).call(overflow).unreachable();
     m.add_func(ty, f.finish())
 }
 
@@ -301,16 +298,11 @@ fn add_write(m: &mut ModuleState, host: &Host) -> u32 {
     // The digits of a number that is not negative, the first ones by a
     // call to itself.
     let mut f = FuncState::new(1);
+    f.ins().local_get(v).i64_const(10).i64_ge_u();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(v).i64_const(10).i64_div_u().call(digits);
+    f.end();
     f.ins()
-        .local_get(v)
-        .i64_const(10)
-        .i64_ge_u()
-        .if_(BlockType::Empty)
-        .local_get(v)
-        .i64_const(10)
-        .i64_div_u()
-        .call(digits)
-        .end()
         .local_get(v)
         .i64_const(10)
         .i64_rem_u()
@@ -321,19 +313,16 @@ fn add_write(m: &mut ModuleState, host: &Host) -> u32 {
     m.define(digits, f.finish());
 
     let mut f = FuncState::new(1);
+    f.ins().local_get(v).i64_const(0).i64_lt_s();
+    f.if_(BlockType::Empty);
     f.ins()
-        .local_get(v)
-        .i64_const(0)
-        .i64_lt_s()
-        .if_(BlockType::Empty)
         .i32_const('-' as i32)
         .call(host.write_char)
         .i64_const(0)
         .local_get(v)
         .i64_sub()
-        .local_set(v)
-        .end()
-        .local_get(v)
-        .call(digits);
+        .local_set(v);
+    f.end();
+    f.ins().local_get(v).call(digits);
     m.add_func(ty, f.finish())
 }

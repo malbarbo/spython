@@ -222,14 +222,12 @@ fn add_ascii(m: &mut ModuleState, array: u32, bytes: u32) -> u32 {
         .local_get(text)
         .array_len()
         .array_new_default(array)
-        .local_set(s)
-        .block(BlockType::Empty)
-        .loop_(BlockType::Empty)
-        .local_get(i)
-        .local_get(text)
-        .array_len()
-        .i32_ge_u()
-        .br_if(1)
+        .local_set(s);
+    let exit = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(text).array_len().i32_ge_u();
+    f.br_if(exit);
+    f.ins()
         .local_get(s)
         .local_get(i)
         .local_get(text)
@@ -239,12 +237,11 @@ fn add_ascii(m: &mut ModuleState, array: u32, bytes: u32) -> u32 {
         .local_get(i)
         .i32_const(1)
         .i32_add()
-        .local_set(i)
-        .br(0)
-        .end()
-        .end()
-        .local_get(s)
-        .ref_as_non_null();
+        .local_set(i);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(s).ref_as_non_null();
     m.add_func(ty, f.finish())
 }
 
@@ -254,16 +251,12 @@ fn add_write(m: &mut ModuleState, host: &Host, array: u32) -> u32 {
     let mut f = FuncState::new(1);
     let i = f.local(ValType::I32);
     let len = f.local(ValType::I32);
+    f.ins().local_get(s).array_len().local_set(len);
+    let exit = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(len).i32_ge_u();
+    f.br_if(exit);
     f.ins()
-        .local_get(s)
-        .array_len()
-        .local_set(len)
-        .block(BlockType::Empty)
-        .loop_(BlockType::Empty)
-        .local_get(i)
-        .local_get(len)
-        .i32_ge_u()
-        .br_if(1)
         .local_get(s)
         .local_get(i)
         .array_get(array)
@@ -271,10 +264,10 @@ fn add_write(m: &mut ModuleState, host: &Host, array: u32) -> u32 {
         .local_get(i)
         .i32_const(1)
         .i32_add()
-        .local_set(i)
-        .br(0)
-        .end()
-        .end();
+        .local_set(i);
+    f.br(again);
+    f.end();
+    f.end();
     m.add_func(ty, f.finish())
 }
 
@@ -294,13 +287,11 @@ fn add_decimal(m: &mut ModuleState, array: u32) -> u32 {
         .local_set(negative)
         .local_get(v)
         .local_set(n)
-        .local_get(negative)
-        .if_(BlockType::Empty)
-        .i64_const(0)
-        .local_get(v)
-        .i64_sub()
-        .local_set(n)
-        .end()
+        .local_get(negative);
+    f.if_(BlockType::Empty);
+    f.ins().i64_const(0).local_get(v).i64_sub().local_set(n);
+    f.end();
+    f.ins()
         // The digits, one more for each division by 10 that leaves a rest.
         .local_get(negative)
         .i32_const(1)
@@ -309,12 +300,12 @@ fn add_decimal(m: &mut ModuleState, array: u32) -> u32 {
         .local_get(n)
         .i64_const(10)
         .i64_div_u()
-        .local_set(rest)
-        .block(BlockType::Empty)
-        .loop_(BlockType::Empty)
-        .local_get(rest)
-        .i64_eqz()
-        .br_if(1)
+        .local_set(rest);
+    let exit = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(rest).i64_eqz();
+    f.br_if(exit);
+    f.ins()
         .local_get(len)
         .i32_const(1)
         .i32_add()
@@ -322,22 +313,25 @@ fn add_decimal(m: &mut ModuleState, array: u32) -> u32 {
         .local_get(rest)
         .i64_const(10)
         .i64_div_u()
-        .local_set(rest)
-        .br(0)
-        .end()
-        .end()
+        .local_set(rest);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins()
         .local_get(len)
         .array_new_default(array)
         .local_set(s)
-        .local_get(negative)
-        .if_(BlockType::Empty)
+        .local_get(negative);
+    f.if_(BlockType::Empty);
+    f.ins()
         .local_get(s)
         .i32_const(0)
         .i32_const('-' as i32)
-        .array_set(array)
-        .end()
-        // From the last digit back to the first.
-        .loop_(BlockType::Empty)
+        .array_set(array);
+    f.end();
+    // From the last digit back to the first.
+    let again = f.loop_(BlockType::Empty);
+    f.ins()
         .local_get(len)
         .i32_const(1)
         .i32_sub()
@@ -356,11 +350,10 @@ fn add_decimal(m: &mut ModuleState, array: u32) -> u32 {
         .i64_div_u()
         .local_tee(n)
         .i64_const(0)
-        .i64_ne()
-        .br_if(0)
-        .end()
-        .local_get(s)
-        .ref_as_non_null();
+        .i64_ne();
+    f.br_if(again);
+    f.end();
+    f.ins().local_get(s).ref_as_non_null();
     m.add_func(ty, f.finish())
 }
 
@@ -421,13 +414,12 @@ fn add_compare(m: &mut ModuleState, array: u32) -> u32 {
         .array_len()
         .i32_lt_u()
         .select()
-        .local_set(shorter)
-        .block(BlockType::Empty)
-        .loop_(BlockType::Empty)
-        .local_get(i)
-        .local_get(shorter)
-        .i32_ge_u()
-        .br_if(1)
+        .local_set(shorter);
+    let exit = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(shorter).i32_ge_u();
+    f.br_if(exit);
+    f.ins()
         .local_get(a)
         .local_get(i)
         .array_get(array)
@@ -438,8 +430,9 @@ fn add_compare(m: &mut ModuleState, array: u32) -> u32 {
         .local_set(y)
         .local_get(x)
         .local_get(y)
-        .i32_ne()
-        .if_(BlockType::Empty)
+        .i32_ne();
+    f.if_(BlockType::Empty);
+    f.ins()
         .local_get(x)
         .local_get(y)
         .i32_gt_u()
@@ -447,15 +440,13 @@ fn add_compare(m: &mut ModuleState, array: u32) -> u32 {
         .local_get(y)
         .i32_lt_u()
         .i32_sub()
-        .return_()
-        .end()
-        .local_get(i)
-        .i32_const(1)
-        .i32_add()
-        .local_set(i)
-        .br(0)
-        .end()
-        .end()
+        .return_();
+    f.end();
+    f.ins().local_get(i).i32_const(1).i32_add().local_set(i);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins()
         // One `str` starts the other, and the shorter one comes first.
         .local_get(a)
         .array_len()
@@ -486,12 +477,11 @@ fn add_repeat(m: &mut ModuleState, array: u32) -> u32 {
         // A count below 1 gives the empty `str`.
         .local_get(n)
         .i32_const(0)
-        .i32_le_s()
-        .if_(BlockType::Empty)
-        .i32_const(0)
-        .array_new_default(array)
-        .return_()
-        .end()
+        .i32_le_s();
+    f.if_(BlockType::Empty);
+    f.ins().i32_const(0).array_new_default(array).return_();
+    f.end();
+    f.ins()
         .local_get(s)
         .array_len()
         .i64_extend_i32_u()
@@ -500,11 +490,11 @@ fn add_repeat(m: &mut ModuleState, array: u32) -> u32 {
         .i64_mul()
         .local_tee(len)
         .i64_const(MAX_LEN)
-        .i64_gt_u()
-        .if_(BlockType::Empty)
-        .ref_null(HeapType::Concrete(array))
-        .return_()
-        .end()
+        .i64_gt_u();
+    f.if_(BlockType::Empty);
+    f.ins().ref_null(HeapType::Concrete(array)).return_();
+    f.end();
+    f.ins()
         .local_get(len)
         .i32_wrap_i64()
         .array_new_default(array)
@@ -517,15 +507,17 @@ fn add_repeat(m: &mut ModuleState, array: u32) -> u32 {
         .array_copy(array, array)
         .local_get(s)
         .array_len()
-        .local_set(done)
-        // Each copy doubles the part of the result that is done.
-        .block(BlockType::Empty)
-        .loop_(BlockType::Empty)
+        .local_set(done);
+    // Each copy doubles the part of the result that is done.
+    let exit = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins()
         .local_get(done)
         .i64_extend_i32_u()
         .local_get(len)
-        .i64_ge_u()
-        .br_if(1)
+        .i64_ge_u();
+    f.br_if(exit);
+    f.ins()
         .local_get(done)
         .local_get(len)
         .i32_wrap_i64()
@@ -548,11 +540,11 @@ fn add_repeat(m: &mut ModuleState, array: u32) -> u32 {
         .local_get(done)
         .local_get(chunk)
         .i32_add()
-        .local_set(done)
-        .br(0)
-        .end()
-        .end()
-        .local_get(r);
+        .local_set(done);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(r);
     m.add_func(ty, f.finish())
 }
 
@@ -578,50 +570,49 @@ fn add_index(m: &mut ModuleState, array: u32) -> u32 {
     let mut f = FuncState::new(2);
     let c = f.local(ValType::I32);
     let one = f.local(ref_to(array, true));
+    f.ins().local_get(i).i32_const(0).i32_lt_s();
+    f.if_(BlockType::Empty);
     f.ins()
-        .local_get(i)
-        .i32_const(0)
-        .i32_lt_s()
-        .if_(BlockType::Empty)
         .local_get(i)
         .local_get(s)
         .array_len()
         .i32_add()
-        .local_set(i)
-        .end()
+        .local_set(i);
+    f.end();
+    f.ins()
         // A negative index that stays negative is out of range too.
         .local_get(i)
         .local_get(s)
         .array_len()
-        .i32_ge_u()
-        .if_(BlockType::Empty)
-        .ref_null(HeapType::Concrete(array))
-        .return_()
-        .end()
+        .i32_ge_u();
+    f.if_(BlockType::Empty);
+    f.ins().ref_null(HeapType::Concrete(array)).return_();
+    f.end();
+    f.ins()
         .local_get(s)
         .local_get(i)
         .array_get(array)
         .local_tee(c)
         .i32_const(SHARED_CHARS)
-        .i32_ge_u()
-        .if_(BlockType::Empty)
-        .local_get(c)
-        .array_new_fixed(array, 1)
-        .return_()
-        .end()
+        .i32_ge_u();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(c).array_new_fixed(array, 1).return_();
+    f.end();
+    f.ins()
         .global_get(shared)
         .local_get(c)
         .array_get(table)
         .local_tee(one)
-        .ref_is_null()
-        .if_(BlockType::Empty)
+        .ref_is_null();
+    f.if_(BlockType::Empty);
+    f.ins()
         .global_get(shared)
         .local_get(c)
         .local_get(c)
         .array_new_fixed(array, 1)
         .local_tee(one)
-        .array_set(table)
-        .end()
-        .local_get(one);
+        .array_set(table);
+    f.end();
+    f.ins().local_get(one);
     m.add_func(ty, f.finish())
 }

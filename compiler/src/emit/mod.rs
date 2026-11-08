@@ -11,7 +11,7 @@ use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
     Undefined, VarId,
 };
-use module::{CodeMap, FuncState, ModuleState};
+use module::{CodeMap, FuncState, Label, ModuleState};
 use repr::Reprs;
 use runtime::host::Host;
 
@@ -106,24 +106,16 @@ struct Code {
     func: Option<FuncId>,
     /// The local that holds the site of the instruction that may raise.
     site: u32,
-    /// How many blocks of statements enclose the current one.
-    depth: u32,
-    /// The depth of the target of `break` and of `continue`, for each loop
+    /// The target of `break` and of `continue`, for each loop
     /// that encloses the current statement.
     loops: Vec<Loop>,
     /// The locals of each variable of the function.
     vars: Vec<Slots>,
 }
 
-enum Open {
-    If,
-    Block,
-    Loop,
-}
-
 struct Loop {
-    break_: u32,
-    continue_: u32,
+    break_: Label,
+    continue_: Label,
 }
 
 /// The globals of a variable of the module, or the locals of a variable of
@@ -169,7 +161,6 @@ impl Emitter<'_> {
         self.code = Code {
             func: Some(id),
             site,
-            depth: 0,
             loops: Vec::new(),
             vars,
         };
@@ -219,18 +210,18 @@ impl Emitter<'_> {
             }
             Stmt::If { cond, then, else_ } => {
                 self.expr(f, cond);
-                self.open(f, Open::If);
+                f.if_(BlockType::Empty);
                 self.body(f, then);
                 if !else_.is_empty() {
-                    f.ins().else_();
+                    f.else_();
                     self.body(f, else_);
                 }
-                self.close(f);
+                f.end();
             }
             Stmt::While { cond, body, else_ } => self.while_(f, cond, body, else_),
             Stmt::Break => {
                 let target = self.code.loops.last().expect("a break in a loop").break_;
-                f.ins().br(self.code.depth - target);
+                f.br(target);
             }
             Stmt::Continue => {
                 let target = self
@@ -239,7 +230,7 @@ impl Emitter<'_> {
                     .last()
                     .expect("a continue in a loop")
                     .continue_;
-                f.ins().br(self.code.depth - target);
+                f.br(target);
             }
         }
     }
@@ -253,38 +244,20 @@ impl Emitter<'_> {
     /// The `else` of the loop runs when the condition is false, after the
     /// loop and inside the block that `break` leaves.
     fn while_(&mut self, f: &mut FuncState, cond: &Expr, body: &[Stmt], else_: &[Stmt]) {
-        self.open(f, Open::Block);
-        let break_ = self.code.depth;
-        self.open(f, Open::Block);
-        let done = self.code.depth;
-        self.open(f, Open::Loop);
-        let continue_ = self.code.depth;
+        let break_ = f.block(BlockType::Empty);
+        let done = f.block(BlockType::Empty);
+        let continue_ = f.loop_(BlockType::Empty);
         self.expr(f, cond);
-        f.ins().i32_eqz().br_if(self.code.depth - done);
+        f.ins().i32_eqz();
+        f.br_if(done);
         self.code.loops.push(Loop { break_, continue_ });
         self.body(f, body);
         self.code.loops.pop();
-        f.ins().br(self.code.depth - continue_);
-        self.close(f);
-        self.close(f);
+        f.br(continue_);
+        f.end();
+        f.end();
         self.body(f, else_);
-        self.close(f);
-    }
-
-    /// Opens a block of statements, whose depth is the new `self.depth`.
-    fn open(&mut self, f: &mut FuncState, block: Open) {
-        let mut ins = f.ins();
-        match block {
-            Open::If => ins.if_(BlockType::Empty),
-            Open::Block => ins.block(BlockType::Empty),
-            Open::Loop => ins.loop_(BlockType::Empty),
-        };
-        self.code.depth += 1;
-    }
-
-    fn close(&mut self, f: &mut FuncState) {
-        f.ins().end();
-        self.code.depth -= 1;
+        f.end();
     }
 
     /// Pops a value into `place`.
@@ -317,17 +290,16 @@ impl Emitter<'_> {
             return;
         }
         let order = self.order.expect("an ordered global has an order");
+        f.ins().global_get(defined).i32_eqz();
+        f.if_(BlockType::Empty);
         f.ins()
-            .global_get(defined)
-            .i32_eqz()
-            .if_(BlockType::Empty)
             .global_get(order)
             .i32_const(1)
             .i32_add()
             .global_set(order)
             .global_get(order)
-            .global_set(defined)
-            .end();
+            .global_set(defined);
+        f.end();
     }
 
     fn load(&mut self, f: &mut FuncState, place: Place, rep: Rep, check: Option<&Check>) {
@@ -346,7 +318,8 @@ impl Emitter<'_> {
     /// Pops the flag of a name, and raises the error of `check` when it is
     /// 0.
     fn raise_if_undefined(&mut self, f: &mut FuncState, check: &Check) {
-        f.ins().i32_eqz().if_(BlockType::Empty);
+        f.ins().i32_eqz();
+        f.if_(BlockType::Empty);
         self.at(f, check.site, |e, f| match &check.error {
             Undefined::Local(message) => e.reprs.raise(&mut e.m, f, message),
             Undefined::Global(error) => {
@@ -354,7 +327,7 @@ impl Emitter<'_> {
                 e.reprs.raise_message(f);
             }
         });
-        f.ins().end();
+        f.end();
     }
 
     /// Emits the code of `emit` as code that runs at `site`. An exception
@@ -381,12 +354,10 @@ impl Emitter<'_> {
             unreachable!("a str is a reference");
         };
         let found = f.temp(str_type);
-        f.ins()
-            .ref_null(str_ref.heap_type)
-            .local_set(found)
-            .block(BlockType::Empty);
+        f.ins().ref_null(str_ref.heap_type).local_set(found);
+        let suggested = f.block(BlockType::Empty);
         if let Some((binding, candidate)) = &error.self_attr {
-            self.suggest_if_bound(f, *binding, candidate, found);
+            self.suggest_if_bound(f, *binding, candidate, found, suggested);
         }
         if let Some(limit) = &error.limit {
             f.ins().i32_const(count(limit.always));
@@ -401,14 +372,15 @@ impl Emitter<'_> {
                 self.bound(f, Binding::Local(*local));
                 f.ins().i32_add();
             }
-            f.ins().i32_const(count(limit.max)).i32_ge_u().br_if(0);
+            f.ins().i32_const(count(limit.max)).i32_ge_u();
+            f.br_if(suggested);
         }
         for group in &error.groups {
             for (local, candidate) in &group.locals {
-                self.suggest_if_bound(f, Binding::Local(*local), candidate, found);
+                self.suggest_if_bound(f, Binding::Local(*local), candidate, found, suggested);
             }
             if let [(global, candidate)] = group.globals.as_slice() {
-                self.suggest_if_bound(f, *global, candidate, found);
+                self.suggest_if_bound(f, *global, candidate, found, suggested);
             } else if !group.globals.is_empty() {
                 // The global with the least place wins. A global without a
                 // value has 0, whose place less 1 is the greatest.
@@ -424,54 +396,57 @@ impl Emitter<'_> {
                         .local_get(best)
                         .i32_const(1)
                         .i32_sub()
-                        .i32_lt_u()
-                        .if_(BlockType::Empty)
-                        .local_get(place)
-                        .local_set(best);
+                        .i32_lt_u();
+                    f.if_(BlockType::Empty);
+                    f.ins().local_get(place).local_set(best);
                     self.reprs.str_literal(&mut self.m, f, candidate);
-                    f.ins().local_set(found).end();
+                    f.ins().local_set(found);
+                    f.end();
                 }
-                f.ins().local_get(best).br_if(0);
+                f.ins().local_get(best);
+                f.br_if(suggested);
                 f.free(best);
                 f.free(place);
             }
             if let Some(candidate) = &group.always {
                 self.reprs.str_literal(&mut self.m, f, candidate);
-                f.ins().local_set(found).br(0);
+                f.ins().local_set(found);
+                f.br(suggested);
             }
         }
-        f.ins().end();
+        f.end();
 
         let str_value = self.reprs.value_type(Rep::Str).expect("a str has a value");
-        f.ins()
-            .local_get(found)
-            .ref_is_null()
-            .if_(BlockType::Result(str_value));
+        f.ins().local_get(found).ref_is_null();
+        f.if_(BlockType::Result(str_value));
         self.reprs.str_literal(&mut self.m, f, &error.message);
-        f.ins().else_();
+        f.else_();
         let (before, after) = &error.suggested;
         self.reprs.str_literal(&mut self.m, f, before);
         self.reprs.load(f, Rep::Str, found);
         self.reprs.str_concat(f);
         self.reprs.str_literal(&mut self.m, f, after);
         self.reprs.str_concat(f);
-        f.ins().end();
+        f.end();
         f.free(found);
     }
 
-    /// Sets `found` to `candidate` and leaves the block of the suggestion
-    /// when `binding` has a value.
+    /// Sets `found` to `candidate` and leaves `suggested` when `binding`
+    /// has a value.
     fn suggest_if_bound(
         &mut self,
         f: &mut FuncState,
         binding: Binding,
         candidate: &str,
         found: u32,
+        suggested: Label,
     ) {
         self.bound(f, binding);
-        f.ins().if_(BlockType::Empty);
+        f.if_(BlockType::Empty);
         self.reprs.str_literal(&mut self.m, f, candidate);
-        f.ins().local_set(found).br(1).end();
+        f.ins().local_set(found);
+        f.br(suggested);
+        f.end();
     }
 
     /// Pushes an `i32` that is not 0 when `binding` has a value. The flag of
@@ -494,9 +469,10 @@ impl Emitter<'_> {
 
     /// Pops an `i32`, and raises an exception with `message` when it is 0.
     fn raise_if_zero(&mut self, f: &mut FuncState, message: &str) {
-        f.ins().i32_eqz().if_(BlockType::Empty);
+        f.ins().i32_eqz();
+        f.if_(BlockType::Empty);
         self.reprs.raise(&mut self.m, f, message);
-        f.ins().end();
+        f.end();
     }
 
     fn call(
@@ -633,22 +609,22 @@ impl Emitter<'_> {
         f.ins().local_set(left_local);
         self.reprs.load(f, rep, left_local);
         self.reprs.truth(f, rep);
-        f.ins().if_(BlockType::Result(
+        f.if_(BlockType::Result(
             self.reprs.value_type(rep).expect("an operand has a value"),
         ));
         match op {
             LogicOp::And => {
                 self.expr(f, right);
-                f.ins().else_();
+                f.else_();
                 self.reprs.load(f, rep, left_local);
             }
             LogicOp::Or => {
                 self.reprs.load(f, rep, left_local);
-                f.ins().else_();
+                f.else_();
                 self.expr(f, right);
             }
         }
-        f.ins().end();
+        f.end();
         f.free(left_local);
     }
 
@@ -659,7 +635,7 @@ impl Emitter<'_> {
             unreachable!("a comparison without operators");
         };
         let rep = first.rep();
-        f.ins().block(BlockType::Result(
+        let result = f.block(BlockType::Result(
             self.reprs
                 .local_type(Rep::Bool)
                 .expect("a bool has a value"),
@@ -672,16 +648,18 @@ impl Emitter<'_> {
                 f.ins().local_set(right);
                 self.reprs.load(f, rep, right);
                 self.reprs.compare(f, rep, *op);
-                f.ins().i32_eqz().if_(BlockType::Empty);
+                f.ins().i32_eqz();
+                f.if_(BlockType::Empty);
                 self.reprs.bool_literal(f, false);
-                f.ins().br(1).end();
+                f.br(result);
+                f.end();
                 self.reprs.load(f, rep, right);
             }
             f.free(right);
         }
         self.expr(f, last);
         self.reprs.compare(f, rep, *last_op);
-        f.ins().end();
+        f.end();
     }
 
     /// Python evaluates every argument before it writes the first one.
@@ -707,14 +685,14 @@ impl Emitter<'_> {
             .call(self.host.write_char)
             .call(self.host.flush);
         self.at(f, site, |e, f| {
+            f.ins().global_get(e.host.error);
+            f.if_(BlockType::Empty);
             f.ins()
-                .global_get(e.host.error)
-                .if_(BlockType::Empty)
                 .global_get(e.host.error)
                 .i32_const(0)
                 .global_set(e.host.error);
             e.reprs.raise_os_error(f);
-            f.ins().end();
+            f.end();
         });
     }
 }

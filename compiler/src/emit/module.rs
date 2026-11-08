@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataCountSection, DataSection, EntityType, ExportKind, ExportSection,
-    FieldType, Function, FunctionSection, GlobalSection, GlobalType, ImportSection,
-    InstructionSink, MemorySection, MemoryType, Module, StorageType, TagKind, TagSection, TagType,
-    TypeSection, ValType,
+    BlockType, Catch, CodeSection, ConstExpr, DataCountSection, DataSection, EntityType,
+    ExportKind, ExportSection, FieldType, Function, FunctionSection, GlobalSection, GlobalType,
+    ImportSection, InstructionSink, MemorySection, MemoryType, Module, StorageType, TagKind,
+    TagSection, TagType, TypeSection, ValType,
 };
 use wasmparser::{Parser, Payload};
 
@@ -289,6 +289,10 @@ fn offset(n: impl TryInto<u32>) -> u32 {
         .unwrap_or_else(|_| panic!("a module shorter than 2^32 bytes"))
 }
 
+/// A block, loop or `if` that a branch can go to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Label(u32);
+
 /// The locals and the code of a function while it is emitted. A local is
 /// added when the code asks for one.
 pub(crate) struct FuncState {
@@ -296,6 +300,9 @@ pub(crate) struct FuncState {
     locals: Vec<ValType>,
     /// The temporaries that no code uses now.
     free: Vec<(ValType, u32)>,
+    /// The label of each block that the code is in, the innermost last.
+    blocks: Vec<Label>,
+    labels: u32,
     code: Vec<u8>,
     sites: Vec<SiteRange>,
 }
@@ -306,6 +313,8 @@ impl FuncState {
             params,
             locals: Vec::new(),
             free: Vec::new(),
+            blocks: Vec::new(),
+            labels: 0,
             code: Vec::new(),
             sites: Vec::new(),
         }
@@ -346,13 +355,77 @@ impl FuncState {
         self.free.push((*ty, local));
     }
 
+    /// The sink for the instructions other than those of blocks and
+    /// branches, which go through the methods of `FuncState` so that a
+    /// branch names its target by a label.
     pub fn ins(&mut self) -> InstructionSink<'_> {
         InstructionSink::new(&mut self.code)
+    }
+
+    pub fn block(&mut self, ty: BlockType) -> Label {
+        self.ins().block(ty);
+        self.open()
+    }
+
+    pub fn loop_(&mut self, ty: BlockType) -> Label {
+        self.ins().loop_(ty);
+        self.open()
+    }
+
+    pub fn if_(&mut self, ty: BlockType) -> Label {
+        self.ins().if_(ty);
+        self.open()
+    }
+
+    /// Opens a `try_table` whose `catch` goes to `target` with the
+    /// exception of `tag`.
+    pub fn try_table(&mut self, ty: BlockType, tag: u32, target: Label) -> Label {
+        let label = self.depth(target);
+        self.ins().try_table(ty, [Catch::One { tag, label }]);
+        self.open()
+    }
+
+    pub fn else_(&mut self) {
+        self.ins().else_();
+    }
+
+    pub fn end(&mut self) {
+        self.blocks.pop().expect("an end closes a block");
+        self.ins().end();
+    }
+
+    pub fn br(&mut self, target: Label) {
+        let depth = self.depth(target);
+        self.ins().br(depth);
+    }
+
+    pub fn br_if(&mut self, target: Label) {
+        let depth = self.depth(target);
+        self.ins().br_if(depth);
+    }
+
+    fn open(&mut self) -> Label {
+        let label = Label(self.labels);
+        self.labels += 1;
+        self.blocks.push(label);
+        label
+    }
+
+    /// How many blocks the code is in inside `target`.
+    fn depth(&self, target: Label) -> u32 {
+        let inner = self
+            .blocks
+            .iter()
+            .rev()
+            .position(|&label| label == target)
+            .expect("a branch to a block that the code is in");
+        u32::try_from(inner).expect("fewer than 2^32 blocks")
     }
 
     /// The function, with `prefix` run before its own code. `prefix` uses
     /// no local.
     fn finish_with_prefix(self, prefix: &[u8]) -> Function {
+        assert!(self.blocks.is_empty(), "a block without an end");
         let mut function = Function::new_with_locals_types(self.locals);
         function.raw(prefix.iter().copied());
         function.raw(self.code);

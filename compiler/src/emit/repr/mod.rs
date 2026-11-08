@@ -206,12 +206,10 @@ impl Reprs {
     /// null, and leaves it as a `str` otherwise.
     fn raise_if_null(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &str) {
         let result = f.temp(self.str.val_type(true));
-        f.ins()
-            .local_tee(result)
-            .ref_is_null()
-            .if_(BlockType::Empty);
+        f.ins().local_tee(result).ref_is_null();
+        f.if_(BlockType::Empty);
         self.raise(m, f, message);
-        f.ins().end();
+        f.end();
         self.load(f, Rep::Str, result);
         f.free(result);
     }
@@ -236,13 +234,13 @@ impl Reprs {
         match rep {
             Rep::Int => self.int.write(f),
             Rep::Bool => {
-                f.ins().if_(BlockType::Empty);
+                f.if_(BlockType::Empty);
                 self.str.literal(m, f, "True");
                 self.str.write(f);
-                f.ins().else_();
+                f.else_();
                 self.str.literal(m, f, "False");
                 self.str.write(f);
-                f.ins().end();
+                f.end();
             }
             Rep::Str => self.str.write(f),
             Rep::None => panic!("a value of rep None to write"),
