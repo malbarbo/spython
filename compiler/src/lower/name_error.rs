@@ -206,3 +206,59 @@ pub(super) fn unbound_local(name: &str) -> String {
 fn count(n: usize) -> u32 {
     u32::try_from(n).expect("fewer than 2^32 names")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::group_of;
+    use crate::ir::VarId;
+
+    /// The candidate that the `NameError` suggests for `name` when every
+    /// candidate has a value, the first one of the nearest group.
+    fn suggestion<'a>(candidates: &[&'a str], name: &str) -> Option<&'a str> {
+        let mut groups = BTreeMap::new();
+        for candidate in candidates {
+            if let Some(group) = group_of(&mut groups, name, candidate) {
+                group.locals.push((VarId(0), (*candidate).to_owned()));
+            }
+        }
+        let (_, group) = groups.into_iter().next()?;
+        let (_, first) = group.locals.into_iter().next()?;
+        candidates
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == first)
+    }
+
+    /// Each name with its candidates, and what CPython 3.13 suggests.
+    #[test]
+    fn suggests_what_cpython_suggests() {
+        assert_eq!(suggestion(&["abd", "abe"], "abc"), Some("abd"));
+        assert_eq!(suggestion(&["xyz"], "abc"), None);
+        assert_eq!(suggestion(&["total", "totals"], "Total"), Some("total"));
+        assert_eq!(suggestion(&["Total", "tota"], "total"), Some("Total"));
+        assert_eq!(suggestion(&["round", "counter"], "count"), Some("round"));
+        assert_eq!(suggestion(&["name", "nomes", "none"], "nome"), Some("name"));
+        assert_eq!(suggestion(&["y", "xx"], "x"), Some("xx"));
+        assert_eq!(
+            suggestion(
+                &["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax"],
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaay"
+            ),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaax")
+        );
+        assert_eq!(
+            suggestion(
+                &[
+                    "yayayayayayayayayayayayayayayayayayayayaya",
+                    "xaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxab"
+                ],
+                "xaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxa"
+            ),
+            Some("xaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxaxab")
+        );
+        assert_eq!(suggestion(&["cafe", "cafè"], "café"), Some("cafè"));
+        assert_eq!(suggestion(&["abc", "abd"], "abc"), Some("abd"));
+    }
+}
