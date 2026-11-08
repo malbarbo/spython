@@ -38,6 +38,7 @@ pub(crate) struct ModuleState {
     types: TypeSection,
     type_count: u32,
     func_types: HashMap<(Vec<ValType>, Vec<ValType>), TypeIdx>,
+    array_types: HashMap<(StorageType, bool), TypeIdx>,
     imports: ImportSection,
     imported_funcs: u32,
     /// The type and the body of each function the module defines, in the
@@ -83,6 +84,7 @@ impl ModuleState {
             types: TypeSection::new(),
             type_count: 0,
             func_types: HashMap::new(),
+            array_types: HashMap::new(),
             imports: ImportSection::new(),
             imported_funcs: 0,
             funcs: Vec::new(),
@@ -113,8 +115,13 @@ impl ModuleState {
     }
 
     pub fn array_type(&mut self, element: StorageType, mutable: bool) -> TypeIdx {
+        if let Some(&index) = self.array_types.get(&(element, mutable)) {
+            return index;
+        }
         self.types.ty().array(&element, mutable);
-        self.next_type()
+        let index = self.next_type();
+        self.array_types.insert((element, mutable), index);
+        index
     }
 
     /// A struct type with the fields, each with its type and whether it is
