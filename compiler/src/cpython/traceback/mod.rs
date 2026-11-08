@@ -3,9 +3,13 @@
 //! `StackSummary.format_frame_summary` and of the functions it calls, and
 //! each step keeps the quirks of the original, so the output is the same
 //! byte for byte.
+//!
+//! It also writes the whole traceback of an exception that nothing catches,
+//! for a program that stops outside its own code.
 
 mod wide;
 
+use super::{MORE_TIME, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK};
 use ruff_python_ast::{Expr, Stmt};
 use ruff_python_parser::parse_module;
 use ruff_text_size::{Ranged, TextRange, TextSize};
@@ -574,6 +578,41 @@ fn join(lines: &[Vec<char>]) -> Vec<char> {
 fn slice(s: &[char], start: usize, stop: usize) -> Vec<char> {
     let stop = stop.min(s.len());
     s.get(start.min(stop)..stop).unwrap_or_default().to_vec()
+}
+
+/// The traceback of an exception that nothing catches, with `message` as
+/// its last line. Each frame, from the outermost, comes as the line of the
+/// frame in its function and the text of the frame.
+pub(crate) fn uncaught(frames: &[(u32, &str)], message: &str) -> String {
+    let cutoff = usize::try_from(RECURSIVE_CUTOFF).expect("a positive cutoff");
+    let mut text = String::from(TRACEBACK);
+    let mut last = None;
+    let mut count = 0;
+    for &(line, frame) in frames {
+        if last != Some(line) {
+            repeated(&mut text, count, cutoff);
+            last = Some(line);
+            count = 0;
+        }
+        count += 1;
+        if count <= cutoff {
+            text.push_str(frame);
+        }
+    }
+    repeated(&mut text, count, cutoff);
+    text.push_str(message);
+    text.push('\n');
+    text
+}
+
+/// Adds how many frames of a run the traceback leaves out, when the run has
+/// more than `cutoff`.
+fn repeated(text: &mut String, count: usize, cutoff: usize) {
+    if count > cutoff {
+        let more = count - cutoff;
+        let s = if more > 1 { "s" } else { "" };
+        text.push_str(&format!("{REPEATED}{more}{MORE_TIME}{s}{REPEATED_END}"));
+    }
 }
 
 #[cfg(test)]

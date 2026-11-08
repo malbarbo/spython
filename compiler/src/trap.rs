@@ -1,10 +1,8 @@
 //! The traceback of a program that wasmtime stopped with a trap.
 
 use crate::Module;
-use crate::cpython::{
-    MEMORY_ERROR, MORE_TIME, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
-};
-use crate::ir::SiteFrame;
+use crate::cpython::MEMORY_ERROR;
+use crate::cpython::traceback::uncaught;
 
 /// What wasmtime writes for an allocation larger than the GC heap holds,
 /// and for one larger than any heap holds.
@@ -48,14 +46,15 @@ impl Module {
                 .filter(|range| range.start <= offset && offset < range.end)
                 .max_by_key(|range| range.start)?
                 .site;
-            frames.push(self.sites.get(site.0 as usize)?);
+            let frame = self.sites.get(site.0 as usize)?;
+            frames.push((frame.line, frame.text.as_str()));
             outermost = Some(offset);
         }
         if !self.map.module.contains(&outermost?) {
             return None;
         }
         frames.reverse();
-        Some(traceback(&frames, MEMORY_ERROR))
+        Some(uncaught(&frames, MEMORY_ERROR))
     }
 }
 
@@ -70,38 +69,4 @@ fn backtrace(error: &str) -> impl Iterator<Item = u32> {
         let (offset, _) = rest.trim_start().strip_prefix("0x")?.split_once(" - ")?;
         u32::from_str_radix(offset, 16).ok()
     })
-}
-
-/// The traceback of `frames`, from the outermost, as the module writes it
-/// for an exception that nothing catches.
-fn traceback(frames: &[&SiteFrame], message: &str) -> String {
-    let cutoff = usize::try_from(RECURSIVE_CUTOFF).expect("a positive cutoff");
-    let mut text = String::from(TRACEBACK);
-    let mut last = None;
-    let mut count = 0;
-    for frame in frames {
-        if last != Some(frame.line) {
-            repeated(&mut text, count, cutoff);
-            last = Some(frame.line);
-            count = 0;
-        }
-        count += 1;
-        if count <= cutoff {
-            text.push_str(&frame.text);
-        }
-    }
-    repeated(&mut text, count, cutoff);
-    text.push_str(message);
-    text.push('\n');
-    text
-}
-
-/// Adds how many frames of a run the traceback leaves out, when the run has
-/// more than `cutoff`.
-fn repeated(text: &mut String, count: usize, cutoff: usize) {
-    if count > cutoff {
-        let more = count - cutoff;
-        let s = if more > 1 { "s" } else { "" };
-        text.push_str(&format!("{REPEATED}{more}{MORE_TIME}{s}{REPEATED_END}"));
-    }
 }
