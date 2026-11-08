@@ -169,7 +169,7 @@ fn has_attribute(rep: Option<Rep>, name: &str) -> bool {
         Some(Rep::Int) => names::INT_ATTRIBUTES,
         Some(Rep::Bool) => names::BOOL_ATTRIBUTES,
         Some(Rep::Str) => names::STR_ATTRIBUTES,
-        Some(Rep::None) => return false,
+        Some(Rep::None) => unreachable!("a variable of rep None"),
         None => names::FUNCTION_ATTRIBUTES,
     };
     attributes.binary_search(&name).is_ok()
