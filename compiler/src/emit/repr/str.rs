@@ -560,10 +560,6 @@ fn add_index(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         ref_to(table, true),
         &ConstExpr::ref_null(HeapType::Concrete(table.0)),
     );
-    wasm_encoder::InstructionSink::new(&mut m.init)
-        .i32_const(SHARED_CHARS)
-        .array_new_default(table.0)
-        .global_set(shared.0);
     let ty = m.func_type(
         &[ref_to(array, false), ValType::I32],
         &[ref_to(array, true)],
@@ -599,6 +595,15 @@ fn add_index(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .i32_ge_u();
     f.if_(BlockType::Empty);
     f.ins().local_get(c).array_new_fixed(array.0, 1).return_();
+    f.end();
+    // The first index builds the table, so a program that never indexes
+    // never builds it.
+    f.ins().global_get(shared.0).ref_is_null();
+    f.if_(BlockType::Empty);
+    f.ins()
+        .i32_const(SHARED_CHARS)
+        .array_new_default(table.0)
+        .global_set(shared.0);
     f.end();
     f.ins()
         .global_get(shared.0)
