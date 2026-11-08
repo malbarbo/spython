@@ -32,11 +32,12 @@ pub(super) fn code_order<'a>(body: &'a [ast::Stmt], names: &mut Vec<&'a str>) {
                     visit(target, names);
                 }
             }
+            // CPython makes no code for a declaration without a value.
             ast::Stmt::AnnAssign(a) => {
                 if let Some(value) = &a.value {
                     visit(value, names);
+                    visit(&a.target, names);
                 }
-                visit(&a.target, names);
             }
             ast::Stmt::AugAssign(a) => {
                 visit(&a.target, names);

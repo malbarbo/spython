@@ -223,3 +223,23 @@ fn the_name_error_without_a_suggestion_follows_a_print() {
         "},
     );
 }
+
+/// A declaration without a value gives CPython no code, so it does not set
+/// the place of the local.
+#[test]
+fn the_name_error_suggests_the_first_local_after_a_bare_declaration() {
+    same_as_cpython(
+        "the_name_error_suggests_the_first_local_after_a_bare_declaration",
+        indoc! {"
+            def f() -> int:
+                ab: int
+                ac = 1
+                ab = 2
+                return aa + ab + ac
+
+
+            print(f())
+            aa = 0
+        "},
+    );
+}
