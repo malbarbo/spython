@@ -205,7 +205,6 @@ fn same_as_cpython(name: &str, source: &str) {
     assert_eq!(ours.status.code(), theirs.status.code(), "exit code");
 }
 
-/// Compiles `source` and runs it in wasmtime.
 /// Compiles `source` and runs it in wasmtime and in deno, which have to
 /// print the same and exit the same.
 fn run(name: &str, source: &str) -> Output {
