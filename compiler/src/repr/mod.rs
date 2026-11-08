@@ -6,6 +6,7 @@ mod str;
 
 use wasm_encoder::{BlockType, ConstExpr, HeapType, ValType};
 
+use crate::cpython::{MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::{ArithOp, CmpOp, Rep, SiteFrame};
@@ -186,7 +187,7 @@ impl Reprs {
     pub fn str_repeat(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.as_i32(f);
         self.str.repeat(f);
-        self.raise_if_null(m, f, "MemoryError");
+        self.raise_if_null(m, f, MEMORY_ERROR);
     }
 
     /// Pops a `str` and an `int`, and pushes the code point at that index
@@ -194,7 +195,7 @@ impl Reprs {
     pub fn str_index(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.as_i32(f);
         self.str.index(f);
-        self.raise_if_null(m, f, "IndexError: string index out of range");
+        self.raise_if_null(m, f, STR_INDEX_OUT_OF_RANGE);
     }
 
     /// Raises an exception with `message` when the `str` on the stack is

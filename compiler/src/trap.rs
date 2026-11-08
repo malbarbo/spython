@@ -1,7 +1,9 @@
 //! The traceback of a program that wasmtime stopped with a trap.
 
 use crate::Module;
-use crate::cpython::traceback::RECURSIVE_CUTOFF;
+use crate::cpython::{
+    MEMORY_ERROR, MORE_TIME, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
+};
 use crate::ir::SiteFrame;
 
 /// What wasmtime writes for an allocation larger than the GC heap holds,
@@ -53,7 +55,7 @@ impl Module {
             return None;
         }
         frames.reverse();
-        Some(traceback(&frames, "MemoryError"))
+        Some(traceback(&frames, MEMORY_ERROR))
     }
 }
 
@@ -74,7 +76,7 @@ fn backtrace(error: &str) -> impl Iterator<Item = u32> {
 /// for an exception that nothing catches.
 fn traceback(frames: &[&SiteFrame], message: &str) -> String {
     let cutoff = usize::try_from(RECURSIVE_CUTOFF).expect("a positive cutoff");
-    let mut text = String::from("Traceback (most recent call last):\n");
+    let mut text = String::from(TRACEBACK);
     let mut last = None;
     let mut count = 0;
     for frame in frames {
@@ -100,6 +102,6 @@ fn repeated(text: &mut String, count: usize, cutoff: usize) {
     if count > cutoff {
         let more = count - cutoff;
         let s = if more > 1 { "s" } else { "" };
-        text.push_str(&format!("  [Previous line repeated {more} more time{s}]\n"));
+        text.push_str(&format!("{REPEATED}{more}{MORE_TIME}{s}{REPEATED_END}"));
     }
 }

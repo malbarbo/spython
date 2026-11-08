@@ -4,6 +4,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::exc::Exceptions;
 use super::str::StrRepr;
+use crate::cpython::{DIVISION_BY_ZERO, MODULO_BY_ZERO};
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::{ArithOp, CmpOp};
@@ -195,13 +196,7 @@ fn add_floor_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, check
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
-    check_divisor(
-        m,
-        &mut f,
-        str,
-        exc,
-        "ZeroDivisionError: integer division or modulo by zero",
-    );
+    check_divisor(m, &mut f, str, exc, DIVISION_BY_ZERO);
     f.ins()
         .local_get(a)
         .i64_extend_i32_s()
@@ -233,13 +228,7 @@ fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> u32 {
     let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
     let r = f.local(ValType::I32);
-    check_divisor(
-        m,
-        &mut f,
-        str,
-        exc,
-        "ZeroDivisionError: integer modulo by zero",
-    );
+    check_divisor(m, &mut f, str, exc, MODULO_BY_ZERO);
     f.ins()
         .local_get(a)
         .local_get(b)

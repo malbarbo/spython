@@ -3,7 +3,9 @@
 use wasm_encoder::{BlockType, Catch, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use super::str::StrRepr;
-use crate::cpython::traceback::RECURSIVE_CUTOFF;
+use crate::cpython::{
+    MORE_TIME, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
+};
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::SiteFrame;
@@ -37,10 +39,6 @@ pub(super) struct Exceptions {
     /// frame of the module.
     depth: u32,
 }
-
-/// The most frames CPython keeps, with its default recursion limit. The
-/// frame of the module counts.
-const MAX_DEPTH: i32 = 1000;
 
 impl Exceptions {
     pub fn new(m: &mut ModuleState, host: &Host, str: &mut StrRepr) -> Self {
@@ -120,7 +118,7 @@ impl Exceptions {
             .local_get(site)
             .call(add_frame)
             .call(host.to_stderr);
-        str.literal(m, &mut f, "Traceback (most recent call last):\n");
+        str.literal(m, &mut f, TRACEBACK);
         str.write(&mut f);
         f.ins()
             .local_get(e)
@@ -200,7 +198,7 @@ impl Exceptions {
     pub fn call_fits(&self, f: &mut FuncState) {
         f.ins()
             .global_get(self.depth)
-            .i32_const(MAX_DEPTH)
+            .i32_const(RECURSION_LIMIT)
             .i32_lt_s();
     }
 
@@ -312,12 +310,12 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> u32 {
         .i32_const(RECURSIVE_CUTOFF)
         .i32_sub()
         .local_set(count);
-    str.literal(m, &mut f, "  [Previous line repeated ");
+    str.literal(m, &mut f, REPEATED);
     str.write(&mut f);
     f.ins().local_get(count).i64_extend_i32_s();
     str.decimal(&mut f);
     str.write(&mut f);
-    str.literal(m, &mut f, " more time");
+    str.literal(m, &mut f, MORE_TIME);
     str.write(&mut f);
     f.ins()
         .local_get(count)
@@ -327,7 +325,7 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> u32 {
     str.literal(m, &mut f, "s");
     str.write(&mut f);
     f.ins().end();
-    str.literal(m, &mut f, "]\n");
+    str.literal(m, &mut f, REPEATED_END);
     str.write(&mut f);
     f.ins().end();
     m.add_func(ty, f.finish())

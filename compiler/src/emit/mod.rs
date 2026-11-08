@@ -5,6 +5,7 @@ pub(crate) mod module;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
+use crate::cpython::RECURSION_ERROR;
 use crate::cpython::suggest::MAX_CANDIDATE_ITEMS;
 use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
@@ -525,7 +526,7 @@ impl Emitter<'_> {
         }
         self.at(f, site, |e, f| {
             e.reprs.call_fits(f);
-            e.raise_if_zero(f, "RecursionError: maximum recursion depth exceeded");
+            e.raise_if_zero(f, RECURSION_ERROR);
             f.ins().call(index);
         });
     }

@@ -10,10 +10,6 @@ use ruff_python_ast::{Expr, Stmt};
 use ruff_python_parser::parse_module;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
-/// The traceback writes the first frames of a run of frames on the same
-/// line, and then how many more there are.
-pub(crate) const RECURSIVE_CUTOFF: i32 = 3;
-
 /// The text CPython writes for a frame of the function `name`, in the file
 /// at `path`, when the instruction that failed covers `range` of `source`.
 pub(crate) fn frame(path: &str, name: &str, source: &str, range: TextRange) -> String {
