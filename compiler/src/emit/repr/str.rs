@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
 
-use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, ModuleState, TypeIdx};
+use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, ModuleState, TypeIdx};
 use crate::emit::runtime::host::Host;
 
 /// The most code points in a `str`, the longest array that an `i32`
@@ -78,8 +78,7 @@ impl StrRepr {
             } => {
                 let array = *array;
                 *literals.entry(s.to_owned()).or_insert_with(|| {
-                    let bytes: Vec<u8> = s.chars().flat_map(|c| (c as u32).to_le_bytes()).collect();
-                    let data = m.passive_data(bytes);
+                    let data = m.passive_data(encode(s));
                     let global = m.global(
                         ref_to(array, true),
                         &ConstExpr::ref_null(HeapType::Concrete(array.0)),
@@ -93,6 +92,24 @@ impl StrRepr {
                         .global_set(global.0);
                     global
                 })
+            }
+        }
+    }
+
+    /// The bytes of `s` in a data segment that [`Self::new_data`] reads.
+    pub fn encode(&self, s: &str) -> Vec<u8> {
+        match self {
+            StrRepr::Ucs4 { .. } => encode(s),
+        }
+    }
+
+    /// Pops the start and the length of a text in `data`, which
+    /// [`Self::encode`] wrote, and pushes its `str`. The start counts bytes
+    /// and the length counts code points.
+    pub fn new_data(&self, f: &mut FuncState, data: DataIdx) {
+        match self {
+            StrRepr::Ucs4 { array, .. } => {
+                f.ins().array_new_data(array.0, data.0);
             }
         }
     }
@@ -548,6 +565,11 @@ fn add_repeat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
+}
+
+/// The code points of `s` in UCS-4, little endian.
+fn encode(s: &str) -> Vec<u8> {
+    s.chars().flat_map(|c| (c as u32).to_le_bytes()).collect()
 }
 
 /// The code points below this one each have one `str`, which the first

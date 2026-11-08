@@ -66,7 +66,7 @@ impl Reprs {
     /// Adds what the module needs once the program is emitted, with the
     /// text of the frame of each site.
     pub fn finish(&mut self, m: &mut ModuleState, sites: &[SiteFrame]) {
-        self.exc.finish(m, &mut self.str, sites);
+        self.exc.finish(m, &self.str, sites);
     }
 
     /// The type of a local that holds a value of `rep`, and `None` for a

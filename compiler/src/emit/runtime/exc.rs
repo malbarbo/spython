@@ -1,5 +1,7 @@
 //! The exceptions, and the traceback of an exception that nothing catches.
 
+use std::collections::HashMap;
+
 use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use crate::cpython::{
@@ -36,16 +38,17 @@ pub(in crate::emit) struct Exceptions {
     /// `(func (param (ref $Exc) i32))`, which adds the frame of the site to
     /// the traceback and raises the exception again.
     reraise: FuncIdx,
-    /// `(array (mut (ref null $Str)))`, with the text of the frame of each
-    /// site.
+    /// `(array (mut i32))`, with three numbers for each site. They are the
+    /// id of the line of the frame of the site, and the start and the
+    /// length of the text of the frame in the data that [`Self::finish`]
+    /// writes.
     sites: TypeIdx,
     /// The global that holds the array of the sites.
     sites_global: GlobalIdx,
-    /// `(array (mut i32))`, with the id of the line of the frame of each
-    /// site.
-    lines: TypeIdx,
-    /// The global that holds the array of the lines.
-    lines_global: GlobalIdx,
+    /// `(func (param i32) (result (ref $Str)))`, which builds the text of
+    /// the frame of the site. [`Self::finish`] defines it, once it knows
+    /// the texts.
+    text: FuncIdx,
     /// The global with the number of frames, which starts at 1 for the
     /// frame of the module.
     depth: GlobalIdx,
@@ -67,16 +70,13 @@ impl Exceptions {
         ]);
         let tag_type = m.func_type(&[ref_to(exc, false)], &[]);
         let tag = m.tag(tag_type);
-        let sites = m.array_type(StorageType::Val(ref_to(str_type, true)), true);
+        let sites = m.array_type(StorageType::Val(ValType::I32), true);
         let sites_global = m.global(
             ref_to(sites, true),
             &ConstExpr::ref_null(HeapType::Concrete(sites.0)),
         );
-        let lines = m.array_type(StorageType::Val(ValType::I32), true);
-        let lines_global = m.global(
-            ref_to(lines, true),
-            &ConstExpr::ref_null(HeapType::Concrete(lines.0)),
-        );
+        let text_type = m.func_type(&[ValType::I32], &[ref_to(str_type, false)]);
+        let text = m.reserve(text_type);
         let depth = m.global(ValType::I32, &ConstExpr::i32_const(1));
         let repeated = add_repeated(m, str);
 
@@ -154,10 +154,12 @@ impl Exceptions {
         f.ins().local_get(next).ref_is_null();
         f.br_if(done);
         f.ins()
-            .global_get(lines_global.0)
+            .global_get(sites_global.0)
             .local_get(next)
             .struct_get(frame.0, 0)
-            .array_get(lines.0)
+            .i32_const(SITE_FIELDS)
+            .i32_mul()
+            .array_get(sites.0)
             .local_tee(line)
             .local_get(last)
             .i32_ne();
@@ -178,12 +180,7 @@ impl Exceptions {
             .i32_const(RECURSIVE_CUTOFF)
             .i32_le_s();
         f.if_(BlockType::Empty);
-        f.ins()
-            .global_get(sites_global.0)
-            .local_get(next)
-            .struct_get(frame.0, 0)
-            .array_get(sites.0)
-            .ref_as_non_null();
+        f.ins().local_get(next).struct_get(frame.0, 0).call(text.0);
         str.write(&mut f);
         f.end();
         f.ins()
@@ -217,8 +214,7 @@ impl Exceptions {
             reraise,
             sites,
             sites_global,
-            lines,
-            lines_global,
+            text,
             depth,
         }
     }
@@ -295,35 +291,55 @@ impl Exceptions {
         f.ins().local_get(site).call(self.reraise.0).unreachable();
     }
 
-    /// Fills the arrays of the sites, with the text and the id of the line
-    /// of the frame of each.
-    pub fn finish(&self, m: &mut ModuleState, str: &mut StrRepr, sites: &[SiteFrame]) {
-        let globals: Vec<GlobalIdx> = sites
-            .iter()
-            .map(|site| str.literal_global(m, &site.text))
-            .collect();
-        let len = i32::try_from(sites.len()).expect("fewer than 2^31 sites");
-        let mut ins = wasm_encoder::InstructionSink::new(&mut m.init);
-        ins.i32_const(len)
-            .array_new_default(self.sites.0)
-            .global_set(self.sites_global.0)
-            .i32_const(len)
-            .array_new_default(self.lines.0)
-            .global_set(self.lines_global.0);
-        for (i, (global, site)) in globals.into_iter().zip(sites).enumerate() {
-            let i = i32::try_from(i).expect("fewer than 2^31 sites");
+    /// Fills the array of the sites, and defines [`Self::text`]. The
+    /// texts stay as bytes until a traceback writes them, and two sites
+    /// with the same text share its bytes.
+    pub fn finish(&self, m: &mut ModuleState, str: &StrRepr, sites: &[SiteFrame]) {
+        let mut texts = Vec::new();
+        let mut places: HashMap<&str, [i32; 2]> = HashMap::new();
+        let mut numbers = Vec::new();
+        for site in sites {
+            let [start, len] = *places.entry(&site.text).or_insert_with(|| {
+                let start = i32::try_from(texts.len()).expect("texts shorter than 2^31 bytes");
+                texts.extend(str.encode(&site.text));
+                let len =
+                    i32::try_from(site.text.chars().count()).expect("a text shorter than 2^31");
+                [start, len]
+            });
             let line = i32::try_from(site.line).expect("fewer than 2^31 lines");
-            ins.global_get(self.sites_global.0)
-                .i32_const(i)
-                .global_get(global.0)
-                .array_set(self.sites.0)
-                .global_get(self.lines_global.0)
-                .i32_const(i)
-                .i32_const(line)
-                .array_set(self.lines.0);
+            for number in [line, start, len] {
+                numbers.extend(number.to_le_bytes());
+            }
         }
+        let texts = m.passive_data(texts);
+        let numbers_len = i32::try_from(numbers.len() / 4).expect("fewer than 2^31 sites");
+        let numbers = m.passive_data(numbers);
+        wasm_encoder::InstructionSink::new(&mut m.init)
+            .i32_const(0)
+            .i32_const(numbers_len)
+            .array_new_data(self.sites.0, numbers.0)
+            .global_set(self.sites_global.0)
+            .data_drop(numbers.0);
+
+        let site = 0;
+        let mut f = FuncState::new(1);
+        for field in [1, 2] {
+            f.ins()
+                .global_get(self.sites_global.0)
+                .local_get(site)
+                .i32_const(SITE_FIELDS)
+                .i32_mul()
+                .i32_const(field)
+                .i32_add()
+                .array_get(self.sites.0);
+        }
+        str.new_data(&mut f, texts);
+        m.define(self.text, f.finish());
     }
 }
+
+/// How many numbers [`Exceptions::finish`] writes for each site.
+const SITE_FIELDS: i32 = 3;
 
 /// `(func (param i32))`, which writes how many frames of a run the
 /// traceback leaves out, when the run has more than the cutoff.
