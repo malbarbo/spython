@@ -1,16 +1,15 @@
 //! How each value is laid out in wasm. No other module knows it.
 
-mod exc;
 mod int;
-mod str;
+pub(super) mod str;
 
 use wasm_encoder::{BlockType, ConstExpr, HeapType, ValType};
 
+use super::module::{FuncState, ModuleState};
+use super::runtime::exc::Exceptions;
+use super::runtime::host::Host;
 use crate::cpython::{MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
-use crate::emit::host::Host;
-use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::{ArithOp, CmpOp, Rep, SiteFrame};
-use exc::Exceptions;
 use int::IntRepr;
 use str::StrRepr;
 

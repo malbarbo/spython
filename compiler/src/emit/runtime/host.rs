@@ -3,7 +3,7 @@
 
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
-use super::module::{FuncState, ModuleState};
+use crate::emit::module::{FuncState, ModuleState};
 
 /// Where `fd_write` reads the one iovec of a write.
 const IOVEC: u64 = 0;

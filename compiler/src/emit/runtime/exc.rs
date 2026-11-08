@@ -2,15 +2,15 @@
 
 use wasm_encoder::{BlockType, Catch, ConstExpr, HeapType, RefType, StorageType, ValType};
 
-use super::str::StrRepr;
 use crate::cpython::{
     MORE_TIME, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
 };
-use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
+use crate::emit::repr::str::StrRepr;
+use crate::emit::runtime::host::Host;
 use crate::ir::SiteFrame;
 
-pub(super) struct Exceptions {
+pub(in crate::emit) struct Exceptions {
     /// `(struct (field $message (ref $Str)) (field $tb (mut (ref null $Frame))))`.
     /// The message is the last line of the traceback.
     exc: u32,

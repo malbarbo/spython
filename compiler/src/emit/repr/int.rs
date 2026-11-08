@@ -2,11 +2,11 @@
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use super::exc::Exceptions;
 use super::str::StrRepr;
 use crate::cpython::{DIVISION_BY_ZERO, MODULO_BY_ZERO};
-use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
+use crate::emit::runtime::exc::Exceptions;
+use crate::emit::runtime::host::Host;
 use crate::ir::{ArithOp, CmpOp};
 
 const MIN: i64 = -(1 << 30);

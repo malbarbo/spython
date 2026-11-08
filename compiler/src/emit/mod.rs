@@ -1,7 +1,8 @@
 //! From the IR to the bytes of the module.
 
-pub(crate) mod host;
 pub(crate) mod module;
+mod repr;
+mod runtime;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
@@ -10,9 +11,9 @@ use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
     Undefined, VarId,
 };
-use crate::repr::Reprs;
-use host::Host;
 use module::{CodeMap, FuncState, ModuleState};
+use repr::Reprs;
+use runtime::host::Host;
 
 /// The bytes of the module, with the place of the code of each site.
 pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {

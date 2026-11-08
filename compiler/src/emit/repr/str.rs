@@ -4,14 +4,14 @@ use std::collections::HashMap;
 
 use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
 
-use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
+use crate::emit::runtime::host::Host;
 
 /// The most code points in a `str`, the longest array that an `i32`
 /// length gives.
 const MAX_LEN: i64 = i32::MAX as i64;
 
-pub(super) enum StrRepr {
+pub(in crate::emit) enum StrRepr {
     /// One code point per element of an `(array (mut i32))`, so `s[i]` is
     /// O(1). The array is mutable only while a function builds it.
     Ucs4 {

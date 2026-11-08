@@ -4,7 +4,6 @@ mod cpython;
 mod emit;
 mod ir;
 mod lower;
-mod repr;
 mod trap;
 
 use ruff_db::files::File;
