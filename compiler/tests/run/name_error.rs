@@ -1,6 +1,6 @@
 //! The `NameError` with the suggestion of CPython.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::same_as_cpython;
 
@@ -240,6 +240,63 @@ fn the_name_error_suggests_the_first_local_after_a_bare_declaration() {
 
             print(f())
             aa = 0
+        "},
+    );
+}
+
+/// CPython measures the distance between two names over their UTF-8
+/// bytes, so `acao` is too far from `ação`, and `açao` is not.
+#[test]
+fn the_name_error_measures_a_name_outside_ascii_by_its_bytes() {
+    for (name, typo) in [
+        ("the_name_error_suggests_no_local_too_far_in_bytes", "acao"),
+        ("the_name_error_suggests_a_local_outside_ascii", "açao"),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                def f() -> int:
+                    ação = 1
+                    return {typo}
+
+
+                print(f())
+                {typo} = 2
+            "},
+        );
+    }
+}
+
+/// CPython looks at the locals before the builtins, and keeps the first
+/// name at the smallest distance.
+#[test]
+fn the_name_error_suggests_a_local_over_a_builtin_at_the_same_distance() {
+    same_as_cpython(
+        "the_name_error_suggests_a_local_over_a_builtin_at_the_same_distance",
+        indoc! {"
+            def f() -> int:
+                lex = 1
+                return lem
+
+
+            print(f())
+            lem = 2
+        "},
+    );
+}
+
+/// A `bool` has the attributes of an `int`.
+#[test]
+fn the_name_error_suggests_an_attribute_of_a_bool_self() {
+    same_as_cpython(
+        "the_name_error_suggests_an_attribute_of_a_bool_self",
+        indoc! {"
+            def f(self: bool) -> int:
+                return real
+
+
+            print(f(True))
+            real = 2
         "},
     );
 }
