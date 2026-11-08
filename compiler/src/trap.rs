@@ -1,12 +1,15 @@
 //! The traceback of a program that wasmtime stopped with a trap.
 
 use crate::Module;
-use crate::cpython::MEMORY_ERROR;
 use crate::cpython::traceback::uncaught;
+use crate::cpython::{MEMORY_ERROR, RECURSION_ERROR};
 
 /// What wasmtime writes for an allocation larger than the GC heap holds,
 /// and for one larger than any heap holds.
 const OUT_OF_MEMORY: [&str; 2] = ["GC heap out of memory", "allocation size too large"];
+
+/// What wasmtime writes when the calls fill the native stack.
+const STACK_EXHAUSTED: [&str; 1] = ["call stack exhausted"];
 
 impl Module {
     /// The traceback that CPython writes for a `MemoryError`, for the
@@ -17,6 +20,18 @@ impl Module {
     /// [`Self::uncaught_trap`].
     pub fn memory_error(&self, stderr: &str) -> Option<String> {
         self.uncaught_trap(stderr, &OUT_OF_MEMORY, MEMORY_ERROR)
+    }
+
+    /// The traceback that CPython writes for a `RecursionError`, for the
+    /// standard error of a wasmtime run that stopped because the calls
+    /// filled the native stack. A function with large frames fills it
+    /// before the recursion limit, so the traceback has fewer frames than
+    /// the one of CPython.
+    ///
+    /// Returns `None` for any other error, and in the cases of
+    /// [`Self::uncaught_trap`].
+    pub fn recursion_error(&self, stderr: &str) -> Option<String> {
+        self.uncaught_trap(stderr, &STACK_EXHAUSTED, RECURSION_ERROR)
     }
 
     /// The traceback of an exception with `message` as its last line, for

@@ -34,9 +34,9 @@ pub fn run(file: &Path, level: Level) -> Result<(), SpythonError> {
     wasm.write_all(&module.bytes)
         .map_err(|err| other(format!("cannot write the module file: {err}")))?;
 
-    // The stack of 8 MiB holds the 1000 frames of the recursion limit of
-    // CPython, and a backtrace of 2000 frames holds them too. The module
-    // writes to the standard error only before it ends, so the error
+    // The stack of 8 MiB holds 1000 frames of the usual size, the recursion
+    // limit of CPython, and a backtrace of 2000 frames holds them too. The
+    // module writes to the standard error only before it ends, so the error
     // comes after the standard output when it waits for the end.
     let output = Command::new("wasmtime")
         .args([
@@ -61,7 +61,10 @@ pub fn run(file: &Path, level: Level) -> Result<(), SpythonError> {
     // wasmtime stopped it.
     let error = String::from_utf8_lossy(&output.stderr);
     let mut stderr = std::io::stderr();
-    let written = match module.memory_error(&error) {
+    let traceback = module
+        .memory_error(&error)
+        .or_else(|| module.recursion_error(&error));
+    let written = match traceback {
         Some(traceback) => stderr.write_all(traceback.as_bytes()),
         None => stderr.write_all(&output.stderr),
     };

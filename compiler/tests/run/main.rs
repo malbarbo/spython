@@ -3,7 +3,7 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, ExitStatus, Output, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -39,17 +39,33 @@ fn path(name: &str, extension: &str) -> PathBuf {
 }
 
 /// Runs `module` in the wasmtime on the `PATH`, or in the one that
-/// `WASMTIME` names. The stack of 8 MiB holds the 1000 frames of the
-/// recursion limit of CPython, and a backtrace of 2000 frames holds them
-/// too. The GC heap has `heap` bytes, when it is given. A program that
-/// runs out of the heap writes the traceback of
-/// [`compiler::Module::memory_error`], as the CLI does.
+/// `WASMTIME` names. The stack of 8 MiB holds 1000 frames of the usual
+/// size, the recursion limit of CPython, and a backtrace of 2000 frames
+/// holds them too. The GC heap has `heap` bytes, when it is given. A
+/// program that runs out of the heap writes the traceback of
+/// [`compiler::Module::memory_error`], and one that fills the stack writes
+/// the traceback of [`compiler::Module::recursion_error`]. Both exit with
+/// 1, as the CLI does.
 fn wasmtime(name: &str, module: &compiler::Module, heap: Option<u32>) -> Output {
     let mut output = output_within_limit(wasmtime_command(name, module, heap));
-    if let Some(traceback) = module.memory_error(&String::from_utf8_lossy(&output.stderr)) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if let Some(traceback) = module
+        .memory_error(&stderr)
+        .or_else(|| module.recursion_error(&stderr))
+    {
         output.stderr = traceback.into_bytes();
+        output.status = exit_status_1();
     }
     output
+}
+
+/// The status of a process that exited with 1.
+fn exit_status_1() -> ExitStatus {
+    #[cfg(unix)]
+    let status = std::os::unix::process::ExitStatusExt::from_raw(1 << 8);
+    #[cfg(windows)]
+    let status = std::os::windows::process::ExitStatusExt::from_raw(1);
+    status
 }
 
 /// The command that runs `module` in wasmtime, as [`wasmtime`] says.
