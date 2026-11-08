@@ -1,21 +1,25 @@
 //! Variables and assignments.
 
+use indoc::indoc;
+
 use super::{same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn a_variable_holds_an_int_a_bool_or_a_str() {
     same_as_cpython(
         "a_variable_holds_an_int_a_bool_or_a_str",
-        "n = 7\n\
-         s = 'olá'\n\
-         b = n > 3\n\
-         print(n, s, b)\n\
-         n = n * 2\n\
-         s = 'mundo'\n\
-         print(n, s, b, n // 4)\n\
-         t: int = -3\n\
-         u: str\n\
-         print(t // 2, t % 2)\n",
+        indoc! {"
+            n = 7
+            s = 'olá'
+            b = n > 3
+            print(n, s, b)
+            n = n * 2
+            s = 'mundo'
+            print(n, s, b, n // 4)
+            t: int = -3
+            u: str
+            print(t // 2, t % 2)
+        "},
     );
 }
 
@@ -23,7 +27,12 @@ fn a_variable_holds_an_int_a_bool_or_a_str() {
 fn a_chained_assignment_gives_the_value_to_every_target() {
     same_as_cpython(
         "a_chained_assignment_gives_the_value_to_every_target",
-        "a = b = c = 1 + 2\nprint(a, b, c)\na = 0\nprint(a, b, c)\n",
+        indoc! {"
+            a = b = c = 1 + 2
+            print(a, b, c)
+            a = 0
+            print(a, b, c)
+        "},
     );
 }
 
@@ -31,7 +40,17 @@ fn a_chained_assignment_gives_the_value_to_every_target() {
 fn an_augmented_assignment_follows_python() {
     same_as_cpython(
         "an_augmented_assignment_follows_python",
-        "n = 10\nn += 5\nn -= 1\nn *= 3\nprint(n)\nn //= 4\nprint(n)\nn %= -4\nprint(n)\n",
+        indoc! {"
+            n = 10
+            n += 5
+            n -= 1
+            n *= 3
+            print(n)
+            n //= 4
+            print(n)
+            n %= -4
+            print(n)
+        "},
     );
 }
 
@@ -39,7 +58,15 @@ fn an_augmented_assignment_follows_python() {
 fn the_sum_of_two_strs_joins_them() {
     same_as_cpython(
         "the_sum_of_two_strs_joins_them",
-        "s = 'ab' + 'çd'\nprint(s + '' + s)\nprint('' + '')\nt = 'x'\nt += s\nt += t\nprint(t)\n",
+        indoc! {"
+            s = 'ab' + 'çd'
+            print(s + '' + s)
+            print('' + '')
+            t = 'x'
+            t += s
+            t += t
+            print(t)
+        "},
     );
 }
 
@@ -47,7 +74,10 @@ fn the_sum_of_two_strs_joins_them() {
 fn an_augmented_assignment_by_zero_raises_zero_division_error() {
     same_as_cpython(
         "an_augmented_assignment_by_zero_raises_zero_division_error",
-        "n = 7\nn //= 0  # ty: ignore[division-by-zero]\n",
+        indoc! {"
+            n = 7
+            n //= 0  # ty: ignore[division-by-zero]
+        "},
     );
 }
 
@@ -55,8 +85,14 @@ fn an_augmented_assignment_by_zero_raises_zero_division_error() {
 fn an_augmented_assignment_outside_31_bits_stops_the_program() {
     stops_at_the_int_limit(
         "an_augmented_assignment_outside_31_bits_stops_the_program",
-        "n = 1073741823\nprint(n)\nn += 1\n",
-        "1073741823\n",
+        indoc! {"
+            n = 1073741823
+            print(n)
+            n += 1
+        "},
+        indoc! {"
+            1073741823
+        "},
         3,
         "    n += 1\n",
         "1073741824",
@@ -69,7 +105,11 @@ fn an_augmented_assignment_outside_31_bits_stops_the_program() {
 fn a_read_before_the_assignment_raises_name_error() {
     same_as_cpython(
         "a_read_before_the_assignment_raises_name_error",
-        "print(1)\nprint(2, x)  # ty: ignore[unresolved-reference]\nx = 3\n",
+        indoc! {"
+            print(1)
+            print(2, x)  # ty: ignore[unresolved-reference]
+            x = 3
+        "},
     );
 }
 
@@ -77,14 +117,21 @@ fn a_read_before_the_assignment_raises_name_error() {
 fn an_augmented_assignment_before_the_assignment_raises_name_error() {
     same_as_cpython(
         "an_augmented_assignment_before_the_assignment_raises_name_error",
-        "s = 1\ns += n  # ty: ignore[unresolved-reference]\nn = 3\n",
+        indoc! {"
+            s = 1
+            s += n  # ty: ignore[unresolved-reference]
+            n = 3
+        "},
     );
 }
 
 #[test]
 fn a_read_before_the_assignment_of_a_builtin_name_is_unsupported() {
     assert_eq!(
-        unsupported("print(abs)  # ty: ignore[unresolved-reference]\nabs = 3\n"),
+        unsupported(indoc! {"
+            print(abs)  # ty: ignore[unresolved-reference]
+            abs = 3
+        "}),
         "a name that may be a builtin"
     );
 }
@@ -92,12 +139,20 @@ fn a_read_before_the_assignment_of_a_builtin_name_is_unsupported() {
 #[test]
 fn a_variable_with_values_of_two_types_is_unsupported() {
     assert_eq!(
-        unsupported("x = 1\nx = 'a'\n"),
+        unsupported(indoc! {"
+            x = 1
+            x = 'a'
+        "}),
         "a variable with values of two types"
     );
 }
 
 #[test]
 fn a_variable_of_none_is_unsupported() {
-    assert_eq!(unsupported("x = print(1)\n"), "a variable of this type");
+    assert_eq!(
+        unsupported(indoc! {"
+        x = print(1)
+    "}),
+        "a variable of this type"
+    );
 }

@@ -1,6 +1,6 @@
 //! The recursion limit and the traceback of a recursion.
 
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 
 use super::{compile, cpython, path, same_as_cpython, wasmtime};
 
@@ -8,10 +8,15 @@ use super::{compile, cpython, path, same_as_cpython, wasmtime};
 fn a_recursive_function_runs_up_to_the_limit_of_cpython() {
     same_as_cpython(
         "a_recursive_function_runs_up_to_the_limit_of_cpython",
-        "def count(n: int) -> int:\n    if n == 0:\n        return 0\n    return 1 + count(n - 1)\n\
-         \n\
-         print(count(998))\n\
-         print(count(999))\n",
+        indoc! {"
+            def count(n: int) -> int:
+                if n == 0:
+                    return 0
+                return 1 + count(n - 1)
+
+            print(count(998))
+            print(count(999))
+        "},
     );
 }
 
@@ -19,7 +24,12 @@ fn a_recursive_function_runs_up_to_the_limit_of_cpython() {
 fn a_recursion_without_end_raises_recursion_error() {
     same_as_cpython(
         "a_recursion_without_end_raises_recursion_error",
-        "def f(n: int) -> int:\n    return f(n + 1)\n\nprint(f(0))\n",
+        indoc! {"
+            def f(n: int) -> int:
+                return f(n + 1)
+
+            print(f(0))
+        "},
     );
 }
 
@@ -32,11 +42,14 @@ fn the_traceback_writes_how_many_frames_on_the_same_line_it_leaves_out() {
     ] {
         same_as_cpython(
             name,
-            &format!(
-                "def f(n: int) -> int:\n    if n == 0:\n        return 1 // n  # ty: ignore[division-by-zero]\n    return f(n - 1)\n\
-                 \n\
-                 print(f({n}))\n"
-            ),
+            &formatdoc! {"
+                def f(n: int) -> int:
+                    if n == 0:
+                        return 1 // n  # ty: ignore[division-by-zero]
+                    return f(n - 1)
+
+                print(f({n}))
+                "},
         );
     }
 }
@@ -45,11 +58,17 @@ fn the_traceback_writes_how_many_frames_on_the_same_line_it_leaves_out() {
 fn a_mutual_recursion_has_every_frame_in_the_traceback() {
     same_as_cpython(
         "a_mutual_recursion_has_every_frame_in_the_traceback",
-        "def a(n: int) -> int:\n    return b(n)\n\
-         \n\
-         def b(n: int) -> int:\n    if n == 0:\n        return 1 // n  # ty: ignore[division-by-zero]\n    return a(n - 1)\n\
-         \n\
-         print(a(3))\n",
+        indoc! {"
+            def a(n: int) -> int:
+                return b(n)
+
+            def b(n: int) -> int:
+                if n == 0:
+                    return 1 // n  # ty: ignore[division-by-zero]
+                return a(n - 1)
+
+            print(a(3))
+        "},
     );
 }
 
@@ -91,7 +110,9 @@ fn without_repeat_count(traceback: &str) -> String {
         .map(
             |line| match line.strip_prefix("  [Previous line repeated ") {
                 Some(_) => "  [Previous line repeated N more times]\n".to_owned(),
-                None => format!("{line}\n"),
+                None => formatdoc! {"
+                    {line}
+                "},
             },
         )
         .collect()

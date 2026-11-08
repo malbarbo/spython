@@ -8,16 +8,22 @@ use super::same_as_cpython;
 fn the_name_error_of_a_name_of_a_module_asks_about_an_import() {
     same_as_cpython(
         "the_name_error_of_a_name_of_a_module_asks_about_an_import",
-        "def h() -> str:\n    return string\n\
-         \n\
-         print(h())\n\
-         string = 'a'\n",
+        indoc! {"
+            def h() -> str:
+                return string
+
+            print(h())
+            string = 'a'
+        "},
     );
     same_as_cpython(
         "the_name_error_of_a_call_of_a_name_of_a_module_asks_about_an_import",
-        "print(random())  # ty: ignore[unresolved-reference]\n\
-         \n\
-         def random() -> int:\n    return 4\n",
+        indoc! {"
+            print(random())  # ty: ignore[unresolved-reference]
+
+            def random() -> int:
+                return 4
+        "},
     );
 }
 
@@ -25,10 +31,14 @@ fn the_name_error_of_a_name_of_a_module_asks_about_an_import() {
 fn the_name_error_suggests_a_local_with_a_value() {
     same_as_cpython(
         "the_name_error_suggests_a_local_with_a_value",
-        "def f() -> int:\n    totals = 1\n    return total\n\
-         \n\
-         print(f())\n\
-         total = 2\n",
+        indoc! {"
+            def f() -> int:
+                totals = 1
+                return total
+
+            print(f())
+            total = 2
+        "},
     );
 }
 
@@ -40,12 +50,15 @@ fn the_name_error_suggests_no_local_without_a_value() {
     ] {
         same_as_cpython(
             name,
-            &format!(
-                "def f(c: bool) -> int:\n    if c:\n        totals = 1\n    return total\n\
-                 \n\
-                 print(f({c}))\n\
-                 total = 2\n"
-            ),
+            &formatdoc! {"
+                def f(c: bool) -> int:
+                    if c:
+                        totals = 1
+                    return total
+
+                print(f({c}))
+                total = 2
+                "},
         );
     }
 }
@@ -56,12 +69,19 @@ fn the_name_error_suggests_no_local_without_a_value() {
 fn the_name_error_suggests_the_first_local_in_the_order_of_the_code() {
     same_as_cpython(
         "the_name_error_suggests_the_first_local_in_the_order_of_the_code",
-        "def f() -> int:\n    n = 0\n    while n < 2:\n        if n == 1:\n            \
-         abe = abd  # ty: ignore[possibly-unresolved-reference]\n        abd = 1\n        \
-         n += 1\n    return abc\n\
-         \n\
-         print(f())\n\
-         abc = 3\n",
+        indoc! {"
+            def f() -> int:
+                n = 0
+                while n < 2:
+                    if n == 1:
+                        abe = abd  # ty: ignore[possibly-unresolved-reference]
+                    abd = 1
+                    n += 1
+                return abc
+
+            print(f())
+            abc = 3
+        "},
     );
 }
 
@@ -82,18 +102,25 @@ fn the_name_error_suggests_the_global_with_the_first_binding() {
     ] {
         same_as_cpython(
             name,
-            &format!(
-                "def g(c: bool) -> None:\n    global kzy, kzw\n    if c:\n        kzy = 1\n        \
-                 kzw = 2\n    else:\n        kzw = 2\n        kzy = 1\n    kzy = 3\n\
-                 \n\
-                 def f() -> int:\n    return kzx\n\
-                 \n\
-                 kzy: int\n\
-                 kzw: int\n\
-                 {call}\
-                 print(f())\n\
-                 kzx = 3\n"
-            ),
+            &formatdoc! {"
+                def g(c: bool) -> None:
+                    global kzy, kzw
+                    if c:
+                        kzy = 1
+                        kzw = 2
+                    else:
+                        kzw = 2
+                        kzy = 1
+                    kzy = 3
+
+                def f() -> int:
+                    return kzx
+
+                kzy: int
+                kzw: int
+                {call}print(f())
+                kzx = 3
+                "},
         );
     }
 }
@@ -102,10 +129,13 @@ fn the_name_error_suggests_the_global_with_the_first_binding() {
 fn the_name_error_suggests_a_function_after_its_def() {
     same_as_cpython(
         "the_name_error_suggests_a_function_after_its_def",
-        "def area() -> int:\n    return 1\n\
-         \n\
-         print(areas)  # ty: ignore[unresolved-reference]\n\
-         areas = 2\n",
+        indoc! {"
+            def area() -> int:
+                return 1
+
+            print(areas)  # ty: ignore[unresolved-reference]
+            areas = 2
+        "},
     );
 }
 
@@ -114,9 +144,11 @@ fn the_name_error_suggests_a_function_after_its_def() {
 fn the_name_error_suggests_a_global_of_the_module_first() {
     same_as_cpython(
         "the_name_error_suggests_a_global_of_the_module_first",
-        "__nams__ = 1\n\
-         print(__nam__)  # ty: ignore[unresolved-reference]\n\
-         __nam__ = 2\n",
+        indoc! {"
+            __nams__ = 1
+            print(__nam__)  # ty: ignore[unresolved-reference]
+            __nam__ = 2
+        "},
     );
 }
 
@@ -124,10 +156,13 @@ fn the_name_error_suggests_a_global_of_the_module_first() {
 fn the_name_error_suggests_a_builtin() {
     same_as_cpython(
         "the_name_error_suggests_a_builtin",
-        "def f() -> int:\n    return lenn\n\
-         \n\
-         print(f())\n\
-         lenn = 2\n",
+        indoc! {"
+            def f() -> int:
+                return lenn
+
+            print(f())
+            lenn = 2
+        "},
     );
 }
 
@@ -136,16 +171,21 @@ fn the_name_error_suggests_a_builtin() {
 fn the_name_error_suggests_an_attribute_of_self() {
     same_as_cpython(
         "the_name_error_suggests_an_attribute_of_self",
-        "def f(self: str) -> int:\n    return upper\n\
-         \n\
-         print(f('a'))\n\
-         upper = 2\n",
+        indoc! {"
+            def f(self: str) -> int:
+                return upper
+
+            print(f('a'))
+            upper = 2
+        "},
     );
     same_as_cpython(
         "the_name_error_suggests_an_attribute_of_self_in_the_module",
-        "self = 1\n\
-         print(real)  # ty: ignore[unresolved-reference]\n\
-         real = 2\n",
+        indoc! {"
+            self = 1
+            print(real)  # ty: ignore[unresolved-reference]
+            real = 2
+        "},
     );
 }
 
@@ -153,10 +193,14 @@ fn the_name_error_suggests_an_attribute_of_self() {
 fn the_name_error_suggests_a_name_and_asks_about_an_import() {
     same_as_cpython(
         "the_name_error_suggests_a_name_and_asks_about_an_import",
-        "def f() -> int:\n    strings = 1\n    return string\n\
-         \n\
-         print(f())\n\
-         string = 2\n",
+        indoc! {"
+            def f() -> int:
+                strings = 1
+                return string
+
+            print(f())
+            string = 2
+        "},
     );
 }
 

@@ -3,7 +3,7 @@
 use std::fs::File;
 use std::process::Stdio;
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::{
     compile, fails_to_write, merges_as_cpython, path, same_as_cpython, stops_at_the_int_limit,
@@ -17,19 +17,32 @@ fn an_empty_program_prints_nothing() {
 
 #[test]
 fn print_writes_a_str_and_a_newline() {
-    same_as_cpython("print_writes_a_str_and_a_newline", "print('olá')\n");
+    same_as_cpython(
+        "print_writes_a_str_and_a_newline",
+        indoc! {"
+        print('olá')
+    "},
+    );
 }
 
 #[test]
 fn print_without_arguments_writes_a_newline() {
-    same_as_cpython("print_without_arguments_writes_a_newline", "print()\n");
+    same_as_cpython(
+        "print_without_arguments_writes_a_newline",
+        indoc! {"
+        print()
+    "},
+    );
 }
 
 #[test]
 fn print_separates_its_arguments_with_a_space() {
     same_as_cpython(
         "print_separates_its_arguments_with_a_space",
-        "print('a', '', 'ção', '日本', '😀')\nprint('a')\n",
+        indoc! {"
+            print('a', '', 'ção', '日本', '😀')
+            print('a')
+        "},
     );
 }
 
@@ -38,7 +51,10 @@ fn print_writes_a_str_longer_than_the_buffer() {
     let text: String = "ab€😀".repeat(20_000);
     same_as_cpython(
         "print_writes_a_str_longer_than_the_buffer",
-        &format!("print('{text}', '{text}')\nprint('{text}')\n"),
+        &formatdoc! {"
+            print('{text}', '{text}')
+            print('{text}')
+        "},
     );
 }
 
@@ -46,14 +62,20 @@ fn print_writes_a_str_longer_than_the_buffer() {
 fn a_str_expression_as_a_statement_prints_nothing() {
     same_as_cpython(
         "a_str_expression_as_a_statement_prints_nothing",
-        "'nada'\nprint('nada')\n'nada'\n",
+        indoc! {"
+            'nada'
+            print('nada')
+            'nada'
+        "},
     );
 }
 
 #[test]
 fn a_str_with_the_escape_of_a_surrogate_is_unsupported() {
     assert_eq!(
-        unsupported("print('\\ud800')\n"),
+        unsupported(indoc! {"
+            print('\\ud800')
+        "}),
         "a str with an escape that may be a surrogate"
     );
 }
@@ -61,7 +83,9 @@ fn a_str_with_the_escape_of_a_surrogate_is_unsupported() {
 #[test]
 fn print_with_a_keyword_argument_is_unsupported() {
     assert_eq!(
-        unsupported("print('a', end='')\n"),
+        unsupported(indoc! {"
+            print('a', end='')
+        "}),
         "print with keyword arguments"
     );
 }
@@ -70,7 +94,9 @@ fn print_with_a_keyword_argument_is_unsupported() {
 fn print_evaluates_every_argument_before_it_writes() {
     stops_at_the_int_limit(
         "print_evaluates_every_argument_before_it_writes",
-        "print('a', 1073741823 + 1)\n",
+        indoc! {"
+            print('a', 1073741823 + 1)
+        "},
         "",
         1,
         "    print('a', 1073741823 + 1)\n               ~~~~~~~~~~~^~~\n",
