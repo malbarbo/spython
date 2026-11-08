@@ -93,7 +93,7 @@ impl<'a> Lowering<'a, '_> {
             Some(scope) => scope
                 .vars
                 .find("self")
-                .filter(|_| scope.locals.contains("self"))
+                .filter(|_| scope.is_local("self"))
                 .filter(|(_, rep)| has_attribute(Some(*rep), name))
                 .map(|(id, _)| Binding::Local(id)),
             None => match (module.find("self"), funcs.ids.get("self")) {

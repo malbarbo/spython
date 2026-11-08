@@ -17,7 +17,7 @@ impl<'a> Lowering<'a, '_> {
         };
         let name = name.id.as_str();
         let found = match self.scope.borrow().as_ref() {
-            Some(scope) if !scope.globals.contains(name) => scope
+            Some(scope) if scope.is_local(name) => scope
                 .vars
                 .find(name)
                 .map(|(id, rep)| (Place::Local(id), rep)),
@@ -39,7 +39,7 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn load(&self, name: &ast::ExprName) -> Result<Expr, Error> {
         let id = name.id.as_str();
         let local = match self.scope.borrow().as_ref() {
-            Some(scope) if scope.locals.contains(id) => Some(
+            Some(scope) if scope.is_local(id) => Some(
                 scope
                     .vars
                     .find(id)

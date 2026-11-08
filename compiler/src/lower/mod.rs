@@ -159,11 +159,17 @@ struct Scope {
     /// which makes the name local to the function, whether the variable has
     /// a rep or not.
     locals: HashSet<String>,
-    /// The names of the `global` statements of the function.
-    globals: HashSet<String>,
     /// The locals in the order of the frame of CPython.
     order: Vec<String>,
     vars: Vars,
+}
+
+impl Scope {
+    /// Returns `true` if `name` is a local of the function, `false` when
+    /// the function reads it from the module.
+    fn is_local(&self, name: &str) -> bool {
+        self.locals.contains(name)
+    }
 }
 
 impl<'a> Lowering<'a, '_> {
@@ -179,13 +185,12 @@ impl<'a> Lowering<'a, '_> {
                 self.declare_globals(def)?;
             }
         }
-        let globals = self
-            .scope
-            .borrow()
-            .as_ref()
-            .map(|scope| scope.globals.clone())
-            .unwrap_or_default();
-        self.declare_assigned(&bindings.assignments, |name| !globals.contains(name))
+        self.declare_assigned(&bindings.assignments, |name| {
+            self.scope
+                .borrow()
+                .as_ref()
+                .is_none_or(|scope| scope.is_local(name))
+        })
     }
 
     /// Declares in the module each global that `def` assigns, since the
@@ -310,11 +315,6 @@ impl<'a> Lowering<'a, '_> {
         let bindings = Bindings::of(&def.body);
         locals.extend(bindings.assigned.iter().map(|name| (*name).to_owned()));
         locals.retain(|name| !bindings.globals.contains(name.as_str()));
-        let globals = bindings
-            .globals
-            .iter()
-            .map(|name| (*name).to_owned())
-            .collect();
         let mut seen = HashSet::new();
         let order = order
             .into_iter()
@@ -326,7 +326,6 @@ impl<'a> Lowering<'a, '_> {
             name: def.name.to_string(),
             ret: sig.ret,
             locals,
-            globals,
             order,
             vars,
         });

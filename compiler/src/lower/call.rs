@@ -22,7 +22,7 @@ impl<'a> Lowering<'a, '_> {
             .scope
             .borrow()
             .as_ref()
-            .is_some_and(|scope| scope.locals.contains(callee))
+            .is_some_and(|scope| scope.is_local(callee))
         {
             return Err(unsupported(call, "this call"));
         }
