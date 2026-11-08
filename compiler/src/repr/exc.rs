@@ -3,10 +3,10 @@
 use wasm_encoder::{BlockType, Catch, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use super::str::StrRepr;
+use crate::cpython::traceback::RECURSIVE_CUTOFF;
 use crate::emit::host::Host;
 use crate::emit::module::{FuncState, ModuleState};
 use crate::ir::SiteFrame;
-use crate::traceback::RECURSIVE_CUTOFF;
 
 pub(super) struct Exceptions {
     /// `(struct (field $message (ref $Str)) (field $tb (mut (ref null $Frame))))`.

@@ -16,11 +16,11 @@ use crate::Error;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::cpython::{names, suggest, traceback};
 use crate::ir::{
     ArithOp, Binding, Check, CmpOp, Expr, Func, FuncId, Group, Limit, LogicOp, NameError, Place,
     Program, Rep, Site, SiteFrame, Stmt, Undefined, Var, VarId,
 };
-use crate::{names, suggest, traceback};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);

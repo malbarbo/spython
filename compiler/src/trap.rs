@@ -1,8 +1,8 @@
 //! The traceback of a program that wasmtime stopped with a trap.
 
 use crate::Module;
+use crate::cpython::traceback::RECURSIVE_CUTOFF;
 use crate::ir::SiteFrame;
-use crate::traceback::RECURSIVE_CUTOFF;
 
 /// What wasmtime writes for an allocation larger than the GC heap holds,
 /// and for one larger than any heap holds.

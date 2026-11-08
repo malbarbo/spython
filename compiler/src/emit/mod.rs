@@ -5,12 +5,12 @@ pub(crate) mod module;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
+use crate::cpython::suggest::MAX_CANDIDATE_ITEMS;
 use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
     Undefined, VarId,
 };
 use crate::repr::Reprs;
-use crate::suggest::MAX_CANDIDATE_ITEMS;
 use host::Host;
 use module::{CodeMap, FuncState, ModuleState};
 

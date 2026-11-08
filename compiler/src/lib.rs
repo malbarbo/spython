@@ -1,12 +1,10 @@
 //! The compiler from the Python of spython to a WasmGC module.
 
+mod cpython;
 mod emit;
 mod ir;
 mod lower;
-mod names;
 mod repr;
-mod suggest;
-mod traceback;
 mod trap;
 
 use ruff_db::files::File;
