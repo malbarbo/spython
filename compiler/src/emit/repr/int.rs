@@ -149,7 +149,8 @@ impl IntRepr {
         }
     }
 
-    /// Pops an `int` and writes it to the standard output.
+    /// Pops an `int` and writes it to the standard output, as one call of
+    /// `write` in CPython.
     pub fn write(&self, f: &mut FuncState) {
         match self {
             IntRepr::I31 { write, .. } => {
@@ -332,6 +333,6 @@ fn add_write(m: &mut ModuleState, host: &Host) -> FuncIdx {
         .i64_sub()
         .local_set(v);
     f.end();
-    f.ins().local_get(v).call(digits.0);
+    f.ins().local_get(v).call(digits.0).call(host.end_write.0);
     m.add_func(ty, f.finish())
 }

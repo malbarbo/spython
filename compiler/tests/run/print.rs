@@ -5,7 +5,10 @@ use std::process::Stdio;
 
 use indoc::indoc;
 
-use super::{compile, fails_to_write, path, same_as_cpython, stops_at_the_int_limit, unsupported};
+use super::{
+    compile, fails_to_write, merges_as_cpython, path, same_as_cpython, stops_at_the_int_limit,
+    unsupported, writes_as_cpython,
+};
 
 #[test]
 fn an_empty_program_prints_nothing() {
@@ -75,13 +78,12 @@ fn print_evaluates_every_argument_before_it_writes() {
     );
 }
 
-/// `python3 -u`, which writes each `print` at once, writes the same
-/// traceback.
+/// The output waits in the buffers, so the error comes at the exit.
 #[test]
 #[cfg(target_os = "linux")]
-fn print_to_a_full_device_raises_os_error() {
-    fails_to_write(
-        "print_to_a_full_device_raises_os_error",
+fn print_to_a_full_device_fails_at_the_exit() {
+    writes_as_cpython(
+        "print_to_a_full_device_fails_at_the_exit",
         indoc! {"
             def show(s: str) -> None:
                 print(s, s)
@@ -89,26 +91,72 @@ fn print_to_a_full_device_raises_os_error() {
 
             show('a')
         "},
-        || Stdio::from(File::create("/dev/full").expect("/dev/full")),
-        indoc! {r#"
-            Traceback (most recent call last):
-              File "{file}", line 5, in <module>
-                show('a')
-                ~~~~^^^^^
-              File "{file}", line 2, in show
-                print(s, s)
-                ~~~~~^^^^^^
-            OSError: [Errno 28] No space left on device
-        "#},
+        full_device,
     );
+}
+
+/// The `print` of 5000 bytes passes the 8192 of the `TextIOWrapper`, so
+/// the text before it goes to the `BufferedWriter`, which writes it at
+/// once, as it is larger than the 4096 of a block.
+#[test]
+#[cfg(target_os = "linux")]
+fn print_raises_os_error_when_the_buffers_go_to_a_full_device() {
+    writes_as_cpython(
+        "print_raises_os_error_when_the_buffers_go_to_a_full_device",
+        indoc! {"
+            def show(n: int) -> None:
+                print('x' * n)
+
+
+            show(4000)
+            show(95)
+            show(1)
+            show(5000)
+            show(10000)
+        "},
+        full_device,
+    );
+}
+
+/// A `print` with 8192 bytes or more goes to the host on its own.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_long_print_raises_os_error_on_a_full_device() {
+    writes_as_cpython(
+        "a_long_print_raises_os_error_on_a_full_device",
+        indoc! {"
+            print('a')
+            print('é' * 5000)
+            print('b')
+        "},
+        full_device,
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn the_exit_fails_on_a_full_device_after_a_traceback() {
+    writes_as_cpython(
+        "the_exit_fails_on_a_full_device_after_a_traceback",
+        indoc! {"
+            print('a')
+            print(1 // 0)  # ty: ignore[division-by-zero]
+        "},
+        full_device,
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn full_device() -> Stdio {
+    Stdio::from(File::create("/dev/full").expect("/dev/full"))
 }
 
 /// wasmtime gives the module `EIO` for a pipe that the reader closed, where
 /// CPython raises `BrokenPipeError`.
 #[test]
-fn print_to_a_closed_pipe_raises_os_error() {
+fn print_to_a_closed_pipe_fails_at_the_exit() {
     fails_to_write(
-        "print_to_a_closed_pipe_raises_os_error",
+        "print_to_a_closed_pipe_fails_at_the_exit",
         indoc! {"
             print('a')
         "},
@@ -117,13 +165,40 @@ fn print_to_a_closed_pipe_raises_os_error() {
             drop(reader);
             Stdio::from(writer)
         },
-        indoc! {r#"
-            Traceback (most recent call last):
-              File "{file}", line 1, in <module>
-                print('a')
-                ~~~~~^^^^^
+        indoc! {"
+            Exception ignored on flushing sys.stdout:
             OSError: [Errno 5] Input/output error
-        "#},
+        "},
+        120,
+    );
+}
+
+/// The writes go through both buffers of CPython, in each of their paths.
+#[test]
+fn a_long_output_arrives_whole_and_in_order() {
+    same_as_cpython(
+        "a_long_output_arrives_whole_and_in_order",
+        indoc! {"
+            i = 0
+            while i < 3000:
+                print(i, 'é' * (i % 7), i * i)
+                if i % 1000 == 999:
+                    print('ã' * 5000)
+                    print('x' * 20000, i)
+                i += 1
+        "},
+    );
+}
+
+/// CPython flushes the standard output before it writes the traceback.
+#[test]
+fn the_traceback_comes_after_the_output_in_one_pipe() {
+    merges_as_cpython(
+        "the_traceback_comes_after_the_output_in_one_pipe",
+        indoc! {"
+            print('a')
+            print(1 // 0)  # ty: ignore[division-by-zero]
+        "},
     );
 }
 

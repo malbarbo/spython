@@ -23,6 +23,11 @@ pub(crate) const REPEATED: &str = "  [Previous line repeated ";
 pub(crate) const MORE_TIME: &str = " more time";
 pub(crate) const REPEATED_END: &str = "]\n";
 
+/// The line before the error of the flush of `sys.stdout` at the exit.
+pub(crate) const FLUSH_FAILED: &str = "Exception ignored on flushing sys.stdout:\n";
+/// The exit code of CPython when the flush at the exit fails.
+pub(crate) const FLUSH_FAILED_EXIT: i32 = 120;
+
 pub(crate) const MEMORY_ERROR: &str = "MemoryError";
 pub(crate) const RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded";
 pub(crate) const DIVISION_BY_ZERO: &str = "ZeroDivisionError: integer division or modulo by zero";

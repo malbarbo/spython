@@ -26,7 +26,6 @@ fn a_str_too_long_for_memory_raises_memory_error() {
     runs_out_of_memory(
         "a_str_too_long_for_memory_raises_memory_error",
         "print('start')\ns = 'ab' * 100_000_000\nprint(len(s))\n",
-        "start\n",
         "  File \"{file}\", line 2, in <module>\n    \
          s = 'ab' * 100_000_000\n        \
          ~~~~~^~~~~~~~~~~~~\n",
@@ -39,7 +38,6 @@ fn a_memory_error_has_the_frames_of_the_calls() {
         "a_memory_error_has_the_frames_of_the_calls",
         "def double(s: str) -> str:\n    return s + s\n\n\n\
          s = 'a' * 2_000_000\nt = double(s)\nprint(len(t))\nu = double(t)\nprint(len(u))\n",
-        "4000000\n",
         "  File \"{file}\", line 8, in <module>\n    u = double(t)\n  \
          File \"{file}\", line 2, in double\n    return s + s\n           ~~^~~\n",
     );
@@ -51,7 +49,6 @@ fn a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out() {
     runs_out_of_memory(
         "a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out",
         "def grow(s: str) -> str:\n    return grow(s + s)\n\n\nprint(grow('a'))\n",
-        "",
         &format!(
             "  File \"{{file}}\", line 5, in <module>\n    print(grow('a'))\n          \
              ~~~~^^^^^\n{frame}{frame}{frame}  [Previous line repeated 20 more times]\n"

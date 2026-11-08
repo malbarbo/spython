@@ -196,6 +196,7 @@ impl StrRepr {
         }
     }
 
+    /// Pops a `str` and writes it, as one call of `write` in CPython.
     pub fn write(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { write, .. } => {
@@ -268,6 +269,7 @@ fn add_write(m: &mut ModuleState, host: &Host, array: TypeIdx) -> FuncIdx {
     f.br(again);
     f.end();
     f.end();
+    f.ins().call(host.end_write.0);
     m.add_func(ty, f.finish())
 }
 

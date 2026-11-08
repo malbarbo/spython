@@ -3,7 +3,8 @@
 use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
 
 use crate::cpython::{
-    MORE_TIME, OS_ERRORS, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, REPEATED_END, TRACEBACK,
+    FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, OS_ERRORS, RECURSION_LIMIT, RECURSIVE_CUTOFF,
+    REPEATED, REPEATED_END, TRACEBACK,
 };
 use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, ModuleState, TagIdx, TypeIdx};
 use crate::emit::repr::str::StrRepr;
@@ -26,6 +27,12 @@ pub(in crate::emit) struct Exceptions {
     /// the traceback, writes the traceback to the standard error, and ends
     /// the program with 1.
     uncaught: FuncIdx,
+    /// `(func (result i32))`, which flushes the standard output and returns
+    /// the error of WASI, or 0.
+    flush: FuncIdx,
+    /// `(func (param i32))`, which ends the program with the exit code, as
+    /// `Py_Finalize` does.
+    exit: FuncIdx,
     /// `(func (param (ref $Exc) i32))`, which adds the frame of the site to
     /// the traceback and raises the exception again.
     reraise: FuncIdx,
@@ -80,7 +87,16 @@ impl Exceptions {
             .struct_new(exc.0)
             .throw(tag.0);
         let raise = m.add_func(raise_type, f.finish());
-        let os_error = add_os_error(m, str, raise);
+        let os_error_message = add_os_error_message(m, str);
+        let os_error_type = m.func_type(&[ValType::I32], &[]);
+        let mut f = FuncState::new(1);
+        f.ins()
+            .local_get(0)
+            .call(os_error_message.0)
+            .call(raise.0)
+            .unreachable();
+        let os_error = m.add_func(os_error_type, f.finish());
+        let exit = add_exit(m, host, str, os_error_message);
 
         let frame_type = m.func_type(&[ref_to(exc, false), ValType::I32], &[]);
         let (e, site) = (0, 1);
@@ -121,6 +137,8 @@ impl Exceptions {
             .local_get(e)
             .local_get(site)
             .call(add_frame.0)
+            .call(host.flush.0)
+            .drop()
             .call(host.to_stderr.0);
         str.literal(m, &mut f, TRACEBACK);
         str.write(&mut f);
@@ -184,7 +202,7 @@ impl Exceptions {
             .i32_const('\n' as i32)
             .call(host.write_char.0)
             .i32_const(1)
-            .call(host.exit.0);
+            .call(exit.0);
         let uncaught = m.add_func(frame_type, f.finish());
 
         Exceptions {
@@ -193,6 +211,8 @@ impl Exceptions {
             raise,
             os_error,
             uncaught,
+            flush: host.flush,
+            exit,
             reraise,
             sites,
             sites_global,
@@ -249,10 +269,17 @@ impl Exceptions {
 
     /// Closes what [`Self::begin`] opened in the module, where an exception
     /// that nothing catches ends the program. `site` is the local that holds
-    /// the site of the instruction that may raise.
+    /// the site of the instruction that may raise. As in CPython, the
+    /// standard output gets a flush that ignores an error at the end of the
+    /// module, and the exit flushes it again.
     pub fn end_module(&self, f: &mut FuncState, site: u32) {
         f.end();
-        f.ins().return_();
+        f.ins()
+            .call(self.flush.0)
+            .drop()
+            .i32_const(0)
+            .call(self.exit.0)
+            .unreachable();
         f.end();
         f.ins().local_get(site).call(self.uncaught.0);
     }
@@ -340,7 +367,9 @@ fn ref_to(index: TypeIdx, nullable: bool) -> ValType {
 
 /// The function that raises the `OSError` of an error of WASI. The texts
 /// are bytes in one segment, which costs less than a literal for each.
-fn add_os_error(m: &mut ModuleState, str: &StrRepr, raise: FuncIdx) -> FuncIdx {
+/// `(func (param i32) (result (ref $Str)))`, which gives the last line of
+/// the traceback of the `OSError` of the error of WASI.
+fn add_os_error_message(m: &mut ModuleState, str: &StrRepr) -> FuncIdx {
     let mut texts = Vec::new();
     let mut places = Vec::new();
     for (errno, text) in OS_ERRORS {
@@ -350,7 +379,7 @@ fn add_os_error(m: &mut ModuleState, str: &StrRepr, raise: FuncIdx) -> FuncIdx {
         places.push((errno, start, len));
     }
     let data = m.passive_data(texts);
-    let ty = m.func_type(&[ValType::I32], &[]);
+    let ty = m.func_type(&[ValType::I32], &[str.val_type(false)]);
     let errno = 0;
     let mut f = FuncState::new(1);
     let start = f.local(ValType::I32);
@@ -376,6 +405,35 @@ fn add_os_error(m: &mut ModuleState, str: &StrRepr, raise: FuncIdx) -> FuncIdx {
         .local_get(len)
         .array_new_data(str.bytes_type().0, data.0);
     str.ascii(&mut f);
-    f.ins().call(raise.0).unreachable();
+    m.add_func(ty, f.finish())
+}
+
+/// `(func (param i32))`, which flushes the standard output and ends the
+/// program with the exit code. When the flush fails, the program writes
+/// the error to the standard error and ends with the code of CPython.
+fn add_exit(
+    m: &mut ModuleState,
+    host: &Host,
+    str: &mut StrRepr,
+    os_error_message: FuncIdx,
+) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32], &[]);
+    let code = 0;
+    let mut f = FuncState::new(1);
+    let error = f.local(ValType::I32);
+    f.ins().call(host.flush.0).local_tee(error);
+    f.if_(BlockType::Empty);
+    f.ins().call(host.to_stderr.0);
+    str.literal(m, &mut f, FLUSH_FAILED);
+    str.write(&mut f);
+    f.ins().local_get(error).call(os_error_message.0);
+    str.write(&mut f);
+    f.ins()
+        .i32_const('\n' as i32)
+        .call(host.write_char.0)
+        .i32_const(FLUSH_FAILED_EXIT)
+        .local_set(code);
+    f.end();
+    f.ins().local_get(code).call(host.exit.0).unreachable();
     m.add_func(ty, f.finish())
 }

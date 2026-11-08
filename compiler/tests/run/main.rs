@@ -106,10 +106,34 @@ fn cpython(name: &str, source: &str) -> Output {
 /// Runs the program in `file` in the python3 on the `PATH`, or in the one
 /// that `PYTHON` names.
 fn python(file: &Path) -> Output {
+    output_within_limit(python_command(file))
+}
+
+/// The command that runs the program in `file`, as [`python`] says.
+fn python_command(file: &Path) -> Command {
     let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
     let mut command = Command::new(python);
     command.arg(file);
-    output_within_limit(command)
+    command
+}
+
+/// Runs `command` with the standard output and the standard error in one
+/// pipe, as `2>&1` does, and returns what it wrote there.
+fn merged_output(mut command: Command) -> String {
+    let (mut reader, writer) = std::io::pipe().expect("a pipe");
+    command
+        .stdout(writer.try_clone().expect("a copy of the pipe"))
+        .stderr(writer);
+    let mut child = command.spawn().expect("the program to start");
+    // The command holds the writers until it is dropped, and the reader
+    // waits for the last writer to close.
+    drop(command);
+    let mut text = String::new();
+    reader
+        .read_to_string(&mut text)
+        .expect("the output of the program");
+    child.wait().expect("the program to end");
+    text
 }
 
 /// Runs `command` and collects what it prints. A test fails when the
@@ -212,8 +236,8 @@ fn deno_command(name: &str) -> Command {
 
 /// Asserts that the compiled `source`, run in wasmtime and in deno with
 /// the standard output that `stdout` gives, writes `stderr`, where `{file}`
-/// stands for the path of the program, and exits with 1.
-fn fails_to_write(name: &str, source: &str, stdout: impl Fn() -> Stdio, stderr: &str) {
+/// stands for the path of the program, and exits with `code`.
+fn fails_to_write(name: &str, source: &str, stdout: impl Fn() -> Stdio, stderr: &str, code: i32) {
     let module = compile(source, &path(name, "py")).expect("the program to compile");
     let stderr = stderr.replace("{file}", &path(name, "py").display().to_string());
     for output in [
@@ -221,8 +245,44 @@ fn fails_to_write(name: &str, source: &str, stdout: impl Fn() -> Stdio, stderr: 
         output_with_stdout(deno_command(name), stdout()),
     ] {
         assert_eq!(String::from_utf8_lossy(&output.stderr), stderr, "stderr");
-        assert_eq!(output.status.code(), Some(1), "exit code");
+        assert_eq!(output.status.code(), Some(code), "exit code");
     }
+}
+
+/// Asserts that the compiled `source`, run in wasmtime and in deno with
+/// the standard output that `stdout` gives, writes to the standard error
+/// what CPython writes, and exits as CPython exits.
+fn writes_as_cpython(name: &str, source: &str, stdout: impl Fn() -> Stdio) {
+    let file = path(name, "py");
+    let module = compile(source, &file).expect("the program to compile");
+    std::fs::write(&file, source).expect("the program written to disk");
+    let theirs = output_with_stdout(python_command(&file), stdout());
+    for ours in [
+        output_with_stdout(wasmtime_command(name, &module, None), stdout()),
+        output_with_stdout(deno_command(name), stdout()),
+    ] {
+        assert_eq!(
+            String::from_utf8_lossy(&ours.stderr),
+            String::from_utf8_lossy(&theirs.stderr),
+            "stderr"
+        );
+        assert_eq!(ours.status.code(), theirs.status.code(), "exit code");
+    }
+}
+
+/// Asserts that the compiled `source`, run in wasmtime and in deno with
+/// both outputs in one pipe, writes there what CPython writes.
+fn merges_as_cpython(name: &str, source: &str) {
+    let file = path(name, "py");
+    let module = compile(source, &file).expect("the program to compile");
+    std::fs::write(&file, source).expect("the program written to disk");
+    let theirs = merged_output(python_command(&file));
+    assert_eq!(
+        merged_output(wasmtime_command(name, &module, None)),
+        theirs,
+        "wasmtime"
+    );
+    assert_eq!(merged_output(deno_command(name)), theirs, "deno");
 }
 
 /// Asserts that the compiled `source` prints `stdout`, then stops with the
@@ -252,15 +312,16 @@ fn stops_at_the_int_limit(
     assert_eq!(output.status.code(), Some(1), "exit code");
 }
 
-/// Asserts that the compiled `source`, with a GC heap of 64 MiB, prints
-/// `stdout` and then stops with a `MemoryError` whose traceback has
-/// `frames`, where `{file}` stands for the path of the program. CPython
-/// writes the same traceback when it runs out of memory at the same place,
-/// as a run under `ulimit -v` showed once.
-fn runs_out_of_memory(name: &str, source: &str, stdout: &str, frames: &str) {
+/// Asserts that the compiled `source`, with a GC heap of 64 MiB, stops
+/// with a `MemoryError` whose traceback has `frames`, where `{file}` stands
+/// for the path of the program. CPython writes the same traceback when it
+/// runs out of memory at the same place, as a run under `ulimit -v` showed
+/// once. wasmtime ends the program with what it printed still in the
+/// buffers of the module, so the standard output loses it.
+fn runs_out_of_memory(name: &str, source: &str, frames: &str) {
     let module = compile(source, &path(name, "py")).expect("the program to compile");
     let output = wasmtime(name, &module, Some(64 << 20));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), stdout, "stdout");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "", "stdout");
     let file = path(name, "py");
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),

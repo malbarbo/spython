@@ -66,6 +66,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut f = FuncState::new(0);
     let site = f.local(ValType::I32);
     e.code.site = site;
+    f.ins().call(e.host.start.0);
     e.reprs.begin(&mut f);
     for stmt in &program.body {
         e.stmt(&mut f, stmt);
@@ -673,7 +674,10 @@ impl Emitter<'_> {
         }
         for (i, (rep, local)) in values.into_iter().enumerate() {
             if i > 0 {
-                f.ins().i32_const(' ' as i32).call(self.host.write_char.0);
+                f.ins()
+                    .i32_const(' ' as i32)
+                    .call(self.host.write_char.0)
+                    .call(self.host.end_write.0);
             }
             self.reprs.load(f, rep, local);
             self.reprs.write(&mut self.m, f, rep);
@@ -682,7 +686,7 @@ impl Emitter<'_> {
         f.ins()
             .i32_const('\n' as i32)
             .call(self.host.write_char.0)
-            .call(self.host.flush.0);
+            .call(self.host.end_write.0);
         self.at(f, site, |e, f| {
             f.ins().global_get(e.host.error.0);
             f.if_(BlockType::Empty);

@@ -7,6 +7,7 @@ const WASI_ESUCCESS = 0;
 const WASI_EBADF = 8;
 const WASI_EIO = 29;
 const WASI_ENOSPC = 51;
+const WASI_FILETYPE_CHARACTER_DEVICE = 2;
 
 /** What `proc_exit` throws, so that `_start` stops where it calls it. */
 class Exit {
@@ -41,6 +42,26 @@ const wasi = {
       total += length;
     }
     view.setUint32(written, total, true);
+    return WASI_ESUCCESS;
+  },
+  fd_fdstat_get(fd: number, stat: number): number {
+    const out = fd === STDOUT
+      ? Deno.stdout
+      : fd === STDERR
+      ? Deno.stderr
+      : null;
+    if (out === null) {
+      return WASI_EBADF;
+    }
+    // wasmtime gives a terminal as a character device, and anything else
+    // as a file of unknown type, which is 0.
+    new Uint8Array(memory.buffer, stat, 24).fill(0);
+    if (out.isTerminal()) {
+      new DataView(memory.buffer).setUint8(
+        stat,
+        WASI_FILETYPE_CHARACTER_DEVICE,
+      );
+    }
     return WASI_ESUCCESS;
   },
   proc_exit(code: number): never {

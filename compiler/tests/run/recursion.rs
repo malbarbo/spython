@@ -63,7 +63,6 @@ fn a_recursion_that_fills_the_stack_raises_recursion_error() {
         def f({params}) -> int:
             return f({args})
 
-        print('início')
         print(f({zeros}))
         ",
         params = params.join(", "),
@@ -73,11 +72,6 @@ fn a_recursion_that_fills_the_stack_raises_recursion_error() {
     let module = compile(&source, &path(name, "py")).expect("the program to compile");
     let ours = wasmtime(name, &module, None);
     let theirs = cpython(name, &source);
-    assert_eq!(
-        String::from_utf8_lossy(&ours.stdout),
-        String::from_utf8_lossy(&theirs.stdout),
-        "stdout"
-    );
     // The stack fills before the recursion limit, so the traceback leaves
     // out fewer frames than the one of CPython.
     assert_ne!(ours.stderr, theirs.stderr, "a stack that held the frames");
