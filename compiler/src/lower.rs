@@ -633,6 +633,7 @@ impl<'a> Lowering<'a, '_> {
             + factor * (names::MODULE_GLOBALS.len() + globals.len())
             + names::BUILTINS.len();
         let limit = (most >= suggest::MAX_CANDIDATE_ITEMS).then(|| Limit {
+            max: count(suggest::MAX_CANDIDATE_ITEMS),
             always: count(params + factor * names::MODULE_GLOBALS.len() + names::BUILTINS.len()),
             globals: count(factor),
             locals: locals.iter().skip(params).map(|(id, _)| *id).collect(),
@@ -725,12 +726,21 @@ impl<'a> Lowering<'a, '_> {
         if let Some(binding) = self_attr {
             flag(binding, false);
         }
+        let base = format!("NameError: name '{name}' is not defined");
+        let (import, or_import) = if names::STDLIB_MODULES.binary_search(&name).is_ok() {
+            (
+                format!(". Did you forget to import '{name}'?"),
+                format!(" Or did you forget to import '{name}'?"),
+            )
+        } else {
+            (String::new(), String::new())
+        };
         NameError {
-            name: name.to_owned(),
-            self_attr,
+            message: format!("{base}{import}"),
+            suggested: (format!("{base}. Did you mean: '"), format!("'?{or_import}")),
+            self_attr: self_attr.map(|binding| (binding, format!("self.{name}"))),
             limit,
             groups,
-            module: names::STDLIB_MODULES.binary_search(&name).is_ok(),
         }
     }
 

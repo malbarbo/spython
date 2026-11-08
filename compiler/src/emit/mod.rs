@@ -6,7 +6,6 @@ pub(crate) mod module;
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use crate::cpython::RECURSION_ERROR;
-use crate::cpython::suggest::MAX_CANDIDATE_ITEMS;
 use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
     Undefined, VarId,
@@ -372,27 +371,16 @@ impl Emitter<'_> {
     /// Pushes the message of `error`, with the suggestion of CPython for
     /// what the frame has now.
     fn name_error_message(&mut self, f: &mut FuncState, error: &NameError) {
-        let name = &error.name;
-        let message = format!("NameError: name '{name}' is not defined");
-        let (import, or_import) = if error.module {
-            (
-                format!(". Did you forget to import '{name}'?"),
-                format!(" Or did you forget to import '{name}'?"),
-            )
-        } else {
-            (String::new(), String::new())
-        };
         if error.groups.is_empty() && error.self_attr.is_none() {
-            self.reprs
-                .str_literal(&mut self.m, f, &format!("{message}{import}"));
+            self.reprs.str_literal(&mut self.m, f, &error.message);
             return;
         }
         // A local starts as null, and the code of the raise runs once.
         let str_type = self.reprs.local_type(Rep::Str).expect("a str has a value");
         let found = f.local(str_type);
         f.ins().block(BlockType::Empty);
-        if let Some(binding) = error.self_attr {
-            self.suggest_if_bound(f, binding, &format!("self.{name}"), found);
+        if let Some((binding, candidate)) = &error.self_attr {
+            self.suggest_if_bound(f, *binding, candidate, found);
         }
         if let Some(limit) = &error.limit {
             f.ins().i32_const(count(limit.always));
@@ -407,12 +395,7 @@ impl Emitter<'_> {
                 self.bound(f, Binding::Local(*local));
                 f.ins().i32_add();
             }
-            f.ins()
-                .i32_const(count(
-                    u32::try_from(MAX_CANDIDATE_ITEMS).expect("a small limit"),
-                ))
-                .i32_ge_u()
-                .br_if(0);
+            f.ins().i32_const(count(limit.max)).i32_ge_u().br_if(0);
         }
         for group in &error.groups {
             for (local, candidate) in &group.locals {
@@ -455,15 +438,13 @@ impl Emitter<'_> {
             .local_get(found)
             .ref_is_null()
             .if_(BlockType::Result(str_value));
-        self.reprs
-            .str_literal(&mut self.m, f, &format!("{message}{import}"));
+        self.reprs.str_literal(&mut self.m, f, &error.message);
         f.ins().else_();
-        self.reprs
-            .str_literal(&mut self.m, f, &format!("{message}. Did you mean: '"));
+        let (before, after) = &error.suggested;
+        self.reprs.str_literal(&mut self.m, f, before);
         self.reprs.load(f, Rep::Str, found);
         self.reprs.str_concat(f);
-        self.reprs
-            .str_literal(&mut self.m, f, &format!("'?{or_import}"));
+        self.reprs.str_literal(&mut self.m, f, after);
         self.reprs.str_concat(f);
         f.ins().end();
     }

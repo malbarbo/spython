@@ -183,10 +183,15 @@ pub(crate) enum Undefined {
 /// raise, as CPython does. The candidates are the locals of the frame, the
 /// globals in the order of their first binding, and the builtins.
 pub(crate) struct NameError {
-    pub name: String,
+    /// The message when no candidate has a value.
+    pub message: String,
+    /// The message with a suggestion is the first text, the suggestion and
+    /// the second text.
+    pub suggested: (String, String),
     /// A `self` whose value has an attribute of the name, which CPython
-    /// suggests before any candidate when it has a value.
-    pub self_attr: Option<Binding>,
+    /// suggests before any candidate when it has a value, with the text of
+    /// that suggestion.
+    pub self_attr: Option<(Binding, String)>,
     /// The candidates with a value count against the limit of CPython, when
     /// the frame may have that many.
     pub limit: Option<Limit>,
@@ -194,9 +199,6 @@ pub(crate) struct NameError {
     /// name, from the least. The first group with a candidate that has a
     /// value gives the suggestion.
     pub groups: Vec<Group>,
-    /// `true` when the name is a module of the standard library, which
-    /// CPython asks about.
-    pub module: bool,
 }
 
 /// The candidates at one distance from the name.
@@ -218,6 +220,8 @@ pub(crate) enum Binding {
 }
 
 pub(crate) struct Limit {
+    /// The number of candidates with a value at which CPython gives up.
+    pub max: u32,
     /// The candidates that the frame always has.
     pub always: u32,
     /// How many times each global with a value counts. The frame of the
