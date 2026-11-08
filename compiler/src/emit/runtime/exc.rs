@@ -41,7 +41,8 @@ pub(in crate::emit) struct Exceptions {
     sites: TypeIdx,
     /// The global that holds the array of the sites.
     sites_global: GlobalIdx,
-    /// `(array (mut i32))`, with the line of the frame of each site.
+    /// `(array (mut i32))`, with the id of the line of the frame of each
+    /// site.
     lines: TypeIdx,
     /// The global that holds the array of the lines.
     lines_global: GlobalIdx,
@@ -294,8 +295,8 @@ impl Exceptions {
         f.ins().local_get(site).call(self.reraise.0).unreachable();
     }
 
-    /// Fills the arrays of the sites, with the text and the line of the
-    /// frame of each.
+    /// Fills the arrays of the sites, with the text and the id of the line
+    /// of the frame of each.
     pub fn finish(&self, m: &mut ModuleState, str: &mut StrRepr, sites: &[SiteFrame]) {
         let globals: Vec<GlobalIdx> = sites
             .iter()

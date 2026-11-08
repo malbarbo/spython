@@ -12,8 +12,8 @@ const MIN: i64 = -(1 << 30);
 const MAX: i64 = (1 << 30) - 1;
 
 pub(super) enum IntRepr {
-    /// An `i32` in a local and an `i31ref` in a uniform slot. A result
-    /// outside 31 bits stops the program, so a value never wraps.
+    /// An `i32` that holds 31 bits. A result outside 31 bits raises an
+    /// error, so a value never wraps.
     I31 {
         /// `(func (param i32 i32) (result i32))` for `+`, `-`, `*`, `//`
         /// and `%`.
@@ -22,7 +22,7 @@ pub(super) enum IntRepr {
         mul: FuncIdx,
         floor_div: FuncIdx,
         modulo: FuncIdx,
-        /// `(func (param i64) (result i32))`, which stops the program when
+        /// `(func (param i64) (result i32))`, which raises an error when
         /// the value does not fit in 31 bits.
         check: FuncIdx,
     },
@@ -253,7 +253,7 @@ fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncI
     m.add_func(ty, f.finish())
 }
 
-/// `(func (param i64) (result i32))`, which stops the program when the
+/// `(func (param i64) (result i32))`, which raises an error when the
 /// value does not fit in 31 bits.
 fn add_check(m: &mut ModuleState, overflow: FuncIdx) -> FuncIdx {
     let ty = m.func_type(&[ValType::I64], &[ValType::I32]);

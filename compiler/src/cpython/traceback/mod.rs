@@ -116,7 +116,7 @@ const PRIMARY_CHAR: char = '~';
 const SECONDARY_CHAR: char = '^';
 
 /// The part of `format_frame_summary` after the `File` line. `None` is an
-/// `IndexError` of Python, which the original would raise too.
+/// index out of range, which the lines of a frame never have.
 fn frame_lines(
     original: &str,
     dedented: &str,
@@ -580,8 +580,8 @@ fn slice(s: &[char], start: usize, stop: usize) -> Vec<char> {
 }
 
 /// The traceback of an exception that nothing catches, with `message` as
-/// its last line. Each frame, from the outermost, comes as the line of the
-/// frame in its function and the text of the frame.
+/// its last line. Each frame, from the outermost, comes as the id of its
+/// line, as in [`crate::ir::SiteFrame::line`], and the text of the frame.
 pub(crate) fn uncaught(frames: &[(u32, &str)], message: &str) -> String {
     let cutoff = usize::try_from(RECURSIVE_CUTOFF).expect("a positive cutoff");
     let mut text = String::from(TRACEBACK);

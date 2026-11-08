@@ -14,8 +14,8 @@ pub(crate) struct Program {
 pub(crate) struct SiteFrame {
     /// What the traceback writes for the frame.
     pub text: String,
-    /// The line of the frame in its function. Two sites have the same line
-    /// when they are on the same line of the same function.
+    /// The id of the line of the frame, which two sites share when they are
+    /// on the same line of the same function.
     pub line: u32,
 }
 
@@ -37,8 +37,8 @@ pub(crate) enum Place {
 
 pub(crate) struct Var {
     pub rep: Rep,
-    /// `true` when the program asks whether the variable has a value, as a
-    /// read that may come before the first assignment does.
+    /// `true` when the program asks whether the variable has a value, as in
+    /// a read that may come before the first assignment.
     pub flagged: bool,
     /// `true` when the program asks which globals got a value first. Only a
     /// flagged variable of the module is ordered.

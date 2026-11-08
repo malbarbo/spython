@@ -8,7 +8,7 @@ const MOVE_COST: usize = 2;
 const CASE_COST: usize = 1;
 
 /// The most that `candidate` may be away from `name` and still be a
-/// suggestion. No more than 1/3 of the characters should need a change.
+/// suggestion. No more than about a third of the bytes may need a change.
 pub fn max_distance(name: &str, candidate: &str) -> usize {
     (name.len() + candidate.len() + 3) * MOVE_COST / 6
 }
