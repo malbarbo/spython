@@ -6,7 +6,6 @@ use super::str::StrRepr;
 use crate::cpython::{DIVISION_BY_ZERO, MODULO_BY_ZERO};
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
-use crate::emit::runtime::host::Host;
 use crate::ir::{ArithOp, CmpOp};
 
 const MIN: i64 = -(1 << 30);
@@ -26,15 +25,11 @@ pub(super) enum IntRepr {
         /// `(func (param i64) (result i32))`, which stops the program when
         /// the value does not fit in 31 bits.
         check: FuncIdx,
-        /// `(func (param i64))`, which writes the number in decimal to the
-        /// standard output.
-        write: FuncIdx,
     },
 }
 
 impl IntRepr {
-    pub fn i31(m: &mut ModuleState, host: &Host, str: &mut StrRepr, exc: &Exceptions) -> Self {
-        let write = add_write(m, host);
+    pub fn i31(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Self {
         let overflow = add_overflow(m, str, exc);
         let check = add_check(m, overflow);
         IntRepr::I31 {
@@ -50,7 +45,6 @@ impl IntRepr {
             floor_div: add_floor_div(m, str, exc, check),
             modulo: add_modulo(m, str, exc),
             check,
-            write,
         }
     }
 
@@ -151,10 +145,12 @@ impl IntRepr {
 
     /// Pops an `int` and writes it to the standard output, as one call of
     /// `write` in CPython.
-    pub fn write(&self, f: &mut FuncState) {
+    pub fn write(&self, f: &mut FuncState, str: &StrRepr) {
         match self {
-            IntRepr::I31 { write, .. } => {
-                f.ins().i64_extend_i32_s().call(write.0);
+            IntRepr::I31 { .. } => {
+                f.ins().i64_extend_i32_s();
+                str.decimal(f);
+                str.write(f);
             }
         }
     }
@@ -293,46 +289,5 @@ fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Fun
     );
     str.concat(&mut f);
     exc.raise(&mut f);
-    m.add_func(ty, f.finish())
-}
-
-/// `(func (param i64))`, which writes the number in decimal.
-fn add_write(m: &mut ModuleState, host: &Host) -> FuncIdx {
-    let ty = m.func_type(&[ValType::I64], &[]);
-    let digits = m.reserve(ty);
-    let v = 0;
-    // The digits of a number that is not negative, the first ones by a
-    // call to itself.
-    let mut f = FuncState::new(1);
-    f.ins().local_get(v).i64_const(10).i64_ge_u();
-    f.if_(BlockType::Empty);
-    f.ins()
-        .local_get(v)
-        .i64_const(10)
-        .i64_div_u()
-        .call(digits.0);
-    f.end();
-    f.ins()
-        .local_get(v)
-        .i64_const(10)
-        .i64_rem_u()
-        .i32_wrap_i64()
-        .i32_const('0' as i32)
-        .i32_add()
-        .call(host.write_char.0);
-    m.define(digits, f.finish());
-
-    let mut f = FuncState::new(1);
-    f.ins().local_get(v).i64_const(0).i64_lt_s();
-    f.if_(BlockType::Empty);
-    f.ins()
-        .i32_const('-' as i32)
-        .call(host.write_char.0)
-        .i64_const(0)
-        .local_get(v)
-        .i64_sub()
-        .local_set(v);
-    f.end();
-    f.ins().local_get(v).call(digits.0).call(host.end_write.0);
     m.add_func(ty, f.finish())
 }

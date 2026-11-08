@@ -23,7 +23,7 @@ impl Reprs {
     pub fn new(m: &mut ModuleState, host: &Host) -> Self {
         let mut str = StrRepr::ucs4(m, host);
         let exc = Exceptions::new(m, host, &mut str);
-        let int = IntRepr::i31(m, host, &mut str, &exc);
+        let int = IntRepr::i31(m, &mut str, &exc);
         Reprs { int, str, exc }
     }
 
@@ -232,7 +232,7 @@ impl Reprs {
     /// standard output.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {
         match rep {
-            Rep::Int => self.int.write(f),
+            Rep::Int => self.int.write(f, &self.str),
             Rep::Bool => {
                 f.if_(BlockType::Empty);
                 self.str.literal(m, f, "True");
