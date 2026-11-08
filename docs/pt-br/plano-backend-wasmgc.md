@@ -79,8 +79,8 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
 9. A representação de `int`, `float` e `str` é extensível, como o
    `StringType` do backend Gleam, e escolhida por opção de compilação.
    Hoje há uma de cada: `i31ref`, `f64` e UCS-4. Toda decisão de
-   representação fica no módulo `repr/` do compilador, e nenhum outro
-   arquivo a conhece.
+   representação fica no módulo `emit/repr/` do compilador, e nenhum
+   outro arquivo a conhece.
 10. `bool` não é atribuível a `int` nem a `float`, em todos os níveis.
     Sem isso, `def g() -> int: return 3 > 2` imprimiria `1` no lugar de
     `True`. No corpus, a regra não rejeita nenhum programa. Um operador de
@@ -154,6 +154,21 @@ wasm: `Int`, `Float`, `Bool`, `Str`, `None`, `Instance(ClassId)` ou
 e os locais são alocados sob demanda. A emissão é determinística, e não
 há `wasm-opt`.
 
+### A organização do código
+
+O `lower/` tem um arquivo por assunto: os escopos e o fluxo, as leituras
+e escritas de nomes, o `NameError`, as chamadas, os comandos e as
+expressões. As classes e o `match` ganham arquivos próprios quando
+entrarem, `lower/class.rs` e `lower/pattern.rs`. O `cpython/` tem as regras
+do CPython que o compilador calcula em Rust: os nomes que ele conhece, a
+sugestão do `NameError`, as linhas do traceback, as mensagens e os
+limites. As regras da organização ficam no cabeçalho do `lib.rs`.
+
+A partir da fatia 1, o código vai para o prelude em Python, a menos que
+precise de instruções wasm. O jwonder passou o runtime escrito à mão para
+Java e o reduziu de 628 para 298 linhas, e o backend Gleam terminou com
+três camadas de runtime e builtins repetidos.
+
 ### As consultas ao `ty`
 
 O `lowering.rs` fica em `types/`, para enxergar os itens `pub(super)` de
@@ -194,21 +209,30 @@ operandos.
 
 ### Valores
 
-`Reprs` é o único item público de `compiler/src/repr/`. Os enums
-`IntRepr`, `FloatRepr` e `StrRepr` são privados ao módulo, então um
-`match` sobre eles fora dali não compila. Um `clippy.toml` com
-`disallowed-methods` proíbe fora de `repr/` as instruções de
+`Reprs` é o único item de `compiler/src/emit/repr/` que o emissor usa.
+Os enums `IntRepr`, `FloatRepr` e `StrRepr` são privados ao módulo, então
+um `match` sobre eles fora dali não compila. Um `clippy.toml` com
+`disallowed-methods` proíbe fora de `emit/repr/` as instruções de
 representação, como `i31.get_s`, `ref.i31` e `array.new_data`.
 
 ```
-compiler/src/repr/
-  mod.rs      Reprs, a fachada, com vt_of, eq, hash, format e truthy
-  object.rs   $Object, $Class, $VT, $Bool, $Exc, $Frame e $Undef
+compiler/src/emit/repr/
+  mod.rs      Reprs, a fachada
+  uniform.rs  vt_of, eq, hash, format e truthy, que passam por todos os tipos
+  object.rs   $Object, $Class, $VT, $Bool e $Undef
   int.rs      enum IntRepr { I31 }
   float.rs    enum FloatRepr { F64 }
   numeric.rs  as pontes entre int e float
   str.rs      enum StrRepr { Ucs4 }
+compiler/src/emit/runtime/
+  exc.rs      $Exc, $Frame, a profundidade das chamadas e o traceback
+  host.rs     a saída e o fim do programa, pelo host
 ```
+
+O layout das classes do aluno, com os structs, os slots da vtable e os
+globais de `$Class`, sai da tabela de classes da IR e fica em
+`emit/layout.rs`, como no jwonder. O significado de cada slot é decidido
+no lowering, e o número dele na emissão.
 
 Uma representação nova de `int`, de `float` ou de `str` muda só o arquivo
 do tipo, e também `numeric.rs` quando o tipo é `int` ou `float`.
@@ -414,6 +438,11 @@ por versão do prelude, porque os hosts recusam o link quando a cópia
 difere. `Reprs` exporta uma impressão digital das representações, e o
 REPL a confere.
 
+Para isso, `Reprs` separa declarar uma função do runtime de defini-la,
+porque o módulo do usuário só declara e importa. O `FuncId` de hoje só
+nomeia funções de um `Program`, e o lowering precisa de uma sessão acima
+de `lower()`, com os ids, os globais e os slots das entradas anteriores.
+
 No REPL, cada entrada vira um módulo novo. Os dados ficam em slots
 uniformes guardados no runtime. As funções de módulo ficam numa tabela de
 `funcref` do runtime, e toda chamada a uma delas passa por
@@ -556,3 +585,7 @@ O hello world leva hoje 141 ms no `main`, com o checker.
   array do V8, abaixo do que o CPython aceita.
 - A memória que acaba no handler que relança uma exceção ou na
   construção dos literais, que hoje mostra o erro do wasmtime.
+- Como um método dos stubs do typeshed, como `str.upper`, chega à
+  definição dele no prelude sem passar pelo nome impresso.
+- Um módulo `host/` com um arquivo por host, quando houver um segundo.
+  Hoje o `trap.rs` lê só o stderr do wasmtime externo.
