@@ -15,6 +15,11 @@ pub extern "C" fn f64_mod(a: f64, b: f64) -> f64 {
     modulo(a, b)
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn f64_fmod(x: f64, y: f64) -> f64 {
+    fmod(x, y)
+}
+
 /// The `fmod` of C, which is exact: the remainder of `x` by `y` with the
 /// sign of `x`, ported from `src/math/fmod.c` of musl.
 pub fn fmod(x: f64, y: f64) -> f64 {

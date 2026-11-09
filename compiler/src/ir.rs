@@ -229,6 +229,13 @@ pub(crate) enum Expr {
         base: Box<Expr>,
         site: Site,
     },
+    /// `math.fmod(x, y)` of two `float`s, which raises `ValueError` at the
+    /// site for a `y` of 0 or an infinite `x`.
+    Fmod {
+        x: Box<Expr>,
+        y: Box<Expr>,
+        site: Site,
+    },
     /// Whether a `float` is of `class`, as a `bool`.
     FloatIs {
         class: FloatClass,
@@ -578,6 +585,7 @@ impl Expr {
             | Expr::Atan2 { .. }
             | Expr::Hypot { .. }
             | Expr::Copysign { .. }
+            | Expr::Fmod { .. }
             | Expr::LogBase { .. }
             | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }

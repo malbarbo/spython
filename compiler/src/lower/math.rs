@@ -100,6 +100,7 @@ impl<'a> Lowering<'a, '_> {
                 | "isfinite"
                 | "fabs"
                 | "copysign"
+                | "fmod"
                 | "atan2"
                 | "hypot"
                 | "log"
@@ -120,12 +121,17 @@ impl<'a> Lowering<'a, '_> {
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),
             },
+            ("fmod", [x, y], []) => Expr::Fmod {
+                x: Box::new(self.math_float(x)?),
+                y: Box::new(self.math_float(y)?),
+                site: self.site(call.range()),
+            },
             ("log", [x, base], []) => Expr::LogBase {
                 operand: Box::new(self.math_float(x)?),
                 base: Box::new(self.math_float(base)?),
                 site: self.site(call.range()),
             },
-            (_, [arg], []) if !matches!(member, "atan2" | "hypot" | "copysign") => {
+            (_, [arg], []) if !matches!(member, "atan2" | "hypot" | "copysign" | "fmod") => {
                 self.math_unary(call, member, arg)?
             }
             _ => return Err(unsupported(call, "this call of a function of math")),

@@ -37,6 +37,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 f64) (result f64))` for `math.log(x, base)`,
         /// which the module gets at the first use.
         log_base: Option<FuncIdx>,
+        /// `(func (param f64 f64) (result f64))` for `math.fmod`, which the
+        /// module gets at the first use.
+        fmod: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -52,6 +55,7 @@ impl FloatRepr {
             round_digits: None,
             maths: BTreeMap::new(),
             log_base: None,
+            fmod: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -275,6 +279,23 @@ impl FloatRepr {
         }
     }
 
+    /// Pops `x` and `y` and pushes `math.fmod(x, y)`, or raises the error
+    /// of CPython.
+    pub fn fmod(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            FloatRepr::F64 { fmod, .. } => {
+                let index = *fmod.get_or_insert_with(|| add_fmod(m, str, exc));
+                f.ins().call(index);
+            }
+        }
+    }
+
     /// Pops a `float` and pushes the `bool` of whether it is of `class`.
     pub fn is(&self, f: &mut FuncState, class: FloatClass) {
         match self {
@@ -471,6 +492,38 @@ fn add_math(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Math
         MATH_DOMAIN_ERROR
     };
     str.literal(m, &mut f, message);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `math.fmod(x, y)`, which calls `f64_fmod` and raises
+/// as `math_fmod` of CPython does. A nan from two numbers that are not nan
+/// raises `ValueError`.
+fn add_fmod(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let builtin = m.builtin("f64_fmod");
+    let ty = m.func_type(&[ValType::F64, ValType::F64], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (x, y) = (f.param(0), f.param(1));
+    let r = f.local(ValType::F64);
+    f.ins()
+        .local_get(x)
+        .local_get(y)
+        .call(builtin)
+        .local_tee(r)
+        .local_get(r)
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_eq()
+        .i32_and()
+        .local_get(y)
+        .local_get(y)
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, MATH_DOMAIN_ERROR);
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);

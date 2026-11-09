@@ -216,6 +216,43 @@ fn fabs_and_copysign_follow_python() {
 }
 
 #[test]
+fn fmod_follows_python() {
+    same_as_cpython(
+        "fmod_follows_python",
+        indoc! {"
+            import math
+            from math import fmod
+
+            inf = 1e308 * 10
+            print(fmod(7, 3), fmod(-7, 3), fmod(7.5, -2), fmod(-0.0, 2), fmod(True, 2))
+            print(fmod(1e308, 3.3), fmod(5e-324, 1e-320), fmod(0.3, 0.1), math.fmod(3, inf))
+            print(fmod(-3, -inf), fmod(inf - inf, 0), fmod(1, inf - inf))
+        "},
+    );
+}
+
+#[test]
+fn fmod_raises_as_in_python() {
+    for (name, call) in [
+        ("fmod_by_0_raises_value_error", "math.fmod(1, 0)"),
+        ("fmod_by_minus_0_raises_value_error", "math.fmod(2.5, -0.0)"),
+        (
+            "fmod_of_an_infinity_raises_value_error",
+            "math.fmod(-1e308 * 10, 2)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}
+
+#[test]
 fn sqrt_below_0_raises_value_error() {
     same_as_cpython(
         "sqrt_below_0_raises_value_error",

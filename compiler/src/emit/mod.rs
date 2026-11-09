@@ -680,6 +680,11 @@ impl Emitter<'_> {
                 self.expr(f, base);
                 self.at(f, *site, |e, f| e.reprs.log_base(&mut e.m, f));
             }
+            Expr::Fmod { x, y, site } => {
+                self.expr(f, x);
+                self.expr(f, y);
+                self.at(f, *site, |e, f| e.reprs.fmod(&mut e.m, f));
+            }
             Expr::FloatIs { class, operand } => {
                 self.expr(f, operand);
                 self.reprs.float_is(f, *class);

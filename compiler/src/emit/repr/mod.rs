@@ -277,6 +277,12 @@ impl Reprs {
         self.float.log_base(m, f, &mut self.str, &self.exc);
     }
 
+    /// Pops `x` and `y` and pushes `math.fmod(x, y)`, or raises the error
+    /// of CPython.
+    pub fn fmod(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.fmod(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops a `float` and pushes the `bool` of whether it is of `class`.
     pub fn float_is(&self, f: &mut FuncState, class: FloatClass) {
         self.float.is(f, class);
