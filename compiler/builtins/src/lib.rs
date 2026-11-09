@@ -22,6 +22,7 @@ mod log;
 mod math;
 mod pow;
 mod round;
+mod tanh;
 
 pub use div::{floor_div, fmod, modulo};
 pub use gamma::{gamma, lgamma};
@@ -29,6 +30,7 @@ pub use hypot::hypot;
 pub use log::log;
 pub use pow::{exp, exp2, pow};
 pub use round::round;
+pub use tanh::tanh;
 
 /// The longest `repr` of a float, `-2.2250738585072014e-308`.
 pub const REPR_MAX: usize = 24;

@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use builtins::{REPR_MAX, exp, exp2, log, repr};
+use builtins::{REPR_MAX, exp, exp2, log, repr, tanh};
 
 /// Compares `math.exp` with CPython on special values, integers, short
 /// decimals, values near 0 and random values in and out of range.
@@ -16,7 +16,7 @@ fn exp_matches_cpython() {
         values.push(random.uniform(-746.0, 710.0));
         values.push(f64::from_bits(random.next()));
     }
-    compare("exp", exp, true, &values);
+    compare("exp", exp, true, (0.0, 0), &values);
 }
 
 /// Compares `math.exp2` with CPython on special values, integers, short
@@ -32,7 +32,7 @@ fn exp2_matches_cpython() {
         values.push(random.uniform(-1080.0, 1030.0));
         values.push(f64::from_bits(random.next()));
     }
-    compare("exp2", exp2, true, &values);
+    compare("exp2", exp2, true, (0.0, 0), &values);
 }
 
 /// Compares `math.log` with CPython on special values, integers, short
@@ -48,13 +48,34 @@ fn log_matches_cpython() {
         values.push(random.uniform(0.9, 1.1));
         values.push(f64::from_bits(random.next() >> 1));
     }
-    compare("log", log, false, &values);
+    compare("log", log, false, (0.0, 0), &values);
+}
+
+/// Compares `math.tanh` with CPython on special values, short decimals,
+/// values near 0 and 1 and random values in and out of the range where
+/// `tanh` is not 1. Below 1 the port calls the `expm1` of the `libm` crate,
+/// which differs from the `expm1` of glibc in the last bit, and `-t / (t + 2)`
+/// makes that difference up to 3 ulps.
+#[test]
+fn tanh_matches_cpython() {
+    let mut random = SplitMix64(4);
+    let mut values = specials();
+    for _ in 0..200_000 {
+        values.push((random.next() % 50_000) as f64 / 1000.0 - 25.0);
+        values.push(((random.next() % 2_000_000) as f64 - 1e6) * 1e-12);
+        values.push(random.uniform(-1.1, 1.1));
+        values.push(random.uniform(-23.0, 23.0));
+        values.push(f64::from_bits(random.next()));
+    }
+    compare("tanh", tanh, false, (1.0, 3), &values);
 }
 
 /// Compares `f` with `math.<name>` of CPython at each of `values`. A
 /// result that CPython gives as an error has to be the one that the
 /// emitted code turns into that error, by the rule of `math_1` in CPython.
-fn compare(name: &str, f: fn(f64) -> f64, can_overflow: bool, values: &[f64]) {
+/// With `ulps` as `(bound, n)`, a result at an `x` with `|x| < bound` can
+/// differ from CPython by up to `n` ulps.
+fn compare(name: &str, f: fn(f64) -> f64, can_overflow: bool, ulps: (f64, u64), values: &[f64]) {
     let input: String = values
         .iter()
         .map(|x| format!("{:x}\n", x.to_bits()))
@@ -102,7 +123,7 @@ fn compare(name: &str, f: fn(f64) -> f64, can_overflow: bool, values: &[f64]) {
             show(r)
         };
         let want = lines.next().expect("one line per value");
-        if got != want {
+        if got != want && !(x.abs() < ulps.0 && ulps_apart(&got, want) <= ulps.1) {
             mismatches.push(format!("{name}({x:?}): {got} != {want}"));
         }
     }
@@ -118,6 +139,17 @@ fn compare(name: &str, f: fn(f64) -> f64, can_overflow: bool, values: &[f64]) {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+/// The distance in ulps between the floats with reprs `a` and `b`, or
+/// `u64::MAX` if one of them is not a float.
+fn ulps_apart(a: &str, b: &str) -> u64 {
+    match (a.parse::<f64>(), b.parse::<f64>()) {
+        (Ok(a), Ok(b)) if a.is_sign_negative() == b.is_sign_negative() => {
+            a.to_bits().abs_diff(b.to_bits())
+        }
+        _ => u64::MAX,
+    }
 }
 
 fn specials() -> Vec<f64> {

@@ -28,7 +28,6 @@ unary! {
     f64_atan = atan;
     f64_sinh = sinh;
     f64_cosh = cosh;
-    f64_tanh = tanh;
     f64_asinh = asinh;
     f64_acosh = acosh;
     f64_atanh = atanh;
