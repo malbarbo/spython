@@ -3,9 +3,9 @@
 mod int;
 pub(super) mod str;
 
-use wasm_encoder::{BlockType, ConstExpr, HeapType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use super::module::{FuncState, GlobalIdx, ModuleState};
+use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
@@ -37,7 +37,7 @@ impl Reprs {
     /// that nothing catches writes the traceback and ends the program.
     /// `site` is the local that holds the site of the instruction that may
     /// raise.
-    pub fn end_module(&self, f: &mut FuncState, site: u32) {
+    pub fn end_module(&self, f: &mut FuncState, site: LocalIdx) {
         self.exc.end_module(f, site);
     }
 
@@ -59,7 +59,7 @@ impl Reprs {
 
     /// Closes what [`Self::begin`] opened in a function, where an exception
     /// goes on to the caller with the frame of the function.
-    pub fn end_function(&self, f: &mut FuncState, site: u32) {
+    pub fn end_function(&self, f: &mut FuncState, site: LocalIdx) {
         self.exc.end_function(f, site);
     }
 
@@ -92,7 +92,7 @@ impl Reprs {
     }
 
     /// Pushes the value of `rep` that `local` holds.
-    pub fn load(&self, f: &mut FuncState, rep: Rep, local: u32) {
+    pub fn load(&self, f: &mut FuncState, rep: Rep, local: LocalIdx) {
         f.ins().local_get(local);
         if rep == Rep::Str {
             f.ins().ref_as_non_null();
@@ -106,7 +106,7 @@ impl Reprs {
         let init = match rep {
             Rep::Int => self.int.global_init(),
             Rep::Bool => ConstExpr::i32_const(0),
-            Rep::Str => ConstExpr::ref_null(HeapType::Concrete(self.str.type_index().0)),
+            Rep::Str => ConstExpr::ref_null(self.str.type_index().heap_type()),
             Rep::None => unreachable!("a variable of rep None"),
         };
         m.global(ty, &init)
@@ -114,7 +114,7 @@ impl Reprs {
 
     /// Pushes the value of `rep` that `global` holds.
     pub fn load_global(&self, f: &mut FuncState, rep: Rep, global: GlobalIdx) {
-        f.ins().global_get(global.0);
+        f.ins().global_get(global);
         if rep == Rep::Str {
             f.ins().ref_as_non_null();
         }

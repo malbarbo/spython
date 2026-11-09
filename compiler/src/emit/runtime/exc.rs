@@ -2,13 +2,15 @@
 
 use std::collections::HashMap;
 
-use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
 use crate::cpython::{
     FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, MORE_TIMES, OS_ERRORS, RECURSION_LIMIT,
     RECURSIVE_CUTOFF, REPEATED, TRACEBACK,
 };
-use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, ModuleState, TagIdx, TypeIdx};
+use crate::emit::module::{
+    FuncIdx, FuncState, GlobalIdx, Ins, LocalIdx, ModuleState, TagIdx, TypeIdx,
+};
 use crate::emit::repr::str::StrRepr;
 use crate::emit::runtime::host::Host;
 use crate::ir::SiteFrame;
@@ -62,90 +64,91 @@ impl Exceptions {
         let frame = m.next_type_index();
         m.struct_type(&[
             (StorageType::Val(ValType::I32), false),
-            (StorageType::Val(ref_to(frame, true)), false),
+            (StorageType::Val(frame.ref_to(true)), false),
         ]);
         let exc = m.struct_type(&[
-            (StorageType::Val(ref_to(str_type, false)), false),
-            (StorageType::Val(ref_to(frame, true)), true),
+            (StorageType::Val(str_type.ref_to(false)), false),
+            (StorageType::Val(frame.ref_to(true)), true),
         ]);
-        let tag_type = m.func_type(&[ref_to(exc, false)], &[]);
+        let tag_type = m.func_type(&[exc.ref_to(false)], &[]);
         let tag = m.tag(tag_type);
         let sites = m.array_type(StorageType::Val(ValType::I32), true);
-        let sites_global = m.global(
-            ref_to(sites, true),
-            &ConstExpr::ref_null(HeapType::Concrete(sites.0)),
-        );
-        let text_type = m.func_type(&[ValType::I32], &[ref_to(str_type, false)]);
+        let sites_global = m.global(sites.ref_to(true), &ConstExpr::ref_null(sites.heap_type()));
+        let text_type = m.func_type(&[ValType::I32], &[str_type.ref_to(false)]);
         let text = m.reserve(text_type);
         let depth = m.global(ValType::I32, &ConstExpr::i32_const(1));
         let repeated = add_repeated(m, str);
 
-        let raise_type = m.func_type(&[ref_to(str_type, false)], &[]);
+        let raise_type = m.func_type(&[str_type.ref_to(false)], &[]);
         let mut f = FuncState::new(1);
+        let message = f.param(0);
         f.ins()
-            .local_get(0)
-            .ref_null(HeapType::Concrete(frame.0))
-            .struct_new(exc.0)
-            .throw(tag.0);
+            .local_get(message)
+            .ref_null(frame.heap_type())
+            .struct_new(exc)
+            .throw(tag);
         let raise = m.add_func(raise_type, f.finish());
         let os_error_message = add_os_error_message(m, str);
         let os_error_type = m.func_type(&[ValType::I32], &[]);
         let mut f = FuncState::new(1);
+        let errno = f.param(0);
         f.ins()
-            .local_get(0)
-            .call(os_error_message.0)
-            .call(raise.0)
+            .local_get(errno)
+            .call(os_error_message)
+            .call(raise)
             .unreachable();
         let os_error = m.add_func(os_error_type, f.finish());
         let exit = add_exit(m, host, str, os_error_message);
 
-        let frame_type = m.func_type(&[ref_to(exc, false), ValType::I32], &[]);
-        let (e, site) = (0, 1);
+        let frame_type = m.func_type(&[exc.ref_to(false), ValType::I32], &[]);
         // The frame of the site goes before the frames of the functions
         // that the code at the site called.
         let mut f = FuncState::new(2);
+        let (e, site) = (f.param(0), f.param(1));
         f.ins()
             .local_get(e)
             .local_get(site)
             .local_get(e)
-            .struct_get(exc.0, 1)
-            .struct_new(frame.0)
-            .struct_set(exc.0, 1);
+            .struct_get(exc, 1)
+            .struct_new(frame)
+            .struct_set(exc, 1);
         let add_frame = m.add_func(frame_type, f.finish());
 
         let mut f = FuncState::new(2);
+        let (e, site) = (f.param(0), f.param(1));
         f.ins()
-            .global_get(depth.0)
+            .global_get(depth)
             .i32_const(1)
             .i32_sub()
-            .global_set(depth.0)
+            .global_set(depth)
             .local_get(e)
             .local_get(site)
-            .call(add_frame.0)
+            .call(add_frame)
             .local_get(e)
-            .throw(tag.0);
+            .throw(tag);
         let reraise = m.add_func(frame_type, f.finish());
 
         // As `StackSummary.format` of CPython, a frame on the line of the
         // frame before it adds to the count of the run, and the traceback
         // writes the count at the end of the run.
         let mut f = FuncState::new(2);
-        let next = f.local(ref_to(frame, true));
+        let (e, site) = (f.param(0), f.param(1));
+        let next = f.local(frame.ref_to(true));
         let last = f.local(ValType::I32);
         let count = f.local(ValType::I32);
         let line = f.local(ValType::I32);
         f.ins()
             .local_get(e)
             .local_get(site)
-            .call(add_frame.0)
-            .call(host.flush.0)
+            .call(add_frame)
+            .call(host.flush)
             .drop()
-            .call(host.to_stderr.0);
+            .call(host.to_stderr);
         str.literal(m, &mut f, TRACEBACK);
         str.write(&mut f);
         f.ins()
             .local_get(e)
-            .struct_get(exc.0, 1)
+            .struct_get(exc, 1)
             .local_set(next)
             .i32_const(-1)
             .local_set(last);
@@ -154,19 +157,19 @@ impl Exceptions {
         f.ins().local_get(next).ref_is_null();
         f.br_if(done);
         f.ins()
-            .global_get(sites_global.0)
+            .global_get(sites_global)
             .local_get(next)
-            .struct_get(frame.0, 0)
+            .struct_get(frame, 0)
             .i32_const(SITE_FIELDS)
             .i32_mul()
-            .array_get(sites.0)
+            .array_get(sites)
             .local_tee(line)
             .local_get(last)
             .i32_ne();
         f.if_(BlockType::Empty);
         f.ins()
             .local_get(count)
-            .call(repeated.0)
+            .call(repeated)
             .local_get(line)
             .local_set(last)
             .i32_const(0)
@@ -180,27 +183,24 @@ impl Exceptions {
             .i32_const(RECURSIVE_CUTOFF)
             .i32_le_s();
         f.if_(BlockType::Empty);
-        f.ins().local_get(next).struct_get(frame.0, 0).call(text.0);
+        f.ins().local_get(next).struct_get(frame, 0).call(text);
         str.write(&mut f);
         f.end();
-        f.ins()
-            .local_get(next)
-            .struct_get(frame.0, 1)
-            .local_set(next);
+        f.ins().local_get(next).struct_get(frame, 1).local_set(next);
         f.br(frames);
         f.end();
         f.end();
         f.ins()
             .local_get(count)
-            .call(repeated.0)
+            .call(repeated)
             .local_get(e)
-            .struct_get(exc.0, 0);
+            .struct_get(exc, 0);
         str.write(&mut f);
         f.ins()
             .i32_const('\n' as i32)
-            .call(host.write_char.0)
+            .call(host.write_char)
             .i32_const(1)
-            .call(exit.0);
+            .call(exit);
         let uncaught = m.add_func(frame_type, f.finish());
 
         Exceptions {
@@ -223,7 +223,7 @@ impl Exceptions {
     /// raises `RecursionError`.
     pub fn call_fits(&self, f: &mut FuncState) {
         f.ins()
-            .global_get(self.depth.0)
+            .global_get(self.depth)
             .i32_const(RECURSION_LIMIT)
             .i32_lt_s();
     }
@@ -240,27 +240,27 @@ impl Exceptions {
 
     fn add_depth(&self, f: &mut FuncState, delta: i32) {
         f.ins()
-            .global_get(self.depth.0)
+            .global_get(self.depth)
             .i32_const(delta)
             .i32_add()
-            .global_set(self.depth.0);
+            .global_set(self.depth);
     }
 
     /// Pops the message and raises an exception with it.
     pub fn raise(&self, f: &mut FuncState) {
-        f.ins().call(self.raise.0).unreachable();
+        f.ins().call(self.raise).unreachable();
     }
 
     /// Pops an error of WASI and raises its `OSError`.
     pub fn raise_os_error(&self, f: &mut FuncState) {
-        f.ins().call(self.os_error.0).unreachable();
+        f.ins().call(self.os_error).unreachable();
     }
 
     /// Opens the code of the module or of a function, where the handler
     /// that [`Self::end_module`] or [`Self::end_function`] adds catches an
     /// exception.
     pub fn begin(&self, f: &mut FuncState) {
-        let caught = f.block(BlockType::Result(ref_to(self.exc, false)));
+        let caught = f.block(BlockType::Result(self.exc.ref_to(false)));
         f.try_table(BlockType::Empty, self.tag, caught);
     }
 
@@ -269,26 +269,26 @@ impl Exceptions {
     /// the site of the instruction that may raise. As in CPython, the
     /// standard output gets a flush that ignores an error at the end of the
     /// module, and the exit flushes it again.
-    pub fn end_module(&self, f: &mut FuncState, site: u32) {
+    pub fn end_module(&self, f: &mut FuncState, site: LocalIdx) {
         f.end();
         f.ins()
-            .call(self.flush.0)
+            .call(self.flush)
             .drop()
             .i32_const(0)
-            .call(self.exit.0)
+            .call(self.exit)
             .unreachable();
         f.end();
-        f.ins().local_get(site).call(self.uncaught.0);
+        f.ins().local_get(site).call(self.uncaught);
     }
 
     /// Closes what [`Self::begin`] opened in a function, where an exception
     /// goes on to the caller with the frame of the function. Every path of
     /// the code of a function ends in a `return`.
-    pub fn end_function(&self, f: &mut FuncState, site: u32) {
+    pub fn end_function(&self, f: &mut FuncState, site: LocalIdx) {
         f.end();
         f.ins().unreachable();
         f.end();
-        f.ins().local_get(site).call(self.reraise.0).unreachable();
+        f.ins().local_get(site).call(self.reraise).unreachable();
     }
 
     /// Fills the array of the sites, and defines [`Self::text`]. The
@@ -314,24 +314,24 @@ impl Exceptions {
         let texts = m.passive_data(texts);
         let numbers_len = i32::try_from(numbers.len() / 4).expect("fewer than 2^31 sites");
         let numbers = m.passive_data(numbers);
-        wasm_encoder::InstructionSink::new(&mut m.init)
+        Ins::new(&mut m.init)
             .i32_const(0)
             .i32_const(numbers_len)
-            .array_new_data(self.sites.0, numbers.0)
-            .global_set(self.sites_global.0)
-            .data_drop(numbers.0);
-
-        let site = 0;
+            .array_new_data(self.sites, numbers)
+            .global_set(self.sites_global)
+            .data_drop(numbers);
         let mut f = FuncState::new(1);
+
+        let site = f.param(0);
         for field in [1, 2] {
             f.ins()
-                .global_get(self.sites_global.0)
+                .global_get(self.sites_global)
                 .local_get(site)
                 .i32_const(SITE_FIELDS)
                 .i32_mul()
                 .i32_const(field)
                 .i32_add()
-                .array_get(self.sites.0);
+                .array_get(self.sites);
         }
         str.new_data(&mut f, texts);
         m.define(self.text, f.finish());
@@ -345,8 +345,8 @@ const SITE_FIELDS: i32 = 3;
 /// traceback leaves out, when the run has more than the cutoff.
 fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32], &[]);
-    let count = 0;
     let mut f = FuncState::new(1);
+    let count = f.param(0);
     f.ins()
         .local_get(count)
         .i32_const(RECURSIVE_CUTOFF)
@@ -374,13 +374,6 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
     m.add_func(ty, f.finish())
 }
 
-fn ref_to(index: TypeIdx, nullable: bool) -> ValType {
-    ValType::Ref(RefType {
-        nullable,
-        heap_type: HeapType::Concrete(index.0),
-    })
-}
-
 /// The function that raises the `OSError` of an error of WASI. The texts
 /// are bytes in one segment, which costs less than a literal for each.
 /// `(func (param i32) (result (ref $Str)))`, which gives the last line of
@@ -396,8 +389,8 @@ fn add_os_error_message(m: &mut ModuleState, str: &StrRepr) -> FuncIdx {
     }
     let data = m.passive_data(texts);
     let ty = m.func_type(&[ValType::I32], &[str.val_type(false)]);
-    let errno = 0;
     let mut f = FuncState::new(1);
+    let errno = f.param(0);
     let start = f.local(ValType::I32);
     let len = f.local(ValType::I32);
     let found = f.block(BlockType::Empty);
@@ -419,7 +412,7 @@ fn add_os_error_message(m: &mut ModuleState, str: &StrRepr) -> FuncIdx {
     f.ins()
         .local_get(start)
         .local_get(len)
-        .array_new_data(str.bytes_type().0, data.0);
+        .array_new_data(str.bytes_type(), data);
     str.ascii(&mut f);
     m.add_func(ty, f.finish())
 }
@@ -434,22 +427,22 @@ fn add_exit(
     os_error_message: FuncIdx,
 ) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32], &[]);
-    let code = 0;
     let mut f = FuncState::new(1);
+    let code = f.param(0);
     let error = f.local(ValType::I32);
-    f.ins().call(host.flush.0).local_tee(error);
+    f.ins().call(host.flush).local_tee(error);
     f.if_(BlockType::Empty);
-    f.ins().call(host.to_stderr.0);
+    f.ins().call(host.to_stderr);
     str.literal(m, &mut f, FLUSH_FAILED);
     str.write(&mut f);
-    f.ins().local_get(error).call(os_error_message.0);
+    f.ins().local_get(error).call(os_error_message);
     str.write(&mut f);
     f.ins()
         .i32_const('\n' as i32)
-        .call(host.write_char.0)
+        .call(host.write_char)
         .i32_const(FLUSH_FAILED_EXIT)
         .local_set(code);
     f.end();
-    f.ins().local_get(code).call(host.exit.0).unreachable();
+    f.ins().local_get(code).call(host.exit).unreachable();
     m.add_func(ty, f.finish())
 }

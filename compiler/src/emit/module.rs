@@ -7,8 +7,8 @@ use std::ops::Range;
 use wasm_encoder::{
     BlockType, Catch, CodeSection, ConstExpr, DataCountSection, DataSection, EntityType,
     ExportKind, ExportSection, FieldType, Function, FunctionSection, GlobalSection, GlobalType,
-    ImportSection, InstructionSink, MemorySection, MemoryType, Module, StorageType, TagKind,
-    TagSection, TagType, TypeSection, ValType,
+    HeapType, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module, RefType,
+    StorageType, TagKind, TagSection, TagType, TypeSection, ValType,
 };
 use wasmparser::{Parser, Payload};
 
@@ -16,23 +16,41 @@ use crate::ir::Site;
 
 /// The index of a function in the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FuncIdx(pub u32);
+pub(crate) struct FuncIdx(u32);
 
 /// The index of a global in the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct GlobalIdx(pub u32);
+pub(crate) struct GlobalIdx(u32);
 
 /// The index of a type in the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TypeIdx(pub u32);
+pub(crate) struct TypeIdx(u32);
+
+impl TypeIdx {
+    pub fn heap_type(self) -> HeapType {
+        HeapType::Concrete(self.0)
+    }
+
+    /// The type of a reference to a value of this type.
+    pub fn ref_to(self, nullable: bool) -> ValType {
+        ValType::Ref(RefType {
+            nullable,
+            heap_type: self.heap_type(),
+        })
+    }
+}
 
 /// The index of an exception tag in the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TagIdx(pub u32);
+pub(crate) struct TagIdx(u32);
 
 /// The index of a data segment in the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DataIdx(pub u32);
+pub(crate) struct DataIdx(u32);
+
+/// The index of a local, or of a parameter, in a function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LocalIdx(u32);
 
 pub(crate) struct ModuleState {
     types: TypeSection,
@@ -329,7 +347,7 @@ pub(crate) struct FuncState {
     params: u32,
     locals: Vec<ValType>,
     /// The temporaries that no code uses now.
-    free: Vec<(ValType, u32)>,
+    free: Vec<(ValType, LocalIdx)>,
     /// The label of each block that the code is in, the innermost last.
     blocks: Vec<Label>,
     labels: u32,
@@ -362,23 +380,32 @@ impl FuncState {
         self.sites.push(SiteRange { start, end, site });
     }
 
-    pub fn local(&mut self, ty: ValType) -> u32 {
+    /// The parameter at `index`, the first parameter at 0.
+    pub fn param(&self, index: u32) -> LocalIdx {
+        assert!(index < self.params, "a parameter of the function");
+        LocalIdx(index)
+    }
+
+    pub fn local(&mut self, ty: ValType) -> LocalIdx {
         self.locals.push(ty);
-        self.params + u32::try_from(self.locals.len() - 1).expect("fewer than 2^32 locals")
+        LocalIdx(
+            self.params + u32::try_from(self.locals.len() - 1).expect("fewer than 2^32 locals"),
+        )
     }
 
     /// A local for a value that lives inside one expression, which goes
     /// back with `free`. Its value is whatever the last user left, so the
     /// code sets it before it reads it.
-    pub fn temp(&mut self, ty: ValType) -> u32 {
+    pub fn temp(&mut self, ty: ValType) -> LocalIdx {
         match self.free.iter().position(|&(free, _)| free == ty) {
             Some(i) => self.free.swap_remove(i).1,
             None => self.local(ty),
         }
     }
 
-    pub fn free(&mut self, local: u32) {
+    pub fn free(&mut self, local: LocalIdx) {
         let ty = local
+            .0
             .checked_sub(self.params)
             .and_then(|i| self.locals.get(usize::try_from(i).ok()?))
             .expect("a temporary is a local of the function");
@@ -388,22 +415,26 @@ impl FuncState {
     /// The sink for the instructions other than those of blocks and
     /// branches, which go through the methods of `FuncState` so that a
     /// branch names its target by a label.
-    pub fn ins(&mut self) -> InstructionSink<'_> {
+    pub fn ins(&mut self) -> Ins<'_> {
+        Ins::new(&mut self.code)
+    }
+
+    fn raw(&mut self) -> InstructionSink<'_> {
         InstructionSink::new(&mut self.code)
     }
 
     pub fn block(&mut self, ty: BlockType) -> Label {
-        self.ins().block(ty);
+        self.raw().block(ty);
         self.open()
     }
 
     pub fn loop_(&mut self, ty: BlockType) -> Label {
-        self.ins().loop_(ty);
+        self.raw().loop_(ty);
         self.open()
     }
 
     pub fn if_(&mut self, ty: BlockType) -> Label {
-        self.ins().if_(ty);
+        self.raw().if_(ty);
         self.open()
     }
 
@@ -411,27 +442,27 @@ impl FuncState {
     /// exception of `tag`.
     pub fn try_table(&mut self, ty: BlockType, tag: TagIdx, target: Label) -> Label {
         let label = self.depth(target);
-        self.ins().try_table(ty, [Catch::One { tag: tag.0, label }]);
+        self.raw().try_table(ty, [Catch::One { tag: tag.0, label }]);
         self.open()
     }
 
     pub fn else_(&mut self) {
-        self.ins().else_();
+        self.raw().else_();
     }
 
     pub fn end(&mut self) {
         self.blocks.pop().expect("an end closes a block");
-        self.ins().end();
+        self.raw().end();
     }
 
     pub fn br(&mut self, target: Label) {
         let depth = self.depth(target);
-        self.ins().br(depth);
+        self.raw().br(depth);
     }
 
     pub fn br_if(&mut self, target: Label) {
         let depth = self.depth(target);
-        self.ins().br_if(depth);
+        self.raw().br_if(depth);
     }
 
     fn open(&mut self) -> Label {
@@ -465,5 +496,170 @@ impl FuncState {
 
     pub fn finish(self) -> Function {
         self.finish_with_prefix(&[])
+    }
+}
+
+/// The sink for the instructions of a function, whose indices have the
+/// type of what they index.
+pub(crate) struct Ins<'a>(InstructionSink<'a>);
+
+/// Methods of [`Ins`] that pass their arguments to the method of
+/// [`InstructionSink`] with the same name.
+macro_rules! same {
+    ($($name:ident($($arg:ident: $ty:ty),*);)*) => {
+        $(
+            pub fn $name(&mut self, $($arg: $ty),*) -> &mut Self {
+                self.0.$name($($arg),*);
+                self
+            }
+        )*
+    };
+}
+
+impl<'a> Ins<'a> {
+    /// The sink for the instructions in `code`.
+    pub fn new(code: &'a mut Vec<u8>) -> Self {
+        Ins(InstructionSink::new(code))
+    }
+
+    pub fn call(&mut self, func: FuncIdx) -> &mut Self {
+        self.0.call(func.0);
+        self
+    }
+
+    pub fn throw(&mut self, tag: TagIdx) -> &mut Self {
+        self.0.throw(tag.0);
+        self
+    }
+
+    pub fn local_get(&mut self, local: LocalIdx) -> &mut Self {
+        self.0.local_get(local.0);
+        self
+    }
+
+    pub fn local_set(&mut self, local: LocalIdx) -> &mut Self {
+        self.0.local_set(local.0);
+        self
+    }
+
+    pub fn local_tee(&mut self, local: LocalIdx) -> &mut Self {
+        self.0.local_tee(local.0);
+        self
+    }
+
+    pub fn global_get(&mut self, global: GlobalIdx) -> &mut Self {
+        self.0.global_get(global.0);
+        self
+    }
+
+    pub fn global_set(&mut self, global: GlobalIdx) -> &mut Self {
+        self.0.global_set(global.0);
+        self
+    }
+
+    pub fn data_drop(&mut self, data: DataIdx) -> &mut Self {
+        self.0.data_drop(data.0);
+        self
+    }
+
+    pub fn struct_new(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.struct_new(ty.0);
+        self
+    }
+
+    pub fn struct_get(&mut self, ty: TypeIdx, field: u32) -> &mut Self {
+        self.0.struct_get(ty.0, field);
+        self
+    }
+
+    pub fn struct_set(&mut self, ty: TypeIdx, field: u32) -> &mut Self {
+        self.0.struct_set(ty.0, field);
+        self
+    }
+
+    pub fn array_new_default(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.array_new_default(ty.0);
+        self
+    }
+
+    pub fn array_new_fixed(&mut self, ty: TypeIdx, len: u32) -> &mut Self {
+        self.0.array_new_fixed(ty.0, len);
+        self
+    }
+
+    pub fn array_new_data(&mut self, ty: TypeIdx, data: DataIdx) -> &mut Self {
+        self.0.array_new_data(ty.0, data.0);
+        self
+    }
+
+    pub fn array_get(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.array_get(ty.0);
+        self
+    }
+
+    pub fn array_get_u(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.array_get_u(ty.0);
+        self
+    }
+
+    pub fn array_set(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.array_set(ty.0);
+        self
+    }
+
+    pub fn array_copy(&mut self, dst: TypeIdx, src: TypeIdx) -> &mut Self {
+        self.0.array_copy(dst.0, src.0);
+        self
+    }
+
+    same! {
+        array_len();
+        drop();
+        memory_copy(dst: u32, src: u32);
+        ref_as_non_null();
+        ref_is_null();
+        ref_null(ty: HeapType);
+        return_();
+        select();
+        unreachable();
+        i32_const(value: i32);
+        i32_load(arg: MemArg);
+        i32_load8_u(arg: MemArg);
+        i32_store(arg: MemArg);
+        i32_store8(arg: MemArg);
+        i32_add();
+        i32_and();
+        i32_eq();
+        i32_eqz();
+        i32_ge_s();
+        i32_ge_u();
+        i32_gt_s();
+        i32_gt_u();
+        i32_le_s();
+        i32_lt_s();
+        i32_lt_u();
+        i32_mul();
+        i32_ne();
+        i32_or();
+        i32_rem_s();
+        i32_shr_u();
+        i32_sub();
+        i32_wrap_i64();
+        i32_xor();
+        i64_const(value: i64);
+        i64_add();
+        i64_div_s();
+        i64_div_u();
+        i64_eqz();
+        i64_extend_i32_s();
+        i64_extend_i32_u();
+        i64_ge_u();
+        i64_gt_u();
+        i64_lt_s();
+        i64_lt_u();
+        i64_mul();
+        i64_ne();
+        i64_rem_u();
+        i64_sub();
     }
 }

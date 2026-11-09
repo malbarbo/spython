@@ -11,7 +11,7 @@ use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
     Undefined, VarId,
 };
-use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, ModuleState};
+use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use repr::Reprs;
 use runtime::host::Host;
 
@@ -51,6 +51,8 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let ordered =
         program.vars.iter().any(|var| var.ordered) || program.funcs.iter().any(|func| func.ordered);
     let order = ordered.then(|| m.global(ValType::I32, &ConstExpr::i32_const(0)));
+    let mut f = FuncState::new(0);
+    let site = f.local(ValType::I32);
     let mut e = Emitter {
         m,
         host,
@@ -59,14 +61,16 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         vars,
         funcs,
         order,
-        code: Code::default(),
+        code: Code {
+            func: None,
+            site,
+            loops: Vec::new(),
+            vars: Vec::new(),
+        },
     };
     let start_ty = e.m.func_type(&[], &[]);
     let start = e.m.reserve(start_ty);
-    let mut f = FuncState::new(0);
-    let site = f.local(ValType::I32);
-    e.code.site = site;
-    f.ins().call(e.host.start.0);
+    f.ins().call(e.host.start);
     e.reprs.begin(&mut f);
     for stmt in &program.body {
         e.stmt(&mut f, stmt);
@@ -101,17 +105,16 @@ struct Emitter<'a> {
 }
 
 /// The state of the code that the emitter is in, the module or a function.
-#[derive(Default)]
 struct Code {
     /// The function, and `None` in the module.
     func: Option<FuncId>,
     /// The local that holds the site of the instruction that may raise.
-    site: u32,
+    site: LocalIdx,
     /// The target of `break` and of `continue`, for each loop
     /// that encloses the current statement.
     loops: Vec<Loop>,
     /// The locals of each variable of the function.
-    vars: Vec<Slots<u32>>,
+    vars: Vec<Slots<LocalIdx>>,
 }
 
 struct Loop {
@@ -143,7 +146,7 @@ impl Emitter<'_> {
         let mut vars = Vec::new();
         for (i, var) in func.vars.iter().enumerate() {
             let value = match u32::try_from(i) {
-                Ok(param) if param < func.params => param,
+                Ok(param) if param < func.params => f.param(param),
                 _ => f.local(
                     self.reprs
                         .local_type(var.rep)
@@ -190,7 +193,7 @@ impl Emitter<'_> {
                 self.store(f, *first);
                 for place in rest {
                     match *first {
-                        Place::Global(var) => f.ins().global_get(self.global_slots(var).value.0),
+                        Place::Global(var) => f.ins().global_get(self.global_slots(var).value),
                         Place::Local(var) => f.ins().local_get(self.local_slots(var).value),
                     };
                     self.store(f, *place);
@@ -266,7 +269,7 @@ impl Emitter<'_> {
             Place::Global(var) => {
                 let slots = self.global_slots(var);
                 let (value, defined) = (slots.value, slots.defined);
-                f.ins().global_set(value.0);
+                f.ins().global_set(value);
                 if let Some(defined) = defined {
                     let ordered = self.var(place).ordered;
                     self.define_global(f, defined, ordered);
@@ -287,19 +290,19 @@ impl Emitter<'_> {
     /// an ordered global keeps the place of its first binding.
     fn define_global(&mut self, f: &mut FuncState, defined: GlobalIdx, ordered: bool) {
         if !ordered {
-            f.ins().i32_const(1).global_set(defined.0);
+            f.ins().i32_const(1).global_set(defined);
             return;
         }
         let order = self.order.expect("an ordered global has an order");
-        f.ins().global_get(defined.0).i32_eqz();
+        f.ins().global_get(defined).i32_eqz();
         f.if_(BlockType::Empty);
         f.ins()
-            .global_get(order.0)
+            .global_get(order)
             .i32_const(1)
             .i32_add()
-            .global_set(order.0)
-            .global_get(order.0)
-            .global_set(defined.0);
+            .global_set(order)
+            .global_get(order)
+            .global_set(defined);
         f.end();
     }
 
@@ -362,7 +365,7 @@ impl Emitter<'_> {
             f.ins().i32_const(count(limit.always));
             if let Some(order) = self.order {
                 f.ins()
-                    .global_get(order.0)
+                    .global_get(order)
                     .i32_const(count(limit.globals))
                     .i32_mul()
                     .i32_add();
@@ -437,7 +440,7 @@ impl Emitter<'_> {
         f: &mut FuncState,
         binding: Binding,
         candidate: &str,
-        found: u32,
+        found: LocalIdx,
         suggested: Label,
     ) {
         self.bound(f, binding);
@@ -459,8 +462,8 @@ impl Emitter<'_> {
             },
             Binding::Global(var) => f
                 .ins()
-                .global_get(self.global_slots(var).defined.expect("a flagged global").0),
-            Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined.0),
+                .global_get(self.global_slots(var).defined.expect("a flagged global")),
+            Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined),
         };
     }
 
@@ -491,7 +494,7 @@ impl Emitter<'_> {
         self.at(f, site, |e, f| {
             e.reprs.call_fits(f);
             e.raise_if_zero(f, RECURSION_ERROR);
-            f.ins().call(index.0);
+            f.ins().call(index);
         });
     }
 
@@ -499,7 +502,7 @@ impl Emitter<'_> {
         self.vars.get(index(var)).expect("a variable of the module")
     }
 
-    fn local_slots(&self, var: VarId) -> &Slots<u32> {
+    fn local_slots(&self, var: VarId) -> &Slots<LocalIdx> {
         self.code
             .vars
             .get(index(var))
@@ -676,8 +679,8 @@ impl Emitter<'_> {
             if i > 0 {
                 f.ins()
                     .i32_const(' ' as i32)
-                    .call(self.host.write_char.0)
-                    .call(self.host.end_write.0);
+                    .call(self.host.write_char)
+                    .call(self.host.end_write);
             }
             self.reprs.load(f, rep, local);
             self.reprs.write(&mut self.m, f, rep);
@@ -685,15 +688,15 @@ impl Emitter<'_> {
         }
         f.ins()
             .i32_const('\n' as i32)
-            .call(self.host.write_char.0)
-            .call(self.host.end_write.0);
+            .call(self.host.write_char)
+            .call(self.host.end_write);
         self.at(f, site, |e, f| {
-            f.ins().global_get(e.host.error.0);
+            f.ins().global_get(e.host.error);
             f.if_(BlockType::Empty);
             f.ins()
-                .global_get(e.host.error.0)
+                .global_get(e.host.error)
                 .i32_const(0)
-                .global_set(e.host.error.0);
+                .global_set(e.host.error);
             e.reprs.raise_os_error(f);
             f.end();
         });

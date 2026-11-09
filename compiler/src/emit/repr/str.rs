@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 
-use wasm_encoder::{BlockType, ConstExpr, HeapType, RefType, StorageType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
-use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, ModuleState, TypeIdx};
+use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
 use crate::emit::runtime::host::Host;
 
 /// The most code points in a `str`, the longest array that an `i32`
@@ -66,7 +66,7 @@ impl StrRepr {
     /// Pushes the literal `s`.
     pub fn literal(&mut self, m: &mut ModuleState, f: &mut FuncState, s: &str) {
         let global = self.literal_global(m, s);
-        f.ins().global_get(global.0).ref_as_non_null();
+        f.ins().global_get(global).ref_as_non_null();
     }
 
     /// The global that holds the literal `s`. Each literal is built once,
@@ -79,18 +79,16 @@ impl StrRepr {
                 let array = *array;
                 *literals.entry(s.to_owned()).or_insert_with(|| {
                     let data = m.passive_data(encode(s));
-                    let global = m.global(
-                        ref_to(array, true),
-                        &ConstExpr::ref_null(HeapType::Concrete(array.0)),
-                    );
+                    let global =
+                        m.global(array.ref_to(true), &ConstExpr::ref_null(array.heap_type()));
                     let len =
                         i32::try_from(s.chars().count()).expect("a literal shorter than 2^31");
-                    wasm_encoder::InstructionSink::new(&mut m.init)
+                    Ins::new(&mut m.init)
                         .i32_const(0)
                         .i32_const(len)
-                        .array_new_data(array.0, data.0)
-                        .global_set(global.0)
-                        .data_drop(data.0);
+                        .array_new_data(array, data)
+                        .global_set(global)
+                        .data_drop(data);
                     global
                 })
             }
@@ -110,7 +108,7 @@ impl StrRepr {
     pub fn new_data(&self, f: &mut FuncState, data: DataIdx) {
         match self {
             StrRepr::Ucs4 { array, .. } => {
-                f.ins().array_new_data(array.0, data.0);
+                f.ins().array_new_data(*array, data);
             }
         }
     }
@@ -134,14 +132,14 @@ impl StrRepr {
     pub fn ascii(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { ascii, .. } => {
-                f.ins().call(ascii.0);
+                f.ins().call(*ascii);
             }
         }
     }
 
     pub fn val_type(&self, nullable: bool) -> ValType {
         match self {
-            StrRepr::Ucs4 { array, .. } => ref_to(*array, nullable),
+            StrRepr::Ucs4 { array, .. } => array.ref_to(nullable),
         }
     }
 
@@ -149,7 +147,7 @@ impl StrRepr {
     pub fn decimal(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { decimal, .. } => {
-                f.ins().call(decimal.0);
+                f.ins().call(*decimal);
             }
         }
     }
@@ -177,7 +175,7 @@ impl StrRepr {
     pub fn concat(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { concat, .. } => {
-                f.ins().call(concat.0);
+                f.ins().call(*concat);
             }
         }
     }
@@ -188,7 +186,7 @@ impl StrRepr {
     pub fn repeat(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { repeat, .. } => {
-                f.ins().call(repeat.0);
+                f.ins().call(*repeat);
             }
         }
     }
@@ -198,7 +196,7 @@ impl StrRepr {
     pub fn index(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { index, .. } => {
-                f.ins().call(index.0);
+                f.ins().call(*index);
             }
         }
     }
@@ -209,7 +207,7 @@ impl StrRepr {
     pub fn compare(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { compare, .. } => {
-                f.ins().call(compare.0);
+                f.ins().call(*compare);
             }
         }
     }
@@ -218,29 +216,22 @@ impl StrRepr {
     pub fn write(&self, f: &mut FuncState) {
         match self {
             StrRepr::Ucs4 { write, .. } => {
-                f.ins().call(write.0);
+                f.ins().call(*write);
             }
         }
     }
 }
 
-fn ref_to(index: TypeIdx, nullable: bool) -> ValType {
-    ValType::Ref(RefType {
-        nullable,
-        heap_type: HeapType::Concrete(index.0),
-    })
-}
-
 fn add_ascii(m: &mut ModuleState, array: TypeIdx, bytes: TypeIdx) -> FuncIdx {
-    let ty = m.func_type(&[ref_to(bytes, false)], &[ref_to(array, false)]);
-    let text = 0;
+    let ty = m.func_type(&[bytes.ref_to(false)], &[array.ref_to(false)]);
     let mut f = FuncState::new(1);
-    let s = f.local(ref_to(array, true));
+    let text = f.param(0);
+    let s = f.local(array.ref_to(true));
     let i = f.local(ValType::I32);
     f.ins()
         .local_get(text)
         .array_len()
-        .array_new_default(array.0)
+        .array_new_default(array)
         .local_set(s);
     let exit = f.block(BlockType::Empty);
     let again = f.loop_(BlockType::Empty);
@@ -251,8 +242,8 @@ fn add_ascii(m: &mut ModuleState, array: TypeIdx, bytes: TypeIdx) -> FuncIdx {
         .local_get(i)
         .local_get(text)
         .local_get(i)
-        .array_get_u(bytes.0)
-        .array_set(array.0)
+        .array_get_u(bytes)
+        .array_set(array)
         .local_get(i)
         .i32_const(1)
         .i32_add()
@@ -265,9 +256,9 @@ fn add_ascii(m: &mut ModuleState, array: TypeIdx, bytes: TypeIdx) -> FuncIdx {
 }
 
 fn add_write(m: &mut ModuleState, host: &Host, array: TypeIdx) -> FuncIdx {
-    let ty = m.func_type(&[ref_to(array, false)], &[]);
-    let s = 0;
+    let ty = m.func_type(&[array.ref_to(false)], &[]);
     let mut f = FuncState::new(1);
+    let s = f.param(0);
     let i = f.local(ValType::I32);
     let len = f.local(ValType::I32);
     f.ins().local_get(s).array_len().local_set(len);
@@ -278,8 +269,8 @@ fn add_write(m: &mut ModuleState, host: &Host, array: TypeIdx) -> FuncIdx {
     f.ins()
         .local_get(s)
         .local_get(i)
-        .array_get(array.0)
-        .call(host.write_char.0)
+        .array_get(array)
+        .call(host.write_char)
         .local_get(i)
         .i32_const(1)
         .i32_add()
@@ -287,19 +278,19 @@ fn add_write(m: &mut ModuleState, host: &Host, array: TypeIdx) -> FuncIdx {
     f.br(again);
     f.end();
     f.end();
-    f.ins().call(host.end_write.0);
+    f.ins().call(host.end_write);
     m.add_func(ty, f.finish())
 }
 
 fn add_decimal(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
-    let ty = m.func_type(&[ValType::I64], &[ref_to(array, false)]);
-    let v = 0;
+    let ty = m.func_type(&[ValType::I64], &[array.ref_to(false)]);
     let mut f = FuncState::new(1);
+    let v = f.param(0);
     let negative = f.local(ValType::I32);
     let n = f.local(ValType::I64);
     let len = f.local(ValType::I32);
     let rest = f.local(ValType::I64);
-    let s = f.local(ref_to(array, true));
+    let s = f.local(array.ref_to(true));
     f.ins()
         .local_get(v)
         .i64_const(0)
@@ -339,7 +330,7 @@ fn add_decimal(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
     f.end();
     f.ins()
         .local_get(len)
-        .array_new_default(array.0)
+        .array_new_default(array)
         .local_set(s)
         .local_get(negative);
     f.if_(BlockType::Empty);
@@ -347,7 +338,7 @@ fn add_decimal(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .local_get(s)
         .i32_const(0)
         .i32_const('-' as i32)
-        .array_set(array.0);
+        .array_set(array);
     f.end();
     // From the last digit back to the first.
     let again = f.loop_(BlockType::Empty);
@@ -364,7 +355,7 @@ fn add_decimal(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .i32_wrap_i64()
         .i32_const('0' as i32)
         .i32_add()
-        .array_set(array.0)
+        .array_set(array)
         .local_get(n)
         .i64_const(10)
         .i64_div_u()
@@ -379,26 +370,26 @@ fn add_decimal(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
 
 fn add_concat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
     let ty = m.func_type(
-        &[ref_to(array, false), ref_to(array, false)],
-        &[ref_to(array, false)],
+        &[array.ref_to(false), array.ref_to(false)],
+        &[array.ref_to(false)],
     );
-    let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
-    let s = f.local(ref_to(array, true));
+    let (a, b) = (f.param(0), f.param(1));
+    let s = f.local(array.ref_to(true));
     f.ins()
         .local_get(a)
         .array_len()
         .local_get(b)
         .array_len()
         .i32_add()
-        .array_new_default(array.0)
+        .array_new_default(array)
         .local_tee(s)
         .i32_const(0)
         .local_get(a)
         .i32_const(0)
         .local_get(a)
         .array_len()
-        .array_copy(array.0, array.0)
+        .array_copy(array, array)
         .local_get(s)
         .local_get(a)
         .array_len()
@@ -406,19 +397,16 @@ fn add_concat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .i32_const(0)
         .local_get(b)
         .array_len()
-        .array_copy(array.0, array.0)
+        .array_copy(array, array)
         .local_get(s)
         .ref_as_non_null();
     m.add_func(ty, f.finish())
 }
 
 fn add_compare(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
-    let ty = m.func_type(
-        &[ref_to(array, false), ref_to(array, false)],
-        &[ValType::I32],
-    );
-    let (a, b) = (0, 1);
+    let ty = m.func_type(&[array.ref_to(false), array.ref_to(false)], &[ValType::I32]);
     let mut f = FuncState::new(2);
+    let (a, b) = (f.param(0), f.param(1));
     let i = f.local(ValType::I32);
     let shorter = f.local(ValType::I32);
     let x = f.local(ValType::I32);
@@ -442,11 +430,11 @@ fn add_compare(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
     f.ins()
         .local_get(a)
         .local_get(i)
-        .array_get(array.0)
+        .array_get(array)
         .local_set(x)
         .local_get(b)
         .local_get(i)
-        .array_get(array.0)
+        .array_get(array)
         .local_set(y)
         .local_get(x)
         .local_get(y)
@@ -483,14 +471,11 @@ fn add_compare(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
 }
 
 fn add_repeat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
-    let ty = m.func_type(
-        &[ref_to(array, false), ValType::I32],
-        &[ref_to(array, true)],
-    );
-    let (s, n) = (0, 1);
+    let ty = m.func_type(&[array.ref_to(false), ValType::I32], &[array.ref_to(true)]);
     let mut f = FuncState::new(2);
+    let (s, n) = (f.param(0), f.param(1));
     let len = f.local(ValType::I64);
-    let r = f.local(ref_to(array, true));
+    let r = f.local(array.ref_to(true));
     let done = f.local(ValType::I32);
     let chunk = f.local(ValType::I32);
     f.ins()
@@ -499,7 +484,7 @@ fn add_repeat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .i32_const(0)
         .i32_le_s();
     f.if_(BlockType::Empty);
-    f.ins().i32_const(0).array_new_default(array.0).return_();
+    f.ins().i32_const(0).array_new_default(array).return_();
     f.end();
     f.ins()
         .local_get(s)
@@ -512,19 +497,19 @@ fn add_repeat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .i64_const(MAX_LEN)
         .i64_gt_u();
     f.if_(BlockType::Empty);
-    f.ins().ref_null(HeapType::Concrete(array.0)).return_();
+    f.ins().ref_null(array.heap_type()).return_();
     f.end();
     f.ins()
         .local_get(len)
         .i32_wrap_i64()
-        .array_new_default(array.0)
+        .array_new_default(array)
         .local_tee(r)
         .i32_const(0)
         .local_get(s)
         .i32_const(0)
         .local_get(s)
         .array_len()
-        .array_copy(array.0, array.0)
+        .array_copy(array, array)
         .local_get(s)
         .array_len()
         .local_set(done);
@@ -556,7 +541,7 @@ fn add_repeat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .local_get(r)
         .i32_const(0)
         .local_get(chunk)
-        .array_copy(array.0, array.0)
+        .array_copy(array, array)
         .local_get(done)
         .local_get(chunk)
         .i32_add()
@@ -578,19 +563,13 @@ fn encode(s: &str) -> Vec<u8> {
 const SHARED_CHARS: i32 = 256;
 
 fn add_index(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
-    let table = m.array_type(StorageType::Val(ref_to(array, true)), true);
-    let shared = m.global(
-        ref_to(table, true),
-        &ConstExpr::ref_null(HeapType::Concrete(table.0)),
-    );
-    let ty = m.func_type(
-        &[ref_to(array, false), ValType::I32],
-        &[ref_to(array, true)],
-    );
-    let (s, i) = (0, 1);
+    let table = m.array_type(StorageType::Val(array.ref_to(true)), true);
+    let shared = m.global(table.ref_to(true), &ConstExpr::ref_null(table.heap_type()));
+    let ty = m.func_type(&[array.ref_to(false), ValType::I32], &[array.ref_to(true)]);
     let mut f = FuncState::new(2);
+    let (s, i) = (f.param(0), f.param(1));
     let c = f.local(ValType::I32);
-    let one = f.local(ref_to(array, true));
+    let one = f.local(array.ref_to(true));
     f.ins().local_get(i).i32_const(0).i32_lt_s();
     f.if_(BlockType::Empty);
     f.ins()
@@ -607,41 +586,41 @@ fn add_index(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
         .array_len()
         .i32_ge_u();
     f.if_(BlockType::Empty);
-    f.ins().ref_null(HeapType::Concrete(array.0)).return_();
+    f.ins().ref_null(array.heap_type()).return_();
     f.end();
     f.ins()
         .local_get(s)
         .local_get(i)
-        .array_get(array.0)
+        .array_get(array)
         .local_tee(c)
         .i32_const(SHARED_CHARS)
         .i32_ge_u();
     f.if_(BlockType::Empty);
-    f.ins().local_get(c).array_new_fixed(array.0, 1).return_();
+    f.ins().local_get(c).array_new_fixed(array, 1).return_();
     f.end();
     // The first index builds the table, so a program that never indexes
     // never builds it.
-    f.ins().global_get(shared.0).ref_is_null();
+    f.ins().global_get(shared).ref_is_null();
     f.if_(BlockType::Empty);
     f.ins()
         .i32_const(SHARED_CHARS)
-        .array_new_default(table.0)
-        .global_set(shared.0);
+        .array_new_default(table)
+        .global_set(shared);
     f.end();
     f.ins()
-        .global_get(shared.0)
+        .global_get(shared)
         .local_get(c)
-        .array_get(table.0)
+        .array_get(table)
         .local_tee(one)
         .ref_is_null();
     f.if_(BlockType::Empty);
     f.ins()
-        .global_get(shared.0)
+        .global_get(shared)
         .local_get(c)
         .local_get(c)
-        .array_new_fixed(array.0, 1)
+        .array_new_fixed(array, 1)
         .local_tee(one)
-        .array_set(table.0);
+        .array_set(table);
     f.end();
     f.ins().local_get(one);
     m.add_func(ty, f.finish())

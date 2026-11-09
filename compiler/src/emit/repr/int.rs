@@ -82,7 +82,7 @@ impl IntRepr {
     pub fn len_as_int(&self, f: &mut FuncState) {
         match self {
             IntRepr::I31 { check, .. } => {
-                f.ins().i64_extend_i32_u().call(check.0);
+                f.ins().i64_extend_i32_u().call(*check);
             }
         }
     }
@@ -112,7 +112,7 @@ impl IntRepr {
                     ArithOp::FloorDiv => floor_div,
                     ArithOp::Mod => modulo,
                 };
-                f.ins().call(func.0);
+                f.ins().call(*func);
             }
         }
     }
@@ -161,13 +161,14 @@ impl IntRepr {
 fn add_arith(m: &mut ModuleState, check: FuncIdx, op: impl FnOnce(&mut FuncState)) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let mut f = FuncState::new(2);
+    let (a, b) = (f.param(0), f.param(1));
     f.ins()
-        .local_get(0)
+        .local_get(a)
         .i64_extend_i32_s()
-        .local_get(1)
+        .local_get(b)
         .i64_extend_i32_s();
     op(&mut f);
-    f.ins().call(check.0);
+    f.ins().call(check);
     m.add_func(ty, f.finish())
 }
 
@@ -180,7 +181,8 @@ fn check_divisor(
     exc: &Exceptions,
     message: &str,
 ) {
-    f.ins().local_get(1).i32_eqz();
+    let divisor = f.param(1);
+    f.ins().local_get(divisor).i32_eqz();
     f.if_(BlockType::Empty);
     str.literal(m, f, message);
     exc.raise(f);
@@ -197,8 +199,8 @@ fn add_floor_div(
     check: FuncIdx,
 ) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
-    let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
+    let (a, b) = (f.param(0), f.param(1));
     check_divisor(m, &mut f, str, exc, DIVISION_BY_ZERO);
     f.ins()
         .local_get(a)
@@ -219,7 +221,7 @@ fn add_floor_div(
         .i32_and()
         .i64_extend_i32_u()
         .i64_sub()
-        .call(check.0);
+        .call(check);
     m.add_func(ty, f.finish())
 }
 
@@ -228,8 +230,8 @@ fn add_floor_div(
 /// a remainder that is not 0.
 fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
-    let (a, b) = (0, 1);
     let mut f = FuncState::new(2);
+    let (a, b) = (f.param(0), f.param(1));
     let r = f.local(ValType::I32);
     check_divisor(m, &mut f, str, exc, MODULO_BY_ZERO);
     f.ins()
@@ -257,8 +259,8 @@ fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncI
 /// value does not fit in 31 bits.
 fn add_check(m: &mut ModuleState, overflow: FuncIdx) -> FuncIdx {
     let ty = m.func_type(&[ValType::I64], &[ValType::I32]);
-    let v = 0;
     let mut f = FuncState::new(1);
+    let v = f.param(0);
     f.ins()
         .local_get(v)
         .i64_const(-MIN)
@@ -268,7 +270,7 @@ fn add_check(m: &mut ModuleState, overflow: FuncIdx) -> FuncIdx {
     f.if_(BlockType::Empty);
     f.ins().local_get(v).i32_wrap_i64().return_();
     f.end();
-    f.ins().local_get(v).call(overflow.0).unreachable();
+    f.ins().local_get(v).call(overflow).unreachable();
     m.add_func(ty, f.finish())
 }
 
@@ -276,8 +278,8 @@ fn add_check(m: &mut ModuleState, overflow: FuncIdx) -> FuncIdx {
 /// bits, with the result and the range.
 fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
     let ty = m.func_type(&[ValType::I64], &[]);
-    let v = 0;
     let mut f = FuncState::new(1);
+    let v = f.param(0);
     str.literal(m, &mut f, "spython: the result ");
     f.ins().local_get(v);
     str.decimal(&mut f);
