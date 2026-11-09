@@ -192,6 +192,17 @@ pub(crate) enum Expr {
     /// A `float` rounded to the nearest whole value, with a tie going to
     /// the even one, as `round` does.
     FloatRound(Box<Expr>),
+    /// `value`, once the import of `import` has run. A read of a name of
+    /// an import before the import raises `NameError`.
+    AfterImport {
+        import: ImportId,
+        check: Check,
+        value: Box<Expr>,
+    },
+    /// The greatest whole `float` not above the `float`, as `math.floor`.
+    FloatFloor(Box<Expr>),
+    /// The least whole `float` not below the `float`, as `math.ceil`.
+    FloatCeil(Box<Expr>),
     /// `round` of a `float` to `digits` digits. A rounded value too large
     /// for a `float` raises `OverflowError` at the site.
     FloatRoundDigits {
@@ -421,12 +432,15 @@ impl Expr {
             | Expr::FloatNeg(_)
             | Expr::FloatAbs(_)
             | Expr::FloatRound(_)
+            | Expr::FloatFloor(_)
+            | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
+            Expr::AfterImport { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
             Expr::Print { .. } => Rep::None,
         }

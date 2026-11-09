@@ -250,6 +250,14 @@ impl Reprs {
         self.float.round(f);
     }
 
+    pub fn float_floor(&self, f: &mut FuncState) {
+        self.float.floor(f);
+    }
+
+    pub fn float_ceil(&self, f: &mut FuncState) {
+        self.float.ceil(f);
+    }
+
     /// Pops a `float` and an `int`, and pushes the `float` rounded to that
     /// many digits, or raises `OverflowError`.
     pub fn float_round_digits(&mut self, m: &mut ModuleState, f: &mut FuncState) {

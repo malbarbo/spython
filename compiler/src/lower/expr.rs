@@ -120,7 +120,10 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Call(call) if self.is_builtin(&call.func, "max") => {
                 self.min_max(call, MinMaxOp::Max)
             }
-            ast::Expr::Call(call) => self.call(call),
+            ast::Expr::Call(call) => match self.math_function(&call.func) {
+                Some(name) => self.math(call, &name),
+                None => self.call(call),
+            },
             _ => Err(unsupported(expr, "this expression")),
         }
     }

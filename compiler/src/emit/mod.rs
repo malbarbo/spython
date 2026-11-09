@@ -639,6 +639,23 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.float_round(f);
             }
+            Expr::AfterImport {
+                import,
+                check,
+                value,
+            } => {
+                self.bound(f, Binding::Import(*import));
+                self.raise_if_undefined(f, check);
+                self.expr(f, value);
+            }
+            Expr::FloatFloor(operand) => {
+                self.expr(f, operand);
+                self.reprs.float_floor(f);
+            }
+            Expr::FloatCeil(operand) => {
+                self.expr(f, operand);
+                self.reprs.float_ceil(f);
+            }
             Expr::Div {
                 op,
                 left,

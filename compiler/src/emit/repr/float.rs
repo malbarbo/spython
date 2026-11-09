@@ -196,6 +196,24 @@ impl FloatRepr {
         }
     }
 
+    /// Pops a `float` and pushes the greatest whole value not above it.
+    pub fn floor(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_floor();
+            }
+        }
+    }
+
+    /// Pops a `float` and pushes the least whole value not below it.
+    pub fn ceil(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_ceil();
+            }
+        }
+    }
+
     /// Pops a `float` and writes its `repr` to the standard output, as one
     /// write.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState) {
