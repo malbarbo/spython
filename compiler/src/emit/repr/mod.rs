@@ -246,6 +246,11 @@ impl Reprs {
         self.float.abs(f);
     }
 
+    /// Pops `x` and `y` and pushes `math.copysign(x, y)`.
+    pub fn copysign(&self, f: &mut FuncState) {
+        self.float.copysign(f);
+    }
+
     pub fn float_round(&self, f: &mut FuncState) {
         self.float.round(f);
     }

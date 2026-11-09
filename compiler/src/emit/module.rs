@@ -684,6 +684,7 @@ impl<'a> Ins<'a> {
         f64_add();
         f64_ceil();
         f64_convert_i32_s();
+        f64_copysign();
         f64_div();
         f64_eq();
         f64_floor();

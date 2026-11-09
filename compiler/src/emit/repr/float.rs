@@ -195,6 +195,14 @@ impl FloatRepr {
         }
     }
 
+    pub fn copysign(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_copysign();
+            }
+        }
+    }
+
     /// Pops a `float` and pushes the nearest whole value, with a tie going
     /// to the even one.
     pub fn round(&self, f: &mut FuncState) {

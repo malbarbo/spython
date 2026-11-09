@@ -200,6 +200,22 @@ fn sqrt_follows_python() {
 }
 
 #[test]
+fn fabs_and_copysign_follow_python() {
+    same_as_cpython(
+        "fabs_and_copysign_follow_python",
+        indoc! {"
+            import math
+            from math import copysign
+
+            inf = 1e308 * 10
+            print(math.fabs(-3), math.fabs(2.5), math.fabs(-0.0), math.fabs(True), math.fabs(-inf))
+            print(math.fabs(inf - inf), copysign(1, -0.0), copysign(-2.5, 3), copysign(True, -1))
+            print(copysign(inf, -1.0), copysign(0.0, -inf), copysign(-1.0, inf - inf))
+        "},
+    );
+}
+
+#[test]
 fn sqrt_below_0_raises_value_error() {
     same_as_cpython(
         "sqrt_below_0_raises_value_error",

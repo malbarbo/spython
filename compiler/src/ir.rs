@@ -216,6 +216,11 @@ pub(crate) enum Expr {
         x: Box<Expr>,
         y: Box<Expr>,
     },
+    /// `math.copysign(x, y)` of two `float`s.
+    Copysign {
+        x: Box<Expr>,
+        y: Box<Expr>,
+    },
     /// `math.log(x, base)` of two `float`s, which raises at the site as
     /// `math.log` does for each of them, or `ZeroDivisionError` for a base
     /// of 1.
@@ -572,6 +577,7 @@ impl Expr {
             | Expr::MathCall { .. }
             | Expr::Atan2 { .. }
             | Expr::Hypot { .. }
+            | Expr::Copysign { .. }
             | Expr::LogBase { .. }
             | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }
