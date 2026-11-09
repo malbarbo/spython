@@ -20,8 +20,8 @@ pub extern "C" fn f64_fmod(x: f64, y: f64) -> f64 {
     fmod(x, y)
 }
 
-/// The `fmod` of C, which is exact: the remainder of `x` by `y` with the
-/// sign of `x`, ported from `src/math/fmod.c` of musl.
+/// The `fmod` of C, ported from `src/math/fmod.c` of musl. It is exact,
+/// and gives the remainder of `x` by `y` with the sign of `x`.
 pub fn fmod(x: f64, y: f64) -> f64 {
     const BITS: u64 = 52;
     let mut ux = x.to_bits();
