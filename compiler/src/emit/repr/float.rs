@@ -156,6 +156,14 @@ impl FloatRepr {
         }
     }
 
+    pub fn abs(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_abs();
+            }
+        }
+    }
+
     /// Pops a `float` and writes its `repr` to the standard output, as one
     /// write.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState) {

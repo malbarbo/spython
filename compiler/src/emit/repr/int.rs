@@ -117,6 +117,29 @@ impl IntRepr {
         }
     }
 
+    /// Pops an `int` and pushes its absolute value, which the `check` of
+    /// `-1073741824` stops.
+    pub fn abs(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { check, .. } => {
+                let v = f.temp(ValType::I64);
+                f.ins()
+                    .i64_extend_i32_s()
+                    .local_set(v)
+                    .i64_const(0)
+                    .local_get(v)
+                    .i64_sub()
+                    .local_get(v)
+                    .local_get(v)
+                    .i64_const(0)
+                    .i64_lt_s()
+                    .select()
+                    .call(*check);
+                f.free(v);
+            }
+        }
+    }
+
     /// Pops two `int`s and pushes the `bool` of `op`.
     pub fn compare(&self, f: &mut FuncState, op: CmpOp) {
         match self {

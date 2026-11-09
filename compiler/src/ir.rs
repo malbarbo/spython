@@ -153,6 +153,14 @@ pub(crate) enum Expr {
     },
     /// `-` on a `float`, which gives `-0.0` for `0.0`.
     FloatNeg(Box<Expr>),
+    /// `abs` of an `int`. The result of the least `int` does not fit, and
+    /// stops the program at the site.
+    IntAbs {
+        operand: Box<Expr>,
+        site: Site,
+    },
+    /// `abs` of a `float`, which gives `0.0` for `-0.0`.
+    FloatAbs(Box<Expr>),
     /// `/`, `//` or `%` on two `float`s. A divisor of 0 raises
     /// `ZeroDivisionError` at the site.
     Div {
@@ -347,11 +355,16 @@ impl Expr {
             Expr::Str(_) | Expr::Concat { .. } | Expr::Repeat { .. } | Expr::Index { .. } => {
                 Rep::Str
             }
-            Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
+            Expr::Int(_)
+            | Expr::BoolAsInt(_)
+            | Expr::Arith { .. }
+            | Expr::IntAbs { .. }
+            | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)
             | Expr::FloatArith { .. }
             | Expr::FloatNeg(_)
+            | Expr::FloatAbs(_)
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,

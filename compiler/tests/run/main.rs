@@ -18,6 +18,7 @@ mod functions;
 mod int;
 mod memory;
 mod name_error;
+mod numeric;
 mod print;
 mod recursion;
 mod str;

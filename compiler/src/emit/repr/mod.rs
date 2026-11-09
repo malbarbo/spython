@@ -196,6 +196,11 @@ impl Reprs {
         self.int.arith(f, op);
     }
 
+    /// Pops an `int` and pushes its absolute value.
+    pub fn int_abs(&self, f: &mut FuncState) {
+        self.int.abs(f);
+    }
+
     /// Pops an `int` and pushes it as a `float`.
     pub fn int_as_float(&self, f: &mut FuncState) {
         self.int.as_i32(f);
@@ -222,6 +227,10 @@ impl Reprs {
     /// Pops a `float` and pushes its negation.
     pub fn float_neg(&self, f: &mut FuncState) {
         self.float.neg(f);
+    }
+
+    pub fn float_abs(&self, f: &mut FuncState) {
+        self.float.abs(f);
     }
 
     /// Pops a `str` and pushes its number of code points as an `int`.

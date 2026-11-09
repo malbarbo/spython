@@ -574,6 +574,14 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.float_neg(f);
             }
+            Expr::IntAbs { operand, site } => {
+                self.expr(f, operand);
+                self.at(f, *site, |e, f| e.reprs.int_abs(f));
+            }
+            Expr::FloatAbs(operand) => {
+                self.expr(f, operand);
+                self.reprs.float_abs(f);
+            }
             Expr::Div {
                 op,
                 left,

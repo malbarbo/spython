@@ -104,6 +104,20 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
+    /// `abs` of one number, where a `bool` counts as an `int`.
+    pub(super) fn abs(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let arg = one_arg(call, "this call of abs")?;
+        let operand = self.expr(arg)?;
+        match operand.rep() {
+            Rep::Float => Ok(Expr::FloatAbs(Box::new(operand))),
+            Rep::Int | Rep::Bool => Ok(Expr::IntAbs {
+                operand: Box::new(self.int_value(operand, arg)?),
+                site: self.site(call.range()),
+            }),
+            Rep::Str | Rep::None => Err(unsupported(arg, "abs of this type")),
+        }
+    }
+
     /// Returns `true` if `func` is the function `name` of the builtins,
     /// `false` otherwise.
     pub(super) fn is_builtin(&self, func: &ast::Expr, name: &str) -> bool {
@@ -111,6 +125,14 @@ impl<'a> Lowering<'a, '_> {
             expr_shape(self.model, func),
             Some(Shape::Function(def)) if def.name == name && is_builtins(self.model.db(), def.file)
         )
+    }
+}
+
+/// The one positional argument of `call`, which has no keyword argument.
+fn one_arg<'c>(call: &'c ast::ExprCall, what: &str) -> Result<&'c ast::Expr, Error> {
+    match (&*call.arguments.args, &*call.arguments.keywords) {
+        ([arg], []) => Ok(arg),
+        _ => Err(unsupported(call, what)),
     }
 }
 

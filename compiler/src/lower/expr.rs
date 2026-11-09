@@ -108,6 +108,7 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Expr::Call(call) if self.is_builtin(&call.func, "print") => self.print(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
+            ast::Expr::Call(call) if self.is_builtin(&call.func, "abs") => self.abs(call),
             ast::Expr::Call(call) => self.call(call),
             _ => Err(unsupported(expr, "this expression")),
         }
@@ -292,7 +293,7 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// `lowered`, the value of `operand`, as an `int`.
-    fn int_value(&self, lowered: Expr, operand: &impl Ranged) -> Result<Expr, Error> {
+    pub(super) fn int_value(&self, lowered: Expr, operand: &impl Ranged) -> Result<Expr, Error> {
         match lowered.rep() {
             Rep::Int => Ok(lowered),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(lowered))),
@@ -305,7 +306,7 @@ impl<'a> Lowering<'a, '_> {
 }
 
 /// `lowered`, the value of `operand`, as a `float`.
-fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, Error> {
+pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, Error> {
     match lowered.rep() {
         Rep::Float => Ok(lowered),
         Rep::Int => Ok(Expr::IntAsFloat(Box::new(lowered))),
