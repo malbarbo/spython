@@ -170,7 +170,13 @@ sugestão do `NameError`, as linhas do traceback, as mensagens e os
 limites. As regras da organização ficam no cabeçalho do `lib.rs`.
 
 A partir da fatia 1, o código vai para o prelude em Python, a menos que
-precise de instruções wasm. O jwonder passou o runtime escrito à mão para
+precise de instruções wasm. O critério é o tamanho e o desempenho: se o
+Python compila para um código do mesmo tamanho e tão rápido quanto o
+escrito à mão, ele fica em Python. O código em Python passa pelo
+compilador, e assim cada função do prelude também testa o compilador. O
+código à mão fica para o que precisa de uma instrução wasm, de um valor
+GC ou da representação, e para o que em Python sairia maior ou mais
+lento. O jwonder passou o runtime escrito à mão para
 Java e o reduziu de 628 para 298 linhas, e o backend Gleam terminou com
 três camadas de runtime e builtins repetidos.
 
