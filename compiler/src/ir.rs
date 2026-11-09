@@ -199,6 +199,12 @@ pub(crate) enum Expr {
         check: Check,
         value: Box<Expr>,
     },
+    /// The square root of a `float`. A value below 0 raises `ValueError`
+    /// at the site.
+    FloatSqrt {
+        operand: Box<Expr>,
+        site: Site,
+    },
     /// The greatest whole `float` not above the `float`, as `math.floor`.
     FloatFloor(Box<Expr>),
     /// The least whole `float` not below the `float`, as `math.ceil`.
@@ -433,6 +439,7 @@ impl Expr {
             | Expr::FloatAbs(_)
             | Expr::FloatRound(_)
             | Expr::FloatFloor(_)
+            | Expr::FloatSqrt { .. }
             | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }
             | Expr::Div { .. }

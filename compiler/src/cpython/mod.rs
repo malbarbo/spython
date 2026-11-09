@@ -39,6 +39,7 @@ pub(crate) const FLOAT_FLOOR_DIVISION_BY_ZERO: &str =
 pub(crate) const FLOAT_MODULO_BY_ZERO: &str = "ZeroDivisionError: float modulo by zero";
 pub(crate) const ZERO_TO_A_NEGATIVE_POWER: &str =
     "ZeroDivisionError: 0.0 cannot be raised to a negative power";
+pub(crate) const MATH_DOMAIN_ERROR: &str = "ValueError: math domain error";
 /// The `OverflowError` of `errno` `ERANGE`, with the `strerror` of glibc.
 pub(crate) const ROUNDED_TOO_LARGE: &str = "OverflowError: rounded value too large to represent";
 pub(crate) const RESULT_OUT_OF_RANGE: &str = "OverflowError: (34, 'Numerical result out of range')";

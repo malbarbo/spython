@@ -648,6 +648,10 @@ impl Emitter<'_> {
                 self.raise_if_undefined(f, check);
                 self.expr(f, value);
             }
+            Expr::FloatSqrt { operand, site } => {
+                self.expr(f, operand);
+                self.at(f, *site, |e, f| e.reprs.float_sqrt(&mut e.m, f));
+            }
             Expr::FloatFloor(operand) => {
                 self.expr(f, operand);
                 self.reprs.float_floor(f);

@@ -196,6 +196,14 @@ impl FloatRepr {
         }
     }
 
+    pub fn sqrt(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_sqrt();
+            }
+        }
+    }
+
     /// Pops a `float` and pushes the greatest whole value not above it.
     pub fn floor(&self, f: &mut FuncState) {
         match self {

@@ -9,7 +9,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
-use crate::cpython::{MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
+use crate::cpython::{MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{ArithOp, CmpOp, DivOp, FloatOp, Rep, SiteFrame};
 use float::FloatRepr;
 use int::IntRepr;
@@ -248,6 +248,21 @@ impl Reprs {
 
     pub fn float_round(&self, f: &mut FuncState) {
         self.float.round(f);
+    }
+
+    /// Pops a `float` and pushes its square root, or raises `ValueError`
+    /// when it is below 0. `-0.0` and `nan` are not below 0.
+    pub fn float_sqrt(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let x = f.temp(self.float.val_type());
+        f.ins().local_tee(x);
+        self.float.literal(f, 0.0);
+        self.float.compare(f, CmpOp::Lt);
+        f.if_(BlockType::Empty);
+        self.raise(m, f, MATH_DOMAIN_ERROR);
+        f.end();
+        f.ins().local_get(x);
+        f.free(x);
+        self.float.sqrt(f);
     }
 
     pub fn float_floor(&self, f: &mut FuncState) {

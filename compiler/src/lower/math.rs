@@ -3,6 +3,7 @@
 use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
 
+use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{Expr, Rep};
@@ -78,35 +79,45 @@ impl<'a> Lowering<'a, '_> {
         self.after_import(imported, Expr::Float(value))
     }
 
-    /// A call of `member`, a function of `math`, through `imported`.
-    /// `math.floor`, `math.ceil` and `math.trunc` take one number and give
-    /// an `int`.
+    /// A call of `member`, a function of `math` of one number, through
+    /// `imported`. `math.floor`, `math.ceil` and `math.trunc` give an
+    /// `int`, and `math.sqrt` gives a `float`.
     pub(super) fn math_call(
         &self,
         call: &ast::ExprCall,
         imported: &ast::ExprName,
         member: &str,
     ) -> Result<Expr, Error> {
-        let op: fn(Box<Expr>) -> Expr = match member {
-            "floor" => Expr::FloatFloor,
-            "ceil" => Expr::FloatCeil,
-            // `int` of a `float` drops its fraction.
-            "trunc" => |operand| *operand,
-            _ => return Err(unsupported(call, "this function of math")),
-        };
+        if !matches!(member, "floor" | "ceil" | "trunc" | "sqrt") {
+            return Err(unsupported(call, "this function of math"));
+        }
         let arg = match (&*call.arguments.args, &*call.arguments.keywords) {
             ([arg], []) => arg,
             _ => return Err(unsupported(call, "this call of a function of math")),
         };
         let operand = self.expr(arg)?;
-        let value = match operand.rep() {
-            Rep::Int | Rep::Bool => self.int_value(operand, arg)?,
-            Rep::Float => Expr::FloatAsInt {
-                operand: Box::new(op(Box::new(operand))),
-                site: self.site(call.range()),
-            },
-            Rep::Str | Rep::None => {
+        let site = self.site(call.range());
+        let value = match (member, operand.rep()) {
+            (_, Rep::Str | Rep::None) => {
                 return Err(unsupported(arg, "a function of math of this type"));
+            }
+            ("sqrt", _) => Expr::FloatSqrt {
+                operand: Box::new(float_value(operand, arg)?),
+                site,
+            },
+            (_, Rep::Int | Rep::Bool) => self.int_value(operand, arg)?,
+            (_, Rep::Float) => {
+                let operand = Box::new(operand);
+                let whole = match member {
+                    "floor" => Expr::FloatFloor(operand),
+                    "ceil" => Expr::FloatCeil(operand),
+                    // `int` of a `float` drops its fraction.
+                    _ => *operand,
+                };
+                Expr::FloatAsInt {
+                    operand: Box::new(whole),
+                    site,
+                }
             }
         };
         self.after_import(imported, value)

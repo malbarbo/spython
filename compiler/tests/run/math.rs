@@ -134,7 +134,7 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             import math
 
-            print(math.sqrt(2.0))
+            print(math.log(2.0))
         "}),
         "this function of math"
     );
@@ -172,6 +172,34 @@ fn a_constant_of_math_before_the_import_raises_name_error() {
 
             print(f())
             from math import pi
+        "},
+    );
+}
+
+#[test]
+fn sqrt_follows_python() {
+    same_as_cpython(
+        "sqrt_follows_python",
+        indoc! {"
+            import math
+
+            inf = 1e308 * 10
+            print(math.sqrt(2.0), math.sqrt(4), math.sqrt(True), math.sqrt(1073741823))
+            print(math.sqrt(0.0), math.sqrt(-0.0), math.sqrt(5e-324), math.sqrt(1.7e308))
+            print(math.sqrt(inf), math.sqrt(inf - inf))
+        "},
+    );
+}
+
+#[test]
+fn sqrt_below_0_raises_value_error() {
+    same_as_cpython(
+        "sqrt_below_0_raises_value_error",
+        indoc! {"
+            from math import sqrt
+
+            print(sqrt(1.0))
+            print(sqrt(-1e-300))
         "},
     );
 }
