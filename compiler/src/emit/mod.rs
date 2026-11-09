@@ -709,6 +709,14 @@ impl Emitter<'_> {
                 }
                 self.at(f, *site, |e, f| e.reprs.gcd_end(f));
             }
+            Expr::IntLcm { args, site } => {
+                self.reprs.lcm_start(f);
+                for arg in args {
+                    self.expr(f, arg);
+                    self.reprs.lcm_step(&mut self.m, f);
+                }
+                self.at(f, *site, |e, f| e.reprs.lcm_end(&mut e.m, f));
+            }
             Expr::IntFactorial { operand, site } => {
                 self.expr(f, operand);
                 self.at(f, *site, |e, f| e.reprs.factorial(&mut e.m, f));

@@ -113,6 +113,7 @@ impl<'a> Lowering<'a, '_> {
                 | "fma"
                 | "isclose"
                 | "isqrt"
+                | "lcm"
         ) || MathFunc::of(member).is_some()
             || MathFunc2::of(member).is_some();
         if !known {
@@ -126,6 +127,13 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(call.range()),
             },
             ("gcd", args, []) => Expr::IntGcd {
+                args: args
+                    .iter()
+                    .map(|arg| self.math_int(arg))
+                    .collect::<Result<_, _>>()?,
+                site: self.site(call.range()),
+            },
+            ("lcm", args, []) => Expr::IntLcm {
                 args: args
                     .iter()
                     .map(|arg| self.math_int(arg))
@@ -208,6 +216,7 @@ impl<'a> Lowering<'a, '_> {
                             | "fma"
                             | "isclose"
                             | "isqrt"
+                            | "lcm"
                     ) =>
             {
                 self.math_unary(call, member, arg)?

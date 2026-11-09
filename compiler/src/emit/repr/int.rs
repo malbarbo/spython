@@ -40,6 +40,13 @@ pub(super) enum IntRepr {
         /// `(func (param i32) (result i32))` for `math.factorial`, which
         /// the module gets at the first use.
         factorial: Option<FuncIdx>,
+        /// `(func (param i64 i32) (result i64))` for a step of `math.lcm`,
+        /// which the module gets at the first use. An `lcm` that does not
+        /// fit in 31 bits stays above `MAX`, but not at its value, so that
+        /// it fits in an `i64`.
+        lcm: Option<FuncIdx>,
+        /// `(func (param i64) (result i32))` for the end of `math.lcm`.
+        lcm_end: Option<FuncIdx>,
     },
 }
 
@@ -64,6 +71,8 @@ impl IntRepr {
             round: None,
             gcd: None,
             factorial: None,
+            lcm: None,
+            lcm_end: None,
         }
     }
 
@@ -209,6 +218,39 @@ impl IntRepr {
         match self {
             IntRepr::I31 { check, .. } => {
                 f.ins().call(*check);
+            }
+        }
+    }
+
+    pub fn lcm_start(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { .. } => {
+                f.ins().i64_const(1);
+            }
+        }
+    }
+
+    pub fn lcm_step(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { gcd, lcm, .. } => {
+                let gcd = *gcd.get_or_insert_with(|| add_gcd(m));
+                let func = *lcm.get_or_insert_with(|| add_lcm(m, gcd));
+                f.ins().call(func);
+            }
+        }
+    }
+
+    pub fn lcm_end(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            IntRepr::I31 { lcm_end, .. } => {
+                let func = *lcm_end.get_or_insert_with(|| add_lcm_end(m, str, exc));
+                f.ins().call(func);
             }
         }
     }
@@ -455,6 +497,74 @@ fn add_gcd(m: &mut ModuleState) -> FuncIdx {
     f.end();
     f.end();
     f.ins().local_get(a);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of a step of `math.lcm`, which takes the `lcm` so far, a
+/// number from 0 to `MAX + 1`, and an `int`, and gives the `lcm` of both.
+/// A result above `MAX + 1` becomes `MAX + 1`, which keeps the product of
+/// the next step within an `i64`. Any result above `MAX` stops the
+/// program at the end, unless a later 0 makes the `lcm` 0.
+fn add_lcm(m: &mut ModuleState, gcd: FuncIdx) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I64, ValType::I32], &[ValType::I64]);
+    let mut f = FuncState::new(2);
+    let (a, x) = (f.param(0), f.param(1));
+    let (b, r) = (f.local(ValType::I64), f.local(ValType::I64));
+    f.ins()
+        .local_get(x)
+        .i64_extend_i32_s()
+        .local_tee(b)
+        .i64_const(0)
+        .i64_lt_s();
+    f.if_(BlockType::Empty);
+    f.ins().i64_const(0).local_get(b).i64_sub().local_set(b);
+    f.end();
+    f.ins()
+        .local_get(a)
+        .i64_eqz()
+        .local_get(b)
+        .i64_eqz()
+        .i32_or();
+    f.if_(BlockType::Empty);
+    f.ins().i64_const(0).return_();
+    f.end();
+    f.ins()
+        .local_get(a)
+        .local_get(a)
+        .local_get(x)
+        .call(gcd)
+        .i64_div_u()
+        .local_get(b)
+        .i64_mul()
+        .local_set(r);
+    f.ins()
+        .i64_const(MAX + 1)
+        .local_get(r)
+        .local_get(r)
+        .i64_const(MAX + 1)
+        .i64_gt_u()
+        .select();
+    m.add_func(ty, f.finish())
+}
+
+/// The function of the end of `math.lcm`, which gives the `lcm` as an
+/// `int`, or stops the program when it is above `MAX`.
+fn add_lcm_end(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I64], &[ValType::I32]);
+    let mut f = FuncState::new(1);
+    let v = f.param(0);
+    f.ins().local_get(v).i64_const(MAX).i64_gt_u();
+    f.if_(BlockType::Empty);
+    str.literal(
+        m,
+        &mut f,
+        &format!(
+            "spython: the result of lcm does not fit in an int, which goes from {MIN} to {MAX}"
+        ),
+    );
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(v).i32_wrap_i64();
     m.add_func(ty, f.finish())
 }
 

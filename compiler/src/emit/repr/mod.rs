@@ -220,6 +220,22 @@ impl Reprs {
         self.int.gcd_end(f);
     }
 
+    /// Pushes the `lcm` of no `int`, before the steps of `math.lcm`.
+    pub fn lcm_start(&self, f: &mut FuncState) {
+        self.int.lcm_start(f);
+    }
+
+    /// Pops an `lcm` and an `int` and pushes the `lcm` of both.
+    pub fn lcm_step(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.lcm_step(m, f);
+    }
+
+    /// Pops an `lcm` and pushes it as an `int`, which stops the program when
+    /// it does not fit.
+    pub fn lcm_end(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.lcm_end(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops an `int` and pushes `math.factorial` of it, or raises the error
     /// of a negative `int` or of an `int` above 12.
     pub fn factorial(&mut self, m: &mut ModuleState, f: &mut FuncState) {

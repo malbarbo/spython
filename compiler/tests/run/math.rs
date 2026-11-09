@@ -825,3 +825,51 @@ fn isqrt_of_a_negative_int_raises_value_error() {
         "},
     );
 }
+
+#[test]
+fn lcm_follows_python() {
+    same_as_cpython(
+        "lcm_follows_python",
+        indoc! {"
+            import math
+            from math import lcm
+
+            print(lcm(), lcm(-4), lcm(4, 6), lcm(-4, 6), lcm(0, 5), lcm(3, 4, 5), lcm(True, 7))
+            print(lcm(32768, 32767), lcm(1073741823, 1), lcm(-1073741823, 3), math.lcm(6, 10, 15))
+            print(lcm(1073741823, 1073741822, 0), lcm(65536, 65535, 65533, 0, 7), lcm(0, 1073741823))
+        "},
+    );
+}
+
+#[test]
+fn lcm_that_does_not_fit_stops_the_program() {
+    for (case, args) in [
+        ("two", "32768, 32769"),
+        ("four", "65536, 65535, 65533, 7"),
+        ("the_least_int", "-1073741824, 1"),
+    ] {
+        let name = format!("lcm_of_{case}_stops_the_program");
+        let output = run(
+            &name,
+            &formatdoc! {"
+                import math
+
+                print(math.lcm({args}))
+            "},
+        );
+        let carets = "^".repeat(args.len() + 2);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!(
+                "Traceback (most recent call last):\n  \
+                 File \"{}\", line 3, in <module>\n    \
+                 print(math.lcm({args}))\n          ~~~~~~~~{carets}\n\
+                 spython: the result of lcm does not fit in an int, \
+                 which goes from -1073741824 to 1073741823\n",
+                path(&name, "py").display(),
+            ),
+            "stderr"
+        );
+        assert_eq!(output.status.code(), Some(1), "exit code");
+    }
+}

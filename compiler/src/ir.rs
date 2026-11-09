@@ -263,6 +263,12 @@ pub(crate) enum Expr {
         args: Vec<Expr>,
         site: Site,
     },
+    /// `math.lcm` of any number of `int`s. A result that does not fit in an
+    /// `int` stops the program at the site.
+    IntLcm {
+        args: Vec<Expr>,
+        site: Site,
+    },
     /// `math.factorial` of an `int`. A negative `int` raises `ValueError`
     /// at the site, and an `int` above 12 raises `OverflowError` there.
     IntFactorial {
@@ -662,6 +668,7 @@ impl Expr {
             | Expr::Arith { .. }
             | Expr::IntAbs { .. }
             | Expr::IntGcd { .. }
+            | Expr::IntLcm { .. }
             | Expr::IntFactorial { .. }
             | Expr::IntIsqrt { .. }
             | Expr::IntRound { .. }
