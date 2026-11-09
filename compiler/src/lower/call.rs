@@ -242,63 +242,6 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// A call of `math.floor`, `math.ceil` or `math.trunc`, of one number,
-    /// which gives an `int`. `name` is the function of `math` that the
-    /// call names, by its module or by a `from` import.
-    pub(super) fn math(&self, call: &ast::ExprCall, name: &str) -> Result<Expr, Error> {
-        let imported = match &*call.func {
-            ast::Expr::Name(imported) => imported,
-            ast::Expr::Attribute(ast::ExprAttribute { value, .. }) => match &**value {
-                ast::Expr::Name(imported) => imported,
-                _ => return Err(unsupported(call, "this call of a function of math")),
-            },
-            _ => return Err(unsupported(call, "this call of a function of math")),
-        };
-        let Some(import) = self.imports.borrow().ids.get(imported.id.as_str()).copied() else {
-            return Err(unsupported(call, "this call of a function of math"));
-        };
-        let op: fn(Box<Expr>) -> Expr = match name {
-            "floor" => Expr::FloatFloor,
-            "ceil" => Expr::FloatCeil,
-            // `int` of a `float` drops its fraction.
-            "trunc" => |operand| *operand,
-            _ => return Err(unsupported(call, "this function of math")),
-        };
-        let check = self.global_check(imported)?;
-        let arg = one_arg(call, "this call of a function of math")?;
-        let operand = self.expr(arg)?;
-        let value = match operand.rep() {
-            Rep::Int | Rep::Bool => self.int_value(operand, arg)?,
-            Rep::Float => Expr::FloatAsInt {
-                operand: Box::new(op(Box::new(operand))),
-                site: self.site(call.range()),
-            },
-            Rep::Str | Rep::None => {
-                return Err(unsupported(arg, "a function of math of this type"));
-            }
-        };
-        Ok(match check {
-            Some(check) => Expr::AfterImport {
-                import,
-                check,
-                value: Box::new(value),
-            },
-            None => value,
-        })
-    }
-
-    /// The name of the function of `math` that `func` is, and `None` when
-    /// `func` is not a function of `math`.
-    pub(super) fn math_function(&self, func: &ast::Expr) -> Option<String> {
-        let Some(Shape::Function(def)) = expr_shape(self.model, func) else {
-            return None;
-        };
-        let db = self.model.db();
-        let resolver_file = db.program_file(def.file).resolver_file(db);
-        let module = file_to_module(db, resolver_file)?;
-        (module.name(db).as_str() == "math").then_some(def.name)
-    }
-
     /// Returns `true` if `func` is the class `name` of the builtins, `false`
     /// otherwise.
     pub(super) fn is_class(&self, func: &ast::Expr, name: &str) -> bool {

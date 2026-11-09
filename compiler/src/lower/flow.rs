@@ -26,8 +26,9 @@ pub(super) struct Bindings<'a> {
     /// Each assignment of a value.
     pub assignments: Vec<Assigned<'a>>,
     pub defs: Vec<&'a ast::StmtFunctionDef>,
-    /// Each name that an import binds, with the alias that binds it.
-    pub imports: Vec<(&'a str, &'a ast::Alias)>,
+    /// Each name that an import binds, with the alias that binds it and
+    /// whether the import is a `from` import.
+    pub imports: Vec<(&'a str, &'a ast::Alias, bool)>,
     /// The names of the `global` statements.
     pub globals: HashSet<&'a str>,
     /// Each name that the body assigns or imports. Any other way to bind a
@@ -99,12 +100,12 @@ impl<'a> Bindings<'a> {
                 ast::Stmt::FunctionDef(def) => self.defs.push(def),
                 ast::Stmt::Import(i) => {
                     for alias in &i.names {
-                        self.import(imported_name(alias, false), alias);
+                        self.import(alias, false);
                     }
                 }
                 ast::Stmt::ImportFrom(i) => {
                     for alias in &i.names {
-                        self.import(imported_name(alias, true), alias);
+                        self.import(alias, true);
                     }
                 }
                 _ => {}
@@ -126,8 +127,9 @@ impl<'a> Bindings<'a> {
         Names(&mut self.order).visit_expr(expr);
     }
 
-    fn import(&mut self, name: &'a str, alias: &'a ast::Alias) {
-        self.imports.push((name, alias));
+    fn import(&mut self, alias: &'a ast::Alias, from: bool) {
+        let name = imported_name(alias, from);
+        self.imports.push((name, alias, from));
         self.assigned.insert(name);
         self.order.push(name);
     }

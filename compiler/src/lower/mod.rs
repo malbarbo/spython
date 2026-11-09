@@ -3,6 +3,7 @@
 mod call;
 mod expr;
 mod flow;
+mod math;
 mod name_error;
 mod stmt;
 mod vars;
@@ -147,6 +148,9 @@ impl<'a> Funcs<'a> {
 struct Imports {
     ids: HashMap<String, ImportId>,
     list: Vec<Import>,
+    /// The name in `math` that each name stands for, and `None` for the
+    /// module.
+    members: HashMap<String, Option<String>>,
 }
 
 impl Imports {
@@ -195,8 +199,8 @@ impl<'a> Lowering<'a, '_> {
         // The lowering of a function rejects a `def` and an import in its
         // body.
         if self.scope.borrow().is_none() {
-            for (name, alias) in &bindings.imports {
-                self.declare_import(name, alias)?;
+            for (name, alias, from) in &bindings.imports {
+                self.declare_import(name, alias, *from)?;
             }
             for def in &bindings.defs {
                 self.declare_func(def)?;
@@ -323,14 +327,24 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
-    /// Declares `name`, which `alias` imports in the module. The
-    /// suggestion of a `NameError` would need the attributes of a `self`
-    /// that an import binds.
-    fn declare_import(&self, name: &str, alias: &ast::Alias) -> Result<(), Error> {
+    /// Declares `name`, which `alias` imports in the module, in a `from`
+    /// import or not. The suggestion of a `NameError` would need the
+    /// attributes of a `self` that an import binds.
+    fn declare_import(&self, name: &str, alias: &ast::Alias, from: bool) -> Result<(), Error> {
         if name == "self" {
             return Err(unsupported(alias, "an import that binds self"));
         }
+        let member = from.then(|| alias.name.to_string());
         let mut imports = self.imports.borrow_mut();
+        match imports.members.get(name) {
+            Some(declared) if *declared != member => {
+                return Err(unsupported(alias, "a name of two imports"));
+            }
+            Some(_) => {}
+            None => {
+                imports.members.insert(name.to_owned(), member);
+            }
+        }
         if !imports.ids.contains_key(name) {
             let id = ImportId::new(imports.list.len());
             imports.ids.insert(name.to_owned(), id);

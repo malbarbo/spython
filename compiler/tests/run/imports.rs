@@ -98,4 +98,11 @@ fn an_import_outside_what_the_compiler_covers_has_its_own_message() {
         "}),
         "a name of an import and of a function"
     );
+    assert_eq!(
+        unsupported(indoc! {"
+            from math import floor
+            from math import ceil as floor
+        "}),
+        "a name of two imports"
+    );
 }
