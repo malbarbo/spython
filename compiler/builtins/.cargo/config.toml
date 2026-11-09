@@ -5,6 +5,11 @@ target-dir = "../../target/builtins"
 
 # The stack goes first, so an overflow traps at address 0 instead of writing
 # over the data. The linker in the compiler reads `__heap_base` to place the
-# host area after the data.
+# host area after the data. Each static goes in a segment of its own, so the
+# linker can leave out the statics that a module does not use.
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "link-arg=-zstack-size=65536", "-C", "link-arg=--export=__heap_base"]
+rustflags = [
+    "-C", "link-arg=-zstack-size=65536",
+    "-C", "link-arg=--export=__heap_base",
+    "-C", "link-arg=--no-merge-data-segments",
+]
