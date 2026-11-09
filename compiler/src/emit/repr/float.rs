@@ -4,6 +4,7 @@ use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::host::Host;
+use crate::ir::ArithOp;
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -45,6 +46,41 @@ impl FloatRepr {
         match self {
             FloatRepr::F64 { .. } => {
                 f.ins().f64_const(value.into());
+            }
+        }
+    }
+
+    /// Pops an `i32` and pushes it as a `float`. Every `i32` fits in the 53
+    /// bits of the mantissa.
+    pub fn convert_i32(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_convert_i32_s();
+            }
+        }
+    }
+
+    /// Pops two `float`s and pushes the result of `op`.
+    pub fn arith(&self, f: &mut FuncState, op: ArithOp) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                let mut ins = f.ins();
+                match op {
+                    ArithOp::Add => ins.f64_add(),
+                    ArithOp::Sub => ins.f64_sub(),
+                    ArithOp::Mul => ins.f64_mul(),
+                    ArithOp::FloorDiv | ArithOp::Mod => {
+                        unreachable!("the lowering rejects // and % on a float")
+                    }
+                };
+            }
+        }
+    }
+
+    pub fn neg(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_neg();
             }
         }
     }

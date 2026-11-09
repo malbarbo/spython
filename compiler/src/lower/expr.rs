@@ -187,6 +187,16 @@ impl<'a> Lowering<'a, '_> {
             _ => {}
         }
         let op = arith_op(op).ok_or_else(|| unsupported(node, "this operator"))?;
+        if left.rep() == Rep::Float || right.rep() == Rep::Float {
+            if matches!(op, ArithOp::FloorDiv | ArithOp::Mod) {
+                return Err(unsupported(node, "this operator on a float"));
+            }
+            return Ok(Expr::FloatArith {
+                op,
+                left: Box::new(float_value(left, left_node)?),
+                right: Box::new(float_value(right, right_node)?),
+            });
+        }
         Ok(Expr::Arith {
             op,
             left: Box::new(self.int_value(left, left_node)?),
@@ -204,16 +214,25 @@ impl<'a> Lowering<'a, '_> {
                     ..
                 }) => int_literal(u, i.as_i64().map(|i| -i)),
                 operand => {
-                    let operand = self.int_operand(operand)?;
+                    let lowered = self.expr(operand)?;
+                    if lowered.rep() == Rep::Float {
+                        return Ok(Expr::FloatNeg(Box::new(lowered)));
+                    }
                     Ok(Expr::Arith {
                         op: ArithOp::Sub,
                         left: Box::new(Expr::Int(0)),
-                        right: Box::new(operand),
+                        right: Box::new(self.int_value(lowered, operand)?),
                         site: self.site(u.range()),
                     })
                 }
             },
-            ast::UnaryOp::UAdd => self.int_operand(&u.operand),
+            ast::UnaryOp::UAdd => {
+                let lowered = self.expr(&u.operand)?;
+                if lowered.rep() == Rep::Float {
+                    return Ok(lowered);
+                }
+                self.int_value(lowered, &*u.operand)
+            }
             ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.truth_of(&u.operand)?))),
             ast::UnaryOp::Invert => Err(unsupported(u, "this operator")),
         }
@@ -244,6 +263,21 @@ impl<'a> Lowering<'a, '_> {
                 "an operator on a value that is not an int",
             )),
         }
+    }
+}
+
+/// `lowered`, the value of `operand`, as a `float`.
+fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, Error> {
+    match lowered.rep() {
+        Rep::Float => Ok(lowered),
+        Rep::Int => Ok(Expr::IntAsFloat(Box::new(lowered))),
+        Rep::Bool => Ok(Expr::IntAsFloat(Box::new(Expr::BoolAsInt(Box::new(
+            lowered,
+        ))))),
+        Rep::Str | Rep::None => Err(unsupported(
+            operand,
+            "an operator on a value that is not a number",
+        )),
     }
 }
 

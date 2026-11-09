@@ -1,5 +1,5 @@
-//! The `float` literals, and the `float` in variables, parameters and
-//! results.
+//! The `float` literals, the `float` in variables, parameters and results,
+//! and the operators on a `float`.
 
 use std::path::Path;
 
@@ -52,13 +52,63 @@ fn the_truth_of_a_float_is_unsupported() {
 }
 
 #[test]
-fn an_operator_on_a_float_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-            print(1.5 + 1)
-        "}),
-        "an operator on a value that is not an int"
+fn add_sub_and_mul_on_floats() {
+    same_as_cpython(
+        "add_sub_and_mul_on_floats",
+        indoc! {"
+            def area(w: float, h: float) -> float:
+                return w * h
+
+            x = 0.1
+            print(x + 0.2, 2.5 - x, area(1.5, x), 1e308 * 10, -1e308 * 10)
+            big = 1e308 * 10
+            print(big - big, 0.1 * 3 - 0.3)
+            y = 1.5
+            y += 1
+            y -= 0.25
+            y *= 2
+            print(y)
+        "},
     );
+}
+
+#[test]
+fn an_int_or_a_bool_mixes_with_a_float() {
+    same_as_cpython(
+        "an_int_or_a_bool_mixes_with_a_float",
+        indoc! {"
+            n = 1073741823
+            print(n * 1.5, 1.5 * n, -1073741824 + 0.5, 3 - 0.5)
+            print(True + 1.5, 1.5 - False, True * 0.5)
+        "},
+    );
+}
+
+#[test]
+fn the_sign_of_a_float_follows_python() {
+    same_as_cpython(
+        "the_sign_of_a_float_follows_python",
+        indoc! {"
+            x = 0.0
+            print(-x, 0 - x, -x + 0.0, -x - 0.0, -x * 1, +x, -(-x))
+            y = 2.5
+            print(-y, +y, --y, -1.5, -0 * -1.5)
+        "},
+    );
+}
+
+#[test]
+fn floor_div_and_mod_on_a_float_are_unsupported() {
+    for source in [
+        indoc! {"
+            print(1.5 // 1)
+        "},
+        indoc! {"
+            print(3 % 1.5)
+        "},
+    ] {
+        assert_eq!(unsupported(source), "this operator on a float");
+    }
 }
 
 /// A program without a `float` leaves out `f64_repr` and its data, which

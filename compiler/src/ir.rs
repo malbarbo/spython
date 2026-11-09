@@ -143,6 +143,16 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// An `int` read as a `float`, as an operand of an operator of `float`.
+    IntAsFloat(Box<Expr>),
+    /// `+`, `-` or `*` on two `float`s, which raises nothing.
+    FloatArith {
+        op: ArithOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    /// `-` on a `float`, which gives `-0.0` for `0.0`.
+    FloatNeg(Box<Expr>),
     /// Two `str`s, one after the other. The site is where the program runs
     /// out of memory for the result.
     Concat {
@@ -301,7 +311,9 @@ impl Expr {
                 Rep::Str
             }
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
-            Expr::Float(_) => Rep::Float,
+            Expr::Float(_) | Expr::IntAsFloat(_) | Expr::FloatArith { .. } | Expr::FloatNeg(_) => {
+                Rep::Float
+            }
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),

@@ -196,6 +196,22 @@ impl Reprs {
         self.int.arith(f, op);
     }
 
+    /// Pops an `int` and pushes it as a `float`.
+    pub fn int_as_float(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.float.convert_i32(f);
+    }
+
+    /// Pops two `float`s and pushes the result of `op`.
+    pub fn float_arith(&self, f: &mut FuncState, op: ArithOp) {
+        self.float.arith(f, op);
+    }
+
+    /// Pops a `float` and pushes its negation.
+    pub fn float_neg(&self, f: &mut FuncState) {
+        self.float.neg(f);
+    }
+
     /// Pops a `str` and pushes its number of code points as an `int`.
     pub fn str_len(&self, f: &mut FuncState) {
         self.str.len(f);
