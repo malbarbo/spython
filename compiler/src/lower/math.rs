@@ -91,7 +91,16 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         let known = matches!(
             member,
-            "floor" | "ceil" | "trunc" | "sqrt" | "isnan" | "isinf" | "isfinite" | "atan2" | "log"
+            "floor"
+                | "ceil"
+                | "trunc"
+                | "sqrt"
+                | "isnan"
+                | "isinf"
+                | "isfinite"
+                | "atan2"
+                | "hypot"
+                | "log"
         ) || MathFunc::of(member).is_some();
         if !known {
             return Err(unsupported(call, "this function of math"));
@@ -101,12 +110,18 @@ impl<'a> Lowering<'a, '_> {
                 y: Box::new(self.math_float(y)?),
                 x: Box::new(self.math_float(x)?),
             },
+            ("hypot", [x, y], []) => Expr::Hypot {
+                x: Box::new(self.math_float(x)?),
+                y: Box::new(self.math_float(y)?),
+            },
             ("log", [x, base], []) => Expr::LogBase {
                 operand: Box::new(self.math_float(x)?),
                 base: Box::new(self.math_float(base)?),
                 site: self.site(call.range()),
             },
-            (_, [arg], []) if member != "atan2" => self.math_unary(call, member, arg)?,
+            (_, [arg], []) if !matches!(member, "atan2" | "hypot") => {
+                self.math_unary(call, member, arg)?
+            }
             _ => return Err(unsupported(call, "this call of a function of math")),
         };
         self.after_import(imported, value)

@@ -211,6 +211,11 @@ pub(crate) enum Expr {
         y: Box<Expr>,
         x: Box<Expr>,
     },
+    /// `math.hypot(x, y)` of two `float`s.
+    Hypot {
+        x: Box<Expr>,
+        y: Box<Expr>,
+    },
     /// `math.log(x, base)` of two `float`s, which raises at the site as
     /// `math.log` does for each of them, or `ZeroDivisionError` for a base
     /// of 1.
@@ -566,6 +571,7 @@ impl Expr {
             | Expr::FloatSqrt { .. }
             | Expr::MathCall { .. }
             | Expr::Atan2 { .. }
+            | Expr::Hypot { .. }
             | Expr::LogBase { .. }
             | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }

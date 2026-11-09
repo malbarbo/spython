@@ -17,12 +17,14 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 mod div;
 mod gamma;
+mod hypot;
 mod math;
 mod pow;
 mod round;
 
 pub use div::{floor_div, fmod, modulo};
 pub use gamma::{gamma, lgamma};
+pub use hypot::hypot;
 pub use pow::pow;
 pub use round::round;
 

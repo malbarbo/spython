@@ -142,6 +142,14 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             import math
 
+            print(math.hypot(1.0, 2.0, 3.0))
+        "}),
+        "this call of a function of math"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            import math
+
             print(math.__name__)
         "}),
         "this name of math"
@@ -370,4 +378,23 @@ fn gamma_and_lgamma_raise_as_in_python() {
             "},
         );
     }
+}
+
+/// `math.hypot` comes from the code of CPython, which computes it with no
+/// call to the libm, so the program prints each result in full.
+#[test]
+fn hypot_follows_python() {
+    same_as_cpython(
+        "hypot_follows_python",
+        indoc! {"
+            import math
+            from math import hypot
+
+            inf = 1e308 * 10
+            print(hypot(3, 4), hypot(-5.0, 12), hypot(True, False), hypot(0.0, -0.0))
+            print(hypot(1.5, 2.25), hypot(0.1, 0.2), hypot(1e308, 1e308), hypot(1e308, 1e308 * 2))
+            print(hypot(5e-324, 5e-324), hypot(3e-310, 4e-310), hypot(1e-200, 1e200))
+            print(math.hypot(inf - inf, -inf), math.hypot(inf - inf, 1), math.hypot(2, -inf))
+        "},
+    );
 }

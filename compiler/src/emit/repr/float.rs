@@ -235,6 +235,16 @@ impl FloatRepr {
         }
     }
 
+    /// Pops `x` and `y` and pushes `math.hypot(x, y)`, which never raises.
+    pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                let builtin = m.builtin("f64_hypot");
+                f.ins().call(builtin);
+            }
+        }
+    }
+
     /// Pops `x` and a base and pushes `math.log(x, base)`, or raises the
     /// error of CPython.
     pub fn log_base(

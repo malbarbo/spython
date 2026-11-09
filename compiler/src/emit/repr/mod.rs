@@ -261,6 +261,11 @@ impl Reprs {
         self.float.atan2(m, f);
     }
 
+    /// Pops `x` and `y` and pushes `math.hypot(x, y)`.
+    pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.hypot(m, f);
+    }
+
     /// Pops `x` and a base and pushes `math.log(x, base)`, or raises the
     /// error of CPython.
     pub fn log_base(&mut self, m: &mut ModuleState, f: &mut FuncState) {
