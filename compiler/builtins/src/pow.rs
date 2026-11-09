@@ -1,7 +1,8 @@
-//! `**` on floats, ported from `src/math/pow.c` of musl, which comes from
-//! the optimized routines of Arm and is the `pow` of glibc too.
+//! `**` on floats and `math.exp`, ported from `src/math/pow.c` and
+//! `src/math/exp.c` of musl, which come from the optimized routines of Arm.
+//! glibc has the same routines.
 //!
-//! glibc on x86-64 with FMA, and on aarch64, builds it with `fma` and with
+//! glibc on x86-64 with FMA, and on aarch64, builds them with `fma` and with
 //! GCC contracting `a * b + c` into `fma`. The port calls `fma` at each of
 //! those places, so it gives the digits of CPython on those platforms. GCC
 //! does not contract a product whose uses are in more than one block, as
@@ -12,6 +13,11 @@
 //! CPython, which it tells from the inputs and the result.
 
 use libm::fma;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn f64_exp(x: f64) -> f64 {
+    exp(x)
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn f64_pow(x: f64, y: f64) -> f64 {
@@ -140,6 +146,15 @@ pub fn pow(x: f64, y: f64) -> f64 {
     let ehi = y * hi;
     let elo = fma(y, lo, fma(y, hi, -ehi));
     exp_inline(ehi, elo, sign_bias)
+}
+
+/// `e` to the power `x`. The `exp` of musl is [`exp_inline`] with no tail
+/// and no sign.
+pub fn exp(x: f64) -> f64 {
+    if x.is_nan() {
+        return x;
+    }
+    exp_inline(x, 0.0, 0)
 }
 
 /// The sign and the exponent of `x`.

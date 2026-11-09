@@ -16,7 +16,6 @@ macro_rules! unary {
 }
 
 unary! {
-    f64_exp = exp;
     f64_exp2 = exp2;
     f64_expm1 = expm1;
     f64_log = log;

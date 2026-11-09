@@ -25,7 +25,7 @@ mod round;
 pub use div::{floor_div, fmod, modulo};
 pub use gamma::{gamma, lgamma};
 pub use hypot::hypot;
-pub use pow::pow;
+pub use pow::{exp, pow};
 pub use round::round;
 
 /// The longest `repr` of a float, `-2.2250738585072014e-308`.
