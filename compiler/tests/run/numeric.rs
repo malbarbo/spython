@@ -2,7 +2,7 @@
 
 use indoc::indoc;
 
-use super::{same_as_cpython, stops_at_the_int_limit, unsupported};
+use super::{path, run, same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn abs_follows_python() {
@@ -143,4 +143,76 @@ fn pow_outside_what_the_compiler_covers_has_its_own_message() {
         "}),
         "this call of pow"
     );
+}
+
+#[test]
+fn int_of_a_number_follows_python() {
+    same_as_cpython(
+        "int_of_a_number_follows_python",
+        indoc! {"
+            def whole(x: float) -> int:
+                return int(x)
+
+            print(int(), int(7), int(-1073741824), int(True), int(False))
+            print(whole(2.9), whole(-2.9), whole(-0.0), whole(-0.5), whole(5e-324))
+            print(whole(-1073741824.9), whole(1073741823.9), whole(1e9) + 1)
+        "},
+    );
+}
+
+#[test]
+fn int_of_nan_raises_value_error() {
+    same_as_cpython(
+        "int_of_nan_raises_value_error",
+        indoc! {"
+            inf = 1e308 * 10
+            print(int(1.5))
+            print(int(inf - inf))
+        "},
+    );
+}
+
+#[test]
+fn int_of_an_infinity_raises_overflow_error() {
+    same_as_cpython(
+        "int_of_an_infinity_raises_overflow_error",
+        indoc! {"
+            def whole(x: float) -> int:
+                return int(x)
+
+            print(whole(2.5))
+            print(whole(-1e308 * 10))
+        "},
+    );
+}
+
+#[test]
+fn int_of_a_float_outside_31_bits_raises_overflow_error() {
+    for (name, value) in [
+        (
+            "int_of_a_float_above_31_bits_raises_overflow_error",
+            "1073741824.0",
+        ),
+        (
+            "int_of_a_float_below_31_bits_raises_overflow_error",
+            "-1073741825.0",
+        ),
+        ("int_of_a_huge_float_raises_overflow_error", "1e300"),
+    ] {
+        let output = run(name, &format!("print(int({value}))\n"));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!(
+                "Traceback (most recent call last):\n  \
+                 File \"{}\", line 1, in <module>\n    \
+                 print(int({value}))\n          {}\n\
+                 OverflowError: cannot convert float to an int of spython, \
+                 which goes from -1073741824 to 1073741823\n",
+                path(name, "py").display(),
+                "~~~^".to_owned() + &"^".repeat(value.len() + 1),
+            ),
+            "stderr"
+        );
+        assert_eq!(output.status.code(), Some(1), "exit code");
+    }
 }

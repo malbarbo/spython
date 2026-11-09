@@ -159,6 +159,12 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         site: Site,
     },
+    /// `int` of a `float`, which drops the fraction. `nan`, an infinity and
+    /// a value outside the range of an `int` raise at the site.
+    FloatAsInt {
+        operand: Box<Expr>,
+        site: Site,
+    },
     /// `abs` of a `float`, which gives `0.0` for `-0.0`.
     FloatAbs(Box<Expr>),
     /// `/`, `//` or `%` on two `float`s. A divisor of 0 raises
@@ -373,6 +379,7 @@ impl Expr {
             | Expr::BoolAsInt(_)
             | Expr::Arith { .. }
             | Expr::IntAbs { .. }
+            | Expr::FloatAsInt { .. }
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)

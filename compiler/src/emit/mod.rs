@@ -578,6 +578,10 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.at(f, *site, |e, f| e.reprs.int_abs(f));
             }
+            Expr::FloatAsInt { operand, site } => {
+                self.expr(f, operand);
+                self.at(f, *site, |e, f| e.reprs.float_as_int(&mut e.m, f));
+            }
             Expr::FloatAbs(operand) => {
                 self.expr(f, operand);
                 self.reprs.float_abs(f);

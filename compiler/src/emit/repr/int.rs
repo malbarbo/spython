@@ -3,7 +3,7 @@
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
-use crate::cpython::{DIVISION_BY_ZERO, MODULO_BY_ZERO};
+use crate::cpython::{DIVISION_BY_ZERO, INFINITY_TO_INT, MODULO_BY_ZERO, NAN_TO_INT};
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::ir::{ArithOp, CmpOp};
@@ -25,6 +25,9 @@ pub(super) enum IntRepr {
         /// `(func (param i64) (result i32))`, which raises an error when
         /// the value does not fit in 31 bits.
         check: FuncIdx,
+        /// `(func (param f64) (result i32))` for `int` of a `float`, which
+        /// the module gets at the first use.
+        convert_f64: Option<FuncIdx>,
     },
 }
 
@@ -45,6 +48,7 @@ impl IntRepr {
             floor_div: add_floor_div(m, str, exc, check),
             modulo: add_modulo(m, str, exc),
             check,
+            convert_f64: None,
         }
     }
 
@@ -91,6 +95,24 @@ impl IntRepr {
     pub fn as_i32(&self, _f: &mut FuncState) {
         match self {
             IntRepr::I31 { .. } => {}
+        }
+    }
+
+    /// Pops an `f64` and pushes it as an `int`, without the fraction. A
+    /// value outside 31 bits raises `OverflowError`, which a conversion
+    /// may raise in Python, as the conversion of an infinity does.
+    pub fn convert_f64(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            IntRepr::I31 { convert_f64, .. } => {
+                let func = *convert_f64.get_or_insert_with(|| add_convert_f64(m, str, exc));
+                f.ins().call(func);
+            }
         }
     }
 
@@ -275,6 +297,50 @@ fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncI
         .i32_and()
         .select()
         .i32_add();
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `int` of an `f64`. The fraction goes before the
+/// range check, so `-1073741824.9` gives `-1073741824`.
+fn add_convert_f64(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::F64], &[ValType::I32]);
+    let mut f = FuncState::new(1);
+    let x = f.param(0);
+    f.ins().local_get(x).local_get(x).f64_ne();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, NAN_TO_INT);
+    exc.raise(&mut f);
+    f.end();
+    f.ins()
+        .local_get(x)
+        .f64_abs()
+        .f64_const(f64::INFINITY.into())
+        .f64_eq();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, INFINITY_TO_INT);
+    exc.raise(&mut f);
+    f.end();
+    #[expect(clippy::cast_precision_loss, reason = "31 bits fit in an f64")]
+    let (below, above) = ((MIN - 1) as f64, (MAX + 1) as f64);
+    f.ins()
+        .local_get(x)
+        .f64_const(below.into())
+        .f64_gt()
+        .local_get(x)
+        .f64_const(above.into())
+        .f64_lt()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(x).i32_trunc_f64_s().return_();
+    f.end();
+    str.literal(
+        m,
+        &mut f,
+        &format!(
+            "OverflowError: cannot convert float to an int of spython, which goes from {MIN} to {MAX}"
+        ),
+    );
+    exc.raise(&mut f);
     m.add_func(ty, f.finish())
 }
 

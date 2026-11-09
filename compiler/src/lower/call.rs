@@ -181,6 +181,25 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// `int()`, which is `0`, or `int(x)` of a number.
+    pub(super) fn int(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([], []) => Ok(Expr::Int(0)),
+            ([arg], []) => {
+                let lowered = self.expr(arg)?;
+                match lowered.rep() {
+                    Rep::Int | Rep::Bool => self.int_value(lowered, arg),
+                    Rep::Float => Ok(Expr::FloatAsInt {
+                        operand: Box::new(lowered),
+                        site: self.site(call.range()),
+                    }),
+                    Rep::Str | Rep::None => Err(unsupported(arg, "int of this type")),
+                }
+            }
+            _ => Err(unsupported(call, "this call of int")),
+        }
+    }
+
     /// Returns `true` if `func` is the class `name` of the builtins, `false`
     /// otherwise.
     pub(super) fn is_class(&self, func: &ast::Expr, name: &str) -> bool {

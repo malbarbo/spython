@@ -207,6 +207,13 @@ impl Reprs {
         self.float.convert_i32(f);
     }
 
+    /// Pops a `float` and pushes it as an `int`, without the fraction, or
+    /// raises the error of a value that is not a number, is infinite or
+    /// does not fit.
+    pub fn float_as_int(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.convert_f64(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops two `float`s and pushes the result of `op`.
     pub fn float_arith(&self, f: &mut FuncState, op: FloatOp) {
         self.float.arith(f, op);
