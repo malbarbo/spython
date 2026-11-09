@@ -680,6 +680,14 @@ impl Emitter<'_> {
                 self.expr(f, base);
                 self.at(f, *site, |e, f| e.reprs.log_base(&mut e.m, f));
             }
+            Expr::IntGcd { args, site } => {
+                self.reprs.gcd_start(f);
+                for arg in args {
+                    self.expr(f, arg);
+                    self.reprs.gcd_step(&mut self.m, f);
+                }
+                self.at(f, *site, |e, f| e.reprs.gcd_end(f));
+            }
             Expr::Fmod { x, y, site } => {
                 self.expr(f, x);
                 self.expr(f, y);

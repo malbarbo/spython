@@ -229,6 +229,12 @@ pub(crate) enum Expr {
         base: Box<Expr>,
         site: Site,
     },
+    /// `math.gcd` of any number of `int`s. A result that does not fit in an
+    /// `int` stops the program at the site.
+    IntGcd {
+        args: Vec<Expr>,
+        site: Site,
+    },
     /// `math.fmod(x, y)` of two `float`s, which raises `ValueError` at the
     /// site for a `y` of 0 or an infinite `x`.
     Fmod {
@@ -570,6 +576,7 @@ impl Expr {
             | Expr::BoolAsInt(_)
             | Expr::Arith { .. }
             | Expr::IntAbs { .. }
+            | Expr::IntGcd { .. }
             | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
             | Expr::Len { .. } => Rep::Int,

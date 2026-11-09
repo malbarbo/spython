@@ -101,6 +101,7 @@ impl<'a> Lowering<'a, '_> {
                 | "fabs"
                 | "copysign"
                 | "fmod"
+                | "gcd"
                 | "atan2"
                 | "hypot"
                 | "log"
@@ -109,6 +110,13 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(call, "this function of math"));
         }
         let value = match (member, &*call.arguments.args, &*call.arguments.keywords) {
+            ("gcd", args, []) => Expr::IntGcd {
+                args: args
+                    .iter()
+                    .map(|arg| self.math_int(arg))
+                    .collect::<Result<_, _>>()?,
+                site: self.site(call.range()),
+            },
             ("atan2", [y, x], []) => Expr::Atan2 {
                 y: Box::new(self.math_float(y)?),
                 x: Box::new(self.math_float(x)?),
@@ -197,6 +205,18 @@ impl<'a> Lowering<'a, '_> {
         match operand.rep() {
             Rep::Int | Rep::Bool | Rep::Float => Ok(operand),
             Rep::Str | Rep::None => Err(unsupported(arg, "a function of math of this type")),
+        }
+    }
+
+    /// The `int` of `arg`, an `int` or a `bool`.
+    fn math_int(&self, arg: &ast::Expr) -> Result<Expr, Error> {
+        let operand = self.expr(arg)?;
+        match operand.rep() {
+            Rep::Int => Ok(operand),
+            Rep::Bool => Ok(Expr::BoolAsInt(Box::new(operand))),
+            Rep::Float | Rep::Str | Rep::None => {
+                Err(unsupported(arg, "a function of math of this type"))
+            }
         }
     }
 

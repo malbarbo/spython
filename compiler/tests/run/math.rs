@@ -2,7 +2,7 @@
 
 use indoc::{formatdoc, indoc};
 
-use super::{path, run, same_as_cpython, unsupported};
+use super::{path, run, same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn floor_ceil_and_trunc_follow_python() {
@@ -250,6 +250,39 @@ fn fmod_raises_as_in_python() {
             "},
         );
     }
+}
+
+#[test]
+fn gcd_follows_python() {
+    same_as_cpython(
+        "gcd_follows_python",
+        indoc! {"
+            import math
+            from math import gcd
+
+            print(gcd(), gcd(-4), gcd(0), gcd(12, 18), gcd(-12, 18), gcd(0, -7), gcd(0, 0))
+            print(gcd(True, 4), gcd(1073741823, 1073741822), gcd(-1073741824, 6))
+            print(gcd(12, 18, 8), math.gcd(-1073741824, 0, 3), gcd(-1073741824, -1073741824, 6))
+            print(gcd(536870912, 1048576, 33554432))
+        "},
+    );
+}
+
+/// The `gcd` of the least `int` and 0 is one past the greatest `int`.
+#[test]
+fn gcd_that_does_not_fit_stops_the_program() {
+    stops_at_the_int_limit(
+        "gcd_that_does_not_fit_stops_the_program",
+        indoc! {"
+            import math
+
+            print(math.gcd(-1073741824, 0))
+        "},
+        "",
+        3,
+        "    print(math.gcd(-1073741824, 0))\n          ~~~~~~~~^^^^^^^^^^^^^^^^\n",
+        "1073741824",
+    );
 }
 
 #[test]

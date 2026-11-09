@@ -29,6 +29,11 @@ pub(super) enum IntRepr {
         /// the module gets at the first use.
         convert_f64: Option<FuncIdx>,
         round: Option<FuncIdx>,
+        /// `(func (param i64 i32) (result i64))` for a step of `math.gcd`,
+        /// which the module gets at the first use. The `gcd` of the least
+        /// `int` and 0 does not fit in 31 bits, so it is an `i64` until the
+        /// last step.
+        gcd: Option<FuncIdx>,
     },
 }
 
@@ -51,6 +56,7 @@ impl IntRepr {
             check,
             convert_f64: None,
             round: None,
+            gcd: None,
         }
     }
 
@@ -171,6 +177,31 @@ impl IntRepr {
             IntRepr::I31 { round, check, .. } => {
                 let func = *round.get_or_insert_with(|| add_round(m, *check));
                 f.ins().call(func);
+            }
+        }
+    }
+
+    pub fn gcd_start(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { .. } => {
+                f.ins().i64_const(0);
+            }
+        }
+    }
+
+    pub fn gcd_step(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { gcd, .. } => {
+                let func = *gcd.get_or_insert_with(|| add_gcd(m));
+                f.ins().call(func);
+            }
+        }
+    }
+
+    pub fn gcd_end(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { check, .. } => {
+                f.ins().call(*check);
             }
         }
     }
@@ -354,6 +385,43 @@ fn add_convert_f64(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> 
         ),
     );
     exc.raise(&mut f);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of a step of `math.gcd`, which takes the `gcd` so far, a
+/// number at least 0, and an `int`, and gives the `gcd` of both by the
+/// algorithm of Euclid.
+fn add_gcd(m: &mut ModuleState) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I64, ValType::I32], &[ValType::I64]);
+    let mut f = FuncState::new(2);
+    let (a, x) = (f.param(0), f.param(1));
+    let (b, t) = (f.local(ValType::I64), f.local(ValType::I64));
+    f.ins()
+        .local_get(x)
+        .i64_extend_i32_s()
+        .local_tee(b)
+        .i64_const(0)
+        .i64_lt_s();
+    f.if_(BlockType::Empty);
+    f.ins().i64_const(0).local_get(b).i64_sub().local_set(b);
+    f.end();
+    let done = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(b).i64_eqz();
+    f.br_if(done);
+    f.ins()
+        .local_get(a)
+        .local_get(b)
+        .i64_rem_u()
+        .local_set(t)
+        .local_get(b)
+        .local_set(a)
+        .local_get(t)
+        .local_set(b);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(a);
     m.add_func(ty, f.finish())
 }
 

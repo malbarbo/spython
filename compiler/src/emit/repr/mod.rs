@@ -201,6 +201,23 @@ impl Reprs {
         self.int.abs(f);
     }
 
+    /// Pushes the `gcd` of no `int`, which [`Reprs::gcd_step`] takes with
+    /// one `int` more, and [`Reprs::gcd_end`] gives as an `int`.
+    pub fn gcd_start(&self, f: &mut FuncState) {
+        self.int.gcd_start(f);
+    }
+
+    /// Pops a `gcd` and an `int`, and pushes the `gcd` of both.
+    pub fn gcd_step(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.gcd_step(m, f);
+    }
+
+    /// Pops a `gcd` and pushes it as an `int`, which stops the program when
+    /// it does not fit.
+    pub fn gcd_end(&self, f: &mut FuncState) {
+        self.int.gcd_end(f);
+    }
+
     /// Pops an `int` and a number of digits, and pushes the `int` rounded
     /// to those digits.
     pub fn int_round(&mut self, m: &mut ModuleState, f: &mut FuncState) {
