@@ -67,6 +67,9 @@ impl<'a> Lowering<'a, '_> {
         }
         let global = self.vars.borrow().find(id);
         let Some((var, rep)) = global else {
+            if self.imports.borrow().ids.contains_key(id) {
+                return Err(unsupported(name, "a name of an import as a value"));
+            }
             if self.funcs.borrow().ids.contains_key(id) {
                 return Err(unsupported(name, "a function as a value"));
             }

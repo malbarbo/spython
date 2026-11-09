@@ -7,6 +7,16 @@ use std::collections::HashSet;
 use ruff_python_ast as ast;
 use ruff_python_ast::visitor::{Visitor, walk_expr};
 
+/// The name that `alias` binds, in a `from` import or not. `import a.b`
+/// binds `a`.
+pub(super) fn imported_name(alias: &ast::Alias, from: bool) -> &str {
+    match &alias.asname {
+        Some(asname) => asname.as_str(),
+        None if from => alias.name.as_str(),
+        None => alias.name.split('.').next().unwrap_or_default(),
+    }
+}
+
 /// The targets of an assignment, with the value.
 pub(super) type Assigned<'a> = (&'a [ast::Expr], &'a ast::Expr);
 
@@ -16,10 +26,12 @@ pub(super) struct Bindings<'a> {
     /// Each assignment of a value.
     pub assignments: Vec<Assigned<'a>>,
     pub defs: Vec<&'a ast::StmtFunctionDef>,
+    /// Each name that an import binds, with the alias that binds it.
+    pub imports: Vec<(&'a str, &'a ast::Alias)>,
     /// The names of the `global` statements.
     pub globals: HashSet<&'a str>,
-    /// Each name that the body assigns. Any other way to bind a name, as a
-    /// `for` or a `:=`, makes the lowering of the function fail.
+    /// Each name that the body assigns or imports. Any other way to bind a
+    /// name, as a `for` or a `:=`, makes the lowering of the function fail.
     pub assigned: HashSet<&'a str>,
     /// Each name of the body in the order of the code that CPython makes
     /// for it, which gives the order of the locals of a frame. The value of
@@ -85,6 +97,16 @@ impl<'a> Bindings<'a> {
                     .globals
                     .extend(g.names.iter().map(|name| name.id.as_str())),
                 ast::Stmt::FunctionDef(def) => self.defs.push(def),
+                ast::Stmt::Import(i) => {
+                    for alias in &i.names {
+                        self.import(imported_name(alias, false), alias);
+                    }
+                }
+                ast::Stmt::ImportFrom(i) => {
+                    for alias in &i.names {
+                        self.import(imported_name(alias, true), alias);
+                    }
+                }
                 _ => {}
             }
         }
@@ -102,6 +124,12 @@ impl<'a> Bindings<'a> {
             }
         }
         Names(&mut self.order).visit_expr(expr);
+    }
+
+    fn import(&mut self, name: &'a str, alias: &'a ast::Alias) {
+        self.imports.push((name, alias));
+        self.assigned.insert(name);
+        self.order.push(name);
     }
 
     fn assign(&mut self, target: &'a ast::Expr) {

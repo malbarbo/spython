@@ -15,6 +15,7 @@ impl<'a> Lowering<'a, '_> {
         let mut scope = self.scope.borrow_mut();
         let mut module = self.vars.borrow_mut();
         let mut funcs = self.funcs.borrow_mut();
+        let mut imports = self.imports.borrow_mut();
         let locals: Vec<(VarId, String)> = scope.as_ref().map_or_else(Vec::new, |scope| {
             scope
                 .order
@@ -31,6 +32,12 @@ impl<'a> Lowering<'a, '_> {
                     .ids
                     .iter()
                     .map(|(func, id)| (Binding::Func(*id), func.clone())),
+            )
+            .chain(
+                imports
+                    .ids
+                    .iter()
+                    .map(|(name, id)| (Binding::Import(*id), name.clone())),
             )
             .collect();
 
@@ -120,6 +127,7 @@ impl<'a> Lowering<'a, '_> {
                     .get_mut(id.index())
                     .expect("a function of the module") |= ordered;
             }
+            Binding::Import(id) => imports.get_mut(id).ordered |= ordered,
         };
         // The number of globals with a value is the number of ordered
         // globals with a value.

@@ -2,6 +2,7 @@
 
 use ruff_python_ast as ast;
 
+use super::flow::imported_name;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{Rep, Stmt};
@@ -96,8 +97,50 @@ impl<'a> Lowering<'a, '_> {
                 Ok(Some(Stmt::Def(id)))
             }
             ast::Stmt::Return(r) => self.return_(r).map(Some),
+            ast::Stmt::Import(i) => {
+                if let Some(alias) = i.names.iter().find(|alias| alias.name.as_str() != "math") {
+                    return Err(unsupported(alias, "an import of this module"));
+                }
+                self.import(stmt, &i.names, false)
+            }
+            ast::Stmt::ImportFrom(i) => {
+                if i.level != 0
+                    || i.module
+                        .as_ref()
+                        .is_none_or(|module| module.as_str() != "math")
+                {
+                    return Err(unsupported(stmt, "an import from this module"));
+                }
+                if let Some(alias) = i.names.iter().find(|alias| alias.name.as_str() == "*") {
+                    return Err(unsupported(alias, "an import of every name"));
+                }
+                self.import(stmt, &i.names, true)
+            }
             _ => Err(unsupported(stmt, "this statement")),
         }
+    }
+
+    /// The import of the names of `aliases`, which the module declares.
+    fn import(
+        &self,
+        stmt: &ast::Stmt,
+        aliases: &[ast::Alias],
+        from: bool,
+    ) -> Result<Option<Stmt>, Error> {
+        if self.scope.borrow().is_some() {
+            return Err(unsupported(stmt, "an import in a function"));
+        }
+        let imports = self.imports.borrow();
+        let ids = aliases
+            .iter()
+            .map(|alias| {
+                *imports
+                    .ids
+                    .get(imported_name(alias, from))
+                    .expect("a declared import")
+            })
+            .collect();
+        Ok(Some(Stmt::Import(ids)))
     }
 
     fn return_(&self, r: &ast::StmtReturn) -> Result<Stmt, Error> {

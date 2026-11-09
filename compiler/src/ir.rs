@@ -7,6 +7,8 @@ pub(crate) struct Program {
     pub vars: Vec<Var>,
     /// The functions of the module, by their [`FuncId`].
     pub funcs: Vec<Func>,
+    /// The names that an import binds, by their [`ImportId`].
+    pub imports: Vec<Import>,
     /// The frame of each place that can raise, by its [`Site`].
     pub sites: Vec<SiteFrame>,
 }
@@ -44,6 +46,7 @@ id! {
     Site, "sites";
     VarId, "variables";
     FuncId, "functions";
+    ImportId, "imports";
 }
 
 /// A variable of the module, or of a function, by its place in the list
@@ -72,6 +75,15 @@ pub(crate) struct Var {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FuncId(u32);
 
+/// A name of the module that an import binds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ImportId(u32);
+
+pub(crate) struct Import {
+    /// `true` when the program asks which globals got a value first.
+    pub ordered: bool,
+}
+
 pub(crate) struct Func {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
@@ -92,6 +104,8 @@ pub(crate) enum Stmt {
     },
     /// The `def` of the function, from which on a call finds it.
     Def(FuncId),
+    /// The import of each name, from which on a read finds it.
+    Import(Vec<ImportId>),
     /// The value has the rep of the result of the function. A bare
     /// `return` and `return None` have no value.
     Return(Option<Expr>),
@@ -312,6 +326,7 @@ pub(crate) enum Binding {
     Local(VarId),
     Global(VarId),
     Func(FuncId),
+    Import(ImportId),
 }
 
 pub(crate) struct Limit {

@@ -15,6 +15,7 @@ mod control;
 mod corpus;
 mod float;
 mod functions;
+mod imports;
 mod int;
 mod memory;
 mod name_error;

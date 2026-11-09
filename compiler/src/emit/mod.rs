@@ -8,8 +8,8 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use crate::cpython::RECURSION_ERROR;
 use crate::ir::{
-    Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, MinMaxOp, NameError, Place, Program, Rep,
-    Site, Stmt, Undefined, VarId,
+    Binding, Check, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError, Place,
+    Program, Rep, Site, Stmt, Undefined, VarId,
 };
 use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use repr::Reprs;
@@ -48,8 +48,15 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             }
         })
         .collect();
-    let ordered =
-        program.vars.iter().any(|var| var.ordered) || program.funcs.iter().any(|func| func.ordered);
+    // The flag of each name that an import binds, as the flag of a `def`.
+    let imports = program
+        .imports
+        .iter()
+        .map(|_| m.global(ValType::I32, &ConstExpr::i32_const(0)))
+        .collect();
+    let ordered = program.vars.iter().any(|var| var.ordered)
+        || program.funcs.iter().any(|func| func.ordered)
+        || program.imports.iter().any(|import| import.ordered);
     let order = ordered.then(|| m.global(ValType::I32, &ConstExpr::i32_const(0)));
     let mut f = FuncState::new(0);
     let site = f.local(ValType::I32);
@@ -60,6 +67,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         program,
         vars,
         funcs,
+        imports,
         order,
         code: Code {
             func: None,
@@ -94,6 +102,9 @@ struct Emitter<'a> {
     /// The globals of each variable of the module.
     vars: Vec<Slots<GlobalIdx>>,
     funcs: Vec<FuncSlots>,
+    /// The global that is not 0 once the import has run, for each name
+    /// that an import binds.
+    imports: Vec<GlobalIdx>,
     /// The number of ordered globals with a value, which a global gets as
     /// its flag at its first binding, when the program has an ordered
     /// global.
@@ -200,6 +211,18 @@ impl Emitter<'_> {
                 let defined = self.func_slots(*func).defined;
                 let ordered = self.program_func(*func).ordered;
                 self.define_global(f, defined, ordered);
+            }
+            Stmt::Import(ids) => {
+                for id in ids {
+                    let defined = self.import_slot(*id);
+                    let ordered = self
+                        .program
+                        .imports
+                        .get(id.index())
+                        .expect("an import of the program")
+                        .ordered;
+                    self.define_global(f, defined, ordered);
+                }
             }
             Stmt::Return(value) => {
                 if let Some(value) = value {
@@ -461,6 +484,7 @@ impl Emitter<'_> {
                 .ins()
                 .global_get(self.global_slots(var).defined.expect("a flagged global")),
             Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined),
+            Binding::Import(id) => f.ins().global_get(self.import_slot(id)),
         };
     }
 
@@ -523,6 +547,13 @@ impl Emitter<'_> {
         self.funcs
             .get(func.index())
             .expect("a function of the program")
+    }
+
+    fn import_slot(&self, id: ImportId) -> GlobalIdx {
+        *self
+            .imports
+            .get(id.index())
+            .expect("an import of the program")
     }
 
     fn program_func(&self, func: FuncId) -> &Func {

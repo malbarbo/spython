@@ -20,7 +20,7 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
 use crate::cpython::traceback::{self, FileLines};
-use crate::ir::{Func, FuncId, Program, Rep, Site, SiteFrame, Var, VarId};
+use crate::ir::{Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Var, VarId};
 use flow::{Assigned, Bindings, always_returns};
 use name_error::unbound_local;
 
@@ -38,6 +38,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         sites: RefCell::new(Vec::new()),
         vars: RefCell::new(Vars::default()),
         funcs: RefCell::new(Funcs::default()),
+        imports: RefCell::new(Imports::default()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
     };
@@ -56,6 +57,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         body,
         vars: lowering.vars.into_inner().list,
         funcs,
+        imports: lowering.imports.into_inner().list,
         sites: lowering.sites.into_inner(),
     })
 }
@@ -71,6 +73,7 @@ struct Lowering<'a, 'db> {
     /// The variables of the module.
     vars: RefCell<Vars>,
     funcs: RefCell<Funcs<'a>>,
+    imports: RefCell<Imports>,
     /// The function whose body the lowering is in, and `None` in the code
     /// of the module.
     scope: RefCell<Option<Scope>>,
@@ -139,6 +142,21 @@ impl<'a> Funcs<'a> {
     }
 }
 
+/// The names of the module that an import binds.
+#[derive(Default)]
+struct Imports {
+    ids: HashMap<String, ImportId>,
+    list: Vec<Import>,
+}
+
+impl Imports {
+    fn get_mut(&mut self, id: ImportId) -> &mut Import {
+        self.list
+            .get_mut(id.index())
+            .expect("an import of the module")
+    }
+}
+
 /// What a call needs to know of a function before its body is lowered.
 #[derive(Clone)]
 struct Sig<'a> {
@@ -174,8 +192,12 @@ impl<'a> Lowering<'a, '_> {
     /// A read or a call may come before the assignment, as in a loop, so
     /// every variable has a rep before the lowering of the code starts.
     fn declare_vars(&self, bindings: &Bindings<'a>) -> Result<(), Error> {
-        // The lowering of a function rejects a `def` in its body.
+        // The lowering of a function rejects a `def` and an import in its
+        // body.
         if self.scope.borrow().is_none() {
+            for (name, alias) in &bindings.imports {
+                self.declare_import(name, alias)?;
+            }
             for def in &bindings.defs {
                 self.declare_func(def)?;
                 self.declare_globals(def)?;
@@ -229,6 +251,9 @@ impl<'a> Lowering<'a, '_> {
             None => {
                 if self.funcs.borrow().ids.contains_key(name) {
                     return Err(unsupported(value, "a name of a function and of a variable"));
+                }
+                if self.imports.borrow().ids.contains_key(name) {
+                    return Err(unsupported(value, "a name of an import and of a variable"));
                 }
                 &mut *module
             }
@@ -284,6 +309,9 @@ impl<'a> Lowering<'a, '_> {
         if self.vars.borrow().ids.contains_key(name) {
             return Err(unsupported(def, "a name of a function and of a variable"));
         }
+        if self.imports.borrow().ids.contains_key(name) {
+            return Err(unsupported(def, "a name of an import and of a function"));
+        }
         let mut funcs = self.funcs.borrow_mut();
         if funcs.ids.contains_key(name) {
             return Err(unsupported(def, "two functions of the same name"));
@@ -292,6 +320,22 @@ impl<'a> Lowering<'a, '_> {
         funcs.ids.insert(name.to_owned(), id);
         funcs.sigs.push(Sig { def, params, ret });
         funcs.ordered.push(false);
+        Ok(())
+    }
+
+    /// Declares `name`, which `alias` imports in the module. The
+    /// suggestion of a `NameError` would need the attributes of a `self`
+    /// that an import binds.
+    fn declare_import(&self, name: &str, alias: &ast::Alias) -> Result<(), Error> {
+        if name == "self" {
+            return Err(unsupported(alias, "an import that binds self"));
+        }
+        let mut imports = self.imports.borrow_mut();
+        if !imports.ids.contains_key(name) {
+            let id = ImportId::new(imports.list.len());
+            imports.ids.insert(name.to_owned(), id);
+            imports.list.push(Import { ordered: false });
+        }
         Ok(())
     }
 
