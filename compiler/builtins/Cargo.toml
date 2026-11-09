@@ -12,8 +12,14 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+fast-float2 = { version = "0.2.4", default-features = false }
 libm = "0.2"
 ryu = "1"
+
+# `no-panic` proves at link time that `parse` has no path to a panic, which
+# holds only in an optimized build, as the wasm32 one is.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+fast-float2 = { version = "0.2.4", default-features = false, features = ["no-panic"] }
 
 [profile.release]
 opt-level = "s"
