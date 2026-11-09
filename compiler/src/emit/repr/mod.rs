@@ -201,6 +201,12 @@ impl Reprs {
         self.int.abs(f);
     }
 
+    /// Pops an `int` and a number of digits, and pushes the `int` rounded
+    /// to those digits.
+    pub fn int_round(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.round(m, f);
+    }
+
     /// Pops an `int` and pushes it as a `float`.
     pub fn int_as_float(&self, f: &mut FuncState) {
         self.int.as_i32(f);

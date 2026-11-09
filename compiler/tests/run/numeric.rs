@@ -234,6 +234,39 @@ fn round_of_a_number_follows_python() {
 }
 
 #[test]
+fn round_of_an_int_to_a_number_of_digits_follows_python() {
+    same_as_cpython(
+        "round_of_an_int_to_a_number_of_digits_follows_python",
+        indoc! {"
+            def seen(x: int) -> int:
+                print('seen', x)
+                return x
+
+            print(round(1234, 2), round(1234, 0), round(1234, -1), round(1234, -2), round(-1234, -2))
+            print(round(15, -1), round(25, -1), round(-15, -1), round(-25, -1), round(35, -1), round(5, -1))
+            print(round(1073741823, -9), round(-1073741824, -9), round(-1073741824, -10), round(999, -20))
+            print(round(500000000, -9), round(1073741823, -2), round(-500000000, -9))
+            print(round(True, 2), round(True, -1), round(7, True), round(7, False), round(1073741823, 1073741823))
+            print(round(seen(149), seen(-2)))
+        "},
+    );
+}
+
+#[test]
+fn round_of_an_int_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "round_of_an_int_outside_31_bits_stops_the_program",
+        indoc! {"
+            print(round(1073741823, -8))
+        "},
+        "",
+        1,
+        "    print(round(1073741823, -8))\n          ~~~~~^^^^^^^^^^^^^^^^\n",
+        "1100000000",
+    );
+}
+
+#[test]
 fn round_of_nan_raises_value_error() {
     same_as_cpython(
         "round_of_nan_raises_value_error",
@@ -282,6 +315,12 @@ fn round_outside_what_the_compiler_covers_has_its_own_message() {
     assert_eq!(
         unsupported(indoc! {"
             print(round(2.5, 1))
+        "}),
+        "round of a float to a number of digits"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            print(round(2.5, ndigits=1))
         "}),
         "this call of round"
     );

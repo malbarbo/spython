@@ -28,6 +28,7 @@ pub(super) enum IntRepr {
         /// `(func (param f64) (result i32))` for `int` of a `float`, which
         /// the module gets at the first use.
         convert_f64: Option<FuncIdx>,
+        round: Option<FuncIdx>,
     },
 }
 
@@ -49,6 +50,7 @@ impl IntRepr {
             modulo: add_modulo(m, str, exc),
             check,
             convert_f64: None,
+            round: None,
         }
     }
 
@@ -158,6 +160,17 @@ impl IntRepr {
                     .select()
                     .call(*check);
                 f.free(v);
+            }
+        }
+    }
+
+    /// Pops an `int` and a number of digits, and pushes the `int` rounded
+    /// to those digits.
+    pub fn round(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { round, check, .. } => {
+                let func = *round.get_or_insert_with(|| add_round(m, *check));
+                f.ins().call(func);
             }
         }
     }
@@ -341,6 +354,93 @@ fn add_convert_f64(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> 
         ),
     );
     exc.raise(&mut f);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `round(x, n)` of an `int`. With `n < 0`, the result is
+/// the multiple of `p = 10 ** -n` nearest to `x`, with a tie going to the
+/// even quotient. `x // p` and `x % p` give the quotient and the rest, and
+/// the quotient goes up when the rest is more than half of `p`. With `n <
+/// -9`, `p` is more than twice any `int`, and the result is 0.
+fn add_round(m: &mut ModuleState, check: FuncIdx) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let mut f = FuncState::new(2);
+    let (x, n) = (f.param(0), f.param(1));
+    let (p, q, r) = (
+        f.local(ValType::I64),
+        f.local(ValType::I64),
+        f.local(ValType::I64),
+    );
+    f.ins().local_get(n).i32_const(0).i32_ge_s();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(x).return_();
+    f.end();
+    f.ins().local_get(n).i32_const(-9).i32_lt_s();
+    f.if_(BlockType::Empty);
+    f.ins().i32_const(0).return_();
+    f.end();
+    f.ins().i64_const(1).local_set(p);
+    let again = f.loop_(BlockType::Empty);
+    f.ins()
+        .local_get(p)
+        .i64_const(10)
+        .i64_mul()
+        .local_set(p)
+        .local_get(n)
+        .i32_const(1)
+        .i32_add()
+        .local_tee(n)
+        .i32_const(0)
+        .i32_lt_s();
+    f.br_if(again);
+    f.end();
+    f.ins()
+        .local_get(x)
+        .i64_extend_i32_s()
+        .local_get(p)
+        .i64_div_s()
+        .local_set(q)
+        .local_get(x)
+        .i64_extend_i32_s()
+        .local_get(p)
+        .i64_rem_s()
+        .local_tee(r)
+        .i64_const(0)
+        .i64_lt_s();
+    f.if_(BlockType::Empty);
+    f.ins()
+        .local_get(r)
+        .local_get(p)
+        .i64_add()
+        .local_set(r)
+        .local_get(q)
+        .i64_const(1)
+        .i64_sub()
+        .local_set(q);
+    f.end();
+    f.ins()
+        .local_get(q)
+        .local_get(r)
+        .i64_const(1)
+        .i64_shl()
+        .local_get(p)
+        .i64_gt_s()
+        .local_get(r)
+        .i64_const(1)
+        .i64_shl()
+        .local_get(p)
+        .i64_eq()
+        .local_get(q)
+        .i32_wrap_i64()
+        .i32_const(1)
+        .i32_and()
+        .i32_and()
+        .i32_or()
+        .i64_extend_i32_u()
+        .i64_add()
+        .local_get(p)
+        .i64_mul()
+        .call(check);
     m.add_func(ty, f.finish())
 }
 

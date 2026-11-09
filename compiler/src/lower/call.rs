@@ -157,21 +157,38 @@ impl<'a> Lowering<'a, '_> {
         self.binary(call, ast::Operator::Pow, (left, base), (right, exp))
     }
 
-    /// `round(x)` or `round(x, None)` of a number, which gives an `int`.
-    /// Only the literal `None` stands for the missing number of digits.
+    /// `round(x)` or `round(x, None)` of a number, which gives an `int`,
+    /// and `round(x, n)` of an `int`. Only the literal `None` stands for
+    /// the missing number of digits.
     pub(super) fn round(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
-        let arg = match (&*call.arguments.args, &*call.arguments.keywords) {
-            ([arg] | [arg, ast::Expr::NoneLiteral(_)], []) => arg,
+        let (arg, digits) = match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([arg] | [arg, ast::Expr::NoneLiteral(_)], []) => (arg, None),
+            ([arg, digits], []) => (arg, Some(digits)),
             _ => return Err(unsupported(call, "this call of round")),
         };
         let operand = self.expr(arg)?;
-        match operand.rep() {
-            Rep::Int | Rep::Bool => self.int_value(operand, arg),
-            Rep::Float => Ok(Expr::FloatAsInt {
+        match (operand.rep(), digits) {
+            (Rep::Int | Rep::Bool, None) => self.int_value(operand, arg),
+            (Rep::Int | Rep::Bool, Some(digits)) => {
+                let operand = self.int_value(operand, arg)?;
+                let lowered = self.expr(digits)?;
+                if !matches!(lowered.rep(), Rep::Int | Rep::Bool) {
+                    return Err(unsupported(digits, "round to this number of digits"));
+                }
+                Ok(Expr::IntRound {
+                    operand: Box::new(operand),
+                    digits: Box::new(self.int_value(lowered, digits)?),
+                    site: self.site(call.range()),
+                })
+            }
+            (Rep::Float, Some(_)) => {
+                Err(unsupported(call, "round of a float to a number of digits"))
+            }
+            (Rep::Float, None) => Ok(Expr::FloatAsInt {
                 operand: Box::new(Expr::FloatRound(Box::new(operand))),
                 site: self.site(call.range()),
             }),
-            Rep::Str | Rep::None => Err(unsupported(arg, "round of this type")),
+            (Rep::Str | Rep::None, _) => Err(unsupported(arg, "round of this type")),
         }
     }
 

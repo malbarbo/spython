@@ -159,6 +159,14 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         site: Site,
     },
+    /// `round` of an `int` to `digits` digits, which rounds to a multiple
+    /// of a power of 10 when `digits` is negative. A result outside the
+    /// range of an `int` stops the program at the site.
+    IntRound {
+        operand: Box<Expr>,
+        digits: Box<Expr>,
+        site: Site,
+    },
     /// `int` of a `float`, which drops the fraction. `nan`, an infinity and
     /// a value outside the range of an `int` raise at the site.
     FloatAsInt {
@@ -382,6 +390,7 @@ impl Expr {
             | Expr::BoolAsInt(_)
             | Expr::Arith { .. }
             | Expr::IntAbs { .. }
+            | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
