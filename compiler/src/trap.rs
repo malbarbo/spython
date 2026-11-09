@@ -68,7 +68,7 @@ impl Module {
                 .filter(|range| range.start <= offset && offset < range.end)
                 .max_by_key(|range| range.start)?
                 .site;
-            let frame = self.sites.get(site.0 as usize)?;
+            let frame = self.sites.get(site.index())?;
             frames.push((frame.line, frame.text.as_str()));
             outermost = Some(offset);
         }

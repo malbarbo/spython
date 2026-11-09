@@ -117,7 +117,7 @@ impl<'a> Lowering<'a, '_> {
             Binding::Func(id) => {
                 *funcs
                     .ordered
-                    .get_mut(id.0 as usize)
+                    .get_mut(id.index())
                     .expect("a function of the module") |= ordered;
             }
         };
@@ -220,7 +220,7 @@ mod tests {
         let mut groups = BTreeMap::new();
         for candidate in candidates {
             if let Some(group) = group_of(&mut groups, name, candidate) {
-                group.locals.push((VarId(0), (*candidate).to_owned()));
+                group.locals.push((VarId::new(0), (*candidate).to_owned()));
             }
         }
         let (_, group) = groups.into_iter().next()?;

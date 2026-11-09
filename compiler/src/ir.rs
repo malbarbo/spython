@@ -21,12 +21,35 @@ pub(crate) struct SiteFrame {
 
 /// A place in the program that can raise an exception.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Site(pub u32);
+pub(crate) struct Site(u32);
+
+/// The ids of the IR, each the index of what it names in its list.
+macro_rules! id {
+    ($($name:ident, $what:literal;)*) => {
+        $(
+            impl $name {
+                pub fn new(index: usize) -> Self {
+                    $name(u32::try_from(index).expect(concat!("fewer than 2^32 ", $what)))
+                }
+
+                pub fn index(self) -> usize {
+                    self.0 as usize
+                }
+            }
+        )*
+    };
+}
+
+id! {
+    Site, "sites";
+    VarId, "variables";
+    FuncId, "functions";
+}
 
 /// A variable of the module, or of a function, by its place in the list
 /// of the variables of its scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct VarId(pub u32);
+pub(crate) struct VarId(u32);
 
 /// A variable of the module or of the function that runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +70,7 @@ pub(crate) struct Var {
 
 /// A function of the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct FuncId(pub u32);
+pub(crate) struct FuncId(u32);
 
 pub(crate) struct Func {
     /// `true` when the program asks which globals got a value first.

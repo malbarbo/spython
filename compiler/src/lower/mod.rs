@@ -46,7 +46,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let body = lowering.body(suite)?;
     let count = lowering.funcs.borrow().sigs.len();
     let mut funcs: Vec<Func> = (0..count)
-        .map(|i| lowering.func(FuncId(u32::try_from(i).expect("fewer than 2^32 functions"))))
+        .map(|i| lowering.func(FuncId::new(i)))
         .collect::<Result<_, _>>()?;
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
@@ -93,19 +93,17 @@ impl Vars {
     }
 
     fn get(&self, id: VarId) -> &Var {
-        self.list
-            .get(id.0 as usize)
-            .expect("a variable of the scope")
+        self.list.get(id.index()).expect("a variable of the scope")
     }
 
     fn get_mut(&mut self, id: VarId) -> &mut Var {
         self.list
-            .get_mut(id.0 as usize)
+            .get_mut(id.index())
             .expect("a variable of the scope")
     }
 
     fn add(&mut self, name: &str, rep: Rep) {
-        let id = VarId(u32::try_from(self.list.len()).expect("fewer than 2^32 variables"));
+        let id = VarId::new(self.list.len());
         self.ids.insert(name.to_owned(), id);
         self.list.push(Var {
             rep,
@@ -121,7 +119,7 @@ impl Vars {
             .iter()
             .map(|(name, id)| (*id, name.as_str()))
             .collect();
-        names.sort_by_key(|(id, _)| id.0);
+        names.sort_by_key(|(id, _)| id.index());
         names
     }
 }
@@ -137,9 +135,7 @@ struct Funcs<'a> {
 
 impl<'a> Funcs<'a> {
     fn get(&self, id: FuncId) -> &Sig<'a> {
-        self.sigs
-            .get(id.0 as usize)
-            .expect("a function of the module")
+        self.sigs.get(id.index()).expect("a function of the module")
     }
 }
 
@@ -292,7 +288,7 @@ impl<'a> Lowering<'a, '_> {
         if funcs.ids.contains_key(name) {
             return Err(unsupported(def, "two functions of the same name"));
         }
-        let id = FuncId(u32::try_from(funcs.sigs.len()).expect("fewer than 2^32 functions"));
+        let id = FuncId::new(funcs.sigs.len());
         funcs.ids.insert(name.to_owned(), id);
         funcs.sigs.push(Sig { def, params, ret });
         funcs.ordered.push(false);
@@ -362,7 +358,7 @@ impl<'a> Lowering<'a, '_> {
         let line = *lines.entry((name, number)).or_insert(count);
         let mut sites = self.sites.borrow_mut();
         sites.push(SiteFrame { text, line });
-        Site(u32::try_from(sites.len() - 1).expect("fewer than 2^32 sites"))
+        Site::new(sites.len() - 1)
     }
 }
 

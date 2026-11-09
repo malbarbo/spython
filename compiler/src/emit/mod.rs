@@ -77,10 +77,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     }
     e.reprs.end_module(&mut f, site);
     for (i, func) in program.funcs.iter().enumerate() {
-        e.func(
-            FuncId(u32::try_from(i).expect("fewer than 2^32 functions")),
-            func,
-        );
+        e.func(FuncId::new(i), func);
     }
     e.reprs.finish(&mut e.m, &program.sites);
     let init = std::mem::take(&mut e.m.init);
@@ -499,22 +496,24 @@ impl Emitter<'_> {
     }
 
     fn global_slots(&self, var: VarId) -> &Slots<GlobalIdx> {
-        self.vars.get(index(var)).expect("a variable of the module")
+        self.vars
+            .get(var.index())
+            .expect("a variable of the module")
     }
 
     fn local_slots(&self, var: VarId) -> &Slots<LocalIdx> {
         self.code
             .vars
-            .get(index(var))
+            .get(var.index())
             .expect("a variable of the function")
     }
 
     fn var(&self, place: Place) -> &crate::ir::Var {
         match place {
-            Place::Global(var) => self.program.vars.get(index(var)),
+            Place::Global(var) => self.program.vars.get(var.index()),
             Place::Local(var) => {
                 let func = self.code.func.expect("a local in a function");
-                self.program_func(func).vars.get(index(var))
+                self.program_func(func).vars.get(var.index())
             }
         }
         .expect("a variable of the program")
@@ -522,14 +521,14 @@ impl Emitter<'_> {
 
     fn func_slots(&self, func: FuncId) -> &FuncSlots {
         self.funcs
-            .get(func.0 as usize)
+            .get(func.index())
             .expect("a function of the program")
     }
 
     fn program_func(&self, func: FuncId) -> &Func {
         self.program
             .funcs
-            .get(func.0 as usize)
+            .get(func.index())
             .expect("a function of the program")
     }
 
@@ -714,10 +713,6 @@ fn count(n: u32) -> i32 {
     i32::try_from(n).expect("fewer than 2^31 names")
 }
 
-fn index(var: VarId) -> usize {
-    var.0 as usize
-}
-
 fn site_index(site: Site) -> i32 {
-    i32::try_from(site.0).expect("fewer than 2^31 sites")
+    i32::try_from(site.index()).expect("fewer than 2^31 sites")
 }
