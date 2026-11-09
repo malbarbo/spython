@@ -150,14 +150,23 @@ Commits:
    do commit 8 pode ter o mesmo problema.
 7. `compiler: compare floats and test their truth`: comparações com
    `nan` (encadeadas também), `0.0` e `-0.0` falsos, `nan` verdadeiro.
-8. `compiler: compile ** on float`: porta do `float_pow` do CPython na
-   camada 2, com os casos especiais (`0.0 ** -inf` é `inf`,
-   `(-1.0) ** inf` e `1.0 ** nan` são `1.0`) e uma grade testada contra
-   o python3. Base negativa com expoente `float` não chega aqui, porque
-   o lint `float-exponent` a recusa (decisão 11). Se um caso escapar do
-   lint, ele dá o erro de limite, já que não há `complex`. Overflow dá
-   `OverflowError: (34, 'Numerical result out of range')`, e
-   `0.0 ** -1.0` dá `ZeroDivisionError`.
+8. `compiler: compile ** on float`: o `f64_pow` é uma porta do `pow`
+   do musl, o mesmo algoritmo do glibc. O glibc com FMA (x86-64 com
+   FMA, aarch64) é compilado com `fma` e com o GCC contraindo `a*b + c`,
+   e sem FMA a porta erraria 1 ulp em 0,07% dos casos. Por isso ela
+   chama o `fma` do crate `libm`, que não deixa `unreachable`, nos
+   mesmos pontos. Os casos especiais do `float_pow` do CPython (`0.0 **
+   -inf` é `inf`, `(-1.0) ** inf` e `1.0 ** nan` são `1.0`) já saem
+   iguais do `pow` do C, e o teste nativo compara uma grade com o
+   python3. Os erros ficam no código emitido, que olha os operandos só
+   quando eles são finitos e o resultado não é. `0.0 ** -1.0` dá
+   `ZeroDivisionError`, e um overflow dá `OverflowError: (34, 'Numerical
+   result out of range')`. Base negativa com expoente fracionário não
+   chega aqui, porque o lint `float-exponent` a recusa (decisão 11). Se
+   um caso escapar do lint, o resultado `nan` dá o erro de limite, já
+   que não há `complex`. Os dígitos e a mensagem do overflow são os do
+   CPython no Linux. O macOS e o Windows têm outro `pow` e outro
+   `strerror`.
 
 Fora da 0c: `int ** int` (o tipo é `int | float` quando o expoente não é
 literal), a caixa `$Float` e o despacho de `int | float`, `float(str)`,
