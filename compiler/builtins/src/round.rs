@@ -6,6 +6,8 @@
 //! The formatting and the `parse` of `core` leave a table in the `.wasm`,
 //! and the bignum crates leave paths to a panic, so [`exact`] gives the
 //! digits here and `fast-float2` reads them back.
+//!
+//! The notice of CPython is in `NOTICE`.
 
 /// Above this many digits, every float is already round. CPython calls it
 /// `NDIGITS_MAX`.

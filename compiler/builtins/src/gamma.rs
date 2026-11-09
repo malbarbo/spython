@@ -6,6 +6,8 @@
 //! At a pole, where C gives an infinity and CPython raises `ValueError`,
 //! these functions give nan. The emitted code raises `ValueError` for a nan
 //! from a number that is not nan, as `math_1` of CPython does.
+//!
+//! The notice of CPython is in `NOTICE`.
 
 // The constants are as CPython writes them.
 #![allow(clippy::excessive_precision)]

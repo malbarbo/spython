@@ -1,6 +1,8 @@
 //! `math.hypot`, as `math_hypot` and `vector_norm` in `Modules/mathmodule.c`
 //! of CPython compute it. The squares and their sum keep twice the bits of
 //! a float, so the result is almost always correctly rounded.
+//!
+//! The notice of CPython is in `NOTICE`.
 
 use libm::{fabs, fma, ldexp, sqrt};
 

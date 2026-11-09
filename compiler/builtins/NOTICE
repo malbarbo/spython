@@ -1,0 +1,124 @@
+The builtins in this crate go into every module that the compiler emits.
+Some of them are ports of code from the projects below, whose licences
+ask for the notices that follow.
+
+musl
+====
+
+`fmod` in `src/div.rs` is a port of `src/math/fmod.c` of musl.
+
+Copyright © 2005-2020 Rich Felker, et al.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Arm optimized routines, through musl
+====================================
+
+`src/log.rs` is a port of `src/math/log.c` of musl, and `src/pow.rs` is a
+port of `src/math/pow.c`, `src/math/exp.c` and `src/math/exp2.c` of musl.
+These files come from the optimized routines of Arm, under the MIT licence
+of musl above.
+
+Copyright (c) 2018, Arm Limited.
+SPDX-License-Identifier: MIT
+
+FreeBSD msun and Sun fdlibm
+===========================
+
+`src/tanh.rs` is a port of `lib/msun/src/s_tanh.c` of FreeBSD, which
+comes from the fdlibm of Sun.
+
+Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+
+Developed at SunPro, a Sun Microsystems, Inc. business.
+Permission to use, copy, modify, and distribute this
+software is freely granted, provided that this notice
+is preserved.
+
+CPython
+=======
+
+These builtins are ports of code of CPython 3.13:
+
+- `src/div.rs` ports `_float_div_mod` and `float_rem` of
+  `Objects/floatobject.c`.
+- `src/round.rs` ports `double_round` of `Objects/floatobject.c`.
+- `src/gamma.rs` ports `m_tgamma` and `m_lgamma` of
+  `Modules/mathmodule.c`.
+- `src/hypot.rs` ports `math_hypot` and `vector_norm` of
+  `Modules/mathmodule.c`, for two numbers.
+- `src/math.rs` ports `math_ulp` and `m_remainder`, and `src/pow.rs`
+  ports `math_pow`, of `Modules/mathmodule.c`.
+
+The ports are in Rust and work on `f64` alone. Where CPython raises an
+exception, they return a value that the emitted code turns into the same
+exception. `src/round.rs` computes the digits with its own exact
+arithmetic, in place of the `dtoa` of CPython. `src/gamma.rs` calls the
+`exp`, `log` and `pow` of this crate and the `sin` and `cos` of the `libm`
+crate, in place of the libm of the system.
+
+Copyright (c) 2001-2024 Python Software Foundation; All Rights Reserved
+
+PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2
+--------------------------------------------
+
+1. This LICENSE AGREEMENT is between the Python Software Foundation
+("PSF"), and the Individual or Organization ("Licensee") accessing and
+otherwise using this software ("Python") in source or binary form and
+its associated documentation.
+
+2. Subject to the terms and conditions of this License Agreement, PSF hereby
+grants Licensee a nonexclusive, royalty-free, world-wide license to reproduce,
+analyze, test, perform and/or display publicly, prepare derivative works,
+distribute, and otherwise use Python alone or in any derivative version,
+provided, however, that PSF's License Agreement and PSF's notice of copyright,
+i.e., "Copyright (c) 2001-2024 Python Software Foundation; All Rights Reserved"
+are retained in Python alone or in any derivative version prepared by Licensee.
+
+3. In the event Licensee prepares a derivative work that is based on
+or incorporates Python or any part thereof, and wants to make
+the derivative work available to others as provided herein, then
+Licensee hereby agrees to include in any such work a brief summary of
+the changes made to Python.
+
+4. PSF is making Python available to Licensee on an "AS IS"
+basis.  PSF MAKES NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR
+IMPLIED.  BY WAY OF EXAMPLE, BUT NOT LIMITATION, PSF MAKES NO AND
+DISCLAIMS ANY REPRESENTATION OR WARRANTY OF MERCHANTABILITY OR FITNESS
+FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF PYTHON WILL NOT
+INFRINGE ANY THIRD PARTY RIGHTS.
+
+5. PSF SHALL NOT BE LIABLE TO LICENSEE OR ANY OTHER USERS OF PYTHON
+FOR ANY INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES OR LOSS AS
+A RESULT OF MODIFYING, DISTRIBUTING, OR OTHERWISE USING PYTHON,
+OR ANY DERIVATIVE THEREOF, EVEN IF ADVISED OF THE POSSIBILITY THEREOF.
+
+6. This License Agreement will automatically terminate upon a material
+breach of its terms and conditions.
+
+7. Nothing in this License Agreement shall be deemed to create any
+relationship of agency, partnership, or joint venture between PSF and
+Licensee.  This License Agreement does not grant permission to use PSF
+trademarks or trade name in a trademark sense to endorse or promote
+products or services of Licensee, or any third party.
+
+8. By copying, installing or otherwise using Python, Licensee
+agrees to be bound by the terms and conditions of this License
+Agreement.

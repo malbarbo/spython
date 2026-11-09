@@ -41,7 +41,8 @@ pub extern "C" fn f64_nextafter(x: f64, y: f64) -> f64 {
     libm::nextafter(x, y)
 }
 
-/// `math.ulp(x)`, as `math_ulp` of CPython computes it.
+/// `math.ulp(x)`, as `math_ulp` of CPython computes it. The notice of
+/// CPython is in `NOTICE`.
 #[unsafe(no_mangle)]
 pub extern "C" fn f64_ulp(x: f64) -> f64 {
     if x.is_nan() {
@@ -66,7 +67,7 @@ pub extern "C" fn f64_ldexp(x: f64, i: i32) -> f64 {
 
 /// `math.remainder(x, y)`, as `m_remainder` of CPython computes it. The
 /// result is exact, and a tie goes to the even multiple of `y`. A `y` of 0
-/// and an infinite `x` give nan.
+/// and an infinite `x` give nan. The notice of CPython is in `NOTICE`.
 #[unsafe(no_mangle)]
 pub extern "C" fn f64_remainder(x: f64, y: f64) -> f64 {
     if x.is_finite() && y.is_finite() {

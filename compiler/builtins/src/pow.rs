@@ -11,6 +11,8 @@
 //! The `pow` of C gives the result of `float_pow` in CPython for every pair
 //! that `float_pow` does not reject. The emitted code raises the errors of
 //! CPython, which it tells from the inputs and the result.
+//!
+//! The notices of musl, Arm and CPython are in `NOTICE`.
 
 use libm::fma;
 

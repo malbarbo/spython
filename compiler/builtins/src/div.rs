@@ -4,6 +4,8 @@
 //!
 //! The `%` of Rust on wasm32 calls the `fmod` of `compiler_builtins`, which
 //! brings a path to a panic, so [`fmod`] here is a port of the one in musl.
+//!
+//! The notices of CPython and musl are in `NOTICE`.
 
 #[unsafe(no_mangle)]
 pub extern "C" fn f64_floor_div(a: f64, b: f64) -> f64 {

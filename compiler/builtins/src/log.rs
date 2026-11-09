@@ -3,6 +3,8 @@
 //!
 //! As in `pow.rs`, the port calls `fma` at each place where GCC contracts
 //! `a * b + c` into `fma` in the build of glibc with FMA.
+//!
+//! The notice of musl and Arm is in `NOTICE`.
 
 use libm::fma;
 
