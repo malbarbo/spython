@@ -82,7 +82,13 @@ impl<'a> Lowering<'a, '_> {
                 _ => Err(unsupported(expr, "this number")),
             },
             ast::Expr::BooleanLiteral(b) => Ok(Expr::Bool(b.value)),
-            ast::Expr::Name(name) => self.load(name),
+            ast::Expr::Name(_) | ast::Expr::Attribute(_) => match self.math_member(expr) {
+                Some((imported, member)) => self.math_constant(expr, imported, &member),
+                None => match expr {
+                    ast::Expr::Name(name) => self.load(name),
+                    _ => Err(unsupported(expr, "this expression")),
+                },
+            },
             ast::Expr::UnaryOp(u) => self.unary(u),
             ast::Expr::BinOp(b) => {
                 let left = self.expr(&b.left)?;

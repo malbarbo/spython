@@ -138,4 +138,40 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         "}),
         "this function of math"
     );
+    assert_eq!(
+        unsupported(indoc! {"
+            import math
+
+            print(math.__name__)
+        "}),
+        "this name of math"
+    );
+}
+
+#[test]
+fn the_constants_of_math_follow_python() {
+    same_as_cpython(
+        "the_constants_of_math_follow_python",
+        indoc! {"
+            import math
+            from math import pi, e as euler, inf, nan
+
+            print(math.pi, math.e, math.tau, math.inf, -math.inf, math.nan)
+            print(pi, euler, inf, nan, pi == math.pi, nan == nan, inf > 1e308)
+        "},
+    );
+}
+
+#[test]
+fn a_constant_of_math_before_the_import_raises_name_error() {
+    same_as_cpython(
+        "a_constant_of_math_before_the_import_raises_name_error",
+        indoc! {"
+            def f() -> float:
+                return pi
+
+            print(f())
+            from math import pi
+        "},
+    );
 }

@@ -60,6 +60,24 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
+    /// The value of `member`, a constant of `math`, through `imported`.
+    pub(super) fn math_constant(
+        &self,
+        expr: &ast::Expr,
+        imported: &ast::ExprName,
+        member: &str,
+    ) -> Result<Expr, Error> {
+        let value = match member {
+            "pi" => std::f64::consts::PI,
+            "e" => std::f64::consts::E,
+            "tau" => std::f64::consts::TAU,
+            "inf" => f64::INFINITY,
+            "nan" => f64::NAN,
+            _ => return Err(unsupported(expr, "this name of math")),
+        };
+        self.after_import(imported, Expr::Float(value))
+    }
+
     /// A call of `member`, a function of `math`, through `imported`.
     /// `math.floor`, `math.ceil` and `math.trunc` take one number and give
     /// an `int`.
