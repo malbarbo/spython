@@ -167,6 +167,9 @@ pub(crate) enum Expr {
     },
     /// `abs` of a `float`, which gives `0.0` for `-0.0`.
     FloatAbs(Box<Expr>),
+    /// A `float` rounded to the nearest whole value, with a tie going to
+    /// the even one, as `round` does.
+    FloatRound(Box<Expr>),
     /// `/`, `//` or `%` on two `float`s. A divisor of 0 raises
     /// `ZeroDivisionError` at the site.
     Div {
@@ -386,6 +389,7 @@ impl Expr {
             | Expr::FloatArith { .. }
             | Expr::FloatNeg(_)
             | Expr::FloatAbs(_)
+            | Expr::FloatRound(_)
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,

@@ -110,6 +110,7 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "abs") => self.abs(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "pow") => self.pow(call),
+            ast::Expr::Call(call) if self.is_builtin(&call.func, "round") => self.round(call),
             ast::Expr::Call(call) if self.is_class(&call.func, "bool") => self.bool(call),
             ast::Expr::Call(call) if self.is_class(&call.func, "float") => self.float(call),
             ast::Expr::Call(call) if self.is_class(&call.func, "int") => self.int(call),

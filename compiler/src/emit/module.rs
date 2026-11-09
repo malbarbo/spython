@@ -686,6 +686,7 @@ impl<'a> Ins<'a> {
         f64_le();
         f64_lt();
         f64_ne();
+        f64_nearest();
         f64_mul();
         f64_neg();
         f64_sub();

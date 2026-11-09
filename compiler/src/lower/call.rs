@@ -157,6 +157,24 @@ impl<'a> Lowering<'a, '_> {
         self.binary(call, ast::Operator::Pow, (left, base), (right, exp))
     }
 
+    /// `round(x)` or `round(x, None)` of a number, which gives an `int`.
+    /// Only the literal `None` stands for the missing number of digits.
+    pub(super) fn round(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let arg = match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([arg] | [arg, ast::Expr::NoneLiteral(_)], []) => arg,
+            _ => return Err(unsupported(call, "this call of round")),
+        };
+        let operand = self.expr(arg)?;
+        match operand.rep() {
+            Rep::Int | Rep::Bool => self.int_value(operand, arg),
+            Rep::Float => Ok(Expr::FloatAsInt {
+                operand: Box::new(Expr::FloatRound(Box::new(operand))),
+                site: self.site(call.range()),
+            }),
+            Rep::Str | Rep::None => Err(unsupported(arg, "round of this type")),
+        }
+    }
+
     /// `bool()`, which is `False`, or `bool(x)`, which is the truth of `x`.
     pub(super) fn bool(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         match (&*call.arguments.args, &*call.arguments.keywords) {

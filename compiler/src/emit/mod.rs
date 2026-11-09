@@ -586,6 +586,10 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.float_abs(f);
             }
+            Expr::FloatRound(operand) => {
+                self.expr(f, operand);
+                self.reprs.float_round(f);
+            }
             Expr::Div {
                 op,
                 left,

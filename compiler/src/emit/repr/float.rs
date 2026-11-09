@@ -164,6 +164,16 @@ impl FloatRepr {
         }
     }
 
+    /// Pops a `float` and pushes the nearest whole value, with a tie going
+    /// to the even one.
+    pub fn round(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_nearest();
+            }
+        }
+    }
+
     /// Pops a `float` and writes its `repr` to the standard output, as one
     /// write.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState) {

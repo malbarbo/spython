@@ -240,6 +240,10 @@ impl Reprs {
         self.float.abs(f);
     }
 
+    pub fn float_round(&self, f: &mut FuncState) {
+        self.float.round(f);
+    }
+
     /// Pops a `str` and pushes its number of code points as an `int`.
     pub fn str_len(&self, f: &mut FuncState) {
         self.str.len(f);

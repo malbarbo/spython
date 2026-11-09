@@ -216,3 +216,73 @@ fn int_of_a_float_outside_31_bits_raises_overflow_error() {
         assert_eq!(output.status.code(), Some(1), "exit code");
     }
 }
+
+#[test]
+fn round_of_a_number_follows_python() {
+    same_as_cpython(
+        "round_of_a_number_follows_python",
+        indoc! {"
+            def nearest(x: float) -> int:
+                return round(x)
+
+            print(round(2.5), round(3.5), round(-2.5), round(0.5), round(-0.5), round(1.5, None))
+            print(nearest(2.4999999999999996), nearest(0.49999999999999994), nearest(-0.0))
+            print(nearest(-1073741824.5), nearest(1073741823.4), nearest(4503599627370497.0 - 4503599627370496.0))
+            print(round(7), round(-1073741824), round(True), round(False, None), nearest(1e9) + 1)
+        "},
+    );
+}
+
+#[test]
+fn round_of_nan_raises_value_error() {
+    same_as_cpython(
+        "round_of_nan_raises_value_error",
+        indoc! {"
+            inf = 1e308 * 10
+            print(round(1.5))
+            print(round(inf - inf))
+        "},
+    );
+}
+
+#[test]
+fn round_of_an_infinity_raises_overflow_error() {
+    same_as_cpython(
+        "round_of_an_infinity_raises_overflow_error",
+        indoc! {"
+            inf = 1e308 * 10
+            print(round(-2.5))
+            print(round(-inf, None))
+        "},
+    );
+}
+
+/// `1073741823.5` rounds to `1073741824`, one past the greatest `int`.
+#[test]
+fn round_of_a_float_outside_31_bits_raises_overflow_error() {
+    let name = "round_of_a_float_outside_31_bits_raises_overflow_error";
+    let output = run(name, "print(round(1073741823.5))\n");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        format!(
+            "Traceback (most recent call last):\n  \
+             File \"{}\", line 1, in <module>\n    \
+             print(round(1073741823.5))\n          ~~~~~^^^^^^^^^^^^^^\n\
+             OverflowError: cannot convert float to an int of spython, \
+             which goes from -1073741824 to 1073741823\n",
+            path(name, "py").display(),
+        ),
+        "stderr"
+    );
+    assert_eq!(output.status.code(), Some(1), "exit code");
+}
+
+#[test]
+fn round_outside_what_the_compiler_covers_has_its_own_message() {
+    assert_eq!(
+        unsupported(indoc! {"
+            print(round(2.5, 1))
+        "}),
+        "this call of round"
+    );
+}
