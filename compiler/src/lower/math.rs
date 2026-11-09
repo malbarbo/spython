@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, Tolerance};
+use crate::ir::{Choice, Expr, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, Tolerance};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -189,12 +189,12 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(self.math_int(n)?),
                 site: self.site(call.range()),
             },
-            ("comb", [n, k], []) => Expr::IntComb {
-                n: Box::new(self.math_int(n)?),
-                k: Box::new(self.math_int(k)?),
-                site: self.site(call.range()),
-            },
-            ("perm", [n, k], []) => Expr::IntPerm {
+            ("comb" | "perm", [n, k], []) => Expr::IntChoose {
+                choice: if member == "comb" {
+                    Choice::Comb
+                } else {
+                    Choice::Perm
+                },
                 n: Box::new(self.math_int(n)?),
                 k: Box::new(self.math_int(k)?),
                 site: self.site(call.range()),

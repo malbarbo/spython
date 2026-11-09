@@ -12,9 +12,11 @@ use super::runtime::host::Host;
 use crate::cpython::{
     ISQRT_OF_A_NEGATIVE, MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE,
 };
-use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame};
+use crate::ir::{
+    ArithOp, Choice, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame,
+};
 use float::FloatRepr;
-use int::{Choice, IntRepr};
+use int::IntRepr;
 use str::StrRepr;
 
 pub(crate) struct Reprs {
@@ -236,18 +238,11 @@ impl Reprs {
         self.int.lcm_end(m, f, &mut self.str, &self.exc);
     }
 
-    /// Pops `n` and `k` and pushes `math.comb(n, k)`, or raises the error
-    /// of a negative `int` or of a result that does not fit.
-    pub fn comb(&mut self, m: &mut ModuleState, f: &mut FuncState) {
-        self.int
-            .choose(m, f, &mut self.str, &self.exc, Choice::Comb);
-    }
-
-    /// Pops `n` and `k` and pushes `math.perm(n, k)`, or raises the error
-    /// of a negative `int` or of a result that does not fit.
-    pub fn perm(&mut self, m: &mut ModuleState, f: &mut FuncState) {
-        self.int
-            .choose(m, f, &mut self.str, &self.exc, Choice::Perm);
+    /// Pops `n` and `k` and pushes `math.comb(n, k)` or `math.perm(n, k)`,
+    /// by `choice`, or raises the error of a negative `int` or of a result
+    /// that does not fit.
+    pub fn choose(&mut self, m: &mut ModuleState, f: &mut FuncState, choice: Choice) {
+        self.int.choose(m, f, &mut self.str, &self.exc, choice);
     }
 
     /// Pops an `int` and pushes `math.factorial` of it, or raises the error

@@ -717,15 +717,10 @@ impl Emitter<'_> {
                 }
                 self.at(f, *site, |e, f| e.reprs.lcm_end(&mut e.m, f));
             }
-            Expr::IntComb { n, k, site } => {
+            Expr::IntChoose { choice, n, k, site } => {
                 self.expr(f, n);
                 self.expr(f, k);
-                self.at(f, *site, |e, f| e.reprs.comb(&mut e.m, f));
-            }
-            Expr::IntPerm { n, k, site } => {
-                self.expr(f, n);
-                self.expr(f, k);
-                self.at(f, *site, |e, f| e.reprs.perm(&mut e.m, f));
+                self.at(f, *site, |e, f| e.reprs.choose(&mut e.m, f, *choice));
             }
             Expr::IntFactorial { operand, site } => {
                 self.expr(f, operand);

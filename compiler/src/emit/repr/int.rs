@@ -11,7 +11,7 @@ use crate::cpython::{
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
-use crate::ir::{ArithOp, CmpOp};
+use crate::ir::{ArithOp, Choice, CmpOp};
 
 const MIN: i64 = -(1 << 30);
 const MAX: i64 = (1 << 30) - 1;
@@ -53,22 +53,6 @@ pub(super) enum IntRepr {
         /// `math.perm`, which the module gets at the first use.
         chooses: BTreeMap<Choice, FuncIdx>,
     },
-}
-
-/// The ways of `math.comb` and `math.perm` to choose `k` of `n` things.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum Choice {
-    Comb,
-    Perm,
-}
-
-impl Choice {
-    fn name(self) -> &'static str {
-        match self {
-            Choice::Comb => "comb",
-            Choice::Perm => "perm",
-        }
-    }
 }
 
 impl IntRepr {

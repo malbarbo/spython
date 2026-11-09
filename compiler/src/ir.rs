@@ -269,16 +269,11 @@ pub(crate) enum Expr {
         args: Vec<Expr>,
         site: Site,
     },
-    /// `math.comb(n, k)` of two `int`s. A negative `int` raises
-    /// `ValueError` at the site, and a result that does not fit in an
-    /// `int` stops the program there.
-    IntComb {
-        n: Box<Expr>,
-        k: Box<Expr>,
-        site: Site,
-    },
-    /// `math.perm(n, k)` of two `int`s, which raises as `math.comb` does.
-    IntPerm {
+    /// `math.comb(n, k)` or `math.perm(n, k)` of two `int`s, by `choice`.
+    /// A negative `int` raises `ValueError` at the site, and a result that
+    /// does not fit in an `int` stops the program there.
+    IntChoose {
+        choice: Choice,
         n: Box<Expr>,
         k: Box<Expr>,
         site: Site,
@@ -592,6 +587,22 @@ impl MathFunc2 {
     }
 }
 
+/// The ways of `math.comb` and `math.perm` to choose `k` of `n` things.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Choice {
+    Comb,
+    Perm,
+}
+
+impl Choice {
+    pub fn name(self) -> &'static str {
+        match self {
+            Choice::Comb => "comb",
+            Choice::Perm => "perm",
+        }
+    }
+}
+
 /// A tolerance of `math.isclose`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tolerance {
@@ -683,8 +694,7 @@ impl Expr {
             | Expr::IntAbs { .. }
             | Expr::IntGcd { .. }
             | Expr::IntLcm { .. }
-            | Expr::IntComb { .. }
-            | Expr::IntPerm { .. }
+            | Expr::IntChoose { .. }
             | Expr::IntFactorial { .. }
             | Expr::IntIsqrt { .. }
             | Expr::IntRound { .. }
