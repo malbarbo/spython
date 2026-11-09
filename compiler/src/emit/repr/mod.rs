@@ -289,6 +289,11 @@ impl Reprs {
         self.float.atan2(m, f);
     }
 
+    /// Pops `x` and `y` and pushes `math.nextafter(x, y)`.
+    pub fn nextafter(&self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.nextafter(m, f);
+    }
+
     /// Pops `x` and `y` and pushes `math.hypot(x, y)`.
     pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
         self.float.hypot(m, f);

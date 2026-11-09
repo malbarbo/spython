@@ -553,3 +553,21 @@ fn degrees_and_radians_follow_python() {
         "},
     );
 }
+
+#[test]
+fn nextafter_and_ulp_follow_python() {
+    same_as_cpython(
+        "nextafter_and_ulp_follow_python",
+        indoc! {"
+            import math
+            from math import nextafter, ulp
+
+            inf = math.inf
+            print(nextafter(1, 2), nextafter(1.0, 0), nextafter(0.0, -1), nextafter(-0.0, 1))
+            print(nextafter(5e-324, 0), nextafter(1.7976931348623157e308, inf), nextafter(inf, 0))
+            print(nextafter(2.0, 2), nextafter(math.nan, 1), nextafter(1, math.nan), nextafter(True, 3))
+            print(ulp(1.0), ulp(-2), ulp(0.0), ulp(5e-324), ulp(1.7976931348623157e308), ulp(1e300))
+            print(math.ulp(inf), math.ulp(-inf), math.ulp(math.nan), ulp(True))
+        "},
+    );
+}

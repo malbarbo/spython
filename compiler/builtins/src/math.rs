@@ -39,6 +39,29 @@ unary! {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn f64_nextafter(x: f64, y: f64) -> f64 {
+    libm::nextafter(x, y)
+}
+
+/// `math.ulp(x)`, as `math_ulp` of CPython computes it.
+#[unsafe(no_mangle)]
+pub extern "C" fn f64_ulp(x: f64) -> f64 {
+    if x.is_nan() {
+        return x;
+    }
+    let x = libm::fabs(x);
+    if x.is_infinite() {
+        return x;
+    }
+    let next = libm::nextafter(x, f64::INFINITY);
+    if next.is_infinite() {
+        // The greatest float has no next one, so its ulp is the gap below.
+        return x - libm::nextafter(x, -f64::INFINITY);
+    }
+    next - x
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn f64_atan2(y: f64, x: f64) -> f64 {
     libm::atan2(y, x)
 }

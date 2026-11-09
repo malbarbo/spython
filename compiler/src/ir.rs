@@ -216,6 +216,11 @@ pub(crate) enum Expr {
         x: Box<Expr>,
         y: Box<Expr>,
     },
+    /// `math.nextafter(x, y)` of two `float`s.
+    Nextafter {
+        x: Box<Expr>,
+        y: Box<Expr>,
+    },
     /// `math.copysign(x, y)` of two `float`s.
     Copysign {
         x: Box<Expr>,
@@ -440,10 +445,11 @@ pub(crate) enum MathFunc {
     Erfc,
     Gamma,
     Lgamma,
+    Ulp,
 }
 
 impl MathFunc {
-    const ALL: [(MathFunc, &'static str); 24] = [
+    const ALL: [(MathFunc, &'static str); 25] = [
         (MathFunc::Exp, "exp"),
         (MathFunc::Exp2, "exp2"),
         (MathFunc::Expm1, "expm1"),
@@ -468,6 +474,7 @@ impl MathFunc {
         (MathFunc::Erfc, "erfc"),
         (MathFunc::Gamma, "gamma"),
         (MathFunc::Lgamma, "lgamma"),
+        (MathFunc::Ulp, "ulp"),
     ];
 
     /// The function that `math` names `name`.
@@ -599,6 +606,7 @@ impl Expr {
             | Expr::Atan2 { .. }
             | Expr::Hypot { .. }
             | Expr::Copysign { .. }
+            | Expr::Nextafter { .. }
             | Expr::Fmod { .. }
             | Expr::LogBase { .. }
             | Expr::FloatCeil(_)

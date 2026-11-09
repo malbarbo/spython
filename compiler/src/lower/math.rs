@@ -108,6 +108,7 @@ impl<'a> Lowering<'a, '_> {
                 | "log"
                 | "degrees"
                 | "radians"
+                | "nextafter"
         ) || MathFunc::of(member).is_some();
         if !known {
             return Err(unsupported(call, "this function of math"));
@@ -125,6 +126,10 @@ impl<'a> Lowering<'a, '_> {
                 x: Box::new(self.math_float(x)?),
             },
             ("hypot", [x, y], []) => Expr::Hypot {
+                x: Box::new(self.math_float(x)?),
+                y: Box::new(self.math_float(y)?),
+            },
+            ("nextafter", [x, y], []) => Expr::Nextafter {
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),
             },
@@ -149,7 +154,7 @@ impl<'a> Lowering<'a, '_> {
             (_, [arg], [])
                 if !matches!(
                     member,
-                    "atan2" | "hypot" | "copysign" | "fmod" | "gcd" | "factorial"
+                    "atan2" | "hypot" | "copysign" | "fmod" | "gcd" | "factorial" | "nextafter"
                 ) =>
             {
                 self.math_unary(call, member, arg)?

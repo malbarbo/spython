@@ -247,6 +247,17 @@ impl FloatRepr {
         }
     }
 
+    /// Pops `x` and `y` and pushes `math.nextafter(x, y)`, which never
+    /// raises.
+    pub fn nextafter(&self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                let builtin = m.builtin("f64_nextafter");
+                f.ins().call(builtin);
+            }
+        }
+    }
+
     /// Pops `x` and `y` and pushes `math.hypot(x, y)`, which never raises.
     pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
         match self {
