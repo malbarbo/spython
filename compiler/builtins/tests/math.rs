@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use builtins::{REPR_MAX, exp, log, repr};
+use builtins::{REPR_MAX, exp, exp2, log, repr};
 
 /// Compares `math.exp` with CPython on special values, integers, short
 /// decimals, values near 0 and random values in and out of range.
@@ -17,6 +17,22 @@ fn exp_matches_cpython() {
         values.push(f64::from_bits(random.next()));
     }
     compare("exp", exp, true, &values);
+}
+
+/// Compares `math.exp2` with CPython on special values, integers, short
+/// decimals, values near 0 and random values in and out of range.
+#[test]
+fn exp2_matches_cpython() {
+    let mut random = SplitMix64(3);
+    let mut values = specials();
+    for _ in 0..200_000 {
+        values.push((random.next() % 2201) as f64 - 1100.0);
+        values.push((random.next() % 2_200_000) as f64 / 1000.0 - 1100.0);
+        values.push(((random.next() % 2_000_000) as f64 - 1e6) * 1e-12);
+        values.push(random.uniform(-1080.0, 1030.0));
+        values.push(f64::from_bits(random.next()));
+    }
+    compare("exp2", exp2, true, &values);
 }
 
 /// Compares `math.log` with CPython on special values, integers, short

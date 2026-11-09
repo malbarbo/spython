@@ -1,12 +1,12 @@
-//! `**` on floats and `math.exp`, ported from `src/math/pow.c` and
-//! `src/math/exp.c` of musl, which come from the optimized routines of Arm.
-//! glibc has the same routines.
+//! `**` on floats, `math.exp` and `math.exp2`, ported from `src/math/pow.c`,
+//! `src/math/exp.c` and `src/math/exp2.c` of musl, which come from the
+//! optimized routines of Arm. glibc has the same routines.
 //!
-//! glibc on x86-64 with FMA, and on aarch64, builds them with `fma` and with
-//! GCC contracting `a * b + c` into `fma`. The port calls `fma` at each of
-//! those places, so it gives the digits of CPython on those platforms. GCC
-//! does not contract a product whose uses are in more than one block, as
-//! the `scale * tmp` of the underflow in [`special_case`].
+//! glibc on x86-64 with FMA, and on aarch64, builds `pow` and `exp` with
+//! `fma` and with GCC contracting `a * b + c` into `fma`. The port calls
+//! `fma` at each of those places, so it gives the digits of CPython on those
+//! platforms. GCC does not contract a product whose uses are in more than
+//! one block, as the `scale * tmp` of the underflow in [`special_case`].
 //!
 //! The `pow` of C gives the result of `float_pow` in CPython for every pair
 //! that `float_pow` does not reject. The emitted code raises the errors of
@@ -17,6 +17,11 @@ use libm::fma;
 #[unsafe(no_mangle)]
 pub extern "C" fn f64_exp(x: f64) -> f64 {
     exp(x)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn f64_exp2(x: f64) -> f64 {
+    exp2(x)
 }
 
 #[unsafe(no_mangle)]
@@ -155,6 +160,93 @@ pub fn exp(x: f64) -> f64 {
         return x;
     }
     exp_inline(x, 0.0, 0)
+}
+
+/// 2 to the power `x`. glibc builds its `exp2` on x86-64 without FMA, so
+/// the port has no `fma`.
+pub fn exp2(x: f64) -> f64 {
+    const SHIFT: f64 = 52776558133248.0;
+    const C1: f64 = core::f64::consts::LN_2;
+    const C2: f64 = 0.24022650695909065;
+    const C3: f64 = 0.0555041086686087;
+    const C4: f64 = 0.009618131975721055;
+    const C5: f64 = 0.0013332074570119598;
+    // `top12` of 2^-54, 512 and 1024.
+    const TINY: u32 = 0x3c9;
+    const BIG: u32 = 0x408;
+    const HUGE: u32 = 0x409;
+
+    let mut abstop = top12(x) & 0x7ff;
+    if abstop.wrapping_sub(TINY) >= BIG - TINY {
+        if abstop.wrapping_sub(TINY) >= 0x80000000 {
+            // `|x| < 2^-54`, and `1 + x` avoids a spurious underflow.
+            return 1.0 + x;
+        }
+        if abstop >= HUGE {
+            if x == f64::NEG_INFINITY {
+                return 0.0;
+            }
+            if abstop >= 0x7ff {
+                return 1.0 + x;
+            }
+            if x.is_sign_positive() {
+                return f64::INFINITY;
+            }
+            if x <= -1075.0 {
+                return 0.0;
+            }
+        }
+        if x.abs() > 928.0 {
+            // A large `|x|` goes to `special_case_2` below.
+            abstop = 0;
+        }
+    }
+
+    // `2^x = 2^(k/N) 2^r`, where `x = k/N + r` and `|r| <= 1/2N`.
+    let kd = x + SHIFT;
+    let ki = kd.to_bits();
+    let kd = kd - SHIFT;
+    let r = x - kd;
+    // `2^(k/N)` is near `scale * (1 + tail)`.
+    let idx = (2 * (ki % N)) as usize;
+    let top = ki << (52 - TABLE_BITS);
+    let (Some(&tail), Some(&sbits)) = (EXP_TABLE.get(idx), EXP_TABLE.get(idx + 1)) else {
+        return f64::NAN;
+    };
+    let tail = f64::from_bits(tail);
+    // `sbits` is a valid scale only when `-1023 N < k < 1024 N`.
+    let sbits = sbits.wrapping_add(top);
+    let r2 = r * r;
+    let tmp = tail + r * C1 + r2 * (C2 + r * C3) + r2 * r2 * (C4 + r * C5);
+    if abstop == 0 {
+        return special_case_2(tmp, sbits, ki);
+    }
+    let scale = f64::from_bits(sbits);
+    scale + scale * tmp
+}
+
+/// `scale * (1 + tmp)` for [`exp2`] when it may overflow or underflow, as
+/// [`special_case`] does for [`exp_inline`].
+fn special_case_2(tmp: f64, sbits: u64, ki: u64) -> f64 {
+    if ki & 0x80000000 == 0 {
+        // `k > 0`, and the exponent of `scale` may be over by 1.
+        let scale = f64::from_bits(sbits.wrapping_sub(1 << 52));
+        return 2.0 * (scale + scale * tmp);
+    }
+    let scale = f64::from_bits(sbits.wrapping_add(1022 << 52));
+    let mut y = scale + scale * tmp;
+    if y < 1.0 {
+        // Rounds `y` before it goes into the subnormal range, since a
+        // second rounding there would cost up to half an ulp.
+        let lo = scale - y + scale * tmp;
+        let hi = 1.0 + y;
+        let lo = 1.0 - hi + y + lo;
+        y = (hi + lo) - 1.0;
+        if y == 0.0 {
+            y = 0.0;
+        }
+    }
+    f64::MIN_POSITIVE * y
 }
 
 /// The sign and the exponent of `x`.
