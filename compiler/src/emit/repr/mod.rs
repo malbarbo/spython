@@ -171,7 +171,7 @@ impl Reprs {
             Rep::Int => self.int.truth(f),
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
-            Rep::Float => unreachable!("the lowering rejects the truth of a float"),
+            Rep::Float => self.float.truth(f),
             Rep::None => unreachable!("None has no value"),
         }
     }
@@ -262,7 +262,8 @@ impl Reprs {
                 self.int.literal(f, 0);
                 self.int.compare(f, op);
             }
-            Rep::Float | Rep::Bool | Rep::None => unreachable!("a comparison of a {rep:?}"),
+            Rep::Float => self.float.compare(f, op),
+            Rep::Bool | Rep::None => unreachable!("a comparison of a {rep:?}"),
         }
     }
 

@@ -678,6 +678,11 @@ impl<'a> Ins<'a> {
         f64_convert_i32_s();
         f64_div();
         f64_eq();
+        f64_ge();
+        f64_gt();
+        f64_le();
+        f64_lt();
+        f64_ne();
         f64_mul();
         f64_neg();
         f64_sub();

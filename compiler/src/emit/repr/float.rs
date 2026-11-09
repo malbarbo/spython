@@ -12,7 +12,7 @@ use crate::cpython::{
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
-use crate::ir::{DivOp, FloatOp};
+use crate::ir::{CmpOp, DivOp, FloatOp};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -98,6 +98,33 @@ impl FloatRepr {
             FloatRepr::F64 { divs, .. } => {
                 let div = *divs.entry(op).or_insert_with(|| add_div(m, str, exc, op));
                 f.ins().call(div);
+            }
+        }
+    }
+
+    /// Pops a `float` and pushes `true` when it is not 0. `nan` is not 0.
+    pub fn truth(&self, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                f.ins().f64_const(0.0.into()).f64_ne();
+            }
+        }
+    }
+
+    /// Pops two `float`s and pushes the `bool` of `op`. A comparison with
+    /// `nan` is false, except `!=`, as in Python.
+    pub fn compare(&self, f: &mut FuncState, op: CmpOp) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                let mut ins = f.ins();
+                match op {
+                    CmpOp::Eq => ins.f64_eq(),
+                    CmpOp::Ne => ins.f64_ne(),
+                    CmpOp::Lt => ins.f64_lt(),
+                    CmpOp::Le => ins.f64_le(),
+                    CmpOp::Gt => ins.f64_gt(),
+                    CmpOp::Ge => ins.f64_ge(),
+                };
             }
         }
     }

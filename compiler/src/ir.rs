@@ -189,8 +189,9 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         site: Site,
     },
-    /// The truth of an `int` or a `str`, as a `bool`. An `int` is true
-    /// when it is not 0, and a `str` when it is not empty.
+    /// The truth of an `int`, a `float` or a `str`, as a `bool`. A number
+    /// is true when it is not 0, and a `str` when it is not empty. `nan` is
+    /// true, and `-0.0` is false.
     Truth(Box<Expr>),
     /// `not` on a `bool`, which may be the truth of another value.
     Not(Box<Expr>),
@@ -202,7 +203,8 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
-    /// A chain of comparisons of `int`s or of `str`s, as in `a < b <= c`.
+    /// A chain of comparisons of `int`s, of `float`s or of `str`s, as in
+    /// `a < b <= c`.
     /// Each operand after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
     /// `print` with the default `sep` and `end`. A write that fails raises

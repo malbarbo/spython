@@ -114,7 +114,8 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// A chain of comparisons, where every operand is a `str`, or every
-    /// operand is an `int` or a `bool`.
+    /// operand is a number. When one operand is a `float`, every operand
+    /// becomes a `float`, which is exact for an `int`.
     fn compare(&self, c: &ast::ExprCompare) -> Result<Expr, Error> {
         let ops = c
             .ops
@@ -134,7 +135,13 @@ impl<'a> Lowering<'a, '_> {
             .map(|operand| Ok((self.expr(operand)?, operand)))
             .collect::<Result<Vec<_>, Error>>()?;
         let is_str = |(lowered, _): &(Expr, _)| lowered.rep() == Rep::Str;
-        let mut operands = if !operands.iter().any(is_str) {
+        let is_float = |(lowered, _): &(Expr, _)| lowered.rep() == Rep::Float;
+        let mut operands = if operands.iter().any(is_float) && !operands.iter().any(is_str) {
+            operands
+                .into_iter()
+                .map(|(lowered, operand)| float_value(lowered, operand))
+                .collect::<Result<Vec<_>, _>>()?
+        } else if !operands.iter().any(is_str) {
             operands
                 .into_iter()
                 .map(|(lowered, operand)| self.int_value(lowered, operand))
@@ -268,7 +275,6 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(operand)?;
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
-            Rep::Float => Err(unsupported(operand, "the truth of a float")),
             _ => Ok(lowered),
         }
     }
@@ -321,9 +327,8 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
 pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
     match lowered.rep() {
         Rep::Bool => Ok(lowered),
-        Rep::Int | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
+        Rep::Int | Rep::Float | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
         Rep::None => Err(unsupported(node, "the truth of None")),
-        Rep::Float => Err(unsupported(node, "the truth of a float")),
     }
 }
 

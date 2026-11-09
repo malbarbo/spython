@@ -6,7 +6,7 @@ use std::path::Path;
 use indoc::indoc;
 use wasmparser::{DataKind, Parser, Payload};
 
-use super::{compile, same_as_cpython, unsupported};
+use super::{compile, same_as_cpython};
 
 #[test]
 fn print_writes_the_repr_of_a_float() {
@@ -37,18 +37,44 @@ fn a_float_goes_through_variables_and_functions() {
 }
 
 #[test]
-fn the_truth_of_a_float_is_unsupported() {
-    for source in [
+fn the_truth_of_a_float_follows_python() {
+    same_as_cpython(
+        "the_truth_of_a_float_follows_python",
         indoc! {"
-            if 1.5:
-                print(1)
+            inf = 1e308 * 10
+            nan = inf - inf
+            print(not 0.0, not -0.0, not 5e-324, not 1.5, not -inf, not nan)
+            print(0.0 or 2.5, -0.0 or 0.0, 1.5 or 2.5, nan or 1.0)
+            print(0.0 and 2.5, -0.0 and 1.0, 1.5 and 2.5, nan and -0.0)
+            if nan:
+                print('nan is true')
+            if -0.0:
+                print('-0.0 is true')
+            else:
+                print('-0.0 is false')
+            x = 3.0
+            while x:
+                x = x - 1
+                print(x)
         "},
+    );
+}
+
+#[test]
+fn comparisons_of_floats_follow_python() {
+    same_as_cpython(
+        "comparisons_of_floats_follow_python",
         indoc! {"
-            print(1.5 or 2.5)
+            inf = 1e308 * 10
+            nan = inf - inf
+            print(0.0 == -0.0, 0.0 < -0.0, 0.1 + 0.2 == 0.3, 0.1 + 0.2 > 0.3)
+            print(nan == nan, nan != nan, nan < 1.0, nan >= 1.0, 1.0 > nan, nan <= nan)
+            t = True
+            print(1 == 1.0, 2 > 1.5, t > 0.5, 1073741823 < 1073741823.5, -inf < -1073741824)
+            print(1 < 1.5 < 2, 1 < 2 < 1.5, 1 < nan < 2, 1.5 < 2 < 3, 0.0 == 0 == -0.0)
+            print(inf > 1e308, inf == inf, -inf != inf, 5e-324 > 0)
         "},
-    ] {
-        assert_eq!(unsupported(source), "the truth of a float");
-    }
+    );
 }
 
 #[test]
