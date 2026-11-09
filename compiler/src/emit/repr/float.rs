@@ -13,7 +13,7 @@ use crate::cpython::{
 use crate::emit::module::{FuncIdx, FuncState, LocalIdx, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
-use crate::ir::{CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2};
+use crate::ir::{CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -215,14 +215,6 @@ impl FloatRepr {
         }
     }
 
-    pub fn copysign(&self, f: &mut FuncState) {
-        match self {
-            FloatRepr::F64 { .. } => {
-                f.ins().f64_copysign();
-            }
-        }
-    }
-
     /// Pops a `float` and pushes the nearest whole value, with a tie going
     /// to the even one.
     pub fn round(&self, f: &mut FuncState) {
@@ -290,32 +282,14 @@ impl FloatRepr {
         }
     }
 
-    /// Pops `y` and `x` and pushes `math.atan2(y, x)`, which never raises.
-    pub fn atan2(&self, m: &mut ModuleState, f: &mut FuncState) {
+    /// Pops `x` and `y` and pushes `func` of them, which never raises.
+    pub fn float2_call(&self, m: &mut ModuleState, f: &mut FuncState, func: FloatFunc2) {
         match self {
-            FloatRepr::F64 { .. } => {
-                let builtin = m.builtin("f64_atan2");
-                f.ins().call(builtin);
+            FloatRepr::F64 { .. } if func == FloatFunc2::Copysign => {
+                f.ins().f64_copysign();
             }
-        }
-    }
-
-    /// Pops `x` and `y` and pushes `math.nextafter(x, y)`, which never
-    /// raises.
-    pub fn nextafter(&self, m: &mut ModuleState, f: &mut FuncState) {
-        match self {
             FloatRepr::F64 { .. } => {
-                let builtin = m.builtin("f64_nextafter");
-                f.ins().call(builtin);
-            }
-        }
-    }
-
-    /// Pops `x` and `y` and pushes `math.hypot(x, y)`, which never raises.
-    pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
-        match self {
-            FloatRepr::F64 { .. } => {
-                let builtin = m.builtin("f64_hypot");
+                let builtin = m.builtin(&format!("f64_{}", func.name()));
                 f.ins().call(builtin);
             }
         }

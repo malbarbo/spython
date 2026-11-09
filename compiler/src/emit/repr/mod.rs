@@ -13,7 +13,8 @@ use crate::cpython::{
     ISQRT_OF_A_NEGATIVE, MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
-    ArithOp, Choice, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame,
+    ArithOp, Choice, CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep,
+    SiteFrame,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -311,9 +312,9 @@ impl Reprs {
         self.float.abs(f);
     }
 
-    /// Pops `x` and `y` and pushes `math.copysign(x, y)`.
-    pub fn copysign(&self, f: &mut FuncState) {
-        self.float.copysign(f);
+    /// Pops `x` and `y` and pushes `func` of them.
+    pub fn float2_call(&self, m: &mut ModuleState, f: &mut FuncState, func: FloatFunc2) {
+        self.float.float2_call(m, f, func);
     }
 
     pub fn float_round(&self, f: &mut FuncState) {
@@ -338,26 +339,11 @@ impl Reprs {
         self.float.fma(m, f, &mut self.str, &self.exc);
     }
 
-    /// Pops `y` and `x` and pushes `math.atan2(y, x)`.
-    pub fn atan2(&self, m: &mut ModuleState, f: &mut FuncState) {
-        self.float.atan2(m, f);
-    }
-
-    /// Pops `x` and `y` and pushes `math.nextafter(x, y)`.
-    pub fn nextafter(&self, m: &mut ModuleState, f: &mut FuncState) {
-        self.float.nextafter(m, f);
-    }
-
     /// Pops a `float` and an `int` and pushes `math.ldexp` of them, or
     /// raises `OverflowError` for a result too large for a `float`.
     pub fn ldexp(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.as_i32(f);
         self.float.ldexp(m, f, &mut self.str, &self.exc);
-    }
-
-    /// Pops `x` and `y` and pushes `math.hypot(x, y)`.
-    pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
-        self.float.hypot(m, f);
     }
 
     /// Pops `x` and a base and pushes `math.log(x, base)`, or raises the

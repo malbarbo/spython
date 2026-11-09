@@ -6,7 +6,9 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Choice, Expr, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, Tolerance};
+use crate::ir::{
+    Choice, Expr, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep, Tolerance,
+};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -99,16 +101,12 @@ impl<'a> Lowering<'a, '_> {
                 | "isinf"
                 | "isfinite"
                 | "fabs"
-                | "copysign"
                 | "fmod"
                 | "gcd"
                 | "factorial"
-                | "atan2"
-                | "hypot"
                 | "log"
                 | "degrees"
                 | "radians"
-                | "nextafter"
                 | "ldexp"
                 | "fma"
                 | "isclose"
@@ -117,7 +115,8 @@ impl<'a> Lowering<'a, '_> {
                 | "comb"
                 | "perm"
         ) || MathFunc::of(member).is_some()
-            || MathFunc2::of(member).is_some();
+            || MathFunc2::of(member).is_some()
+            || FloatFunc2::of(member).is_some();
         if !known {
             return Err(unsupported(call, "this function of math"));
         }
@@ -164,15 +163,8 @@ impl<'a> Lowering<'a, '_> {
                 z: Box::new(self.math_float(z)?),
                 site: self.site(call.range()),
             },
-            ("atan2", [y, x], []) => Expr::Atan2 {
-                y: Box::new(self.math_float(y)?),
-                x: Box::new(self.math_float(x)?),
-            },
-            ("hypot", [x, y], []) => Expr::Hypot {
-                x: Box::new(self.math_float(x)?),
-                y: Box::new(self.math_float(y)?),
-            },
-            ("nextafter", [x, y], []) => Expr::Nextafter {
+            (_, [x, y], []) if let Some(func) = FloatFunc2::of(member) => Expr::Float2Call {
+                func,
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),
             },
@@ -180,10 +172,6 @@ impl<'a> Lowering<'a, '_> {
                 x: Box::new(self.math_float(x)?),
                 i: Box::new(self.math_int(i)?),
                 site: self.site(call.range()),
-            },
-            ("copysign", [x, y], []) => Expr::Copysign {
-                x: Box::new(self.math_float(x)?),
-                y: Box::new(self.math_float(y)?),
             },
             ("isqrt", [n], []) => Expr::IntIsqrt {
                 operand: Box::new(self.math_int(n)?),

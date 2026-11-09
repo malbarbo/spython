@@ -222,18 +222,10 @@ pub(crate) enum Expr {
         z: Box<Expr>,
         site: Site,
     },
-    /// `math.atan2(y, x)` of two `float`s.
-    Atan2 {
-        y: Box<Expr>,
-        x: Box<Expr>,
-    },
-    /// `math.hypot(x, y)` of two `float`s.
-    Hypot {
-        x: Box<Expr>,
-        y: Box<Expr>,
-    },
-    /// `math.nextafter(x, y)` of two `float`s.
-    Nextafter {
+    /// A function of `math` of two `float`s that never raises, with `x`
+    /// the first argument and `y` the second.
+    Float2Call {
+        func: FloatFunc2,
         x: Box<Expr>,
         y: Box<Expr>,
     },
@@ -243,11 +235,6 @@ pub(crate) enum Expr {
         x: Box<Expr>,
         i: Box<Expr>,
         site: Site,
-    },
-    /// `math.copysign(x, y)` of two `float`s.
-    Copysign {
-        x: Box<Expr>,
-        y: Box<Expr>,
     },
     /// `math.log(x, base)` of two `float`s, which raises at the site as
     /// `math.log` does for each of them, or `ZeroDivisionError` for a base
@@ -587,6 +574,39 @@ impl MathFunc2 {
     }
 }
 
+/// A function of `math` of two `float`s that never raises.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FloatFunc2 {
+    Atan2,
+    Hypot,
+    Nextafter,
+    Copysign,
+}
+
+impl FloatFunc2 {
+    const ALL: [(FloatFunc2, &'static str); 4] = [
+        (FloatFunc2::Atan2, "atan2"),
+        (FloatFunc2::Hypot, "hypot"),
+        (FloatFunc2::Nextafter, "nextafter"),
+        (FloatFunc2::Copysign, "copysign"),
+    ];
+
+    pub fn of(name: &str) -> Option<FloatFunc2> {
+        Self::ALL
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(func, _)| *func)
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(func, _)| *func == self)
+            .map(|(_, name)| *name)
+            .expect("every function is in ALL")
+    }
+}
+
 /// The ways of `math.comb` and `math.perm` to choose `k` of `n` things.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Choice {
@@ -709,10 +729,7 @@ impl Expr {
             | Expr::FloatFloor(_)
             | Expr::FloatSqrt { .. }
             | Expr::MathCall { .. }
-            | Expr::Atan2 { .. }
-            | Expr::Hypot { .. }
-            | Expr::Copysign { .. }
-            | Expr::Nextafter { .. }
+            | Expr::Float2Call { .. }
             | Expr::Math2Call { .. }
             | Expr::Fma { .. }
             | Expr::Ldexp { .. }

@@ -667,30 +667,15 @@ impl Emitter<'_> {
                 self.expr(f, z);
                 self.at(f, *site, |e, f| e.reprs.fma(&mut e.m, f));
             }
-            Expr::Atan2 { y, x } => {
-                self.expr(f, y);
-                self.expr(f, x);
-                self.reprs.atan2(&mut self.m, f);
-            }
-            Expr::Hypot { x, y } => {
+            Expr::Float2Call { func, x, y } => {
                 self.expr(f, x);
                 self.expr(f, y);
-                self.reprs.hypot(&mut self.m, f);
-            }
-            Expr::Nextafter { x, y } => {
-                self.expr(f, x);
-                self.expr(f, y);
-                self.reprs.nextafter(&mut self.m, f);
+                self.reprs.float2_call(&mut self.m, f, *func);
             }
             Expr::Ldexp { x, i, site } => {
                 self.expr(f, x);
                 self.expr(f, i);
                 self.at(f, *site, |e, f| e.reprs.ldexp(&mut e.m, f));
-            }
-            Expr::Copysign { x, y } => {
-                self.expr(f, x);
-                self.expr(f, y);
-                self.reprs.copysign(f);
             }
             Expr::LogBase {
                 operand,
