@@ -228,6 +228,17 @@ impl IntRepr {
         }
     }
 
+    /// Pops an `int` that is not negative and pushes its integer square
+    /// root. The square root of an `f64` is correctly rounded, so below
+    /// `2^52` it never rounds up to the next integer.
+    pub fn isqrt(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { .. } => {
+                f.ins().f64_convert_i32_s().f64_sqrt().i32_trunc_f64_s();
+            }
+        }
+    }
+
     /// Pops two `int`s and pushes the `bool` of `op`.
     pub fn compare(&self, f: &mut FuncState, op: CmpOp) {
         match self {

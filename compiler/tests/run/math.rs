@@ -799,3 +799,29 @@ fn isclose_with_a_negative_tolerance_raises_value_error() {
         );
     }
 }
+
+#[test]
+fn isqrt_follows_python() {
+    same_as_cpython(
+        "isqrt_follows_python",
+        indoc! {"
+            import math
+            from math import isqrt
+
+            print(isqrt(0), isqrt(1), isqrt(2), isqrt(3), isqrt(4), isqrt(15), isqrt(16), isqrt(True))
+            print(isqrt(1073741823), isqrt(1073676288), isqrt(1073676289), isqrt(1073676290), math.isqrt(99))
+        "},
+    );
+}
+
+#[test]
+fn isqrt_of_a_negative_int_raises_value_error() {
+    same_as_cpython(
+        "isqrt_of_a_negative_int_raises_value_error",
+        indoc! {"
+            import math
+
+            print(math.isqrt(-1))
+        "},
+    );
+}

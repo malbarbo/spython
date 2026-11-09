@@ -112,6 +112,7 @@ impl<'a> Lowering<'a, '_> {
                 | "ldexp"
                 | "fma"
                 | "isclose"
+                | "isqrt"
         ) || MathFunc::of(member).is_some()
             || MathFunc2::of(member).is_some();
         if !known {
@@ -174,6 +175,10 @@ impl<'a> Lowering<'a, '_> {
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),
             },
+            ("isqrt", [n], []) => Expr::IntIsqrt {
+                operand: Box::new(self.math_int(n)?),
+                site: self.site(call.range()),
+            },
             ("factorial", [n], []) => Expr::IntFactorial {
                 operand: Box::new(self.math_int(n)?),
                 site: self.site(call.range()),
@@ -201,6 +206,8 @@ impl<'a> Lowering<'a, '_> {
                             | "nextafter"
                             | "ldexp"
                             | "fma"
+                            | "isclose"
+                            | "isqrt"
                     ) =>
             {
                 self.math_unary(call, member, arg)?

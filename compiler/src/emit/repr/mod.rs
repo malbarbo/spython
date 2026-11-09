@@ -9,7 +9,9 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
-use crate::cpython::{MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
+use crate::cpython::{
+    ISQRT_OF_A_NEGATIVE, MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE,
+};
 use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame};
 use float::FloatRepr;
 use int::IntRepr;
@@ -222,6 +224,21 @@ impl Reprs {
     /// of a negative `int` or of an `int` above 12.
     pub fn factorial(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.factorial(m, f, &mut self.str, &self.exc);
+    }
+
+    /// Pops an `int` and pushes `math.isqrt` of it, or raises `ValueError`
+    /// when it is negative.
+    pub fn int_isqrt(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let n = f.temp(self.int.val_type());
+        f.ins().local_tee(n);
+        self.int.literal(f, 0);
+        self.int.compare(f, CmpOp::Lt);
+        f.if_(BlockType::Empty);
+        self.raise(m, f, ISQRT_OF_A_NEGATIVE);
+        f.end();
+        f.ins().local_get(n);
+        f.free(n);
+        self.int.isqrt(f);
     }
 
     /// Pops an `int` and a number of digits, and pushes the `int` rounded
