@@ -213,6 +213,12 @@ impl Reprs {
         self.float.div(m, f, &mut self.str, &self.exc, op);
     }
 
+    /// Pops two `float`s and pushes the first to the power of the second,
+    /// or raises the error of CPython.
+    pub fn float_pow(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.pow(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops a `float` and pushes its negation.
     pub fn float_neg(&self, f: &mut FuncState) {
         self.float.neg(f);

@@ -37,6 +37,10 @@ pub(crate) const FLOAT_TRUE_DIVISION_BY_ZERO: &str = "ZeroDivisionError: float d
 pub(crate) const FLOAT_FLOOR_DIVISION_BY_ZERO: &str =
     "ZeroDivisionError: float floor division by zero";
 pub(crate) const FLOAT_MODULO_BY_ZERO: &str = "ZeroDivisionError: float modulo by zero";
+pub(crate) const ZERO_TO_A_NEGATIVE_POWER: &str =
+    "ZeroDivisionError: 0.0 cannot be raised to a negative power";
+/// The `OverflowError` of `errno` `ERANGE`, with the `strerror` of glibc.
+pub(crate) const RESULT_OUT_OF_RANGE: &str = "OverflowError: (34, 'Numerical result out of range')";
 pub(crate) const STR_INDEX_OUT_OF_RANGE: &str = "IndexError: string index out of range";
 
 /// The last line of the traceback of the `OSError` that CPython raises on

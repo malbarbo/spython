@@ -161,6 +161,13 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// `**` on two `float`s, which raises at the site the errors of CPython
+    /// and the error of a result that would be a `complex`.
+    FloatPow {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        site: Site,
+    },
     /// Two `str`s, one after the other. The site is where the program runs
     /// out of memory for the result.
     Concat {
@@ -345,7 +352,8 @@ impl Expr {
             | Expr::IntAsFloat(_)
             | Expr::FloatArith { .. }
             | Expr::FloatNeg(_)
-            | Expr::Div { .. } => Rep::Float,
+            | Expr::Div { .. }
+            | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),

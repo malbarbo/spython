@@ -7,7 +7,7 @@ use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 use super::str::StrRepr;
 use crate::cpython::{
     FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO,
-    INT_TRUE_DIVISION_BY_ZERO,
+    INT_TRUE_DIVISION_BY_ZERO, RESULT_OUT_OF_RANGE, ZERO_TO_A_NEGATIVE_POWER,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -24,6 +24,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 f64) (result f64))` for each operator that
         /// divides, which the module gets at the first use.
         divs: BTreeMap<DivOp, FuncIdx>,
+        /// `(func (param f64 f64) (result f64))` for `**`, which the module
+        /// gets at the first use.
+        pow: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -35,6 +38,7 @@ impl FloatRepr {
         FloatRepr::F64 {
             write: None,
             divs: BTreeMap::new(),
+            pow: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -98,6 +102,21 @@ impl FloatRepr {
             FloatRepr::F64 { divs, .. } => {
                 let div = *divs.entry(op).or_insert_with(|| add_div(m, str, exc, op));
                 f.ins().call(div);
+            }
+        }
+    }
+
+    pub fn pow(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            FloatRepr::F64 { pow, .. } => {
+                let pow = *pow.get_or_insert_with(|| add_pow(m, str, exc));
+                f.ins().call(pow);
             }
         }
     }
@@ -180,6 +199,61 @@ fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, op: DivOp) 
         Some(builtin) => f.ins().call(builtin),
         None => f.ins().f64_div(),
     };
+    m.add_func(ty, f.finish())
+}
+
+/// The message of a negative base with an exponent that is not whole,
+/// where CPython gives a `complex`. The `float-exponent` lint rejects the
+/// programs that could get here.
+const COMPLEX_POWER: &str = "spython: a negative number to a fractional power gives a complex number, \
+     which spython does not have";
+
+/// The function of `**`, which calls `f64_pow`. `f64_pow` gives a result
+/// that is not finite for finite operands only where CPython raises, or
+/// where it gives a `complex`, so the function looks at the operands only
+/// then.
+fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let builtin = m.builtin("f64_pow");
+    let ty = m.func_type(&[ValType::F64, ValType::F64], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (a, b) = (f.param(0), f.param(1));
+    let r = f.local(ValType::F64);
+    // `x - x` is 0 for a finite `x`, and nan otherwise.
+    f.ins()
+        .local_get(a)
+        .local_get(b)
+        .call(builtin)
+        .local_tee(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne()
+        .local_get(a)
+        .local_get(a)
+        .f64_sub()
+        .local_get(b)
+        .local_get(b)
+        .f64_sub()
+        .f64_add()
+        .f64_const(0.0.into())
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    // An infinite result from a base of 0 has a negative exponent.
+    f.ins().local_get(a).f64_const(0.0.into()).f64_eq();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, ZERO_TO_A_NEGATIVE_POWER);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r).local_get(r).f64_ne();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, COMPLEX_POWER);
+    exc.raise(&mut f);
+    f.end();
+    str.literal(m, &mut f, RESULT_OUT_OF_RANGE);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
     m.add_func(ty, f.finish())
 }
 

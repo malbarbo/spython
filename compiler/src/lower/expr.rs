@@ -202,6 +202,13 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(node.range()),
             });
         }
+        if op == ast::Operator::Pow && floats {
+            return Ok(Expr::FloatPow {
+                left: Box::new(float_value(left, left_node)?),
+                right: Box::new(float_value(right, right_node)?),
+                site: self.site(node.range()),
+            });
+        }
         let op = arith_op(op).ok_or_else(|| unsupported(node, "this operator"))?;
         if floats {
             let left = Box::new(float_value(left, left_node)?);

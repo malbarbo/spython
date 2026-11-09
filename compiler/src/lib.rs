@@ -6,9 +6,9 @@
 //! - `lower` never uses `wasm_encoder`, and `emit` never uses ruff or ty.
 //!   The IR is all that goes from one to the other.
 //! - `emit` makes up no message of an exception and no line of a
-//!   traceback. They come in the IR or from `cpython`, except the message
-//!   of the limit of an `int`, which belongs to the representation of
-//!   `int`.
+//!   traceback. They come in the IR or from `cpython`, except the messages
+//!   of the limits of a representation, as the range of an `int` and the
+//!   lack of a `complex` for `**` on `float`.
 //! - `lower` turns a construct into nodes that the IR already has whenever
 //!   it can, as `x += 1` becomes an assignment of a sum, so `emit` grows only
 //!   with a new kind of node.

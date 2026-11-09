@@ -12,6 +12,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+libm = "0.2"
 ryu = "1"
 
 [profile.release]

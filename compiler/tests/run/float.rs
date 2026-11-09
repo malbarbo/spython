@@ -240,6 +240,59 @@ fn the_modulo_by_an_int_zero_raises_zero_division_error() {
     );
 }
 
+#[test]
+fn powers_of_floats_follow_cpython() {
+    same_as_cpython(
+        "powers_of_floats_follow_cpython",
+        indoc! {"
+            def power(x: float, n: int) -> float:
+                return x ** n
+
+            inf = 1e308 * 10
+            nan = inf - inf
+            print(2.0 ** 10, 2 ** 0.5, 10 ** -0.5, 1.5 ** 2.5, 3.0 ** 34, 1e308 ** 0.5)
+            print(2.0 ** -1074, 2.0 ** -1075, 1.0000001 ** 1e9, 0.5 ** -1022.5, 7.5 ** 1e-300)
+            print(power(-2.0, 3), power(-2.0, 4), power(-0.0, 3), power(-0.0, 2), power(0.0, 0))
+            print(power(nan, 0), power(nan, 1), power(-1.0, 1073741823), power(10.0, -400))
+            print(power(inf, -1), power(-inf, 3), power(-inf, -3), power(-inf, 2), power(0.0, 5))
+            print(2.0 ** inf, 0.5 ** inf, 2.0 ** -inf, 0.5 ** -inf, 1.0 ** inf, 1.0 ** nan)
+            print(2.0 ** nan, 446.64 ** -95.901, 1.3e-164 ** 1.697913)
+            x = -3.0
+            print(x ** 2.0, x ** 3.0, x ** 0.0, x ** 1.0, True ** 2.0)
+            x **= 3
+            print(x)
+        "},
+    );
+}
+
+#[test]
+fn a_power_outside_the_range_of_a_float_raises_overflow_error() {
+    same_as_cpython(
+        "a_power_outside_the_range_of_a_float_raises_overflow_error",
+        indoc! {"
+            def power(x: float, n: int) -> float:
+                return x ** n
+
+            print(power(10.0, 308), power(-10.0, -323))
+            print(power(-10.0, 309))
+        "},
+    );
+}
+
+#[test]
+fn zero_to_a_negative_power_raises_zero_division_error() {
+    same_as_cpython(
+        "zero_to_a_negative_power_raises_zero_division_error",
+        indoc! {"
+            def inverse(x: float) -> float:
+                return x ** -1.0
+
+            print(inverse(4.0))
+            print(inverse(-0.0))
+        "},
+    );
+}
+
 /// A program without a `float` leaves out `f64_repr` and its data, which
 /// are the only active segments.
 #[test]

@@ -584,6 +584,11 @@ impl Emitter<'_> {
                 self.expr(f, right);
                 self.at(f, *site, |e, f| e.reprs.float_div(&mut e.m, f, *op));
             }
+            Expr::FloatPow { left, right, site } => {
+                self.expr(f, left);
+                self.expr(f, right);
+                self.at(f, *site, |e, f| e.reprs.float_pow(&mut e.m, f));
+            }
             Expr::Concat { left, right, site } => {
                 self.expr(f, left);
                 self.expr(f, right);
