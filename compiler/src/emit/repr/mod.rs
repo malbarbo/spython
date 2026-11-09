@@ -218,6 +218,12 @@ impl Reprs {
         self.int.gcd_end(f);
     }
 
+    /// Pops an `int` and pushes `math.factorial` of it, or raises the error
+    /// of a negative `int` or of a result that does not fit.
+    pub fn factorial(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.factorial(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops an `int` and a number of digits, and pushes the `int` rounded
     /// to those digits.
     pub fn int_round(&mut self, m: &mut ModuleState, f: &mut FuncState) {

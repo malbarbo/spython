@@ -134,7 +134,7 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             import math
 
-            print(math.factorial(3))
+            print(math.comb(5, 2))
         "}),
         "this function of math"
     );
@@ -283,6 +283,61 @@ fn gcd_that_does_not_fit_stops_the_program() {
         "    print(math.gcd(-1073741824, 0))\n          ~~~~~~~~^^^^^^^^^^^^^^^^\n",
         "1073741824",
     );
+}
+
+#[test]
+fn factorial_follows_python() {
+    same_as_cpython(
+        "factorial_follows_python",
+        indoc! {"
+            import math
+            from math import factorial
+
+            print(factorial(0), factorial(1), factorial(5), factorial(True), math.factorial(12))
+        "},
+    );
+}
+
+#[test]
+fn factorial_of_a_negative_int_raises_value_error() {
+    same_as_cpython(
+        "factorial_of_a_negative_int_raises_value_error",
+        indoc! {"
+            import math
+
+            print(math.factorial(-1))
+        "},
+    );
+}
+
+/// `13!` is the least factorial that does not fit in an `int`.
+#[test]
+fn factorial_that_does_not_fit_stops_the_program() {
+    for n in ["13", "1073741823"] {
+        let name = format!("factorial_of_{n}_stops_the_program");
+        let output = run(
+            &name,
+            &formatdoc! {"
+                import math
+
+                print(math.factorial({n}))
+            "},
+        );
+        let carets = "^".repeat(n.len() + 2);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!(
+                "Traceback (most recent call last):\n  \
+                 File \"{}\", line 3, in <module>\n    \
+                 print(math.factorial({n}))\n          ~~~~~~~~~~~~~~{carets}\n\
+                 spython: the result of factorial({n}) does not fit in an int, \
+                 which goes from -1073741824 to 1073741823\n",
+                path(&name, "py").display(),
+            ),
+            "stderr"
+        );
+        assert_eq!(output.status.code(), Some(1), "exit code");
+    }
 }
 
 #[test]

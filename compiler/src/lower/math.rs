@@ -102,6 +102,7 @@ impl<'a> Lowering<'a, '_> {
                 | "copysign"
                 | "fmod"
                 | "gcd"
+                | "factorial"
                 | "atan2"
                 | "hypot"
                 | "log"
@@ -129,6 +130,10 @@ impl<'a> Lowering<'a, '_> {
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),
             },
+            ("factorial", [n], []) => Expr::IntFactorial {
+                operand: Box::new(self.math_int(n)?),
+                site: self.site(call.range()),
+            },
             ("fmod", [x, y], []) => Expr::Fmod {
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),
@@ -139,7 +144,12 @@ impl<'a> Lowering<'a, '_> {
                 base: Box::new(self.math_float(base)?),
                 site: self.site(call.range()),
             },
-            (_, [arg], []) if !matches!(member, "atan2" | "hypot" | "copysign" | "fmod") => {
+            (_, [arg], [])
+                if !matches!(
+                    member,
+                    "atan2" | "hypot" | "copysign" | "fmod" | "gcd" | "factorial"
+                ) =>
+            {
                 self.math_unary(call, member, arg)?
             }
             _ => return Err(unsupported(call, "this call of a function of math")),

@@ -3,7 +3,9 @@
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
-use crate::cpython::{DIVISION_BY_ZERO, INFINITY_TO_INT, MODULO_BY_ZERO, NAN_TO_INT};
+use crate::cpython::{
+    DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, INFINITY_TO_INT, MODULO_BY_ZERO, NAN_TO_INT,
+};
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::ir::{ArithOp, CmpOp};
@@ -34,6 +36,9 @@ pub(super) enum IntRepr {
         /// `int` and 0 does not fit in 31 bits, so it is an `i64` until the
         /// last step.
         gcd: Option<FuncIdx>,
+        /// `(func (param i32) (result i32))` for `math.factorial`, which
+        /// the module gets at the first use.
+        factorial: Option<FuncIdx>,
     },
 }
 
@@ -57,6 +62,7 @@ impl IntRepr {
             convert_f64: None,
             round: None,
             gcd: None,
+            factorial: None,
         }
     }
 
@@ -202,6 +208,21 @@ impl IntRepr {
         match self {
             IntRepr::I31 { check, .. } => {
                 f.ins().call(*check);
+            }
+        }
+    }
+
+    pub fn factorial(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            IntRepr::I31 { factorial, .. } => {
+                let func = *factorial.get_or_insert_with(|| add_factorial(m, str, exc));
+                f.ins().call(func);
             }
         }
     }
@@ -422,6 +443,54 @@ fn add_gcd(m: &mut ModuleState) -> FuncIdx {
     f.end();
     f.end();
     f.ins().local_get(a);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `math.factorial(n)`. `12!` is the greatest factorial
+/// that fits in 31 bits. The error of a larger `n` names `n` and not the
+/// result, because from `21!` on the result does not fit in an `i64`.
+fn add_factorial(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32], &[ValType::I32]);
+    let mut f = FuncState::new(1);
+    let n = f.param(0);
+    let r = f.local(ValType::I32);
+    f.ins().local_get(n).i32_const(0).i32_lt_s();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, FACTORIAL_OF_A_NEGATIVE);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(n).i32_const(12).i32_gt_s();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, "spython: the result of factorial(");
+    f.ins().local_get(n).i64_extend_i32_s();
+    str.decimal(&mut f);
+    str.concat(&mut f);
+    str.literal(
+        m,
+        &mut f,
+        &format!(") does not fit in an int, which goes from {MIN} to {MAX}"),
+    );
+    str.concat(&mut f);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().i32_const(1).local_set(r);
+    let done = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(n).i32_const(1).i32_le_s();
+    f.br_if(done);
+    f.ins()
+        .local_get(r)
+        .local_get(n)
+        .i32_mul()
+        .local_set(r)
+        .local_get(n)
+        .i32_const(1)
+        .i32_sub()
+        .local_set(n);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(r);
     m.add_func(ty, f.finish())
 }
 
