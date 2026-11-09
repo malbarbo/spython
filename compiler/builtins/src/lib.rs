@@ -18,6 +18,7 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 mod div;
 mod gamma;
 mod hypot;
+mod log;
 mod math;
 mod pow;
 mod round;
@@ -25,6 +26,7 @@ mod round;
 pub use div::{floor_div, fmod, modulo};
 pub use gamma::{gamma, lgamma};
 pub use hypot::hypot;
+pub use log::log;
 pub use pow::{exp, pow};
 pub use round::round;
 
