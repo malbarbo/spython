@@ -236,8 +236,7 @@ pub(crate) enum Expr {
         site: Site,
     },
     /// `math.factorial` of an `int`. A negative `int` raises `ValueError`
-    /// at the site, and a result that does not fit in an `int` stops the
-    /// program there.
+    /// at the site, and an `int` above 12 raises `OverflowError` there.
     IntFactorial {
         operand: Box<Expr>,
         site: Site,

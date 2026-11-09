@@ -219,7 +219,7 @@ impl Reprs {
     }
 
     /// Pops an `int` and pushes `math.factorial` of it, or raises the error
-    /// of a negative `int` or of a result that does not fit.
+    /// of a negative `int` or of an `int` above 12.
     pub fn factorial(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.factorial(m, f, &mut self.str, &self.exc);
     }

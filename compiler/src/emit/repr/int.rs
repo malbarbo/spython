@@ -4,7 +4,8 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{
-    DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, INFINITY_TO_INT, MODULO_BY_ZERO, NAN_TO_INT,
+    DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, FACTORIAL_TOO_LARGE, INFINITY_TO_INT,
+    MODULO_BY_ZERO, NAN_TO_INT,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -447,8 +448,8 @@ fn add_gcd(m: &mut ModuleState) -> FuncIdx {
 }
 
 /// The function of `math.factorial(n)`. `12!` is the greatest factorial
-/// that fits in 31 bits. The error of a larger `n` names `n` and not the
-/// result, because from `21!` on the result does not fit in an `i64`.
+/// that fits in 31 bits. A larger `n` raises the `OverflowError` that
+/// CPython raises for an `n` above `2^63 - 1`, with 12 as the limit.
 fn add_factorial(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32], &[ValType::I32]);
     let mut f = FuncState::new(1);
@@ -461,16 +462,7 @@ fn add_factorial(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Fu
     f.end();
     f.ins().local_get(n).i32_const(12).i32_gt_s();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, "spython: the result of factorial(");
-    f.ins().local_get(n).i64_extend_i32_s();
-    str.decimal(&mut f);
-    str.concat(&mut f);
-    str.literal(
-        m,
-        &mut f,
-        &format!(") does not fit in an int, which goes from {MIN} to {MAX}"),
-    );
-    str.concat(&mut f);
+    str.literal(m, &mut f, FACTORIAL_TOO_LARGE);
     exc.raise(&mut f);
     f.end();
     f.ins().i32_const(1).local_set(r);

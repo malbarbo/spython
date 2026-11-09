@@ -43,6 +43,10 @@ pub(crate) const MATH_DOMAIN_ERROR: &str = "ValueError: math domain error";
 pub(crate) const MATH_RANGE_ERROR: &str = "OverflowError: math range error";
 pub(crate) const FACTORIAL_OF_A_NEGATIVE: &str =
     "ValueError: factorial() not defined for negative values";
+/// The error of CPython for an `n` above `2^63 - 1`, with the limit of an
+/// `int` of spython, whose greatest factorial is `12!`.
+pub(crate) const FACTORIAL_TOO_LARGE: &str =
+    "OverflowError: factorial() argument should not exceed 12";
 pub(crate) const ROUNDED_TOO_LARGE: &str = "OverflowError: rounded value too large to represent";
 /// The `OverflowError` of `errno` `ERANGE`, with the `strerror` of glibc.
 pub(crate) const RESULT_OUT_OF_RANGE: &str = "OverflowError: (34, 'Numerical result out of range')";

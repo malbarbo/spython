@@ -312,9 +312,9 @@ fn factorial_of_a_negative_int_raises_value_error() {
 
 /// `13!` is the least factorial that does not fit in an `int`.
 #[test]
-fn factorial_that_does_not_fit_stops_the_program() {
+fn factorial_that_does_not_fit_raises_overflow_error() {
     for n in ["13", "1073741823"] {
-        let name = format!("factorial_of_{n}_stops_the_program");
+        let name = format!("factorial_of_{n}_raises_overflow_error");
         let output = run(
             &name,
             &formatdoc! {"
@@ -330,8 +330,7 @@ fn factorial_that_does_not_fit_stops_the_program() {
                 "Traceback (most recent call last):\n  \
                  File \"{}\", line 3, in <module>\n    \
                  print(math.factorial({n}))\n          ~~~~~~~~~~~~~~{carets}\n\
-                 spython: the result of factorial({n}) does not fit in an int, \
-                 which goes from -1073741824 to 1073741823\n",
+                 OverflowError: factorial() argument should not exceed 12\n",
                 path(&name, "py").display(),
             ),
             "stderr"
