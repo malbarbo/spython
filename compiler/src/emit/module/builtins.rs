@@ -1,18 +1,19 @@
 //! The functions of the crate in `compiler/builtins/`, which `build.rs`
 //! compiles to wasm32. The module takes the functions that it calls, the
-//! functions that they call, the stack pointer and the data.
+//! functions that they call, the stack pointer and the data segments that
+//! those functions use.
 //!
 //! Linear memory starts with the stack of the builtins, then their data,
 //! then the area that [`free_memory`] gives to the host. The layout is the
 //! same whether the module calls a builtin or not.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::convert::Infallible;
 use std::sync::LazyLock;
 
 use wasm_encoder::reencode::{Error, Reencode, RoundtripReencoder};
 use wasm_encoder::{ConstExpr, Function, ValType};
-use wasmparser::{FunctionBody, Operator, Parser, Payload};
+use wasmparser::{FunctionBody, KnownCustom, Linking, Operator, Parser, Payload, SymbolInfo};
 
 use super::{FuncIdx, GlobalIdx, ModuleState, TypeIdx};
 
@@ -39,6 +40,8 @@ struct Library {
     stack_top: i32,
     /// Each active segment, with its address.
     data: Vec<(i32, &'static [u8])>,
+    /// The data segments that the code of each function refers to.
+    func_segments: Vec<BTreeSet<usize>>,
     free: i32,
 }
 
@@ -52,10 +55,16 @@ impl Library {
             stack_pointer: 0,
             stack_top: 0,
             data: Vec::new(),
+            func_segments: Vec::new(),
             free: 0,
         };
         let mut heap_base = None;
         let mut globals = Vec::new();
+        let mut code_start = 0;
+        // The segment of each symbol, `None` for a symbol that is not data.
+        let mut symbols: Vec<Option<usize>> = Vec::new();
+        // The offset in the code section and the symbol of each relocation.
+        let mut relocations = Vec::new();
         for payload in Parser::new(0).parse_all(wasm) {
             match payload.expect("builtins.wasm is valid") {
                 Payload::TypeSection(s) => {
@@ -107,7 +116,36 @@ impl Library {
                         lib.data.push((const_i32(&offset_expr), data.data));
                     }
                 }
+                Payload::CodeSectionStart {
+                    unchecked_range, ..
+                } => code_start = unchecked_range.start,
                 Payload::CodeSectionEntry(body) => lib.bodies.push(body),
+                Payload::CustomSection(s) => match s.as_known() {
+                    KnownCustom::Linking(linking) => {
+                        for subsection in linking {
+                            if let Linking::SymbolTable(table) = subsection.expect("a subsection") {
+                                for symbol in table {
+                                    symbols.push(match symbol.expect("a symbol") {
+                                        SymbolInfo::Data {
+                                            symbol: Some(data), ..
+                                        } => Some(data.index as usize),
+                                        _ => None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    KnownCustom::Reloc(reloc) => {
+                        let entries = reloc.entries().into_iter();
+                        let entries = entries.map(|entry| entry.expect("a relocation"));
+                        if s.name() == "reloc.CODE" {
+                            relocations.extend(entries.map(|entry| (entry.offset, entry.index)));
+                        } else {
+                            assert_eq!(entries.count(), 0, "only the code has relocations");
+                        }
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -128,6 +166,23 @@ impl Library {
             .get(heap_base as usize)
             .expect("a global of builtins.wasm");
         lib.free = heap_base.checked_add(15).expect("a heap base below 2^31") & !15;
+
+        assert!(!symbols.is_empty(), "builtins.wasm has a symbol table");
+        lib.func_segments = vec![BTreeSet::new(); lib.bodies.len()];
+        for (offset, symbol) in relocations {
+            let segment = *symbols.get(symbol as usize).expect("a symbol");
+            let Some(segment) = segment else { continue };
+            let at = code_start + u64::from(offset);
+            let func = lib
+                .bodies
+                .iter()
+                .position(|body| body.range().contains(&at))
+                .expect("a relocation in a function");
+            lib.func_segments
+                .get_mut(func)
+                .expect("a function")
+                .insert(segment);
+        }
         lib
     }
 
@@ -145,6 +200,19 @@ impl Library {
         self.bodies
             .get(func as usize)
             .expect("a function of builtins.wasm")
+    }
+
+    /// The data segments that `funcs` refer to.
+    fn segments(&self, funcs: &[u32]) -> BTreeSet<usize> {
+        funcs
+            .iter()
+            .flat_map(|&func| {
+                self.func_segments
+                    .get(func as usize)
+                    .expect("a function of builtins.wasm")
+            })
+            .copied()
+            .collect()
     }
 }
 
@@ -186,8 +254,9 @@ impl ModuleState {
     }
 
     /// Defines the functions of `builtins.wasm` that the module asked for,
-    /// with the functions they call, and adds the stack pointer and the
-    /// data. The functions they call come after every other function.
+    /// with the functions they call, and adds the stack pointer and the data
+    /// segments that they use. The functions they call come after every
+    /// other function.
     pub(super) fn link_builtins(&mut self) {
         if self.builtins.funcs.is_empty() {
             return;
@@ -210,6 +279,7 @@ impl ModuleState {
             }
         }
         let stack_pointer = self.global(ValType::I32, &ConstExpr::i32_const(LIBRARY.stack_top));
+        let segments = LIBRARY.segments(&linked);
         for func in linked {
             let index = *self.builtins.funcs.get(&func).expect("a linked function");
             let mut r = Relink {
@@ -219,7 +289,8 @@ impl ModuleState {
             let body = r.body(LIBRARY.body(func));
             self.define(index, body);
         }
-        for &(at, bytes) in &LIBRARY.data {
+        for segment in segments {
+            let (at, bytes) = *LIBRARY.data.get(segment).expect("a segment");
             self.data
                 .active(0, &ConstExpr::i32_const(at), bytes.iter().copied());
             self.data_count += 1;
