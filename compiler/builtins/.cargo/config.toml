@@ -1,0 +1,10 @@
+# Where `cargo test` and `cargo clippy` from this directory write. The build of
+# the compiler passes its own `--target-dir`.
+[build]
+target-dir = "../../target/builtins"
+
+# The stack goes first, so an overflow traps at address 0 instead of writing
+# over the data. The linker in the compiler reads `__heap_base` to place the
+# host area after the data.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=65536", "-C", "link-arg=--export=__heap_base"]

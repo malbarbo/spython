@@ -21,6 +21,7 @@ test: test-rs test-wasm test-wasm-cli test-images
 
 test-rs:
 	cargo test --workspace
+	cd compiler/builtins && cargo test
 
 test-wasm: wasm
 	deno test --config wasm/tests/deno.json --allow-read wasm/tests/
@@ -42,6 +43,9 @@ check:
 	cargo clippy --target $(WASM_TARGET) -p wasm -- -D warnings
 	cargo clippy --target $(WASM_TARGET) -p wasm --features wasm-backend -- -D warnings
 	cargo fmt -- --check
+	cd compiler/builtins && cargo clippy --all-targets -- -D warnings
+	cd compiler/builtins && cargo clippy --target wasm32-unknown-unknown -- -D warnings
+	cd compiler/builtins && cargo fmt -- --check
 	ruff format --check lib/spython/
 	deno fmt --check wasm/tests/ wasm/spython.ts compiler/tests/
 
