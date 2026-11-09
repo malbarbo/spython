@@ -78,6 +78,7 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Expr::NumberLiteral(n) => match &n.value {
                 ast::Number::Int(i) => int_literal(expr, i.as_i64()),
+                ast::Number::Float(x) => Ok(Expr::Float(*x)),
                 _ => Err(unsupported(expr, "this number")),
             },
             ast::Expr::BooleanLiteral(b) => Ok(Expr::Bool(b.value)),
@@ -223,6 +224,7 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(operand)?;
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
+            Rep::Float => Err(unsupported(operand, "the truth of a float")),
             _ => Ok(lowered),
         }
     }
@@ -237,7 +239,7 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int => Ok(lowered),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(lowered))),
-            Rep::Str | Rep::None => Err(unsupported(
+            Rep::Float | Rep::Str | Rep::None => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -262,6 +264,7 @@ pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
         Rep::Bool => Ok(lowered),
         Rep::Int | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
         Rep::None => Err(unsupported(node, "the truth of None")),
+        Rep::Float => Err(unsupported(node, "the truth of a float")),
     }
 }
 

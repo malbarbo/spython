@@ -116,6 +116,7 @@ pub(crate) enum Expr {
     Str(String),
     /// An `int` that fits in 31 bits.
     Int(i32),
+    Float(f64),
     Bool(bool),
     /// The value of a variable. Only a read with a check may come before
     /// the first assignment.
@@ -287,6 +288,7 @@ pub(crate) enum CmpOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Rep {
     Int,
+    Float,
     Bool,
     Str,
     None,
@@ -299,6 +301,7 @@ impl Expr {
                 Rep::Str
             }
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
+            Expr::Float(_) => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),

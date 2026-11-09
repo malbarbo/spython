@@ -22,6 +22,10 @@ const NWRITTEN: i32 = 8;
 const FDSTAT: i32 = 16;
 /// The buffer of the `BufferedWriter`, which holds at most a block.
 const BUFFERED: i32 = 64;
+/// Bytes that the host never touches, where a builtin writes its result,
+/// between the end of `BUFFERED` and `PENDING`.
+const SCRATCH: i32 = BUFFERED + BLOCK;
+const _: () = assert!(SCRATCH + 64 <= PENDING);
 /// The text of the `TextIOWrapper` that waits for `buffer.write`, followed
 /// by the text of the write that is going on. Before a write it holds less
 /// than `CHUNK` bytes, and a write with `CHUNK` bytes goes on without it.
@@ -57,6 +61,8 @@ pub(crate) struct Host {
     /// `(func (param i32))`, which adds a code point to the write that is
     /// going on.
     pub write_char: FuncIdx,
+    /// The address of 64 bytes where a builtin may write its result.
+    pub scratch: i32,
     /// `(func)`, which ends a write, as one call of `write` in CPython.
     pub end_write: FuncIdx,
     /// The global with the error of WASI of the write that failed, and 0
@@ -154,6 +160,7 @@ impl Host {
         Host {
             start: add_start(m, &s, fd_fdstat_get),
             write_char: add_write_char(m, &s, &funcs),
+            scratch: at(SCRATCH),
             end_write: add_end_write(m, &s, &funcs),
             error: s.error,
             flush: add_flush(m, &funcs),

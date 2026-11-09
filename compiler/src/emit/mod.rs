@@ -537,6 +537,7 @@ impl Emitter<'_> {
         match expr {
             Expr::Str(s) => self.reprs.str_literal(&mut self.m, f, s),
             Expr::Int(value) => self.reprs.int_literal(f, *value),
+            Expr::Float(value) => self.reprs.float_literal(f, *value),
             Expr::Bool(value) => self.reprs.bool_literal(f, *value),
             Expr::Load { place, rep, check } => self.load(f, *place, *rep, check.as_ref()),
             Expr::Call {

@@ -166,7 +166,6 @@ pub(super) struct Linked {
 
 impl ModuleState {
     /// The function that `builtins.wasm` exports as `name`.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn builtin(&mut self, name: &str) -> FuncIdx {
         let func = *LIBRARY
             .exports

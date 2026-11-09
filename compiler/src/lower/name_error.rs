@@ -167,6 +167,7 @@ impl<'a> Lowering<'a, '_> {
 fn has_attribute(rep: Option<Rep>, name: &str) -> bool {
     let attributes = match rep {
         Some(Rep::Int) => names::INT_ATTRIBUTES,
+        Some(Rep::Float) => names::FLOAT_ATTRIBUTES,
         Some(Rep::Bool) => names::BOOL_ATTRIBUTES,
         Some(Rep::Str) => names::STR_ATTRIBUTES,
         Some(Rep::None) => unreachable!("a variable of rep None"),

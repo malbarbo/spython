@@ -7,8 +7,8 @@ use std::ops::Range;
 use wasm_encoder::{
     BlockType, Catch, CodeSection, ConstExpr, DataCountSection, DataSection, EntityType,
     ExportKind, ExportSection, FieldType, Function, FunctionSection, GlobalSection, GlobalType,
-    HeapType, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module, RefType,
-    StorageType, TagKind, TagSection, TagType, TypeSection, ValType,
+    HeapType, Ieee64, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module,
+    RefType, StorageType, TagKind, TagSection, TagType, TypeSection, ValType,
 };
 use wasmparser::{Parser, Payload};
 
@@ -673,5 +673,6 @@ impl<'a> Ins<'a> {
         i64_ne();
         i64_rem_u();
         i64_sub();
+        f64_const(value: Ieee64);
     }
 }

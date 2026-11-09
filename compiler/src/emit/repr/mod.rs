@@ -1,5 +1,6 @@
 //! How each value is laid out in wasm. No other module knows it.
 
+mod float;
 mod int;
 pub(super) mod str;
 
@@ -10,11 +11,13 @@ use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{ArithOp, CmpOp, Rep, SiteFrame};
+use float::FloatRepr;
 use int::IntRepr;
 use str::StrRepr;
 
 pub(crate) struct Reprs {
     int: IntRepr,
+    float: FloatRepr,
     str: StrRepr,
     exc: Exceptions,
 }
@@ -24,7 +27,13 @@ impl Reprs {
         let mut str = StrRepr::ucs4(m, host);
         let exc = Exceptions::new(m, host, &mut str);
         let int = IntRepr::i31(m, &mut str, &exc);
-        Reprs { int, str, exc }
+        let float = FloatRepr::f64(host);
+        Reprs {
+            int,
+            float,
+            str,
+            exc,
+        }
     }
 
     /// Opens the code of the module or of a function, where the handler
@@ -75,6 +84,7 @@ impl Reprs {
     pub fn local_type(&self, rep: Rep) -> Option<ValType> {
         match rep {
             Rep::Int => Some(self.int.val_type()),
+            Rep::Float => Some(self.float.val_type()),
             // `False` and `True` are the `i32` 0 and 1.
             Rep::Bool => Some(ValType::I32),
             Rep::Str => Some(self.str.val_type(true)),
@@ -105,6 +115,7 @@ impl Reprs {
         let ty = self.local_type(rep).expect("a variable has a value");
         let init = match rep {
             Rep::Int => self.int.global_init(),
+            Rep::Float => self.float.global_init(),
             Rep::Bool => ConstExpr::i32_const(0),
             Rep::Str => ConstExpr::ref_null(self.str.type_index().heap_type()),
             Rep::None => unreachable!("a variable of rep None"),
@@ -146,6 +157,10 @@ impl Reprs {
         self.int.literal(f, value);
     }
 
+    pub fn float_literal(&self, f: &mut FuncState, value: f64) {
+        self.float.literal(f, value);
+    }
+
     pub fn bool_literal(&self, f: &mut FuncState, value: bool) {
         f.ins().i32_const(i32::from(value));
     }
@@ -156,6 +171,7 @@ impl Reprs {
             Rep::Int => self.int.truth(f),
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
+            Rep::Float => unreachable!("the lowering rejects the truth of a float"),
             Rep::None => unreachable!("None has no value"),
         }
     }
@@ -224,7 +240,7 @@ impl Reprs {
                 self.int.literal(f, 0);
                 self.int.compare(f, op);
             }
-            Rep::Bool | Rep::None => unreachable!("a comparison of a {rep:?}"),
+            Rep::Float | Rep::Bool | Rep::None => unreachable!("a comparison of a {rep:?}"),
         }
     }
 
@@ -233,6 +249,7 @@ impl Reprs {
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {
         match rep {
             Rep::Int => self.int.write(f, &self.str),
+            Rep::Float => self.float.write(m, f),
             Rep::Bool => {
                 f.if_(BlockType::Empty);
                 self.str.literal(m, f, "True");
