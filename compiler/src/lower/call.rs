@@ -9,7 +9,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, Rep};
+use crate::ir::{Expr, MinMaxOp, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -116,6 +116,34 @@ impl<'a> Lowering<'a, '_> {
             }),
             Rep::Str | Rep::None => Err(unsupported(arg, "abs of this type")),
         }
+    }
+
+    /// `min` or `max` of two or more values of one type. An `int` and a
+    /// `bool` are two types here, because the result keeps its type.
+    pub(super) fn min_max(&self, call: &ast::ExprCall, op: MinMaxOp) -> Result<Expr, Error> {
+        if !call.arguments.keywords.is_empty() {
+            return Err(unsupported(call, "min or max with keyword arguments"));
+        }
+        let [first, rest @ ..] = &*call.arguments.args else {
+            return Err(unsupported(call, "min or max of an iterable"));
+        };
+        if rest.is_empty() {
+            return Err(unsupported(call, "min or max of an iterable"));
+        }
+        let first = self.expr(first)?;
+        let rep = first.rep();
+        if rep == Rep::None {
+            return Err(unsupported(call, "min or max of None"));
+        }
+        let mut args = vec![first];
+        for arg in rest {
+            let lowered = self.expr(arg)?;
+            if lowered.rep() != rep {
+                return Err(unsupported(call, "min or max of values of two types"));
+            }
+            args.push(lowered);
+        }
+        Ok(Expr::MinMax { op, args })
     }
 
     /// Returns `true` if `func` is the function `name` of the builtins,

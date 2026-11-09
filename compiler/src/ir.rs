@@ -222,6 +222,14 @@ pub(crate) enum Expr {
     /// `a < b <= c`.
     /// Each operand after the first comes with the operator on its left.
     Compare(Box<Expr>, Vec<(CmpOp, Expr)>),
+    /// `min` or `max` of two or more values of the same rep. As in CPython,
+    /// a value replaces the result only when it is less, for `min`, or
+    /// greater, for `max`, so `max(nan, 1.0)` is `nan` and `max(-0.0, 0.0)`
+    /// is `-0.0`.
+    MinMax {
+        op: MinMaxOp,
+        args: Vec<Expr>,
+    },
     /// `print` with the default `sep` and `end`. A write that fails raises
     /// `OSError` at the site.
     Print {
@@ -324,6 +332,12 @@ pub(crate) enum DivOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MinMaxOp {
+    Min,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LogicOp {
     And,
     Or,
@@ -370,6 +384,7 @@ impl Expr {
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
+            Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
             Expr::Print { .. } => Rep::None,
         }
     }

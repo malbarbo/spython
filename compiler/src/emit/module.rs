@@ -648,6 +648,7 @@ impl<'a> Ins<'a> {
         i32_gt_s();
         i32_gt_u();
         i32_le_s();
+        i32_le_u();
         i32_lt_s();
         i32_lt_u();
         i32_mul();

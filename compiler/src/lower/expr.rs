@@ -5,7 +5,7 @@ use ruff_text_size::Ranged;
 
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, LogicOp, Rep};
+use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, LogicOp, MinMaxOp, Rep};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -109,6 +109,12 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Call(call) if self.is_builtin(&call.func, "print") => self.print(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "abs") => self.abs(call),
+            ast::Expr::Call(call) if self.is_builtin(&call.func, "min") => {
+                self.min_max(call, MinMaxOp::Min)
+            }
+            ast::Expr::Call(call) if self.is_builtin(&call.func, "max") => {
+                self.min_max(call, MinMaxOp::Max)
+            }
             ast::Expr::Call(call) => self.call(call),
             _ => Err(unsupported(expr, "this expression")),
         }

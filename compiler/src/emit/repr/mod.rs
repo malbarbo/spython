@@ -278,7 +278,19 @@ impl Reprs {
                 self.int.compare(f, op);
             }
             Rep::Float => self.float.compare(f, op),
-            Rep::Bool | Rep::None => unreachable!("a comparison of a {rep:?}"),
+            // `False` and `True` are the `i32` 0 and 1.
+            Rep::Bool => {
+                let mut ins = f.ins();
+                match op {
+                    CmpOp::Eq => ins.i32_eq(),
+                    CmpOp::Ne => ins.i32_ne(),
+                    CmpOp::Lt => ins.i32_lt_u(),
+                    CmpOp::Le => ins.i32_le_u(),
+                    CmpOp::Gt => ins.i32_gt_u(),
+                    CmpOp::Ge => ins.i32_ge_u(),
+                };
+            }
+            Rep::None => unreachable!("a comparison of None"),
         }
     }
 

@@ -8,8 +8,8 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use crate::cpython::RECURSION_ERROR;
 use crate::ir::{
-    Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, NameError, Place, Program, Rep, Site, Stmt,
-    Undefined, VarId,
+    Binding, Check, CmpOp, Expr, Func, FuncId, LogicOp, MinMaxOp, NameError, Place, Program, Rep,
+    Site, Stmt, Undefined, VarId,
 };
 use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use repr::Reprs;
@@ -635,8 +635,38 @@ impl Emitter<'_> {
             }
             Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
             Expr::Compare(first, rest) => self.compare(f, first, rest),
+            Expr::MinMax { op, args } => self.min_max(f, *op, args),
             Expr::Print { args, site } => self.print(f, args, *site),
         }
+    }
+
+    fn min_max(&mut self, f: &mut FuncState, op: MinMaxOp, args: &[Expr]) {
+        let Some((first, rest)) = args.split_first() else {
+            unreachable!("min or max without values");
+        };
+        let rep = first.rep();
+        let ty = self.reprs.local_type(rep).expect("a value of min or max");
+        let result = f.temp(ty);
+        let value = f.temp(ty);
+        self.expr(f, first);
+        f.ins().local_set(result);
+        for arg in rest {
+            self.expr(f, arg);
+            f.ins().local_set(value);
+            self.reprs.load(f, rep, value);
+            self.reprs.load(f, rep, result);
+            let cmp = match op {
+                MinMaxOp::Min => CmpOp::Lt,
+                MinMaxOp::Max => CmpOp::Gt,
+            };
+            self.reprs.compare(f, rep, cmp);
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value).local_set(result);
+            f.end();
+        }
+        self.reprs.load(f, rep, result);
+        f.free(value);
+        f.free(result);
     }
 
     /// The left operand goes to a local, which gives both its truth and,
