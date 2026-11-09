@@ -95,3 +95,28 @@ fn bool_gives_the_truth_of_a_value() {
         "},
     );
 }
+
+#[test]
+fn float_of_a_number_follows_python() {
+    same_as_cpython(
+        "float_of_a_number_follows_python",
+        indoc! {"
+            def same(x: float) -> float:
+                return float(x)
+
+            n = -1073741824
+            print(float(), float(0), float(n), float(1073741823), float(True), float(False))
+            print(same(-0.0), same(2.5), same(1e308 * 10), float(3) / 2)
+        "},
+    );
+}
+
+#[test]
+fn float_of_a_str_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            print(float('1.5'))
+        "}),
+        "float of this type"
+    );
+}

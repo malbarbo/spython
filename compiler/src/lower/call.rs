@@ -7,6 +7,7 @@ use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
+use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Rep};
@@ -152,6 +153,21 @@ impl<'a> Lowering<'a, '_> {
             ([], []) => Ok(Expr::Bool(false)),
             ([arg], []) => self.truth_of(arg),
             _ => Err(unsupported(call, "this call of bool")),
+        }
+    }
+
+    /// `float()`, which is `0.0`, or `float(x)` of a number.
+    pub(super) fn float(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([], []) => Ok(Expr::Float(0.0)),
+            ([arg], []) => {
+                let lowered = self.expr(arg)?;
+                match lowered.rep() {
+                    Rep::Int | Rep::Bool | Rep::Float => float_value(lowered, arg),
+                    Rep::Str | Rep::None => Err(unsupported(arg, "float of this type")),
+                }
+            }
+            _ => Err(unsupported(call, "this call of float")),
         }
     }
 
