@@ -11,8 +11,10 @@
 #![allow(clippy::excessive_precision)]
 
 use crate::div::fmod;
+use crate::log::log;
+use crate::pow::{exp, pow};
 use core::f64::consts::PI;
-use libm::{copysign, cos, exp, fabs, floor, log, pow, round, sin};
+use libm::{copysign, cos, fabs, floor, round, sin};
 
 const LOG_PI: f64 = 1.144729885849400174143427351353058711647;
 

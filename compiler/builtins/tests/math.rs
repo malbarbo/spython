@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use builtins::{REPR_MAX, exp, exp2, log, repr, tanh};
+use builtins::{REPR_MAX, exp, exp2, gamma, lgamma, log, repr, tanh};
 
 /// Compares `math.exp` with CPython on special values, integers, short
 /// decimals, values near 0 and random values in and out of range.
@@ -16,7 +16,7 @@ fn exp_matches_cpython() {
         values.push(random.uniform(-746.0, 710.0));
         values.push(f64::from_bits(random.next()));
     }
-    compare("exp", exp, true, (0.0, 0), &values);
+    compare("exp", exp, true, (|_| false, 0), &values);
 }
 
 /// Compares `math.exp2` with CPython on special values, integers, short
@@ -32,7 +32,7 @@ fn exp2_matches_cpython() {
         values.push(random.uniform(-1080.0, 1030.0));
         values.push(f64::from_bits(random.next()));
     }
-    compare("exp2", exp2, true, (0.0, 0), &values);
+    compare("exp2", exp2, true, (|_| false, 0), &values);
 }
 
 /// Compares `math.log` with CPython on special values, integers, short
@@ -48,7 +48,7 @@ fn log_matches_cpython() {
         values.push(random.uniform(0.9, 1.1));
         values.push(f64::from_bits(random.next() >> 1));
     }
-    compare("log", log, false, (0.0, 0), &values);
+    compare("log", log, false, (|_| false, 0), &values);
 }
 
 /// Compares `math.tanh` with CPython on special values, short decimals,
@@ -67,15 +67,55 @@ fn tanh_matches_cpython() {
         values.push(random.uniform(-23.0, 23.0));
         values.push(f64::from_bits(random.next()));
     }
-    compare("tanh", tanh, false, (1.0, 3), &values);
+    compare("tanh", tanh, false, (|x| x.abs() < 1.0, 3), &values);
+}
+
+/// Compares `math.gamma` with CPython on special values, integers, short
+/// decimals, values near the poles and random values in and out of range.
+/// Below 0 the port calls the `sin` and `cos` of the `libm` crate, which
+/// differ from those of glibc in the last bit, and the result can differ by
+/// up to 4 ulps there.
+#[test]
+fn gamma_matches_cpython() {
+    compare("gamma", gamma, true, (|x| x < 0.0, 4), &gamma_values(5));
+}
+
+/// Compares `math.lgamma` with CPython on the values of `gamma`. Below 0
+/// the difference in `sin` and `cos` that `gamma` has is up to 32 ulps,
+/// because `lgamma` crosses 0 there and a result near 0 has small ulps.
+#[test]
+fn lgamma_matches_cpython() {
+    compare("lgamma", lgamma, true, (|x| x < 0.0, 32), &gamma_values(6));
+}
+
+fn gamma_values(seed: u64) -> Vec<f64> {
+    let mut random = SplitMix64(seed);
+    let mut values = specials();
+    for _ in 0..40_000 {
+        values.push((random.next() % 401) as f64 - 200.0);
+        values.push((random.next() % 400_000) as f64 / 1000.0 - 200.0);
+        values.push(
+            ((random.next() % 400) as f64 - 200.0)
+                + ((random.next() % 2001) as f64 - 1000.0) * 1e-9,
+        );
+        values.push(random.uniform(-190.0, 180.0));
+        values.push(f64::from_bits(random.next()));
+    }
+    values
 }
 
 /// Compares `f` with `math.<name>` of CPython at each of `values`. A
 /// result that CPython gives as an error has to be the one that the
 /// emitted code turns into that error, by the rule of `math_1` in CPython.
-/// With `ulps` as `(bound, n)`, a result at an `x` with `|x| < bound` can
+/// With `ulps` as `(near, n)`, a result at an `x` where `near(x)` holds can
 /// differ from CPython by up to `n` ulps.
-fn compare(name: &str, f: fn(f64) -> f64, can_overflow: bool, ulps: (f64, u64), values: &[f64]) {
+fn compare(
+    name: &str,
+    f: fn(f64) -> f64,
+    can_overflow: bool,
+    ulps: (fn(f64) -> bool, u64),
+    values: &[f64],
+) {
     let input: String = values
         .iter()
         .map(|x| format!("{:x}\n", x.to_bits()))
@@ -123,7 +163,7 @@ fn compare(name: &str, f: fn(f64) -> f64, can_overflow: bool, ulps: (f64, u64), 
             show(r)
         };
         let want = lines.next().expect("one line per value");
-        if got != want && !(x.abs() < ulps.0 && ulps_apart(&got, want) <= ulps.1) {
+        if got != want && !(ulps.0(x) && ulps_apart(&got, want) <= ulps.1) {
             mismatches.push(format!("{name}({x:?}): {got} != {want}"));
         }
     }
