@@ -49,6 +49,7 @@ pub(crate) const FACTORIAL_TOO_LARGE: &str =
     "OverflowError: factorial() argument should not exceed 12";
 pub(crate) const FMA_INVALID: &str = "ValueError: invalid operation in fma";
 pub(crate) const FMA_OVERFLOW: &str = "OverflowError: overflow in fma";
+pub(crate) const NEGATIVE_TOLERANCE: &str = "ValueError: tolerances must be non-negative";
 pub(crate) const ROUNDED_TOO_LARGE: &str = "OverflowError: rounded value too large to represent";
 /// The `OverflowError` of `errno` `ERANGE`, with the `strerror` of glibc.
 pub(crate) const RESULT_OUT_OF_RANGE: &str = "OverflowError: (34, 'Numerical result out of range')";

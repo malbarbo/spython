@@ -742,3 +742,60 @@ fn fma_raises_as_in_python() {
         );
     }
 }
+
+#[test]
+fn isclose_follows_python() {
+    same_as_cpython(
+        "isclose_follows_python",
+        indoc! {"
+            import math
+            from math import isclose
+
+            inf = math.inf
+            print(isclose(1, 1), isclose(1.0, 1.0 + 1e-10), isclose(1.0, 1.0 + 1e-8), isclose(0.0, 1e-300))
+            print(isclose(inf, inf), isclose(-inf, inf), isclose(inf, 1e308), isclose(math.nan, math.nan))
+            print(isclose(1, 1.1, rel_tol=0.1), isclose(1, 1.2, rel_tol=0.1), isclose(0, 1e-10, abs_tol=1e-9))
+            print(isclose(100, 101, abs_tol=0.5, rel_tol=0.01), isclose(True, 1.0), isclose(1, 2, rel_tol=inf))
+            print(math.isclose(1, 2, abs_tol=math.nan), isclose(-0.0, 0.0, rel_tol=0.0))
+        "},
+    );
+}
+
+#[test]
+fn isclose_evaluates_the_tolerances_in_order() {
+    same_as_cpython(
+        "isclose_evaluates_the_tolerances_in_order",
+        indoc! {"
+            import math
+
+            def tolerance(name: str, value: float) -> float:
+                print(name)
+                return value
+
+            print(math.isclose(1, 1.5, abs_tol=tolerance('abs', 0.0), rel_tol=tolerance('rel', 0.5)))
+        "},
+    );
+}
+
+#[test]
+fn isclose_with_a_negative_tolerance_raises_value_error() {
+    for (name, call) in [
+        (
+            "isclose_with_a_negative_rel_tol_raises_value_error",
+            "math.isclose(1, 1, rel_tol=-1)",
+        ),
+        (
+            "isclose_with_a_negative_abs_tol_raises_value_error",
+            "math.isclose(1, 2, abs_tol=-0.5)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}

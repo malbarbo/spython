@@ -276,6 +276,15 @@ pub(crate) enum Expr {
         y: Box<Expr>,
         site: Site,
     },
+    /// `math.isclose(a, b)` of two `float`s, as a `bool`, with the
+    /// tolerances that the call gives in the order of the call. A negative
+    /// tolerance raises `ValueError` at the site.
+    IsClose {
+        a: Box<Expr>,
+        b: Box<Expr>,
+        tolerances: Vec<(Tolerance, Expr)>,
+        site: Site,
+    },
     /// Whether a `float` is of `class`, as a `bool`.
     FloatIs {
         class: FloatClass,
@@ -557,6 +566,15 @@ impl MathFunc2 {
     }
 }
 
+/// A tolerance of `math.isclose`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tolerance {
+    /// `rel_tol`, `1e-09` by default.
+    Rel,
+    /// `abs_tol`, `0.0` by default.
+    Abs,
+}
+
 /// The values that `math.isnan`, `math.isinf` and `math.isfinite` accept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FloatClass {
@@ -666,6 +684,7 @@ impl Expr {
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_)
             | Expr::FloatIs { .. }
+            | Expr::IsClose { .. }
             | Expr::Truth(_)
             | Expr::Not(_)
             | Expr::Compare(..) => Rep::Bool,

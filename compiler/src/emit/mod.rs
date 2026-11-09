@@ -9,7 +9,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 use crate::cpython::RECURSION_ERROR;
 use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError, Place,
-    Program, Rep, Site, Stmt, Undefined, VarId,
+    Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
 };
 use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use repr::Reprs;
@@ -717,6 +717,35 @@ impl Emitter<'_> {
                 self.expr(f, x);
                 self.expr(f, y);
                 self.at(f, *site, |e, f| e.reprs.fmod(&mut e.m, f));
+            }
+            Expr::IsClose {
+                a,
+                b,
+                tolerances,
+                site,
+            } => {
+                self.expr(f, a);
+                self.expr(f, b);
+                let val_type = self
+                    .reprs
+                    .local_type(Rep::Float)
+                    .expect("a float has a value");
+                let (rel, abs) = (f.temp(val_type), f.temp(val_type));
+                self.reprs.float_literal(f, 1e-09);
+                f.ins().local_set(rel);
+                self.reprs.float_literal(f, 0.0);
+                f.ins().local_set(abs);
+                for (tolerance, value) in tolerances {
+                    self.expr(f, value);
+                    f.ins().local_set(match tolerance {
+                        Tolerance::Rel => rel,
+                        Tolerance::Abs => abs,
+                    });
+                }
+                f.ins().local_get(rel).local_get(abs);
+                f.free(rel);
+                f.free(abs);
+                self.at(f, *site, |e, f| e.reprs.isclose(&mut e.m, f));
             }
             Expr::FloatIs { class, operand } => {
                 self.expr(f, operand);

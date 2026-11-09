@@ -330,6 +330,12 @@ impl Reprs {
         self.float.fmod(m, f, &mut self.str, &self.exc);
     }
 
+    /// Pops `a`, `b`, `rel_tol` and `abs_tol` and pushes the `bool` of
+    /// `math.isclose`, or raises `ValueError` for a negative tolerance.
+    pub fn isclose(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.isclose(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops a `float` and pushes the `bool` of whether it is of `class`.
     pub fn float_is(&self, f: &mut FuncState, class: FloatClass) {
         self.float.is(f, class);

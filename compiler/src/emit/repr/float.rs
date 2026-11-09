@@ -8,7 +8,7 @@ use super::str::StrRepr;
 use crate::cpython::{
     FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO, FMA_INVALID,
     FMA_OVERFLOW, INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR,
-    RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
+    NEGATIVE_TOLERANCE, RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -49,6 +49,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 f64 f64) (result f64))` for `math.fma`, which
         /// the module gets at the first use.
         fma: Option<FuncIdx>,
+        /// `(func (param f64 f64 f64 f64) (result i32))` for
+        /// `math.isclose`, which the module gets at the first use.
+        isclose: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -68,6 +71,7 @@ impl FloatRepr {
             fmod: None,
             ldexp: None,
             fma: None,
+            isclose: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -368,6 +372,23 @@ impl FloatRepr {
         match self {
             FloatRepr::F64 { ldexp, .. } => {
                 let index = *ldexp.get_or_insert_with(|| add_ldexp(m, str, exc));
+                f.ins().call(index);
+            }
+        }
+    }
+
+    /// Pops `a`, `b`, `rel_tol` and `abs_tol` and pushes the `bool` of
+    /// `math.isclose`, or raises the error of CPython.
+    pub fn isclose(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            FloatRepr::F64 { isclose, .. } => {
+                let index = *isclose.get_or_insert_with(|| add_isclose(m, str, exc));
                 f.ins().call(index);
             }
         }
@@ -675,6 +696,70 @@ fn add_fma(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `math.isclose(a, b, rel_tol, abs_tol)`, as
+/// `math_isclose_impl` of CPython computes it. Two equal values are close,
+/// an infinity is close to itself alone, and otherwise the difference has
+/// to be within either tolerance.
+fn add_isclose(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::F64; 4], &[ValType::I32]);
+    let mut f = FuncState::new(4);
+    let (a, b, rel, abs) = (f.param(0), f.param(1), f.param(2), f.param(3));
+    let diff = f.local(ValType::F64);
+    let infinity = f64::INFINITY.into();
+    f.ins()
+        .local_get(rel)
+        .f64_const(0.0.into())
+        .f64_lt()
+        .local_get(abs)
+        .f64_const(0.0.into())
+        .f64_lt()
+        .i32_or();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, NEGATIVE_TOLERANCE);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(a).local_get(b).f64_eq();
+    f.if_(BlockType::Empty);
+    f.ins().i32_const(1).return_();
+    f.end();
+    f.ins()
+        .local_get(a)
+        .f64_abs()
+        .f64_const(infinity)
+        .f64_eq()
+        .local_get(b)
+        .f64_abs()
+        .f64_const(infinity)
+        .f64_eq()
+        .i32_or();
+    f.if_(BlockType::Empty);
+    f.ins().i32_const(0).return_();
+    f.end();
+    f.ins()
+        .local_get(b)
+        .local_get(a)
+        .f64_sub()
+        .f64_abs()
+        .local_tee(diff)
+        .local_get(rel)
+        .local_get(b)
+        .f64_mul()
+        .f64_abs()
+        .f64_le()
+        .local_get(diff)
+        .local_get(rel)
+        .local_get(a)
+        .f64_mul()
+        .f64_abs()
+        .f64_le()
+        .i32_or()
+        .local_get(diff)
+        .local_get(abs)
+        .f64_le()
+        .i32_or();
     m.add_func(ty, f.finish())
 }
 

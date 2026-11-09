@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FloatClass, FloatOp, MathFunc, MathFunc2, Rep};
+use crate::ir::{Expr, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, Tolerance};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -111,6 +111,7 @@ impl<'a> Lowering<'a, '_> {
                 | "nextafter"
                 | "ldexp"
                 | "fma"
+                | "isclose"
         ) || MathFunc::of(member).is_some()
             || MathFunc2::of(member).is_some();
         if !known {
@@ -127,6 +128,22 @@ impl<'a> Lowering<'a, '_> {
                 args: args
                     .iter()
                     .map(|arg| self.math_int(arg))
+                    .collect::<Result<_, _>>()?,
+                site: self.site(call.range()),
+            },
+            ("isclose", [a, b], keywords) => Expr::IsClose {
+                a: Box::new(self.math_float(a)?),
+                b: Box::new(self.math_float(b)?),
+                tolerances: keywords
+                    .iter()
+                    .map(|keyword| {
+                        let tolerance = match keyword.arg.as_ref().map(|arg| arg.as_str()) {
+                            Some("rel_tol") => Tolerance::Rel,
+                            Some("abs_tol") => Tolerance::Abs,
+                            _ => return Err(unsupported(call, "this call of a function of math")),
+                        };
+                        Ok((tolerance, self.math_float(&keyword.value)?))
+                    })
                     .collect::<Result<_, _>>()?,
                 site: self.site(call.range()),
             },
