@@ -147,6 +147,16 @@ impl<'a> Lowering<'a, '_> {
         Ok(Expr::MinMax { op, args })
     }
 
+    /// `pow(a, b)`, which is `a ** b`.
+    pub(super) fn pow(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let ([base, exp], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
+            return Err(unsupported(call, "this call of pow"));
+        };
+        let left = self.expr(base)?;
+        let right = self.expr(exp)?;
+        self.binary(call, ast::Operator::Pow, (left, base), (right, exp))
+    }
+
     /// `bool()`, which is `False`, or `bool(x)`, which is the truth of `x`.
     pub(super) fn bool(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         match (&*call.arguments.args, &*call.arguments.keywords) {

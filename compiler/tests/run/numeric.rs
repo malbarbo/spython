@@ -120,3 +120,27 @@ fn float_of_a_str_is_unsupported() {
         "float of this type"
     );
 }
+
+#[test]
+fn pow_of_two_values_is_the_power_operator() {
+    same_as_cpython(
+        "pow_of_two_values_is_the_power_operator",
+        indoc! {"
+            def power(x: float, n: int) -> float:
+                return pow(x, n)
+
+            print(pow(2.0, 10), pow(2, 0.5), pow(True, 2.0), power(-2.0, 3), power(1.5, -2))
+            print(power(0.0, -1))
+        "},
+    );
+}
+
+#[test]
+fn pow_outside_what_the_compiler_covers_has_its_own_message() {
+    assert_eq!(
+        unsupported(indoc! {"
+            print(pow(3, 4, 5))
+        "}),
+        "this call of pow"
+    );
+}
