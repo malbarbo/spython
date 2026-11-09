@@ -203,3 +203,20 @@ fn sqrt_below_0_raises_value_error() {
         "},
     );
 }
+
+#[test]
+fn isnan_isinf_and_isfinite_follow_python() {
+    same_as_cpython(
+        "isnan_isinf_and_isfinite_follow_python",
+        indoc! {"
+            import math
+            from math import isnan, isinf, isfinite
+
+            inf = 1e308 * 10
+            print(math.isnan(inf - inf), math.isinf(inf - inf), math.isfinite(inf - inf))
+            print(isnan(-inf), isinf(-inf), isfinite(-inf))
+            print(isnan(1.7e308), isinf(1.7e308), isfinite(-5e-324))
+            print(isnan(3), isinf(-1073741824), isfinite(True), math.isnan(-0.0))
+        "},
+    );
+}

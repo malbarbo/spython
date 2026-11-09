@@ -10,7 +10,7 @@ use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
-use crate::ir::{ArithOp, CmpOp, DivOp, FloatOp, Rep, SiteFrame};
+use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, Rep, SiteFrame};
 use float::FloatRepr;
 use int::IntRepr;
 use str::StrRepr;
@@ -248,6 +248,11 @@ impl Reprs {
 
     pub fn float_round(&self, f: &mut FuncState) {
         self.float.round(f);
+    }
+
+    /// Pops a `float` and pushes the `bool` of whether it is of `class`.
+    pub fn float_is(&self, f: &mut FuncState, class: FloatClass) {
+        self.float.is(f, class);
     }
 
     /// Pops a `float` and pushes its square root, or raises `ValueError`

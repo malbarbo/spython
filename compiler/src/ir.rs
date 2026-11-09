@@ -199,6 +199,11 @@ pub(crate) enum Expr {
         check: Check,
         value: Box<Expr>,
     },
+    /// Whether a `float` is of `class`, as a `bool`.
+    FloatIs {
+        class: FloatClass,
+        operand: Box<Expr>,
+    },
     /// The square root of a `float`. A value below 0 raises `ValueError`
     /// at the site.
     FloatSqrt {
@@ -358,6 +363,15 @@ pub(crate) struct Limit {
     pub locals: Vec<VarId>,
 }
 
+/// The values that `math.isnan`, `math.isinf` and `math.isfinite` accept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FloatClass {
+    Nan,
+    Inf,
+    /// Neither `nan` nor an infinity.
+    Finite,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArithOp {
     Add,
@@ -444,7 +458,11 @@ impl Expr {
             | Expr::FloatRoundDigits { .. }
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
-            Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
+            Expr::Bool(_)
+            | Expr::FloatIs { .. }
+            | Expr::Truth(_)
+            | Expr::Not(_)
+            | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
             Expr::AfterImport { value, .. } => value.rep(),

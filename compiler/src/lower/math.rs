@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, Rep};
+use crate::ir::{Expr, FloatClass, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -81,14 +81,21 @@ impl<'a> Lowering<'a, '_> {
 
     /// A call of `member`, a function of `math` of one number, through
     /// `imported`. `math.floor`, `math.ceil` and `math.trunc` give an
-    /// `int`, and `math.sqrt` gives a `float`.
+    /// `int`, `math.sqrt` gives a `float`, and `math.isnan`, `math.isinf`
+    /// and `math.isfinite` give a `bool`.
     pub(super) fn math_call(
         &self,
         call: &ast::ExprCall,
         imported: &ast::ExprName,
         member: &str,
     ) -> Result<Expr, Error> {
-        if !matches!(member, "floor" | "ceil" | "trunc" | "sqrt") {
+        let class = match member {
+            "isnan" => Some(FloatClass::Nan),
+            "isinf" => Some(FloatClass::Inf),
+            "isfinite" => Some(FloatClass::Finite),
+            _ => None,
+        };
+        if class.is_none() && !matches!(member, "floor" | "ceil" | "trunc" | "sqrt") {
             return Err(unsupported(call, "this function of math"));
         }
         let arg = match (&*call.arguments.args, &*call.arguments.keywords) {
@@ -101,6 +108,10 @@ impl<'a> Lowering<'a, '_> {
             (_, Rep::Str | Rep::None) => {
                 return Err(unsupported(arg, "a function of math of this type"));
             }
+            _ if let Some(class) = class => Expr::FloatIs {
+                class,
+                operand: Box::new(float_value(operand, arg)?),
+            },
             ("sqrt", _) => Expr::FloatSqrt {
                 operand: Box::new(float_value(operand, arg)?),
                 site,
