@@ -144,7 +144,10 @@ Commits:
    com as mensagens `division by zero` e `float division by zero`.
 6. `compiler: compile // and % on float with fmod`: o `_float_div_mod`
    do CPython, com o sinal do zero (`0.0 % -2` é `-0.0`, `-0.0 // 1` é
-   `-0.0`) e as mensagens do CPython. O `fmod` vem do `libm`.
+   `-0.0`) e as mensagens do CPython. O `fmod` é uma porta do musl,
+   porque o crate `libm` e o `%` do Rust, que no wasm32 chama o `fmod`
+   do `compiler_builtins`, deixam um `unreachable` no `.wasm`. O `pow`
+   do commit 8 pode ter o mesmo problema.
 7. `compiler: compare floats and test their truth`: comparações com
    `nan` (encadeadas também), `0.0` e `-0.0` falsos, `nan` verdadeiro.
 8. `compiler: compile ** on float`: porta do `float_pow` do CPython na
