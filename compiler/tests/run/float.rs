@@ -98,6 +98,75 @@ fn the_sign_of_a_float_follows_python() {
 }
 
 #[test]
+fn the_true_division_gives_a_float() {
+    same_as_cpython(
+        "the_true_division_gives_a_float",
+        indoc! {"
+            print(7 / 2, -7 / 2, 1 / 3, 2 / 1, 1073741823 / 7, -1073741824 / -1)
+            print(0 / 5, 0 / -5, -0 / 5, True / 2, 3 / True)
+            print(1.5 / 0.5, 1 / 3.0, 0.1 / 3, -0.0 / 1, 0.0 / -2.5, 1e308 / 1e-10)
+            x = 5.0
+            x /= 4
+            print(x)
+        "},
+    );
+}
+
+#[test]
+fn the_true_division_of_ints_by_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_true_division_of_ints_by_zero_raises_zero_division_error",
+        indoc! {"
+            print(1 / 2)
+            print(7 / 0)  # ty: ignore[division-by-zero]
+        "},
+    );
+}
+
+#[test]
+fn the_true_division_of_bools_by_false_raises_zero_division_error() {
+    same_as_cpython(
+        "the_true_division_of_bools_by_false_raises_zero_division_error",
+        indoc! {"
+            def ratio(a: bool, b: bool) -> float:
+                return a / b
+
+            print(ratio(True, True))
+            print(ratio(True, False))
+        "},
+    );
+}
+
+#[test]
+fn the_true_division_by_a_float_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_true_division_by_a_float_zero_raises_zero_division_error",
+        indoc! {"
+            def inverse(x: float) -> float:
+                return 1 / x
+
+            print(inverse(2.0))
+            print(inverse(-0.0))
+        "},
+    );
+}
+
+#[test]
+fn the_true_division_of_a_float_by_an_int_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_true_division_of_a_float_by_an_int_zero_raises_zero_division_error",
+        indoc! {"
+            def scale(x: float, n: int) -> float:
+                x /= n
+                return x
+
+            print(scale(2.5, 2))
+            print(scale(2.5, 0))
+        "},
+    );
+}
+
+#[test]
 fn floor_div_and_mod_on_a_float_are_unsupported() {
     for source in [
         indoc! {"

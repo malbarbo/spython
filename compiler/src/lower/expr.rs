@@ -186,6 +186,15 @@ impl<'a> Lowering<'a, '_> {
             (_, Rep::Str, _) | (_, _, Rep::Str) => return Err(unsupported(node, "this operator")),
             _ => {}
         }
+        if op == ast::Operator::Div {
+            let ints = left.rep() != Rep::Float && right.rep() != Rep::Float;
+            return Ok(Expr::Div {
+                left: Box::new(float_value(left, left_node)?),
+                right: Box::new(float_value(right, right_node)?),
+                ints,
+                site: self.site(node.range()),
+            });
+        }
         let op = arith_op(op).ok_or_else(|| unsupported(node, "this operator"))?;
         if left.rep() == Rep::Float || right.rep() == Rep::Float {
             if matches!(op, ArithOp::FloorDiv | ArithOp::Mod) {

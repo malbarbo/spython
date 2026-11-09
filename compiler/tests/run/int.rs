@@ -190,16 +190,6 @@ fn the_modulo_by_zero_raises_zero_division_error() {
 }
 
 #[test]
-fn the_true_division_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-        print(7 / 2)
-    "}),
-        "this operator"
-    );
-}
-
-#[test]
 fn the_traceback_of_the_int_limit_shows_every_line_of_the_operator() {
     stops_at_the_int_limit(
         "the_traceback_of_the_int_limit_shows_every_line_of_the_operator",

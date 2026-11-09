@@ -676,6 +676,8 @@ impl<'a> Ins<'a> {
         f64_const(value: Ieee64);
         f64_add();
         f64_convert_i32_s();
+        f64_div();
+        f64_eq();
         f64_mul();
         f64_neg();
         f64_sub();

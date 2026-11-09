@@ -32,6 +32,8 @@ pub(crate) const MEMORY_ERROR: &str = "MemoryError";
 pub(crate) const RECURSION_ERROR: &str = "RecursionError: maximum recursion depth exceeded";
 pub(crate) const DIVISION_BY_ZERO: &str = "ZeroDivisionError: integer division or modulo by zero";
 pub(crate) const MODULO_BY_ZERO: &str = "ZeroDivisionError: integer modulo by zero";
+pub(crate) const INT_TRUE_DIVISION_BY_ZERO: &str = "ZeroDivisionError: division by zero";
+pub(crate) const FLOAT_TRUE_DIVISION_BY_ZERO: &str = "ZeroDivisionError: float division by zero";
 pub(crate) const STR_INDEX_OUT_OF_RANGE: &str = "IndexError: string index out of range";
 
 /// The last line of the traceback of the `OSError` that CPython raises on

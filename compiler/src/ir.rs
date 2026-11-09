@@ -153,6 +153,15 @@ pub(crate) enum Expr {
     },
     /// `-` on a `float`, which gives `-0.0` for `0.0`.
     FloatNeg(Box<Expr>),
+    /// `/` on two `float`s. A divisor of 0 raises `ZeroDivisionError` at the
+    /// site, with the message of CPython for two `int`s when `ints` is
+    /// `true`.
+    Div {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        ints: bool,
+        site: Site,
+    },
     /// Two `str`s, one after the other. The site is where the program runs
     /// out of memory for the result.
     Concat {
@@ -311,9 +320,11 @@ impl Expr {
                 Rep::Str
             }
             Expr::Int(_) | Expr::BoolAsInt(_) | Expr::Arith { .. } | Expr::Len { .. } => Rep::Int,
-            Expr::Float(_) | Expr::IntAsFloat(_) | Expr::FloatArith { .. } | Expr::FloatNeg(_) => {
-                Rep::Float
-            }
+            Expr::Float(_)
+            | Expr::IntAsFloat(_)
+            | Expr::FloatArith { .. }
+            | Expr::FloatNeg(_)
+            | Expr::Div { .. } => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,
             Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),

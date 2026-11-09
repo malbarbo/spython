@@ -2,7 +2,10 @@
 
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
+use super::str::StrRepr;
+use crate::cpython::{FLOAT_TRUE_DIVISION_BY_ZERO, INT_TRUE_DIVISION_BY_ZERO};
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
+use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
 use crate::ir::ArithOp;
 
@@ -13,6 +16,11 @@ pub(super) enum FloatRepr {
         /// module that writes no `float` goes without it, and without the
         /// builtin that it calls.
         write: Option<FuncIdx>,
+        /// `(func (param f64 f64) (result f64))`, which divides, for two
+        /// `int`s and for a `float`. They differ in the message of the
+        /// `ZeroDivisionError`.
+        int_div: Option<FuncIdx>,
+        float_div: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -23,6 +31,8 @@ impl FloatRepr {
     pub fn f64(host: &Host) -> Self {
         FloatRepr::F64 {
             write: None,
+            int_div: None,
+            float_div: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -77,6 +87,29 @@ impl FloatRepr {
         }
     }
 
+    pub fn div(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+        ints: bool,
+    ) {
+        match self {
+            FloatRepr::F64 {
+                int_div, float_div, ..
+            } => {
+                let (div, message) = if ints {
+                    (int_div, INT_TRUE_DIVISION_BY_ZERO)
+                } else {
+                    (float_div, FLOAT_TRUE_DIVISION_BY_ZERO)
+                };
+                let div = *div.get_or_insert_with(|| add_div(m, str, exc, message));
+                f.ins().call(div);
+            }
+        }
+    }
+
     pub fn neg(&self, f: &mut FuncState) {
         match self {
             FloatRepr::F64 { .. } => {
@@ -94,6 +127,7 @@ impl FloatRepr {
                 write_char,
                 end_write,
                 scratch,
+                ..
             } => {
                 let write =
                     *write.get_or_insert_with(|| add_write(m, *write_char, *end_write, *scratch));
@@ -101,6 +135,21 @@ impl FloatRepr {
             }
         }
     }
+}
+
+/// The function of `/`, which raises `ZeroDivisionError` with `message`
+/// when the divisor is 0 or -0.
+fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, message: &str) -> FuncIdx {
+    let ty = m.func_type(&[ValType::F64, ValType::F64], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (a, b) = (f.param(0), f.param(1));
+    f.ins().local_get(b).f64_const(0.0.into()).f64_eq();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, message);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(a).local_get(b).f64_div();
+    m.add_func(ty, f.finish())
 }
 
 /// `f64_repr` writes the ASCII of the `repr` to the scratch area of the

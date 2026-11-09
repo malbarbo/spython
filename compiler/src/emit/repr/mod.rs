@@ -207,6 +207,13 @@ impl Reprs {
         self.float.arith(f, op);
     }
 
+    /// Pops two `float`s and pushes the quotient, or raises
+    /// `ZeroDivisionError` with the message of CPython for two `int`s when
+    /// `ints` is `true`.
+    pub fn float_div(&mut self, m: &mut ModuleState, f: &mut FuncState, ints: bool) {
+        self.float.div(m, f, &mut self.str, &self.exc, ints);
+    }
+
     /// Pops a `float` and pushes its negation.
     pub fn float_neg(&self, f: &mut FuncState) {
         self.float.neg(f);
