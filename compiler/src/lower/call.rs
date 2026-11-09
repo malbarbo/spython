@@ -146,6 +146,24 @@ impl<'a> Lowering<'a, '_> {
         Ok(Expr::MinMax { op, args })
     }
 
+    /// `bool()`, which is `False`, or `bool(x)`, which is the truth of `x`.
+    pub(super) fn bool(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([], []) => Ok(Expr::Bool(false)),
+            ([arg], []) => self.truth_of(arg),
+            _ => Err(unsupported(call, "this call of bool")),
+        }
+    }
+
+    /// Returns `true` if `func` is the class `name` of the builtins, `false`
+    /// otherwise.
+    pub(super) fn is_class(&self, func: &ast::Expr, name: &str) -> bool {
+        matches!(
+            expr_shape(self.model, func),
+            Some(Shape::Class(class)) if class.name == name && is_builtins(self.model.db(), class.file)
+        )
+    }
+
     /// Returns `true` if `func` is the function `name` of the builtins,
     /// `false` otherwise.
     pub(super) fn is_builtin(&self, func: &ast::Expr, name: &str) -> bool {

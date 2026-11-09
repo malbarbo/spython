@@ -109,6 +109,7 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Call(call) if self.is_builtin(&call.func, "print") => self.print(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "abs") => self.abs(call),
+            ast::Expr::Call(call) if self.is_class(&call.func, "bool") => self.bool(call),
             ast::Expr::Call(call) if self.is_builtin(&call.func, "min") => {
                 self.min_max(call, MinMaxOp::Min)
             }

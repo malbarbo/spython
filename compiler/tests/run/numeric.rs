@@ -79,3 +79,19 @@ fn min_and_max_outside_what_the_compiler_covers_have_their_own_message() {
         "min or max of values of two types"
     );
 }
+
+#[test]
+fn bool_gives_the_truth_of_a_value() {
+    same_as_cpython(
+        "bool_gives_the_truth_of_a_value",
+        indoc! {"
+            def truth(x: float) -> bool:
+                return bool(x)
+
+            inf = 1e308 * 10
+            print(bool(), bool(0), bool(-3), bool(True), bool(False), bool(''), bool('a'))
+            print(truth(0.0), truth(-0.0), truth(5e-324), truth(inf - inf), bool(1 and 'a'))
+            print(bool(not 0), bool(0 or ''), bool(2) + 1)
+        "},
+    );
+}
