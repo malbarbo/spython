@@ -267,6 +267,39 @@ fn round_of_an_int_outside_31_bits_stops_the_program() {
 }
 
 #[test]
+fn round_of_a_float_to_a_number_of_digits_follows_python() {
+    same_as_cpython(
+        "round_of_a_float_to_a_number_of_digits_follows_python",
+        indoc! {"
+            def rounded(x: float, n: int) -> float:
+                return round(x, n)
+
+            inf = 1e308 * 10
+            print(round(2.675, 2), round(0.125, 2), round(0.375, 2), round(2.5, 0), round(-2.5, 0))
+            print(round(-0.004, 2), round(0.004, 2), round(-0.0, 1), round(15.0, -1), round(25.0, -1))
+            print(rounded(123.456, -1), rounded(123.456, 1), rounded(1e22, -22), rounded(5e22, -23))
+            print(rounded(5e-324, 323), rounded(5e-324, 324), rounded(1e-310, 320), rounded(-1.5, -400))
+            print(rounded(inf, 2), rounded(-inf, -2), rounded(inf - inf, 0), rounded(1.5, 1073741823))
+            print(round(1.25, True), round(1.25, False), round(0.1 + 0.2, 15), round(1e300, -300))
+        "},
+    );
+}
+
+#[test]
+fn round_of_a_float_too_large_to_represent_raises_overflow_error() {
+    same_as_cpython(
+        "round_of_a_float_too_large_to_represent_raises_overflow_error",
+        indoc! {"
+            def rounded(x: float, n: int) -> float:
+                return round(x, n)
+
+            print(rounded(1.7976931348623157e308, -300))
+            print(rounded(-1.7976931348623157e308, -305))
+        "},
+    );
+}
+
+#[test]
 fn round_of_nan_raises_value_error() {
     same_as_cpython(
         "round_of_nan_raises_value_error",
@@ -314,9 +347,12 @@ fn round_of_a_float_outside_31_bits_raises_overflow_error() {
 fn round_outside_what_the_compiler_covers_has_its_own_message() {
     assert_eq!(
         unsupported(indoc! {"
-            print(round(2.5, 1))
+            def nothing() -> None:
+                pass
+
+            print(round(2.5, nothing()))
         "}),
-        "round of a float to a number of digits"
+        "round to this number of digits"
     );
     assert_eq!(
         unsupported(indoc! {"

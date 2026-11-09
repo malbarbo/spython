@@ -178,6 +178,13 @@ pub(crate) enum Expr {
     /// A `float` rounded to the nearest whole value, with a tie going to
     /// the even one, as `round` does.
     FloatRound(Box<Expr>),
+    /// `round` of a `float` to `digits` digits. A rounded value too large
+    /// for a `float` raises `OverflowError` at the site.
+    FloatRoundDigits {
+        operand: Box<Expr>,
+        digits: Box<Expr>,
+        site: Site,
+    },
     /// `/`, `//` or `%` on two `float`s. A divisor of 0 raises
     /// `ZeroDivisionError` at the site.
     Div {
@@ -399,6 +406,7 @@ impl Expr {
             | Expr::FloatNeg(_)
             | Expr::FloatAbs(_)
             | Expr::FloatRound(_)
+            | Expr::FloatRoundDigits { .. }
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_) | Expr::Truth(_) | Expr::Not(_) | Expr::Compare(..) => Rep::Bool,

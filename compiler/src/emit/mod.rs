@@ -595,6 +595,15 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.float_abs(f);
             }
+            Expr::FloatRoundDigits {
+                operand,
+                digits,
+                site,
+            } => {
+                self.expr(f, operand);
+                self.expr(f, digits);
+                self.at(f, *site, |e, f| e.reprs.float_round_digits(&mut e.m, f));
+            }
             Expr::FloatRound(operand) => {
                 self.expr(f, operand);
                 self.reprs.float_round(f);

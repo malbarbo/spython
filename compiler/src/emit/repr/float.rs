@@ -7,7 +7,7 @@ use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 use super::str::StrRepr;
 use crate::cpython::{
     FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO,
-    INT_TRUE_DIVISION_BY_ZERO, RESULT_OUT_OF_RANGE, ZERO_TO_A_NEGATIVE_POWER,
+    INT_TRUE_DIVISION_BY_ZERO, RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -27,6 +27,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 f64) (result f64))` for `**`, which the module
         /// gets at the first use.
         pow: Option<FuncIdx>,
+        /// `(func (param f64 i32) (result f64))` for `round(x, n)`, which
+        /// the module gets at the first use.
+        round_digits: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -39,6 +42,7 @@ impl FloatRepr {
             write: None,
             divs: BTreeMap::new(),
             pow: None,
+            round_digits: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -117,6 +121,24 @@ impl FloatRepr {
             FloatRepr::F64 { pow, .. } => {
                 let pow = *pow.get_or_insert_with(|| add_pow(m, str, exc));
                 f.ins().call(pow);
+            }
+        }
+    }
+
+    /// Pops a `float` and a number of digits, and pushes the `float`
+    /// rounded to those digits, or raises `OverflowError` when the rounded
+    /// value is too large for a `float`.
+    pub fn round_digits(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            FloatRepr::F64 { round_digits, .. } => {
+                let func = *round_digits.get_or_insert_with(|| add_round_digits(m, str, exc));
+                f.ins().call(func);
             }
         }
     }
@@ -269,6 +291,38 @@ fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     exc.raise(&mut f);
     f.end();
     str.literal(m, &mut f, RESULT_OUT_OF_RANGE);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// `f64_round` gives an infinity for a finite value whose rounded value is
+/// too large for a `float`, where CPython raises `OverflowError`.
+fn add_round_digits(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let builtin = m.builtin("f64_round");
+    let ty = m.func_type(&[ValType::F64, ValType::I32], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (x, n) = (f.param(0), f.param(1));
+    let r = f.local(ValType::F64);
+    // `x - x` is 0 for a finite `x`, and nan otherwise.
+    f.ins()
+        .local_get(x)
+        .local_get(n)
+        .call(builtin)
+        .local_tee(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, ROUNDED_TOO_LARGE);
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);

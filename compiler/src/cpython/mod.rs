@@ -40,6 +40,7 @@ pub(crate) const FLOAT_MODULO_BY_ZERO: &str = "ZeroDivisionError: float modulo b
 pub(crate) const ZERO_TO_A_NEGATIVE_POWER: &str =
     "ZeroDivisionError: 0.0 cannot be raised to a negative power";
 /// The `OverflowError` of `errno` `ERANGE`, with the `strerror` of glibc.
+pub(crate) const ROUNDED_TOO_LARGE: &str = "OverflowError: rounded value too large to represent";
 pub(crate) const RESULT_OUT_OF_RANGE: &str = "OverflowError: (34, 'Numerical result out of range')";
 pub(crate) const NAN_TO_INT: &str = "ValueError: cannot convert float NaN to integer";
 pub(crate) const INFINITY_TO_INT: &str = "OverflowError: cannot convert float infinity to integer";

@@ -250,6 +250,13 @@ impl Reprs {
         self.float.round(f);
     }
 
+    /// Pops a `float` and an `int`, and pushes the `float` rounded to that
+    /// many digits, or raises `OverflowError`.
+    pub fn float_round_digits(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.float.round_digits(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops a `str` and pushes its number of code points as an `int`.
     pub fn str_len(&self, f: &mut FuncState) {
         self.str.len(f);

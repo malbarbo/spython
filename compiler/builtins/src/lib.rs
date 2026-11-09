@@ -17,9 +17,11 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 mod div;
 mod pow;
+mod round;
 
 pub use div::{floor_div, fmod, modulo};
 pub use pow::pow;
+pub use round::round;
 
 /// The longest `repr` of a float, `-2.2250738585072014e-308`.
 pub const REPR_MAX: usize = 24;
