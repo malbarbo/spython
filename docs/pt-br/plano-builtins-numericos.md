@@ -37,14 +37,10 @@ uma memória e uma pilha só, e `builtin(name)` passa a devolver um import.
 - `#![cfg_attr(target_arch = "wasm32", no_std)]` e o `#[panic_handler]`
   só em wasm32, para o `cargo test` nativo funcionar. `crate-type =
   ["cdylib", "rlib"]`. Release com `lto`, `codegen-units = 1`,
-  `panic = "abort"`, `opt-level = "s"`, `strip = true` (tira o
-  `producers` com a versão do rustc).
-- `compiler/builtins/rust-toolchain.toml` fixa a versão e o target
-  `wasm32-unknown-unknown`. O rustup instala o target sozinho nesse
-  diretório.
+  `panic = "abort"`, `opt-level = "s"`, `strip = true`.
 - Pilha de 64 KiB (`-zstack-size=65536`), com a pilha primeiro (padrão do
   wasm-ld). Um estouro sai de 0 e dá trap fora dos limites, sem
-  corromper nada. Um teste do crate soma os prólogos que descem o
+  corromper nada. Um teste soma os prólogos que descem o
   `__stack_pointer` no caminho mais fundo e afirma que cabe, o que vale
   enquanto não houver recursão.
 - `--export=__heap_base`. O ligador lê esse valor e apaga o export.
@@ -55,17 +51,19 @@ uma memória e uma pilha só, e `builtin(name)` passa a devolver um import.
   nenhum import, tabela, elem, `__wasm_call_ctors`, `memory.grow` ou
   `memory.size`.
 
-## O `.wasm` no repositório
+## O build
 
-`compiler/builtins/builtins.wasm` vai para o git, gerado por `make
-builtins`. O compiler faz `include_bytes!`, então o build normal e os 5
-jobs da matriz do CI não precisam do target wasm32. O `make check`, que só
-roda no job Linux, reconstrói e compara com `cmp`. A revisão mediu: mesma
-toolchain e mesmo `Cargo.lock` em dois diretórios dão o mesmo binário.
+O `.wasm` não vai para o git. O `compiler/build.rs` chama o cargo dentro
+de `compiler/builtins/`, com o target `wasm32-unknown-unknown` e um
+diretório de build no `OUT_DIR`, e o compiler inclui o resultado com
+`include_bytes!`. O build usa o toolchain do compiler, então todo build
+precisa desse target, e os jobs do CI o instalam. O build.rs tira do
+ambiente o que vale só para o build de fora, como o `--target` de um
+release e o driver do clippy. Os testes do `.wasm` ficam em
+`compiler/tests/builtins.rs`, sobre o binário que o build.rs gerou.
 
 O Makefile ganha, para o crate, o `cargo test`, o `cargo clippy` e o
-`cargo fmt --check` com `--manifest-path compiler/builtins/Cargo.toml`,
-porque os comandos do workspace não o alcançam.
+`cargo fmt --check`, porque os comandos do workspace não o alcançam.
 
 ## O ligador
 
@@ -132,9 +130,9 @@ de dois `int`. Os dois ficam fora da 0c, então a 0c não precisa da caixa
 
 Commits:
 
-1. `compiler: add the builtins crate with f64_repr`: o crate, o `.wasm`,
-   o `rust-toolchain.toml`, os alvos do Makefile e os testes nativos
-   contra o CPython.
+1. `compiler: add the builtins crate with f64_repr`: o crate, o
+   build.rs, o target no CI, os alvos do Makefile, os testes do `.wasm` e
+   os testes nativos contra o CPython.
 2. `compiler: link the builtins that a module calls`: o ligador e o
    layout fixo. Teste de unidade que monta um módulo com `f64.const` e a
    chamada do `f64_repr`, roda no wasmtime e no deno.
