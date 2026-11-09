@@ -112,23 +112,21 @@ impl<'a> Lowering<'a, '_> {
                     site: self.site(sub.range()),
                 })
             }
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "print") => self.print(call),
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "len") => self.len(call),
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "abs") => self.abs(call),
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "pow") => self.pow(call),
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "round") => self.round(call),
-            ast::Expr::Call(call) if self.is_class(&call.func, "bool") => self.bool(call),
-            ast::Expr::Call(call) if self.is_class(&call.func, "float") => self.float(call),
-            ast::Expr::Call(call) if self.is_class(&call.func, "int") => self.int(call),
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "min") => {
-                self.min_max(call, MinMaxOp::Min)
-            }
-            ast::Expr::Call(call) if self.is_builtin(&call.func, "max") => {
-                self.min_max(call, MinMaxOp::Max)
-            }
-            ast::Expr::Call(call) => match self.math_member(&call.func) {
-                Some((imported, member)) => self.math_call(call, imported, &member),
-                None => self.call(call),
+            ast::Expr::Call(call) => match self.builtin_name(&call.func).as_deref() {
+                Some("print") => self.print(call),
+                Some("len") => self.len(call),
+                Some("abs") => self.abs(call),
+                Some("pow") => self.pow(call),
+                Some("round") => self.round(call),
+                Some("bool") => self.bool(call),
+                Some("float") => self.float(call),
+                Some("int") => self.int(call),
+                Some("min") => self.min_max(call, MinMaxOp::Min),
+                Some("max") => self.min_max(call, MinMaxOp::Max),
+                _ => match self.math_member(&call.func) {
+                    Some((imported, member)) => self.math_call(call, imported, &member),
+                    None => self.call(call),
+                },
             },
             _ => Err(unsupported(expr, "this expression")),
         }

@@ -242,22 +242,15 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// Returns `true` if `func` is the class `name` of the builtins, `false`
-    /// otherwise.
-    pub(super) fn is_class(&self, func: &ast::Expr, name: &str) -> bool {
-        matches!(
-            expr_shape(self.model, func),
-            Some(Shape::Class(class)) if class.name == name && is_builtins(self.model.db(), class.file)
-        )
-    }
-
-    /// Returns `true` if `func` is the function `name` of the builtins,
-    /// `false` otherwise.
-    pub(super) fn is_builtin(&self, func: &ast::Expr, name: &str) -> bool {
-        matches!(
-            expr_shape(self.model, func),
-            Some(Shape::Function(def)) if def.name == name && is_builtins(self.model.db(), def.file)
-        )
+    /// The name of the function or the class of the builtins that `func`
+    /// reads. `None` when `func` reads neither.
+    pub(super) fn builtin_name(&self, func: &ast::Expr) -> Option<String> {
+        let (name, file) = match expr_shape(self.model, func)? {
+            Shape::Function(def) => (def.name, def.file),
+            Shape::Class(class) => (class.name, class.file),
+            _ => return None,
+        };
+        is_builtins(self.model.db(), file).then_some(name)
     }
 }
 
