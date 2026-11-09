@@ -420,8 +420,10 @@ navegador, a aba morre.
 Até o REPL entrar, o programa e o runtime viram um módulo wasm só. Os
 tipos e os intrínsecos do runtime são escritos em Rust, pelo mesmo
 emissor, como no jwonder, e o que o Python consegue dizer fica no prelude,
-em Python, a partir da fatia 1. Nenhum crate Rust é compilado para
-`wasm32`.
+em Python, a partir da fatia 1. Os algoritmos numéricos, como o `repr` de
+`float`, o `fmod` e o `pow`, vêm de um crate Rust compilado para `wasm32`
+e ligado ao módulo, como no gleam do sgleam. O [plano dos builtins
+numéricos](plano-builtins-numericos.md) descreve as três camadas.
 
 As classes, as vtables, os singletons e os literais ficam em globais
 `(mut (ref null T))`, preenchidos pela função de start e lidos com
@@ -516,6 +518,8 @@ corpus.
   `def` dentro de função e função como valor ainda são recusados.
 - **0b. Deno.** O mesmo no deno. Feita. Os testes do `compiler` rodam
   cada módulo no deno também, com o mesmo resultado do wasmtime.
+- **0c. `float`.** Os literais, o `print`, os operadores e as
+  comparações, com os builtins numéricos em Rust.
 - **1. Prelude.** Arrays, classes sem herança, a `$Class` e os métodos
   especiais. Depois o prelude de `str` e de `int`, e os doctests.
 - **2. Níveis 0 e 1**, com o diferencial do corpus verde.
