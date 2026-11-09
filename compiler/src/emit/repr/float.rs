@@ -7,12 +7,13 @@ use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 use super::str::StrRepr;
 use crate::cpython::{
     FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO,
-    INT_TRUE_DIVISION_BY_ZERO, RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
+    INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR, RESULT_OUT_OF_RANGE,
+    ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
-use crate::ir::{CmpOp, DivOp, FloatClass, FloatOp};
+use crate::ir::{CmpOp, DivOp, FloatClass, FloatOp, MathFunc};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -30,6 +31,12 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 i32) (result f64))` for `round(x, n)`, which
         /// the module gets at the first use.
         round_digits: Option<FuncIdx>,
+        /// `(func (param f64) (result f64))` for each function of `math`
+        /// from the libm, which the module gets at the first use.
+        maths: BTreeMap<MathFunc, FuncIdx>,
+        /// `(func (param f64 f64) (result f64))` for `math.log(x, base)`,
+        /// which the module gets at the first use.
+        log_base: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -43,6 +50,8 @@ impl FloatRepr {
             divs: BTreeMap::new(),
             pow: None,
             round_digits: None,
+            maths: BTreeMap::new(),
+            log_base: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -196,6 +205,58 @@ impl FloatRepr {
         }
     }
 
+    /// Pops a `float` and pushes `func` of it, or raises the error of
+    /// CPython.
+    pub fn math_call(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+        func: MathFunc,
+    ) {
+        match self {
+            FloatRepr::F64 { maths, .. } => {
+                let index = *maths
+                    .entry(func)
+                    .or_insert_with(|| add_math(m, str, exc, func));
+                f.ins().call(index);
+            }
+        }
+    }
+
+    /// Pops `y` and `x` and pushes `math.atan2(y, x)`, which never raises.
+    pub fn atan2(&self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            FloatRepr::F64 { .. } => {
+                let builtin = m.builtin("f64_atan2");
+                f.ins().call(builtin);
+            }
+        }
+    }
+
+    /// Pops `x` and a base and pushes `math.log(x, base)`, or raises the
+    /// error of CPython.
+    pub fn log_base(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        let log = match self {
+            FloatRepr::F64 { maths, .. } => *maths
+                .entry(MathFunc::Log)
+                .or_insert_with(|| add_math(m, str, exc, MathFunc::Log)),
+        };
+        match self {
+            FloatRepr::F64 { log_base, .. } => {
+                let index = *log_base.get_or_insert_with(|| add_log_base(m, str, exc, log));
+                f.ins().call(index);
+            }
+        }
+    }
+
     /// Pops a `float` and pushes the `bool` of whether it is of `class`.
     pub fn is(&self, f: &mut FuncState, class: FloatClass) {
         match self {
@@ -344,6 +405,81 @@ fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `func`, which calls its builtin and raises as
+/// `math_1` in `Modules/mathmodule.c` of CPython does. A `nan` from a value
+/// that is not `nan` raises `ValueError`, and an infinity from a finite
+/// value raises `OverflowError` or `ValueError`, by `can_overflow`.
+fn add_math(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: MathFunc) -> FuncIdx {
+    let builtin = m.builtin(&format!("f64_{}", func.name()));
+    let ty = m.func_type(&[ValType::F64], &[ValType::F64]);
+    let mut f = FuncState::new(1);
+    let x = f.param(0);
+    let r = f.local(ValType::F64);
+    f.ins()
+        .local_get(x)
+        .call(builtin)
+        .local_tee(r)
+        .local_get(r)
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, MATH_DOMAIN_ERROR);
+    exc.raise(&mut f);
+    f.end();
+    // `r` is not nan here, so `r - r` is not 0 for an infinity alone, and
+    // `x - x` is 0 for a finite `x` alone.
+    f.ins()
+        .local_get(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    let message = if func.can_overflow() {
+        MATH_RANGE_ERROR
+    } else {
+        MATH_DOMAIN_ERROR
+    };
+    str.literal(m, &mut f, message);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `math.log(x, base)`, which is `log(x) / log(base)`, with
+/// `log` the function of `math.log`. A base of 1 raises
+/// `ZeroDivisionError`.
+fn add_log_base(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, log: FuncIdx) -> FuncIdx {
+    let ty = m.func_type(&[ValType::F64, ValType::F64], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (x, base) = (f.param(0), f.param(1));
+    let den = f.local(ValType::F64);
+    f.ins()
+        .local_get(x)
+        .call(log)
+        .local_get(base)
+        .call(log)
+        .local_tee(den)
+        .f64_const(0.0.into())
+        .f64_eq();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, FLOAT_TRUE_DIVISION_BY_ZERO);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(den).f64_div();
     m.add_func(ty, f.finish())
 }
 

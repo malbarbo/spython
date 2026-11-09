@@ -16,6 +16,7 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 }
 
 mod div;
+mod math;
 mod pow;
 mod round;
 

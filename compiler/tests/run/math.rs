@@ -134,7 +134,7 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             import math
 
-            print(math.log(2.0))
+            print(math.gamma(2.0))
         "}),
         "this function of math"
     );
@@ -219,4 +219,85 @@ fn isnan_isinf_and_isfinite_follow_python() {
             print(isnan(3), isinf(-1073741824), isfinite(True), math.isnan(-0.0))
         "},
     );
+}
+
+/// The `libm` crate can differ from the libm of glibc in the last bit, so
+/// the program prints each result to 10 digits.
+#[test]
+fn the_functions_of_math_from_the_libm_follow_python() {
+    same_as_cpython(
+        "the_functions_of_math_from_the_libm_follow_python",
+        indoc! {"
+            import math
+            from math import atan2, log
+
+            def show(x: float) -> None:
+                print(round(x, 10))
+
+            x = 0.75
+            show(math.exp(x))
+            show(math.exp2(x))
+            show(math.expm1(x))
+            show(math.log(x))
+            show(math.log2(x))
+            show(math.log10(x))
+            show(math.log1p(x))
+            show(math.sin(x))
+            show(math.cos(x))
+            show(math.tan(x))
+            show(math.asin(x))
+            show(math.acos(x))
+            show(math.atan(x))
+            show(math.sinh(x))
+            show(math.cosh(x))
+            show(math.tanh(x))
+            show(math.asinh(x))
+            show(math.acosh(1 + x))
+            show(math.atanh(x))
+            show(math.cbrt(-x))
+            show(math.erf(x))
+            show(math.erfc(x))
+            show(atan2(-1, -2.5))
+            show(log(100, 10))
+            show(log(True + 1, 4.0))
+            inf = 1e308 * 10
+            print(math.exp(-inf), math.atan(inf), math.tanh(-inf), math.asinh(-inf))
+            print(math.log(inf), math.erfc(-inf), math.sin(inf - inf))
+            print(atan2(0.0, -0.0), atan2(-0.0, -1.0), atan2(inf, -inf), atan2(inf - inf, 1))
+        "},
+    );
+}
+
+#[test]
+fn the_functions_of_math_from_the_libm_raise_as_in_python() {
+    for (name, call) in [
+        ("exp_too_large_raises_overflow_error", "math.exp(1000)"),
+        ("cosh_too_large_raises_overflow_error", "math.cosh(-1000.0)"),
+        ("log_of_0_raises_value_error", "math.log(0)"),
+        ("log10_below_0_raises_value_error", "math.log10(-2.0)"),
+        ("log1p_of_minus_1_raises_value_error", "math.log1p(-1.0)"),
+        (
+            "sin_of_an_infinity_raises_value_error",
+            "math.sin(1e308 * 10)",
+        ),
+        ("asin_above_1_raises_value_error", "math.asin(2)"),
+        ("atanh_of_1_raises_value_error", "math.atanh(1.0)"),
+        (
+            "log_of_a_base_of_1_raises_zero_division_error",
+            "math.log(2.0, 1)",
+        ),
+        (
+            "log_of_a_base_of_0_raises_value_error",
+            "math.log(2.0, 0.0)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
 }

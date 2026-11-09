@@ -199,6 +199,26 @@ pub(crate) enum Expr {
         check: Check,
         value: Box<Expr>,
     },
+    /// A function of `math` that CPython takes from the libm, of a
+    /// `float`. A result that CPython rejects raises at the site.
+    MathCall {
+        func: MathFunc,
+        operand: Box<Expr>,
+        site: Site,
+    },
+    /// `math.atan2(y, x)` of two `float`s.
+    Atan2 {
+        y: Box<Expr>,
+        x: Box<Expr>,
+    },
+    /// `math.log(x, base)` of two `float`s, which raises at the site as
+    /// `math.log` does for each of them, or `ZeroDivisionError` for a base
+    /// of 1.
+    LogBase {
+        operand: Box<Expr>,
+        base: Box<Expr>,
+        site: Site,
+    },
     /// Whether a `float` is of `class`, as a `bool`.
     FloatIs {
         class: FloatClass,
@@ -363,6 +383,85 @@ pub(crate) struct Limit {
     pub locals: Vec<VarId>,
 }
 
+/// A function of `math` of one `float` that CPython takes from the libm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum MathFunc {
+    Exp,
+    Exp2,
+    Expm1,
+    Log,
+    Log2,
+    Log10,
+    Log1p,
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Sinh,
+    Cosh,
+    Tanh,
+    Asinh,
+    Acosh,
+    Atanh,
+    Cbrt,
+    Erf,
+    Erfc,
+}
+
+impl MathFunc {
+    const ALL: [(MathFunc, &'static str); 22] = [
+        (MathFunc::Exp, "exp"),
+        (MathFunc::Exp2, "exp2"),
+        (MathFunc::Expm1, "expm1"),
+        (MathFunc::Log, "log"),
+        (MathFunc::Log2, "log2"),
+        (MathFunc::Log10, "log10"),
+        (MathFunc::Log1p, "log1p"),
+        (MathFunc::Sin, "sin"),
+        (MathFunc::Cos, "cos"),
+        (MathFunc::Tan, "tan"),
+        (MathFunc::Asin, "asin"),
+        (MathFunc::Acos, "acos"),
+        (MathFunc::Atan, "atan"),
+        (MathFunc::Sinh, "sinh"),
+        (MathFunc::Cosh, "cosh"),
+        (MathFunc::Tanh, "tanh"),
+        (MathFunc::Asinh, "asinh"),
+        (MathFunc::Acosh, "acosh"),
+        (MathFunc::Atanh, "atanh"),
+        (MathFunc::Cbrt, "cbrt"),
+        (MathFunc::Erf, "erf"),
+        (MathFunc::Erfc, "erfc"),
+    ];
+
+    /// The function that `math` names `name`.
+    pub fn of(name: &str) -> Option<MathFunc> {
+        Self::ALL
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(func, _)| *func)
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(func, _)| *func == self)
+            .map(|(_, name)| *name)
+            .expect("every function is in ALL")
+    }
+
+    /// Returns `true` if an infinite result of a finite value raises
+    /// `OverflowError`, `false` when it raises `ValueError`, as in CPython.
+    pub fn can_overflow(self) -> bool {
+        matches!(
+            self,
+            MathFunc::Exp | MathFunc::Exp2 | MathFunc::Expm1 | MathFunc::Sinh | MathFunc::Cosh
+        )
+    }
+}
+
 /// The values that `math.isnan`, `math.isinf` and `math.isfinite` accept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FloatClass {
@@ -454,6 +553,9 @@ impl Expr {
             | Expr::FloatRound(_)
             | Expr::FloatFloor(_)
             | Expr::FloatSqrt { .. }
+            | Expr::MathCall { .. }
+            | Expr::Atan2 { .. }
+            | Expr::LogBase { .. }
             | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }
             | Expr::Div { .. }

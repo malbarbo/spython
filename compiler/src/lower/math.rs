@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FloatClass, Rep};
+use crate::ir::{Expr, FloatClass, MathFunc, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -79,15 +79,45 @@ impl<'a> Lowering<'a, '_> {
         self.after_import(imported, Expr::Float(value))
     }
 
-    /// A call of `member`, a function of `math` of one number, through
-    /// `imported`. `math.floor`, `math.ceil` and `math.trunc` give an
-    /// `int`, `math.sqrt` gives a `float`, and `math.isnan`, `math.isinf`
-    /// and `math.isfinite` give a `bool`.
+    /// A call of `member`, a function of `math`, through `imported`.
+    /// `math.floor`, `math.ceil` and `math.trunc` give an `int`,
+    /// `math.isnan`, `math.isinf` and `math.isfinite` give a `bool`, and
+    /// the others give a `float`.
     pub(super) fn math_call(
         &self,
         call: &ast::ExprCall,
         imported: &ast::ExprName,
         member: &str,
+    ) -> Result<Expr, Error> {
+        let known = matches!(
+            member,
+            "floor" | "ceil" | "trunc" | "sqrt" | "isnan" | "isinf" | "isfinite" | "atan2" | "log"
+        ) || MathFunc::of(member).is_some();
+        if !known {
+            return Err(unsupported(call, "this function of math"));
+        }
+        let value = match (member, &*call.arguments.args, &*call.arguments.keywords) {
+            ("atan2", [y, x], []) => Expr::Atan2 {
+                y: Box::new(self.math_float(y)?),
+                x: Box::new(self.math_float(x)?),
+            },
+            ("log", [x, base], []) => Expr::LogBase {
+                operand: Box::new(self.math_float(x)?),
+                base: Box::new(self.math_float(base)?),
+                site: self.site(call.range()),
+            },
+            (_, [arg], []) if member != "atan2" => self.math_unary(call, member, arg)?,
+            _ => return Err(unsupported(call, "this call of a function of math")),
+        };
+        self.after_import(imported, value)
+    }
+
+    /// A call of `member`, a function of `math` of one number.
+    fn math_unary(
+        &self,
+        call: &ast::ExprCall,
+        member: &str,
+        arg: &ast::Expr,
     ) -> Result<Expr, Error> {
         let class = match member {
             "isnan" => Some(FloatClass::Nan),
@@ -95,42 +125,53 @@ impl<'a> Lowering<'a, '_> {
             "isfinite" => Some(FloatClass::Finite),
             _ => None,
         };
-        if class.is_none() && !matches!(member, "floor" | "ceil" | "trunc" | "sqrt") {
-            return Err(unsupported(call, "this function of math"));
-        }
-        let arg = match (&*call.arguments.args, &*call.arguments.keywords) {
-            ([arg], []) => arg,
-            _ => return Err(unsupported(call, "this call of a function of math")),
-        };
-        let operand = self.expr(arg)?;
-        let site = self.site(call.range());
-        let value = match (member, operand.rep()) {
-            (_, Rep::Str | Rep::None) => {
-                return Err(unsupported(arg, "a function of math of this type"));
-            }
-            _ if let Some(class) = class => Expr::FloatIs {
+        if let Some(class) = class {
+            return Ok(Expr::FloatIs {
                 class,
-                operand: Box::new(float_value(operand, arg)?),
-            },
-            ("sqrt", _) => Expr::FloatSqrt {
-                operand: Box::new(float_value(operand, arg)?),
-                site,
-            },
-            (_, Rep::Int | Rep::Bool) => self.int_value(operand, arg)?,
-            (_, Rep::Float) => {
-                let operand = Box::new(operand);
-                let whole = match member {
-                    "floor" => Expr::FloatFloor(operand),
-                    "ceil" => Expr::FloatCeil(operand),
-                    // `int` of a `float` drops its fraction.
-                    _ => *operand,
-                };
-                Expr::FloatAsInt {
-                    operand: Box::new(whole),
-                    site,
-                }
-            }
+                operand: Box::new(self.math_float(arg)?),
+            });
+        }
+        if let Some(func) = MathFunc::of(member) {
+            return Ok(Expr::MathCall {
+                func,
+                operand: Box::new(self.math_float(arg)?),
+                site: self.site(call.range()),
+            });
+        }
+        if member == "sqrt" {
+            return Ok(Expr::FloatSqrt {
+                operand: Box::new(self.math_float(arg)?),
+                site: self.site(call.range()),
+            });
+        }
+        let operand = self.math_number(arg)?;
+        if operand.rep() != Rep::Float {
+            return self.int_value(operand, arg);
+        }
+        let operand = Box::new(operand);
+        let whole = match member {
+            "floor" => Expr::FloatFloor(operand),
+            "ceil" => Expr::FloatCeil(operand),
+            // `int` of a `float` drops its fraction.
+            _ => *operand,
         };
-        self.after_import(imported, value)
+        Ok(Expr::FloatAsInt {
+            operand: Box::new(whole),
+            site: self.site(call.range()),
+        })
+    }
+
+    /// The number of `arg`, an `int`, a `bool` or a `float`.
+    fn math_number(&self, arg: &ast::Expr) -> Result<Expr, Error> {
+        let operand = self.expr(arg)?;
+        match operand.rep() {
+            Rep::Int | Rep::Bool | Rep::Float => Ok(operand),
+            Rep::Str | Rep::None => Err(unsupported(arg, "a function of math of this type")),
+        }
+    }
+
+    /// The number of `arg` as a `float`.
+    fn math_float(&self, arg: &ast::Expr) -> Result<Expr, Error> {
+        float_value(self.math_number(arg)?, arg)
     }
 }

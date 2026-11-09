@@ -648,6 +648,28 @@ impl Emitter<'_> {
                 self.raise_if_undefined(f, check);
                 self.expr(f, value);
             }
+            Expr::MathCall {
+                func,
+                operand,
+                site,
+            } => {
+                self.expr(f, operand);
+                self.at(f, *site, |e, f| e.reprs.math_call(&mut e.m, f, *func));
+            }
+            Expr::Atan2 { y, x } => {
+                self.expr(f, y);
+                self.expr(f, x);
+                self.reprs.atan2(&mut self.m, f);
+            }
+            Expr::LogBase {
+                operand,
+                base,
+                site,
+            } => {
+                self.expr(f, operand);
+                self.expr(f, base);
+                self.at(f, *site, |e, f| e.reprs.log_base(&mut e.m, f));
+            }
             Expr::FloatIs { class, operand } => {
                 self.expr(f, operand);
                 self.reprs.float_is(f, *class);

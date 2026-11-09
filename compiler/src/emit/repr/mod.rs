@@ -10,7 +10,7 @@ use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
-use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, Rep, SiteFrame};
+use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, Rep, SiteFrame};
 use float::FloatRepr;
 use int::IntRepr;
 use str::StrRepr;
@@ -248,6 +248,23 @@ impl Reprs {
 
     pub fn float_round(&self, f: &mut FuncState) {
         self.float.round(f);
+    }
+
+    /// Pops a `float` and pushes `func` of it, or raises the error of
+    /// CPython.
+    pub fn math_call(&mut self, m: &mut ModuleState, f: &mut FuncState, func: MathFunc) {
+        self.float.math_call(m, f, &mut self.str, &self.exc, func);
+    }
+
+    /// Pops `y` and `x` and pushes `math.atan2(y, x)`.
+    pub fn atan2(&self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.atan2(m, f);
+    }
+
+    /// Pops `x` and a base and pushes `math.log(x, base)`, or raises the
+    /// error of CPython.
+    pub fn log_base(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.log_base(m, f, &mut self.str, &self.exc);
     }
 
     /// Pops a `float` and pushes the `bool` of whether it is of `class`.
