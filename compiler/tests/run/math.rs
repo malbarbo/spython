@@ -647,3 +647,55 @@ fn remainder_raises_as_in_python() {
         );
     }
 }
+
+#[test]
+fn pow_follows_python() {
+    same_as_cpython(
+        "pow_follows_python",
+        indoc! {"
+            import math
+            from math import pow
+
+            inf = math.inf
+            nan = math.nan
+            print(pow(2, 10), pow(2.0, -1), pow(-2, 3), pow(-8, 1 / 3 * 3), pow(0, 0), pow(0.0, 5))
+            print(pow(10, -400), pow(1.1, 0.5), pow(True, False), pow(-0.0, 3), pow(-0.0, 2.5))
+            print(pow(nan, 0), pow(nan, 1), pow(1, nan), pow(2, nan), pow(-1, inf), pow(-1, -inf))
+            print(pow(inf, 3), pow(-inf, 3), pow(-inf, 2), pow(-inf, 0.5), pow(-inf, -3), pow(-inf, -2))
+            print(pow(inf, 0), pow(inf, -1), pow(0.5, inf), pow(2, inf), pow(0.5, -inf), pow(-2, -inf))
+            print(pow(0, inf), pow(0, -inf), pow(-0.0, -inf))
+        "},
+    );
+}
+
+#[test]
+fn pow_raises_as_in_python() {
+    for (name, call) in [
+        (
+            "pow_of_0_to_a_negative_power_raises_value_error",
+            "math.pow(0, -1)",
+        ),
+        (
+            "pow_of_minus_0_to_a_negative_power_raises_value_error",
+            "math.pow(-0.0, -3)",
+        ),
+        (
+            "pow_of_a_negative_to_a_fraction_raises_value_error",
+            "math.pow(-1, 0.5)",
+        ),
+        ("pow_too_large_raises_overflow_error", "math.pow(10, 400)"),
+        (
+            "pow_of_a_negative_too_large_raises_overflow_error",
+            "math.pow(-10, 401)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}

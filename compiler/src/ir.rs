@@ -529,12 +529,14 @@ impl MathFunc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum MathFunc2 {
     Remainder,
+    Pow,
 }
 
 impl MathFunc2 {
     pub fn of(name: &str) -> Option<MathFunc2> {
         match name {
             "remainder" => Some(MathFunc2::Remainder),
+            "pow" => Some(MathFunc2::Pow),
             _ => None,
         }
     }
@@ -542,6 +544,7 @@ impl MathFunc2 {
     pub fn builtin(self) -> &'static str {
         match self {
             MathFunc2::Remainder => "f64_remainder",
+            MathFunc2::Pow => "f64_math_pow",
         }
     }
 }

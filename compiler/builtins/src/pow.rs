@@ -18,6 +18,46 @@ pub extern "C" fn f64_pow(x: f64, y: f64) -> f64 {
     pow(x, y)
 }
 
+/// `math.pow(x, y)`, as `math_pow` of CPython computes it, but with nan
+/// for 0 to a negative power, where CPython raises `ValueError`. CPython
+/// takes the values of an infinity or a nan apart from the `pow` of C.
+#[unsafe(no_mangle)]
+pub extern "C" fn f64_math_pow(x: f64, y: f64) -> f64 {
+    if x.is_finite() && y.is_finite() {
+        return if x == 0.0 && y < 0.0 {
+            f64::NAN
+        } else {
+            pow(x, y)
+        };
+    }
+    if x.is_nan() {
+        return if y == 0.0 { 1.0 } else { x };
+    }
+    if y.is_nan() {
+        return if x == 1.0 { 1.0 } else { y };
+    }
+    if x.is_infinite() {
+        let odd_y = y.is_finite() && crate::div::fmod(libm::fabs(y), 2.0) == 1.0;
+        return if y > 0.0 {
+            if odd_y { x } else { libm::fabs(x) }
+        } else if y == 0.0 {
+            1.0
+        } else if odd_y {
+            libm::copysign(0.0, x)
+        } else {
+            0.0
+        };
+    }
+    // `y` is infinite and `x` is finite.
+    if libm::fabs(x) == 1.0 {
+        1.0
+    } else if (y > 0.0) == (libm::fabs(x) > 1.0) {
+        libm::fabs(y)
+    } else {
+        0.0
+    }
+}
+
 const ONE: u64 = 0x3ff0000000000000;
 const INF: u64 = 0x7ff0000000000000;
 /// The bias that [`exp_inline`] adds to the index of its table to make the
