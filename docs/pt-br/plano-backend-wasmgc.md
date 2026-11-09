@@ -73,7 +73,12 @@ Estas decisões foram tomadas em 5/nov/2026, uma pergunta por vez.
    operação cujo resultado não cabe em 31 bits nunca dá wrap. Ela para o
    programa com um erro que o `except` não captura, com o traceback, o
    valor verdadeiro e o limite. Um `OverflowError` seria engolido por um
-   `except Exception` e confundido com o do Python (`10.0 ** 400`).
+   `except Exception` e confundido com o do Python (`10.0 ** 400`). Uma
+   conversão de `float` para `int` é diferente, porque no CPython ela já
+   lança `OverflowError` com um infinito, e quem converte espera o erro.
+   Fora dos 31 bits ela lança um `OverflowError` que o `except` captura:
+   `cannot convert float to an int of spython, which goes from
+   -1073741824 to 1073741823`. Revisto em 9/nov/2026.
 8. O REPL fica para depois. Até ele entrar, o programa inteiro, com o
    runtime, vira um módulo wasm só, executado de uma vez.
 9. A representação de `int`, `float` e `str` é extensível, como o
@@ -267,8 +272,10 @@ tipos diferentes. O despacho pela vtable só entra com as uniões e com o
 
 `+` e `-` de `int` rodam em `i32` e testam os 31 bits. `*` roda em `i64`,
 porque `65536 * 65536` dá 0 em `i32` e passaria no teste. `-x`, `abs` e
-`//` testam o caso de −2^30. `<<`, `**`, `int()`, `round`, `sum`, `len`,
-`hash` e as funções de `math` que devolvem `int` passam pelo mesmo teste.
+`//` testam o caso de −2^30. `<<`, `**`, `sum`, `len`, `hash` e as
+funções de `math` que fazem conta com `int`, como `factorial`, passam pelo
+mesmo teste. `int()` e `round` de um `float`, e `math.floor`, `math.ceil`
+e `math.trunc`, são conversões e lançam `OverflowError` (decisão 7).
 Um literal que não cabe em 31 bits é diagnóstico do checker. A divisão
 inteira e o resto seguem o Python (`-7 // 2 == -4`). No corpus, nenhum
 `int` sai de 31 bits fora do `2 ** 80` de uma aula, do `2 ** 100000` da
