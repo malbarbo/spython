@@ -538,3 +538,18 @@ fn hypot_follows_python() {
         "},
     );
 }
+
+#[test]
+fn degrees_and_radians_follow_python() {
+    same_as_cpython(
+        "degrees_and_radians_follow_python",
+        indoc! {"
+            import math
+            from math import degrees, radians
+
+            print(degrees(math.pi), degrees(1), degrees(-0.5), degrees(True), degrees(1e308))
+            print(radians(180), radians(-90.0), radians(1e-320), radians(False), math.radians(45))
+            print(math.degrees(math.radians(30.0)), math.degrees(math.nan))
+        "},
+    );
+}

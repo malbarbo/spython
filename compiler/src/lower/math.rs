@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FloatClass, MathFunc, Rep};
+use crate::ir::{Expr, FloatClass, FloatOp, MathFunc, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -106,6 +106,8 @@ impl<'a> Lowering<'a, '_> {
                 | "atan2"
                 | "hypot"
                 | "log"
+                | "degrees"
+                | "radians"
         ) || MathFunc::of(member).is_some();
         if !known {
             return Err(unsupported(call, "this function of math"));
@@ -181,6 +183,18 @@ impl<'a> Lowering<'a, '_> {
                 func,
                 operand: Box::new(self.math_float(arg)?),
                 site: self.site(call.range()),
+            });
+        }
+        let factor = match member {
+            "degrees" => Some(180.0 / std::f64::consts::PI),
+            "radians" => Some(std::f64::consts::PI / 180.0),
+            _ => None,
+        };
+        if let Some(factor) = factor {
+            return Ok(Expr::FloatArith {
+                op: FloatOp::Mul,
+                left: Box::new(self.math_float(arg)?),
+                right: Box::new(Expr::Float(factor)),
             });
         }
         if member == "fabs" {
