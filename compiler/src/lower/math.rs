@@ -214,40 +214,23 @@ impl<'a> Lowering<'a, '_> {
                 base: Box::new(self.math_float(base)?),
                 site: self.site(call.range()),
             },
-            (_, [arg], [])
-                if MathFunc2::of(member).is_none()
-                    && !matches!(
-                        member,
-                        "atan2"
-                            | "hypot"
-                            | "copysign"
-                            | "fmod"
-                            | "gcd"
-                            | "factorial"
-                            | "nextafter"
-                            | "ldexp"
-                            | "fma"
-                            | "isclose"
-                            | "isqrt"
-                            | "lcm"
-                            | "comb"
-                            | "perm"
-                    ) =>
-            {
-                self.math_unary(call, member, arg)?
-            }
+            (_, [arg], []) => match self.math_unary(call, member, arg)? {
+                Some(value) => value,
+                None => return Err(unsupported(call, "this call of a function of math")),
+            },
             _ => return Err(unsupported(call, "this call of a function of math")),
         };
         self.after_import(imported, value)
     }
 
-    /// A call of `member`, a function of `math` of one number.
+    /// A call of `member`, a function of `math` of one number. `None` when
+    /// `member` takes another number of arguments.
     fn math_unary(
         &self,
         call: &ast::ExprCall,
         member: &str,
         arg: &ast::Expr,
-    ) -> Result<Expr, Error> {
+    ) -> Result<Option<Expr>, Error> {
         let class = match member {
             "isnan" => Some(FloatClass::Nan),
             "isinf" => Some(FloatClass::Inf),
@@ -255,17 +238,17 @@ impl<'a> Lowering<'a, '_> {
             _ => None,
         };
         if let Some(class) = class {
-            return Ok(Expr::FloatIs {
+            return Ok(Some(Expr::FloatIs {
                 class,
                 operand: Box::new(self.math_float(arg)?),
-            });
+            }));
         }
         if let Some(func) = MathFunc::of(member) {
-            return Ok(Expr::MathCall {
+            return Ok(Some(Expr::MathCall {
                 func,
                 operand: Box::new(self.math_float(arg)?),
                 site: self.site(call.range()),
-            });
+            }));
         }
         let factor = match member {
             "degrees" => Some(180.0 / std::f64::consts::PI),
@@ -273,36 +256,36 @@ impl<'a> Lowering<'a, '_> {
             _ => None,
         };
         if let Some(factor) = factor {
-            return Ok(Expr::FloatArith {
+            return Ok(Some(Expr::FloatArith {
                 op: FloatOp::Mul,
                 left: Box::new(self.math_float(arg)?),
                 right: Box::new(Expr::Float(factor)),
-            });
+            }));
         }
         if member == "fabs" {
-            return Ok(Expr::FloatAbs(Box::new(self.math_float(arg)?)));
+            return Ok(Some(Expr::FloatAbs(Box::new(self.math_float(arg)?))));
         }
         if member == "sqrt" {
-            return Ok(Expr::FloatSqrt {
+            return Ok(Some(Expr::FloatSqrt {
                 operand: Box::new(self.math_float(arg)?),
                 site: self.site(call.range()),
-            });
+            }));
         }
+        let whole: fn(Box<Expr>) -> Expr = match member {
+            "floor" => Expr::FloatFloor,
+            "ceil" => Expr::FloatCeil,
+            // `int` of a `float` drops its fraction.
+            "trunc" => |operand| *operand,
+            _ => return Ok(None),
+        };
         let operand = self.math_number(arg)?;
         if operand.rep() != Rep::Float {
-            return self.int_value(operand, arg);
+            return self.int_value(operand, arg).map(Some);
         }
-        let operand = Box::new(operand);
-        let whole = match member {
-            "floor" => Expr::FloatFloor(operand),
-            "ceil" => Expr::FloatCeil(operand),
-            // `int` of a `float` drops its fraction.
-            _ => *operand,
-        };
-        Ok(Expr::FloatAsInt {
-            operand: Box::new(whole),
+        Ok(Some(Expr::FloatAsInt {
+            operand: Box::new(whole(Box::new(operand))),
             site: self.site(call.range()),
-        })
+        }))
     }
 
     /// The number of `arg`, an `int`, a `bool` or a `float`.
