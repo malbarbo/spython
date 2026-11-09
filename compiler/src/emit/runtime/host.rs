@@ -9,12 +9,15 @@
 
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
-use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, LocalIdx, ModuleState};
+use crate::emit::module::{FuncIdx, FuncState, GlobalIdx, LocalIdx, ModuleState, free_memory};
+
+// The places below are offsets in the area of the host, which starts at
+// `free_memory()`. `at` gives their address.
 
 /// Where `fd_write` reads the one iovec of a write.
-const IOVEC: u64 = 0;
+const IOVEC: i32 = 0;
 /// Where `fd_write` stores the number of bytes it wrote.
-const NWRITTEN: u64 = 8;
+const NWRITTEN: i32 = 8;
 /// Where `fd_fdstat_get` stores the 24 bytes of its answer, aligned to 8.
 const FDSTAT: i32 = 16;
 /// The buffer of the `BufferedWriter`, which holds at most a block.
@@ -25,7 +28,7 @@ const BUFFERED: i32 = 64;
 const PENDING: i32 = 8192;
 /// The `_CHUNK_SIZE` of the `TextIOWrapper`.
 const CHUNK: i32 = 8192;
-/// The buffer of the standard error, up to the end of the memory.
+/// The buffer of the standard error, up to the end of the area.
 const STDERR_BUFFER: i32 = 32768;
 const STDERR_BUFFER_END: i32 = 65536;
 /// The longest UTF-8 encoding of a code point.
@@ -118,7 +121,7 @@ impl Host {
         let proc_exit_ty = m.func_type(&[ValType::I32], &[]);
         let proc_exit = m.import_func("wasi_snapshot_preview1", "proc_exit", proc_exit_ty);
         // WASI reads the buffers from the memory the module exports by this name.
-        m.memory("memory");
+        m.memory("memory", at(STDERR_BUFFER_END));
         let mut global = |init| m.global(ValType::I32, &ConstExpr::i32_const(init));
         let s = State {
             error: global(0),
@@ -160,9 +163,14 @@ impl Host {
     }
 }
 
-fn mem(offset: u64, align: u32) -> MemArg {
+/// The address of `offset` in the area of the host.
+fn at(offset: i32) -> i32 {
+    free_memory() + offset
+}
+
+fn mem(offset: i32, align: u32) -> MemArg {
     MemArg {
-        offset,
+        offset: u64::try_from(offset).expect("a positive offset"),
         align,
         target: MemArgTarget::Memory(0),
         ordering: None,
@@ -181,10 +189,10 @@ fn add_start(m: &mut ModuleState, s: &State, fd_fdstat_get: FuncIdx) -> FuncIdx 
     let mut f = FuncState::new(0);
     f.ins()
         .i32_const(STDOUT)
-        .i32_const(FDSTAT)
+        .i32_const(at(FDSTAT))
         .call(fd_fdstat_get)
         .i32_eqz()
-        .i32_const(FDSTAT)
+        .i32_const(at(FDSTAT))
         .i32_load8_u(mem(0, 0))
         .i32_const(CHARACTER_DEVICE)
         .i32_eq()
@@ -211,20 +219,20 @@ fn add_write_once(m: &mut ModuleState, fd_write: FuncIdx) -> FuncIdx {
     f.ins()
         .i32_const(0)
         .local_get(ptr)
-        .i32_store(mem(IOVEC, 2))
+        .i32_store(mem(at(IOVEC), 2))
         .i32_const(0)
         .local_get(len)
-        .i32_store(mem(IOVEC + 4, 2))
+        .i32_store(mem(at(IOVEC) + 4, 2))
         .local_get(fd)
-        .i32_const(IOVEC as i32)
+        .i32_const(at(IOVEC))
         .i32_const(1)
-        .i32_const(NWRITTEN as i32)
+        .i32_const(at(NWRITTEN))
         .call(fd_write)
         .local_tee(error);
     f.if_(BlockType::Result(ValType::I32));
     f.ins().i32_const(0).local_get(error).i32_sub();
     f.else_();
-    f.ins().i32_const(0).i32_load(mem(NWRITTEN, 2));
+    f.ins().i32_const(0).i32_load(mem(at(NWRITTEN), 2));
     f.end();
     m.add_func(ty, f.finish())
 }
@@ -284,7 +292,7 @@ fn add_flush_buffered(m: &mut ModuleState, s: &State, write_once: FuncIdx) -> Fu
     f.br_if(done);
     f.ins()
         .i32_const(STDOUT)
-        .i32_const(BUFFERED)
+        .i32_const(at(BUFFERED))
         .global_get(s.written)
         .i32_add()
         .global_get(s.buffered)
@@ -337,7 +345,7 @@ fn add_write_buffered(
         .i32_and();
     f.if_(BlockType::Empty);
     f.ins()
-        .i32_const(BUFFERED)
+        .i32_const(at(BUFFERED))
         .global_get(s.buffered)
         .i32_add()
         .local_get(ptr)
@@ -379,7 +387,7 @@ fn add_write_buffered(
     f.end();
     f.end();
     f.ins()
-        .i32_const(BUFFERED)
+        .i32_const(at(BUFFERED))
         .local_get(ptr)
         .local_get(len)
         .memory_copy(0, 0)
@@ -411,7 +419,7 @@ fn add_flush_pending(m: &mut ModuleState, s: &State, write_buffered: FuncIdx) ->
     f.ins().i32_const(0).return_();
     f.end();
     f.ins()
-        .i32_const(PENDING)
+        .i32_const(at(PENDING))
         .local_get(len)
         .call(write_buffered);
     m.add_func(ty, f.finish())
@@ -442,7 +450,7 @@ fn add_flush_stderr(m: &mut ModuleState, s: &State, write_all: FuncIdx) -> FuncI
     let mut f = FuncState::new(0);
     f.ins()
         .i32_const(STDERR)
-        .i32_const(STDERR_BUFFER)
+        .i32_const(at(STDERR_BUFFER))
         .global_get(s.stderr_end)
         .call(write_all)
         .drop()
@@ -468,7 +476,7 @@ fn encode(f: &mut FuncState, c: LocalIdx, addr: LocalIdx, n: LocalIdx) {
             if *mark != 0 {
                 ins.i32_const(0x3F).i32_and().i32_const(*mark).i32_or();
             }
-            ins.i32_store8(mem(offset as u64, 0));
+            ins.i32_store8(mem(i32::try_from(offset).expect("at most 4 bytes"), 0));
         }
         f.ins()
             .i32_const(i32::try_from(bytes.len()).expect("at most 4 bytes"))
@@ -499,7 +507,7 @@ fn add_write_char(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.ins().call(funcs.flush_stderr);
     f.end();
     f.ins()
-        .i32_const(STDERR_BUFFER)
+        .i32_const(at(STDERR_BUFFER))
         .global_get(s.stderr_end)
         .i32_add()
         .local_set(addr);
@@ -514,7 +522,7 @@ fn add_write_char(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.ins().return_();
     f.end();
     f.ins()
-        .i32_const(PENDING)
+        .i32_const(at(PENDING))
         .global_get(s.end)
         .i32_add()
         .local_set(addr);
@@ -540,7 +548,7 @@ fn add_write_char(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.if_(BlockType::Empty);
     f.ins()
         .i32_const(STDOUT)
-        .i32_const(PENDING)
+        .i32_const(at(PENDING))
         .global_get(s.end)
         .call(funcs.write_all)
         .local_set(error)
@@ -569,7 +577,7 @@ fn add_write_char(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.ins().global_get(s.pending);
     f.if_(BlockType::Empty);
     f.ins()
-        .i32_const(PENDING)
+        .i32_const(at(PENDING))
         .global_get(s.pending)
         .call(funcs.write_buffered)
         .local_tee(error);
@@ -577,8 +585,8 @@ fn add_write_char(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.ins().local_get(error).call(funcs.fail).return_();
     f.end();
     f.ins()
-        .i32_const(PENDING)
-        .i32_const(PENDING)
+        .i32_const(at(PENDING))
+        .i32_const(at(PENDING))
         .global_get(s.pending)
         .i32_add()
         .global_get(s.end)
@@ -613,7 +621,7 @@ fn add_end_write(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.if_(BlockType::Empty);
     f.ins()
         .i32_const(STDOUT)
-        .i32_const(PENDING)
+        .i32_const(at(PENDING))
         .global_get(s.end)
         .call(funcs.write_all)
         .local_set(error)

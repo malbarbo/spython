@@ -14,6 +14,13 @@ use wasmparser::{Parser, Payload};
 
 use crate::ir::Site;
 
+mod builtins;
+
+pub(crate) use builtins::free_memory;
+
+/// The size of a page of linear memory.
+const PAGE: u64 = 65536;
+
 /// The index of a function in the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FuncIdx(u32);
@@ -75,6 +82,7 @@ pub(crate) struct ModuleState {
     /// The code of each function that runs the code of a Python frame, by
     /// the index of the function among the functions the module defines.
     frames: Vec<(usize, Vec<SiteRange>)>,
+    builtins: builtins::Linked,
 }
 
 /// The code from `start` to `end` that runs at `site`. Inside a function,
@@ -116,6 +124,7 @@ impl ModuleState {
             data_count: 0,
             init: Vec::new(),
             frames: Vec::new(),
+            builtins: builtins::Linked::default(),
         }
     }
 
@@ -229,9 +238,11 @@ impl ModuleState {
         index
     }
 
-    pub fn memory(&mut self, export: &str) {
+    /// A memory with at least `bytes` bytes, exported as `export`.
+    pub fn memory(&mut self, export: &str, bytes: i32) {
+        let bytes = u64::try_from(bytes).expect("a positive size");
         self.memories.memory(MemoryType {
-            minimum: 1,
+            minimum: bytes.div_ceil(PAGE),
             maximum: None,
             memory64: false,
             shared: false,
@@ -265,7 +276,8 @@ impl ModuleState {
 
     /// The bytes of the module, with the place of the code of the Python
     /// frames. The function `module_frame` runs the frame of the module.
-    pub fn finish(self, module_frame: FuncIdx) -> (Vec<u8>, CodeMap) {
+    pub fn finish(mut self, module_frame: FuncIdx) -> (Vec<u8>, CodeMap) {
+        self.link_builtins();
         let mut functions = FunctionSection::new();
         let mut code = CodeSection::new();
         for (index, (ty, body)) in self.funcs.iter().enumerate() {
