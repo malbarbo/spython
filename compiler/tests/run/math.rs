@@ -134,7 +134,7 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             import math
 
-            print(math.gamma(2.0))
+            print(math.factorial(3))
         "}),
         "this function of math"
     );
@@ -289,6 +289,76 @@ fn the_functions_of_math_from_the_libm_raise_as_in_python() {
         (
             "log_of_a_base_of_0_raises_value_error",
             "math.log(2.0, 0.0)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}
+
+/// `math.gamma` and `math.lgamma` come from the code of CPython, which calls
+/// `exp`, `pow` and `log` of the libm, so the program prints each result to
+/// 10 digits.
+#[test]
+fn gamma_and_lgamma_follow_python() {
+    same_as_cpython(
+        "gamma_and_lgamma_follow_python",
+        indoc! {"
+            import math
+            from math import gamma, lgamma
+
+            def show(x: float) -> None:
+                print(round(x, 10))
+
+            print(gamma(1), gamma(5), gamma(23.0), gamma(True))
+            show(gamma(0.5))
+            show(gamma(-2.5))
+            show(gamma(7.25))
+            show(gamma(170.5) / 1e306)
+            show(gamma(-150.5) * 1e262)
+            show(lgamma(0.5))
+            show(lgamma(-2.5))
+            show(lgamma(30))
+            show(lgamma(1e300) / 1e302)
+            inf = 1e308 * 10
+            print(lgamma(1), lgamma(2.0), gamma(-200.5), gamma(1e-30) / 1e30)
+            print(gamma(inf), lgamma(inf), lgamma(-inf), gamma(inf - inf), lgamma(inf - inf))
+        "},
+    );
+}
+
+#[test]
+fn gamma_and_lgamma_raise_as_in_python() {
+    for (name, call) in [
+        ("gamma_of_0_raises_value_error", "math.gamma(0.0)"),
+        ("gamma_of_minus_0_raises_value_error", "math.gamma(-0.0)"),
+        (
+            "gamma_of_a_negative_integer_raises_value_error",
+            "math.gamma(-3)",
+        ),
+        (
+            "gamma_of_minus_inf_raises_value_error",
+            "math.gamma(-1e308 * 10)",
+        ),
+        ("gamma_above_171_raises_overflow_error", "math.gamma(172)"),
+        (
+            "gamma_of_a_tiny_float_raises_overflow_error",
+            "math.gamma(1e-310)",
+        ),
+        ("lgamma_of_0_raises_value_error", "math.lgamma(0)"),
+        (
+            "lgamma_of_a_negative_integer_raises_value_error",
+            "math.lgamma(-7.0)",
+        ),
+        (
+            "lgamma_too_large_raises_overflow_error",
+            "math.lgamma(1e306)",
         ),
     ] {
         same_as_cpython(

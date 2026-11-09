@@ -199,8 +199,8 @@ pub(crate) enum Expr {
         check: Check,
         value: Box<Expr>,
     },
-    /// A function of `math` that CPython takes from the libm, of a
-    /// `float`. A result that CPython rejects raises at the site.
+    /// A function of `math` of a `float`. A result that CPython rejects
+    /// raises at the site.
     MathCall {
         func: MathFunc,
         operand: Box<Expr>,
@@ -383,7 +383,8 @@ pub(crate) struct Limit {
     pub locals: Vec<VarId>,
 }
 
-/// A function of `math` of one `float` that CPython takes from the libm.
+/// A function of `math` of one `float` that has a builtin of the same name
+/// and raises as `math_1` of CPython does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum MathFunc {
     Exp,
@@ -408,10 +409,12 @@ pub(crate) enum MathFunc {
     Cbrt,
     Erf,
     Erfc,
+    Gamma,
+    Lgamma,
 }
 
 impl MathFunc {
-    const ALL: [(MathFunc, &'static str); 22] = [
+    const ALL: [(MathFunc, &'static str); 24] = [
         (MathFunc::Exp, "exp"),
         (MathFunc::Exp2, "exp2"),
         (MathFunc::Expm1, "expm1"),
@@ -434,6 +437,8 @@ impl MathFunc {
         (MathFunc::Cbrt, "cbrt"),
         (MathFunc::Erf, "erf"),
         (MathFunc::Erfc, "erfc"),
+        (MathFunc::Gamma, "gamma"),
+        (MathFunc::Lgamma, "lgamma"),
     ];
 
     /// The function that `math` names `name`.
@@ -457,7 +462,13 @@ impl MathFunc {
     pub fn can_overflow(self) -> bool {
         matches!(
             self,
-            MathFunc::Exp | MathFunc::Exp2 | MathFunc::Expm1 | MathFunc::Sinh | MathFunc::Cosh
+            MathFunc::Exp
+                | MathFunc::Exp2
+                | MathFunc::Expm1
+                | MathFunc::Sinh
+                | MathFunc::Cosh
+                | MathFunc::Gamma
+                | MathFunc::Lgamma
         )
     }
 }
