@@ -141,4 +141,6 @@ make wasm                # the WASM binary
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The compiler puts code of musl, CPython,
+FreeBSD and some Rust crates into the modules that it emits, and
+[compiler/builtins/NOTICE](compiler/builtins/NOTICE) has their notices.
