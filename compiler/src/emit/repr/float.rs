@@ -10,7 +10,7 @@ use crate::cpython::{
     FMA_OVERFLOW, INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR,
     NEGATIVE_TOLERANCE, RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
 };
-use crate::emit::module::{FuncIdx, FuncState, ModuleState};
+use crate::emit::module::{FuncIdx, FuncState, LocalIdx, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
 use crate::ir::{CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2};
@@ -506,26 +506,8 @@ fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     let mut f = FuncState::new(2);
     let (a, b) = (f.param(0), f.param(1));
     let r = f.local(ValType::F64);
-    // `x - x` is 0 for a finite `x`, and nan otherwise.
-    f.ins()
-        .local_get(a)
-        .local_get(b)
-        .call(builtin)
-        .local_tee(r)
-        .local_get(r)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_ne()
-        .local_get(a)
-        .local_get(a)
-        .f64_sub()
-        .local_get(b)
-        .local_get(b)
-        .f64_sub()
-        .f64_add()
-        .f64_const(0.0.into())
-        .f64_eq()
-        .i32_and();
+    f.ins().local_get(a).local_get(b).call(builtin).local_set(r);
+    lost_finite(&mut f, r, &[a, b]);
     f.if_(BlockType::Empty);
     // An infinite result from a base of 0 has a negative exponent.
     f.ins().local_get(a).f64_const(0.0.into()).f64_eq();
@@ -569,20 +551,7 @@ fn add_math(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Math
     str.literal(m, &mut f, MATH_DOMAIN_ERROR);
     exc.raise(&mut f);
     f.end();
-    // `r` is not nan here, so `r - r` is not 0 for an infinity alone, and
-    // `x - x` is 0 for a finite `x` alone.
-    f.ins()
-        .local_get(r)
-        .local_get(r)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_ne()
-        .local_get(x)
-        .local_get(x)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_eq()
-        .i32_and();
+    lost_finite(&mut f, r, &[x]);
     f.if_(BlockType::Empty);
     let message = if func.can_overflow() {
         MATH_RANGE_ERROR
@@ -625,26 +594,7 @@ fn add_math2(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Mat
     str.literal(m, &mut f, MATH_DOMAIN_ERROR);
     exc.raise(&mut f);
     f.end();
-    // `r` is not nan here, so `r - r` is not 0 for an infinity alone, and
-    // `x - x` is 0 for a finite `x` alone.
-    f.ins()
-        .local_get(r)
-        .local_get(r)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_ne()
-        .local_get(x)
-        .local_get(x)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_eq()
-        .i32_and()
-        .local_get(y)
-        .local_get(y)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_eq()
-        .i32_and();
+    lost_finite(&mut f, r, &[x, y]);
     f.if_(BlockType::Empty);
     str.literal(m, &mut f, MATH_RANGE_ERROR);
     exc.raise(&mut f);
@@ -674,23 +624,7 @@ fn add_fma(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     str.literal(m, &mut f, FMA_INVALID);
     exc.raise(&mut f);
     f.end();
-    // `r` is not nan here, so `r - r` is not 0 for an infinity alone, and
-    // `x - x` is 0 for a finite `x` alone.
-    f.ins()
-        .local_get(r)
-        .local_get(r)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_ne();
-    for arg in args {
-        f.ins()
-            .local_get(arg)
-            .local_get(arg)
-            .f64_sub()
-            .f64_const(0.0.into())
-            .f64_eq()
-            .i32_and();
-    }
+    lost_finite(&mut f, r, &args);
     f.if_(BlockType::Empty);
     str.literal(m, &mut f, FMA_OVERFLOW);
     exc.raise(&mut f);
@@ -804,22 +738,8 @@ fn add_ldexp(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncId
     let mut f = FuncState::new(2);
     let (x, i) = (f.param(0), f.param(1));
     let r = f.local(ValType::F64);
-    // `x - x` is 0 for a finite `x`, and nan otherwise.
-    f.ins()
-        .local_get(x)
-        .local_get(i)
-        .call(builtin)
-        .local_tee(r)
-        .local_get(r)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_ne()
-        .local_get(x)
-        .local_get(x)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_eq()
-        .i32_and();
+    f.ins().local_get(x).local_get(i).call(builtin).local_set(r);
+    lost_finite(&mut f, r, &[x]);
     f.if_(BlockType::Empty);
     str.literal(m, &mut f, MATH_RANGE_ERROR);
     exc.raise(&mut f);
@@ -860,28 +780,34 @@ fn add_round_digits(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) ->
     let mut f = FuncState::new(2);
     let (x, n) = (f.param(0), f.param(1));
     let r = f.local(ValType::F64);
-    // `x - x` is 0 for a finite `x`, and nan otherwise.
-    f.ins()
-        .local_get(x)
-        .local_get(n)
-        .call(builtin)
-        .local_tee(r)
-        .local_get(r)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_ne()
-        .local_get(x)
-        .local_get(x)
-        .f64_sub()
-        .f64_const(0.0.into())
-        .f64_eq()
-        .i32_and();
+    f.ins().local_get(x).local_get(n).call(builtin).local_set(r);
+    lost_finite(&mut f, r, &[x]);
     f.if_(BlockType::Empty);
     str.literal(m, &mut f, ROUNDED_TOO_LARGE);
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
+}
+
+/// Pushes 1 if `r` is not finite and every value of `args` is finite, 0
+/// otherwise. `x - x` is 0 for a finite `x`, and nan otherwise.
+fn lost_finite(f: &mut FuncState, r: LocalIdx, args: &[LocalIdx]) {
+    f.ins()
+        .local_get(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne();
+    for &arg in args {
+        f.ins()
+            .local_get(arg)
+            .local_get(arg)
+            .f64_sub()
+            .f64_const(0.0.into())
+            .f64_eq()
+            .i32_and();
+    }
 }
 
 /// `f64_repr` writes the ASCII of the `repr` to the scratch area of the
