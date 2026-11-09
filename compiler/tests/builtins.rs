@@ -13,7 +13,6 @@ const STACK_SIZE: u32 = 65536;
 #[derive(Default)]
 struct Module {
     imports: usize,
-    tables: usize,
     elements: usize,
     exports: Vec<String>,
     /// For each defined function, the bytes it takes from the stack and the
@@ -28,7 +27,6 @@ fn module() -> Module {
     for payload in Parser::new(0).parse_all(WASM) {
         match payload.expect("a valid module") {
             Payload::ImportSection(s) => m.imports = s.count() as usize,
-            Payload::TableSection(s) => m.tables = s.count() as usize,
             Payload::ElementSection(s) => m.elements = s.count() as usize,
             Payload::ExportSection(s) => {
                 for export in s {
@@ -82,7 +80,16 @@ fn func(body: &wasmparser::FunctionBody, m: &mut Module) -> (u32, Vec<u32>) {
             Operator::Unreachable
             | Operator::MemoryGrow { .. }
             | Operator::MemorySize { .. }
-            | Operator::CallIndirect { .. } => m.forbidden.push(format!("{op:?}")),
+            | Operator::CallIndirect { .. }
+            | Operator::ReturnCallIndirect { .. }
+            | Operator::RefFunc { .. }
+            | Operator::TableGet { .. }
+            | Operator::TableSet { .. }
+            | Operator::TableSize { .. }
+            | Operator::TableGrow { .. }
+            | Operator::TableFill { .. }
+            | Operator::TableCopy { .. }
+            | Operator::TableInit { .. } => m.forbidden.push(format!("{op:?}")),
             _ => {}
         }
         last = [last[1].take(), Some(op)];
@@ -90,11 +97,12 @@ fn func(body: &wasmparser::FunctionBody, m: &mut Module) -> (u32, Vec<u32>) {
     (frame, calls)
 }
 
+/// The linker copies functions and data, and no table. `lld` may leave an
+/// empty table that no instruction uses, which the module goes without.
 #[test]
-fn has_no_imports_tables_or_panics() {
+fn has_no_imports_indirect_calls_or_panics() {
     let m = module();
     assert_eq!(m.imports, 0);
-    assert_eq!(m.tables, 0);
     assert_eq!(m.elements, 0);
     assert!(!m.exports.iter().any(|e| e == "__wasm_call_ctors"));
     assert!(m.exports.iter().any(|e| e == "__heap_base"));

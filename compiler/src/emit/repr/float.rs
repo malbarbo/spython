@@ -1,13 +1,18 @@
 //! The representations of `float`.
 
+use std::collections::BTreeMap;
+
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
 use super::str::StrRepr;
-use crate::cpython::{FLOAT_TRUE_DIVISION_BY_ZERO, INT_TRUE_DIVISION_BY_ZERO};
+use crate::cpython::{
+    FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO,
+    INT_TRUE_DIVISION_BY_ZERO,
+};
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
-use crate::ir::ArithOp;
+use crate::ir::{DivOp, FloatOp};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -16,11 +21,9 @@ pub(super) enum FloatRepr {
         /// module that writes no `float` goes without it, and without the
         /// builtin that it calls.
         write: Option<FuncIdx>,
-        /// `(func (param f64 f64) (result f64))`, which divides, for two
-        /// `int`s and for a `float`. They differ in the message of the
-        /// `ZeroDivisionError`.
-        int_div: Option<FuncIdx>,
-        float_div: Option<FuncIdx>,
+        /// `(func (param f64 f64) (result f64))` for each operator that
+        /// divides, which the module gets at the first use.
+        divs: BTreeMap<DivOp, FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -31,8 +34,7 @@ impl FloatRepr {
     pub fn f64(host: &Host) -> Self {
         FloatRepr::F64 {
             write: None,
-            int_div: None,
-            float_div: None,
+            divs: BTreeMap::new(),
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -71,17 +73,14 @@ impl FloatRepr {
     }
 
     /// Pops two `float`s and pushes the result of `op`.
-    pub fn arith(&self, f: &mut FuncState, op: ArithOp) {
+    pub fn arith(&self, f: &mut FuncState, op: FloatOp) {
         match self {
             FloatRepr::F64 { .. } => {
                 let mut ins = f.ins();
                 match op {
-                    ArithOp::Add => ins.f64_add(),
-                    ArithOp::Sub => ins.f64_sub(),
-                    ArithOp::Mul => ins.f64_mul(),
-                    ArithOp::FloorDiv | ArithOp::Mod => {
-                        unreachable!("the lowering rejects // and % on a float")
-                    }
+                    FloatOp::Add => ins.f64_add(),
+                    FloatOp::Sub => ins.f64_sub(),
+                    FloatOp::Mul => ins.f64_mul(),
                 };
             }
         }
@@ -93,18 +92,11 @@ impl FloatRepr {
         f: &mut FuncState,
         str: &mut StrRepr,
         exc: &Exceptions,
-        ints: bool,
+        op: DivOp,
     ) {
         match self {
-            FloatRepr::F64 {
-                int_div, float_div, ..
-            } => {
-                let (div, message) = if ints {
-                    (int_div, INT_TRUE_DIVISION_BY_ZERO)
-                } else {
-                    (float_div, FLOAT_TRUE_DIVISION_BY_ZERO)
-                };
-                let div = *div.get_or_insert_with(|| add_div(m, str, exc, message));
+            FloatRepr::F64 { divs, .. } => {
+                let div = *divs.entry(op).or_insert_with(|| add_div(m, str, exc, op));
                 f.ins().call(div);
             }
         }
@@ -137,9 +129,17 @@ impl FloatRepr {
     }
 }
 
-/// The function of `/`, which raises `ZeroDivisionError` with `message`
-/// when the divisor is 0 or -0.
-fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, message: &str) -> FuncIdx {
+/// The function of `op`, which raises `ZeroDivisionError` with the message
+/// of CPython when the divisor is 0 or -0. `//` and `%` call the port of
+/// CPython in the builtins.
+fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, op: DivOp) -> FuncIdx {
+    let (message, builtin) = match op {
+        DivOp::True { ints: true } => (INT_TRUE_DIVISION_BY_ZERO, None),
+        DivOp::True { ints: false } => (FLOAT_TRUE_DIVISION_BY_ZERO, None),
+        DivOp::Floor => (FLOAT_FLOOR_DIVISION_BY_ZERO, Some("f64_floor_div")),
+        DivOp::Mod => (FLOAT_MODULO_BY_ZERO, Some("f64_mod")),
+    };
+    let builtin = builtin.map(|name| m.builtin(name));
     let ty = m.func_type(&[ValType::F64, ValType::F64], &[ValType::F64]);
     let mut f = FuncState::new(2);
     let (a, b) = (f.param(0), f.param(1));
@@ -148,7 +148,11 @@ fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, message: &s
     str.literal(m, &mut f, message);
     exc.raise(&mut f);
     f.end();
-    f.ins().local_get(a).local_get(b).f64_div();
+    f.ins().local_get(a).local_get(b);
+    match builtin {
+        Some(builtin) => f.ins().call(builtin),
+        None => f.ins().f64_div(),
+    };
     m.add_func(ty, f.finish())
 }
 

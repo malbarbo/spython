@@ -10,7 +10,7 @@ use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
-use crate::ir::{ArithOp, CmpOp, Rep, SiteFrame};
+use crate::ir::{ArithOp, CmpOp, DivOp, FloatOp, Rep, SiteFrame};
 use float::FloatRepr;
 use int::IntRepr;
 use str::StrRepr;
@@ -203,15 +203,14 @@ impl Reprs {
     }
 
     /// Pops two `float`s and pushes the result of `op`.
-    pub fn float_arith(&self, f: &mut FuncState, op: ArithOp) {
+    pub fn float_arith(&self, f: &mut FuncState, op: FloatOp) {
         self.float.arith(f, op);
     }
 
-    /// Pops two `float`s and pushes the quotient, or raises
-    /// `ZeroDivisionError` with the message of CPython for two `int`s when
-    /// `ints` is `true`.
-    pub fn float_div(&mut self, m: &mut ModuleState, f: &mut FuncState, ints: bool) {
-        self.float.div(m, f, &mut self.str, &self.exc, ints);
+    /// Pops two `float`s and pushes the result of `op`, or raises
+    /// `ZeroDivisionError` when the divisor is 0.
+    pub fn float_div(&mut self, m: &mut ModuleState, f: &mut FuncState, op: DivOp) {
+        self.float.div(m, f, &mut self.str, &self.exc, op);
     }
 
     /// Pops a `float` and pushes its negation.

@@ -5,7 +5,7 @@ use ruff_text_size::Ranged;
 
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ArithOp, CmpOp, Expr, LogicOp, Rep};
+use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, LogicOp, Rep};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -186,24 +186,40 @@ impl<'a> Lowering<'a, '_> {
             (_, Rep::Str, _) | (_, _, Rep::Str) => return Err(unsupported(node, "this operator")),
             _ => {}
         }
+        let floats = left.rep() == Rep::Float || right.rep() == Rep::Float;
         if op == ast::Operator::Div {
-            let ints = left.rep() != Rep::Float && right.rep() != Rep::Float;
             return Ok(Expr::Div {
+                op: DivOp::True { ints: !floats },
                 left: Box::new(float_value(left, left_node)?),
                 right: Box::new(float_value(right, right_node)?),
-                ints,
                 site: self.site(node.range()),
             });
         }
         let op = arith_op(op).ok_or_else(|| unsupported(node, "this operator"))?;
-        if left.rep() == Rep::Float || right.rep() == Rep::Float {
-            if matches!(op, ArithOp::FloorDiv | ArithOp::Mod) {
-                return Err(unsupported(node, "this operator on a float"));
-            }
+        if floats {
+            let left = Box::new(float_value(left, left_node)?);
+            let right = Box::new(float_value(right, right_node)?);
+            let float_op = match op {
+                ArithOp::Add => FloatOp::Add,
+                ArithOp::Sub => FloatOp::Sub,
+                ArithOp::Mul => FloatOp::Mul,
+                ArithOp::FloorDiv | ArithOp::Mod => {
+                    return Ok(Expr::Div {
+                        op: if op == ArithOp::Mod {
+                            DivOp::Mod
+                        } else {
+                            DivOp::Floor
+                        },
+                        left,
+                        right,
+                        site: self.site(node.range()),
+                    });
+                }
+            };
             return Ok(Expr::FloatArith {
-                op,
-                left: Box::new(float_value(left, left_node)?),
-                right: Box::new(float_value(right, right_node)?),
+                op: float_op,
+                left,
+                right,
             });
         }
         Ok(Expr::Arith {

@@ -15,6 +15,10 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     core::arch::wasm32::unreachable()
 }
 
+mod div;
+
+pub use div::{floor_div, fmod, modulo};
+
 /// The longest `repr` of a float, `-2.2250738585072014e-308`.
 pub const REPR_MAX: usize = 24;
 

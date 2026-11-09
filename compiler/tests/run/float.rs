@@ -167,17 +167,51 @@ fn the_true_division_of_a_float_by_an_int_zero_raises_zero_division_error() {
 }
 
 #[test]
-fn floor_div_and_mod_on_a_float_are_unsupported() {
-    for source in [
+fn floor_div_and_mod_on_floats_follow_cpython() {
+    same_as_cpython(
+        "floor_div_and_mod_on_floats_follow_cpython",
         indoc! {"
-            print(1.5 // 1)
+            inf = 1e308 * 10
+            print(7.5 // 2, 7.5 % 2, -7.5 // 2, -7.5 % 2, 7.5 // -2, 7.5 % -2)
+            print(7 // 2.5, 7 % -2.5, True // 0.5, 5 % -0.5, -5 // 0.5)
+            print(0.0 % -2, -0.0 // 1, -0.0 % 1, 0.1 % 0.01, 1e16 % 3, 1e308 // 1e-308)
+            print(1.0 % inf, -1.0 % inf, 1.0 // inf, -1.0 // inf, inf // 1.0, inf % 1.0)
+            x = 10.0
+            x //= 3
+            y = 10.0
+            y %= -3
+            print(x, y)
         "},
+    );
+}
+
+#[test]
+fn the_floor_division_by_a_float_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_floor_division_by_a_float_zero_raises_zero_division_error",
         indoc! {"
-            print(3 % 1.5)
+            def floor(x: float, y: float) -> float:
+                return x // y
+
+            print(floor(7.5, 2.0))
+            print(floor(7.5, -0.0))
         "},
-    ] {
-        assert_eq!(unsupported(source), "this operator on a float");
-    }
+    );
+}
+
+#[test]
+fn the_modulo_by_an_int_zero_raises_zero_division_error() {
+    same_as_cpython(
+        "the_modulo_by_an_int_zero_raises_zero_division_error",
+        indoc! {"
+            def rest(x: float, n: int) -> float:
+                x %= n
+                return x
+
+            print(rest(7.5, 2))
+            print(rest(7.5, 0))
+        "},
+    );
 }
 
 /// A program without a `float` leaves out `f64_repr` and its data, which

@@ -147,19 +147,18 @@ pub(crate) enum Expr {
     IntAsFloat(Box<Expr>),
     /// `+`, `-` or `*` on two `float`s, which raises nothing.
     FloatArith {
-        op: ArithOp,
+        op: FloatOp,
         left: Box<Expr>,
         right: Box<Expr>,
     },
     /// `-` on a `float`, which gives `-0.0` for `0.0`.
     FloatNeg(Box<Expr>),
-    /// `/` on two `float`s. A divisor of 0 raises `ZeroDivisionError` at the
-    /// site, with the message of CPython for two `int`s when `ints` is
-    /// `true`.
+    /// `/`, `//` or `%` on two `float`s. A divisor of 0 raises
+    /// `ZeroDivisionError` at the site.
     Div {
+        op: DivOp,
         left: Box<Expr>,
         right: Box<Expr>,
-        ints: bool,
         site: Site,
     },
     /// Two `str`s, one after the other. The site is where the program runs
@@ -284,6 +283,26 @@ pub(crate) enum ArithOp {
     Sub,
     Mul,
     FloorDiv,
+    Mod,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FloatOp {
+    Add,
+    Sub,
+    Mul,
+}
+
+/// An operator of `float` that divides, which decides the message of the
+/// `ZeroDivisionError`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum DivOp {
+    /// `/`, where `ints` is `true` when both operands were `int`s or
+    /// `bool`s.
+    True {
+        ints: bool,
+    },
+    Floor,
     Mod,
 }
 
