@@ -47,6 +47,36 @@ jobs:
       - name: Test
         run: cd compiler/builtins && cargo test
 
+  # The tests of the compiler run each module in wasmtime and in deno, and
+  # compare the tracebacks with the ones of python3. The modules are the
+  # same on every platform, so one platform is enough.
+  compiler:
+    name: Test the compiler (Linux)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.x"
+
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: "48.0.0"
+
+      - name: Test
+        run: cargo test -p compiler
+
   wasm:
     name: Build & Test WASM
     runs-on: ubuntu-24.04
@@ -65,6 +95,11 @@ jobs:
 
       - name: Install binaryen
         run: sudo apt-get install -y binaryen
+
+      # `--backend=wasmgc` runs the module in the wasmtime on the `PATH`.
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          version: "48.0.0"
 
       - name: Build & Test
         run: make test-wasm
@@ -120,9 +155,11 @@ jobs:
         run: echo "${{ matrix.linker }}" >> $GITHUB_ENV
 
       # The second run is the image tests, which are `#[ignore]` by default.
+      # The compiler has its own job, and the tests of `--backend=wasmgc`
+      # need wasmtime, which only the wasm job installs.
       - name: Run tests
         env:
           RUST_BACKTRACE: "1"
         run: |
-          cargo test --target ${{ matrix.target }}
-          cargo test --target ${{ matrix.target }} -- --ignored
+          cargo test --target ${{ matrix.target }} -p engine -p spython -- --skip the_wasmgc_backend
+          cargo test --target ${{ matrix.target }} -p engine -p spython -- --ignored
