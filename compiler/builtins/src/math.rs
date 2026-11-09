@@ -62,6 +62,11 @@ pub extern "C" fn f64_ulp(x: f64) -> f64 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn f64_ldexp(x: f64, i: i32) -> f64 {
+    libm::ldexp(x, i)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn f64_atan2(y: f64, x: f64) -> f64 {
     libm::atan2(y, x)
 }

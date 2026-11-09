@@ -221,6 +221,13 @@ pub(crate) enum Expr {
         x: Box<Expr>,
         y: Box<Expr>,
     },
+    /// `math.ldexp(x, i)` of a `float` and an `int`. A result too large
+    /// for a `float` raises `OverflowError` at the site.
+    Ldexp {
+        x: Box<Expr>,
+        i: Box<Expr>,
+        site: Site,
+    },
     /// `math.copysign(x, y)` of two `float`s.
     Copysign {
         x: Box<Expr>,
@@ -607,6 +614,7 @@ impl Expr {
             | Expr::Hypot { .. }
             | Expr::Copysign { .. }
             | Expr::Nextafter { .. }
+            | Expr::Ldexp { .. }
             | Expr::Fmod { .. }
             | Expr::LogBase { .. }
             | Expr::FloatCeil(_)

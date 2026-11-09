@@ -671,6 +671,11 @@ impl Emitter<'_> {
                 self.expr(f, y);
                 self.reprs.nextafter(&mut self.m, f);
             }
+            Expr::Ldexp { x, i, site } => {
+                self.expr(f, x);
+                self.expr(f, i);
+                self.at(f, *site, |e, f| e.reprs.ldexp(&mut e.m, f));
+            }
             Expr::Copysign { x, y } => {
                 self.expr(f, x);
                 self.expr(f, y);

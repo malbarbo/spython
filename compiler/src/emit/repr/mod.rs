@@ -294,6 +294,13 @@ impl Reprs {
         self.float.nextafter(m, f);
     }
 
+    /// Pops a `float` and an `int` and pushes `math.ldexp` of them, or
+    /// raises `OverflowError` for a result too large for a `float`.
+    pub fn ldexp(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.float.ldexp(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops `x` and `y` and pushes `math.hypot(x, y)`.
     pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState) {
         self.float.hypot(m, f);

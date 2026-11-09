@@ -40,6 +40,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 f64) (result f64))` for `math.fmod`, which the
         /// module gets at the first use.
         fmod: Option<FuncIdx>,
+        /// `(func (param f64 i32) (result f64))` for `math.ldexp`, which
+        /// the module gets at the first use.
+        ldexp: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -56,6 +59,7 @@ impl FloatRepr {
             maths: BTreeMap::new(),
             log_base: None,
             fmod: None,
+            ldexp: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -307,6 +311,23 @@ impl FloatRepr {
         }
     }
 
+    /// Pops `x` and an `i32` and pushes `math.ldexp` of them, or raises the
+    /// error of CPython.
+    pub fn ldexp(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            FloatRepr::F64 { ldexp, .. } => {
+                let index = *ldexp.get_or_insert_with(|| add_ldexp(m, str, exc));
+                f.ins().call(index);
+            }
+        }
+    }
+
     /// Pops a `float` and pushes the `bool` of whether it is of `class`.
     pub fn is(&self, f: &mut FuncState, class: FloatClass) {
         match self {
@@ -535,6 +556,39 @@ fn add_fmod(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx
         .i32_and();
     f.if_(BlockType::Empty);
     str.literal(m, &mut f, MATH_DOMAIN_ERROR);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `math.ldexp(x, i)`, which calls `f64_ldexp` and raises
+/// as `math_ldexp` of CPython does. An infinity from a finite `x` raises
+/// `OverflowError`.
+fn add_ldexp(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let builtin = m.builtin("f64_ldexp");
+    let ty = m.func_type(&[ValType::F64, ValType::I32], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (x, i) = (f.param(0), f.param(1));
+    let r = f.local(ValType::F64);
+    // `x - x` is 0 for a finite `x`, and nan otherwise.
+    f.ins()
+        .local_get(x)
+        .local_get(i)
+        .call(builtin)
+        .local_tee(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, MATH_RANGE_ERROR);
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);

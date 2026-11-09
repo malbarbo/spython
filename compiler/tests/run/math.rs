@@ -571,3 +571,42 @@ fn nextafter_and_ulp_follow_python() {
         "},
     );
 }
+
+#[test]
+fn ldexp_follows_python() {
+    same_as_cpython(
+        "ldexp_follows_python",
+        indoc! {"
+            import math
+            from math import ldexp
+
+            print(ldexp(1.0, 2), ldexp(3, -1), ldexp(True, 1), ldexp(-0.0, 5), ldexp(0.75, 1024))
+            print(ldexp(1.0, -1074), ldexp(1.0, -1080), ldexp(-1.5, -1075), ldexp(5e-324, 1074))
+            print(ldexp(0.0, 1073741823), ldexp(1.0, -1073741824), ldexp(1e-300, 1000))
+            print(ldexp(math.inf, -5), ldexp(-math.inf, 5), ldexp(math.nan, 1), ldexp(2.0, -1073741824))
+        "},
+    );
+}
+
+#[test]
+fn ldexp_too_large_raises_overflow_error() {
+    for (name, call) in [
+        (
+            "ldexp_of_1024_raises_overflow_error",
+            "math.ldexp(1.0, 1024)",
+        ),
+        (
+            "ldexp_of_the_greatest_int_raises_overflow_error",
+            "math.ldexp(-0.5, 1073741823)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}
