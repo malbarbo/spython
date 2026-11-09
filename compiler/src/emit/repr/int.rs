@@ -1,11 +1,13 @@
 //! The representations of `int`.
 
+use std::collections::BTreeMap;
+
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{
     DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, FACTORIAL_TOO_LARGE, INFINITY_TO_INT,
-    MODULO_BY_ZERO, NAN_TO_INT,
+    MODULO_BY_ZERO, NAN_TO_INT, NEGATIVE_K, NEGATIVE_N,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -47,7 +49,26 @@ pub(super) enum IntRepr {
         lcm: Option<FuncIdx>,
         /// `(func (param i64) (result i32))` for the end of `math.lcm`.
         lcm_end: Option<FuncIdx>,
+        /// `(func (param i32 i32) (result i32))` for `math.comb` and
+        /// `math.perm`, which the module gets at the first use.
+        chooses: BTreeMap<Choice, FuncIdx>,
     },
+}
+
+/// The ways of `math.comb` and `math.perm` to choose `k` of `n` things.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Choice {
+    Comb,
+    Perm,
+}
+
+impl Choice {
+    fn name(self) -> &'static str {
+        match self {
+            Choice::Comb => "comb",
+            Choice::Perm => "perm",
+        }
+    }
 }
 
 impl IntRepr {
@@ -73,6 +94,7 @@ impl IntRepr {
             factorial: None,
             lcm: None,
             lcm_end: None,
+            chooses: BTreeMap::new(),
         }
     }
 
@@ -250,6 +272,24 @@ impl IntRepr {
         match self {
             IntRepr::I31 { lcm_end, .. } => {
                 let func = *lcm_end.get_or_insert_with(|| add_lcm_end(m, str, exc));
+                f.ins().call(func);
+            }
+        }
+    }
+
+    pub fn choose(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+        choice: Choice,
+    ) {
+        match self {
+            IntRepr::I31 { chooses, .. } => {
+                let func = *chooses
+                    .entry(choice)
+                    .or_insert_with(|| add_choose(m, str, exc, choice));
                 f.ins().call(func);
             }
         }
@@ -547,6 +587,83 @@ fn add_lcm(m: &mut ModuleState, gcd: FuncIdx) -> FuncIdx {
     m.add_func(ty, f.finish())
 }
 
+/// The message of a result of `func` that does not fit in an `int`. The
+/// message does not give the result, which may not fit in an `i64`.
+fn too_large(func: &str) -> String {
+    format!("spython: the result of {func} does not fit in an int, which goes from {MIN} to {MAX}")
+}
+
+/// The function of `math.comb(n, k)` or `math.perm(n, k)`, which raises as
+/// `math_comb_impl` and `math_perm_impl` of CPython do. With `k <= n`, the
+/// result is the product of the `k` steps `r * (n - i)`, divided by `i + 1`
+/// for `comb`, with `i` from 0. Each step keeps `r` exact. `perm` grows at
+/// each step, and so does `comb` with `k` at most `n / 2`, so a step whose
+/// `r` does not fit stops the program.
+fn add_choose(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, choice: Choice) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let mut f = FuncState::new(2);
+    let (n, k) = (f.param(0), f.param(1));
+    let (i, r) = (f.local(ValType::I32), f.local(ValType::I64));
+    for (arg, message) in [(n, NEGATIVE_N), (k, NEGATIVE_K)] {
+        f.ins().local_get(arg).i32_const(0).i32_lt_s();
+        f.if_(BlockType::Empty);
+        str.literal(m, &mut f, message);
+        exc.raise(&mut f);
+        f.end();
+    }
+    f.ins().local_get(k).local_get(n).i32_gt_s();
+    f.if_(BlockType::Empty);
+    f.ins().i32_const(0).return_();
+    f.end();
+    if choice == Choice::Comb {
+        // `comb(n, k)` is `comb(n, n - k)`.
+        f.ins()
+            .local_get(n)
+            .local_get(k)
+            .i32_sub()
+            .local_get(k)
+            .local_get(n)
+            .local_get(k)
+            .i32_sub()
+            .local_get(k)
+            .i32_lt_s()
+            .select()
+            .local_set(k);
+    }
+    f.ins().i64_const(1).local_set(r);
+    let done = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(k).i32_ge_s();
+    f.br_if(done);
+    f.ins()
+        .local_get(r)
+        .local_get(n)
+        .local_get(i)
+        .i32_sub()
+        .i64_extend_i32_s()
+        .i64_mul()
+        .local_set(r);
+    f.ins().local_get(i).i32_const(1).i32_add().local_set(i);
+    if choice == Choice::Comb {
+        f.ins()
+            .local_get(r)
+            .local_get(i)
+            .i64_extend_i32_s()
+            .i64_div_u()
+            .local_set(r);
+    }
+    f.ins().local_get(r).i64_const(MAX).i64_gt_s();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, &too_large(choice.name()));
+    exc.raise(&mut f);
+    f.end();
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(r).i32_wrap_i64();
+    m.add_func(ty, f.finish())
+}
+
 /// The function of the end of `math.lcm`, which gives the `lcm` as an
 /// `int`, or stops the program when it is above `MAX`.
 fn add_lcm_end(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
@@ -555,13 +672,7 @@ fn add_lcm_end(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Func
     let v = f.param(0);
     f.ins().local_get(v).i64_const(MAX).i64_gt_u();
     f.if_(BlockType::Empty);
-    str.literal(
-        m,
-        &mut f,
-        &format!(
-            "spython: the result of lcm does not fit in an int, which goes from {MIN} to {MAX}"
-        ),
-    );
+    str.literal(m, &mut f, &too_large("lcm"));
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(v).i32_wrap_i64();

@@ -51,6 +51,8 @@ pub(crate) const FMA_INVALID: &str = "ValueError: invalid operation in fma";
 pub(crate) const FMA_OVERFLOW: &str = "OverflowError: overflow in fma";
 pub(crate) const NEGATIVE_TOLERANCE: &str = "ValueError: tolerances must be non-negative";
 pub(crate) const ISQRT_OF_A_NEGATIVE: &str = "ValueError: isqrt() argument must be nonnegative";
+pub(crate) const NEGATIVE_N: &str = "ValueError: n must be a non-negative integer";
+pub(crate) const NEGATIVE_K: &str = "ValueError: k must be a non-negative integer";
 pub(crate) const ROUNDED_TOO_LARGE: &str = "OverflowError: rounded value too large to represent";
 /// The `OverflowError` of `errno` `ERANGE`, with the `strerror` of glibc.
 pub(crate) const RESULT_OUT_OF_RANGE: &str = "OverflowError: (34, 'Numerical result out of range')";

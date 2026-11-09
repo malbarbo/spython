@@ -134,7 +134,7 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             import math
 
-            print(math.comb(5, 2))
+            print(math.frexp(5.0))
         "}),
         "this function of math"
     );
@@ -310,26 +310,32 @@ fn factorial_of_a_negative_int_raises_value_error() {
     );
 }
 
-/// `13!` is the least factorial that does not fit in an `int`.
+/// `13!` is the least factorial that does not fit in an `int`. CPython
+/// takes `perm(n)` to `factorial(n)`.
 #[test]
 fn factorial_that_does_not_fit_raises_overflow_error() {
-    for n in ["13", "1073741823"] {
-        let name = format!("factorial_of_{n}_raises_overflow_error");
+    for (func, n) in [
+        ("factorial", "13"),
+        ("factorial", "1073741823"),
+        ("perm", "13"),
+    ] {
+        let name = format!("{func}_of_{n}_raises_overflow_error");
         let output = run(
             &name,
             &formatdoc! {"
                 import math
 
-                print(math.factorial({n}))
+                print(math.{func}({n}))
             "},
         );
+        let tildes = "~".repeat(func.len() + 5);
         let carets = "^".repeat(n.len() + 2);
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             format!(
                 "Traceback (most recent call last):\n  \
                  File \"{}\", line 3, in <module>\n    \
-                 print(math.factorial({n}))\n          ~~~~~~~~~~~~~~{carets}\n\
+                 print(math.{func}({n}))\n          {tildes}{carets}\n\
                  OverflowError: factorial() argument should not exceed 12\n",
                 path(&name, "py").display(),
             ),
@@ -865,6 +871,88 @@ fn lcm_that_does_not_fit_stops_the_program() {
                  File \"{}\", line 3, in <module>\n    \
                  print(math.lcm({args}))\n          ~~~~~~~~{carets}\n\
                  spython: the result of lcm does not fit in an int, \
+                 which goes from -1073741824 to 1073741823\n",
+                path(&name, "py").display(),
+            ),
+            "stderr"
+        );
+        assert_eq!(output.status.code(), Some(1), "exit code");
+    }
+}
+
+#[test]
+fn comb_and_perm_follow_python() {
+    same_as_cpython(
+        "comb_and_perm_follow_python",
+        indoc! {"
+            import math
+            from math import comb, perm
+
+            print(comb(5, 2), comb(5, 0), comb(5, 5), comb(5, 7), comb(0, 0), comb(32, 16), comb(32, 17))
+            print(comb(1073741823, 1), comb(1073741823, 1073741822), comb(46341, 2), comb(True, True))
+            print(perm(5, 2), perm(5, 0), perm(5, 5), perm(5, 7), perm(0, 0), perm(12, 12), perm(5))
+            print(perm(1073741823, 1), perm(32768, 2), perm(0), math.perm(12), math.comb(60, 6))
+        "},
+    );
+}
+
+#[test]
+fn comb_and_perm_raise_as_in_python() {
+    for (name, call) in [
+        (
+            "comb_of_a_negative_n_raises_value_error",
+            "math.comb(-1, -1)",
+        ),
+        (
+            "comb_of_a_negative_k_raises_value_error",
+            "math.comb(1, -1)",
+        ),
+        (
+            "perm_of_a_negative_n_raises_value_error",
+            "math.perm(-1, 2)",
+        ),
+        (
+            "perm_of_a_negative_k_raises_value_error",
+            "math.perm(3, -2)",
+        ),
+        ("perm_of_a_negative_int_raises_value_error", "math.perm(-1)"),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}
+
+#[test]
+fn comb_and_perm_that_do_not_fit_stop_the_program() {
+    for (case, func, args) in [
+        ("comb_of_33", "comb", "33, 16"),
+        ("comb_of_the_greatest_int", "comb", "1073741823, 2"),
+        ("perm_of_13", "perm", "13, 12"),
+        ("perm_of_32769", "perm", "32769, 2"),
+    ] {
+        let name = format!("{case}_stops_the_program");
+        let output = run(
+            &name,
+            &formatdoc! {"
+                import math
+
+                print(math.{func}({args}))
+            "},
+        );
+        let carets = "^".repeat(args.len() + 2);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!(
+                "Traceback (most recent call last):\n  \
+                 File \"{}\", line 3, in <module>\n    \
+                 print(math.{func}({args}))\n          ~~~~~~~~~{carets}\n\
+                 spython: the result of {func} does not fit in an int, \
                  which goes from -1073741824 to 1073741823\n",
                 path(&name, "py").display(),
             ),

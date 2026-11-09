@@ -14,7 +14,7 @@ use crate::cpython::{
 };
 use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame};
 use float::FloatRepr;
-use int::IntRepr;
+use int::{Choice, IntRepr};
 use str::StrRepr;
 
 pub(crate) struct Reprs {
@@ -234,6 +234,20 @@ impl Reprs {
     /// it does not fit.
     pub fn lcm_end(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.lcm_end(m, f, &mut self.str, &self.exc);
+    }
+
+    /// Pops `n` and `k` and pushes `math.comb(n, k)`, or raises the error
+    /// of a negative `int` or of a result that does not fit.
+    pub fn comb(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int
+            .choose(m, f, &mut self.str, &self.exc, Choice::Comb);
+    }
+
+    /// Pops `n` and `k` and pushes `math.perm(n, k)`, or raises the error
+    /// of a negative `int` or of a result that does not fit.
+    pub fn perm(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int
+            .choose(m, f, &mut self.str, &self.exc, Choice::Perm);
     }
 
     /// Pops an `int` and pushes `math.factorial` of it, or raises the error

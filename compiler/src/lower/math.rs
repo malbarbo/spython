@@ -114,6 +114,8 @@ impl<'a> Lowering<'a, '_> {
                 | "isclose"
                 | "isqrt"
                 | "lcm"
+                | "comb"
+                | "perm"
         ) || MathFunc::of(member).is_some()
             || MathFunc2::of(member).is_some();
         if !known {
@@ -187,7 +189,18 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(self.math_int(n)?),
                 site: self.site(call.range()),
             },
-            ("factorial", [n], []) => Expr::IntFactorial {
+            ("comb", [n, k], []) => Expr::IntComb {
+                n: Box::new(self.math_int(n)?),
+                k: Box::new(self.math_int(k)?),
+                site: self.site(call.range()),
+            },
+            ("perm", [n, k], []) => Expr::IntPerm {
+                n: Box::new(self.math_int(n)?),
+                k: Box::new(self.math_int(k)?),
+                site: self.site(call.range()),
+            },
+            // CPython takes `perm(n)` to `factorial(n)`, with its errors.
+            ("factorial" | "perm", [n], []) => Expr::IntFactorial {
                 operand: Box::new(self.math_int(n)?),
                 site: self.site(call.range()),
             },
@@ -217,6 +230,8 @@ impl<'a> Lowering<'a, '_> {
                             | "isclose"
                             | "isqrt"
                             | "lcm"
+                            | "comb"
+                            | "perm"
                     ) =>
             {
                 self.math_unary(call, member, arg)?

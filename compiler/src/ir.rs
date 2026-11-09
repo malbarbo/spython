@@ -269,6 +269,20 @@ pub(crate) enum Expr {
         args: Vec<Expr>,
         site: Site,
     },
+    /// `math.comb(n, k)` of two `int`s. A negative `int` raises
+    /// `ValueError` at the site, and a result that does not fit in an
+    /// `int` stops the program there.
+    IntComb {
+        n: Box<Expr>,
+        k: Box<Expr>,
+        site: Site,
+    },
+    /// `math.perm(n, k)` of two `int`s, which raises as `math.comb` does.
+    IntPerm {
+        n: Box<Expr>,
+        k: Box<Expr>,
+        site: Site,
+    },
     /// `math.factorial` of an `int`. A negative `int` raises `ValueError`
     /// at the site, and an `int` above 12 raises `OverflowError` there.
     IntFactorial {
@@ -669,6 +683,8 @@ impl Expr {
             | Expr::IntAbs { .. }
             | Expr::IntGcd { .. }
             | Expr::IntLcm { .. }
+            | Expr::IntComb { .. }
+            | Expr::IntPerm { .. }
             | Expr::IntFactorial { .. }
             | Expr::IntIsqrt { .. }
             | Expr::IntRound { .. }
