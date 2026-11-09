@@ -171,3 +171,23 @@ Commits:
 Fora da 0c: `int ** int` (o tipo é `int | float` quando o expoente não é
 literal), a caixa `$Float` e o despacho de `int | float`, `float(str)`,
 `math`, `round` e o hash.
+
+## Os dígitos de `math`
+
+O CPython calcula a maior parte de `math` com a libm do sistema, e a
+referência é a do Linux, o glibc. O glibc é LGPL, então os builtins não
+copiam código dele. `exp`, `exp2`, `log` e `**` são portas do musl, que
+tem as mesmas rotinas da Arm que o glibc, e dão os dígitos do CPython.
+`tanh` é porta do msun do FreeBSD. `gamma`, `lgamma`, `hypot` e
+`remainder` são portas do `mathmodule.c` do CPython. O resto vem do crate
+`libm`.
+
+Por isso um resultado de `math` pode diferir do CPython no último dígito.
+Nas medidas contra o python3, as funções trigonométricas diferem em 3 a 6%
+das entradas, `atan2` em 18% e `cbrt` em 46%. `tanh` abaixo de 1 e
+`gamma` abaixo de 0 diferem em menos de 1%, porque chamam o `expm1`, o
+`sin` e o `cos` do crate. O `pxfm`, que arredonda corretamente, deixaria
+as trigonométricas perto do glibc, mas depende de `std` e tem caminhos de
+pânico. Os testes do crate comparam com o python3 e dizem onde aceitam a
+diferença. O CPython do macOS e o do Windows também diferem do CPython do
+Linux nessas funções.
