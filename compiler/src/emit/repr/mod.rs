@@ -290,6 +290,12 @@ impl Reprs {
         self.float.math2_call(m, f, &mut self.str, &self.exc, func);
     }
 
+    /// Pops `x`, `y` and `z` and pushes `math.fma(x, y, z)`, or raises the
+    /// error of CPython.
+    pub fn fma(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.fma(m, f, &mut self.str, &self.exc);
+    }
+
     /// Pops `y` and `x` and pushes `math.atan2(y, x)`.
     pub fn atan2(&self, m: &mut ModuleState, f: &mut FuncState) {
         self.float.atan2(m, f);

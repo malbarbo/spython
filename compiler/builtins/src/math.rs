@@ -104,6 +104,11 @@ pub extern "C" fn f64_remainder(x: f64, y: f64) -> f64 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn f64_fma(x: f64, y: f64, z: f64) -> f64 {
+    libm::fma(x, y, z)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn f64_atan2(y: f64, x: f64) -> f64 {
     libm::atan2(y, x)
 }

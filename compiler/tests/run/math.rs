@@ -699,3 +699,46 @@ fn pow_raises_as_in_python() {
         );
     }
 }
+
+#[test]
+fn fma_follows_python() {
+    same_as_cpython(
+        "fma_follows_python",
+        indoc! {"
+            import math
+            from math import fma
+
+            inf = math.inf
+            print(fma(2, 3, 4), fma(0.1, 10, -1), fma(1e308, 10, -1e308 * 10), fma(-0.0, 0.0, 0.0))
+            print(fma(1e-300, 1e-300, 0), fma(True, 2.5, False), fma(inf, 2, 1), fma(inf, 1, inf))
+            print(fma(math.nan, 0, 1), fma(inf, 0, math.nan), fma(1, 1, -inf))
+        "},
+    );
+}
+
+#[test]
+fn fma_raises_as_in_python() {
+    for (name, call) in [
+        (
+            "fma_too_large_raises_overflow_error",
+            "math.fma(1e308, 10, 0)",
+        ),
+        (
+            "fma_of_inf_times_0_raises_value_error",
+            "math.fma(math.inf, 0, 1)",
+        ),
+        (
+            "fma_of_inf_minus_inf_raises_value_error",
+            "math.fma(math.inf, 1, -math.inf)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}

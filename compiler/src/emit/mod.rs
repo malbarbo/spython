@@ -661,6 +661,12 @@ impl Emitter<'_> {
                 self.expr(f, y);
                 self.at(f, *site, |e, f| e.reprs.math2_call(&mut e.m, f, *func));
             }
+            Expr::Fma { x, y, z, site } => {
+                self.expr(f, x);
+                self.expr(f, y);
+                self.expr(f, z);
+                self.at(f, *site, |e, f| e.reprs.fma(&mut e.m, f));
+            }
             Expr::Atan2 { y, x } => {
                 self.expr(f, y);
                 self.expr(f, x);

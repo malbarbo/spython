@@ -110,6 +110,7 @@ impl<'a> Lowering<'a, '_> {
                 | "radians"
                 | "nextafter"
                 | "ldexp"
+                | "fma"
         ) || MathFunc::of(member).is_some()
             || MathFunc2::of(member).is_some();
         if !known {
@@ -127,6 +128,12 @@ impl<'a> Lowering<'a, '_> {
                     .iter()
                     .map(|arg| self.math_int(arg))
                     .collect::<Result<_, _>>()?,
+                site: self.site(call.range()),
+            },
+            ("fma", [x, y, z], []) => Expr::Fma {
+                x: Box::new(self.math_float(x)?),
+                y: Box::new(self.math_float(y)?),
+                z: Box::new(self.math_float(z)?),
                 site: self.site(call.range()),
             },
             ("atan2", [y, x], []) => Expr::Atan2 {
@@ -176,6 +183,7 @@ impl<'a> Lowering<'a, '_> {
                             | "factorial"
                             | "nextafter"
                             | "ldexp"
+                            | "fma"
                     ) =>
             {
                 self.math_unary(call, member, arg)?

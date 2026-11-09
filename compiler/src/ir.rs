@@ -214,6 +214,14 @@ pub(crate) enum Expr {
         y: Box<Expr>,
         site: Site,
     },
+    /// `math.fma(x, y, z)` of three `float`s. A nan from values that are
+    /// not nan, and an infinity from finite values, raise at the site.
+    Fma {
+        x: Box<Expr>,
+        y: Box<Expr>,
+        z: Box<Expr>,
+        site: Site,
+    },
     /// `math.atan2(y, x)` of two `float`s.
     Atan2 {
         y: Box<Expr>,
@@ -648,6 +656,7 @@ impl Expr {
             | Expr::Copysign { .. }
             | Expr::Nextafter { .. }
             | Expr::Math2Call { .. }
+            | Expr::Fma { .. }
             | Expr::Ldexp { .. }
             | Expr::Fmod { .. }
             | Expr::LogBase { .. }

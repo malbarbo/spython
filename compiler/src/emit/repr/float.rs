@@ -6,9 +6,9 @@ use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{
-    FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO,
-    INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR, RESULT_OUT_OF_RANGE,
-    ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
+    FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO, FMA_INVALID,
+    FMA_OVERFLOW, INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR,
+    RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -46,6 +46,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 i32) (result f64))` for `math.ldexp`, which
         /// the module gets at the first use.
         ldexp: Option<FuncIdx>,
+        /// `(func (param f64 f64 f64) (result f64))` for `math.fma`, which
+        /// the module gets at the first use.
+        fma: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
@@ -64,6 +67,7 @@ impl FloatRepr {
             log_base: None,
             fmod: None,
             ldexp: None,
+            fma: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
@@ -260,6 +264,23 @@ impl FloatRepr {
                 let index = *maths2
                     .entry(func)
                     .or_insert_with(|| add_math2(m, str, exc, func));
+                f.ins().call(index);
+            }
+        }
+    }
+
+    /// Pops `x`, `y` and `z` and pushes `math.fma(x, y, z)`, or raises the
+    /// error of CPython.
+    pub fn fma(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            FloatRepr::F64 { fma, .. } => {
+                let index = *fma.get_or_insert_with(|| add_fma(m, str, exc));
                 f.ins().call(index);
             }
         }
@@ -605,6 +626,52 @@ fn add_math2(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Mat
         .i32_and();
     f.if_(BlockType::Empty);
     str.literal(m, &mut f, MATH_RANGE_ERROR);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `math.fma(x, y, z)`, which calls `f64_fma` and raises
+/// as `math_fma_impl` of CPython does. A nan from values that are not nan
+/// raises `ValueError`, and an infinity from finite values raises
+/// `OverflowError`.
+fn add_fma(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let builtin = m.builtin("f64_fma");
+    let ty = m.func_type(&[ValType::F64; 3], &[ValType::F64]);
+    let mut f = FuncState::new(3);
+    let args = [f.param(0), f.param(1), f.param(2)];
+    let r = f.local(ValType::F64);
+    for arg in args {
+        f.ins().local_get(arg);
+    }
+    f.ins().call(builtin).local_tee(r).local_get(r).f64_ne();
+    for arg in args {
+        f.ins().local_get(arg).local_get(arg).f64_eq().i32_and();
+    }
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, FMA_INVALID);
+    exc.raise(&mut f);
+    f.end();
+    // `r` is not nan here, so `r - r` is not 0 for an infinity alone, and
+    // `x - x` is 0 for a finite `x` alone.
+    f.ins()
+        .local_get(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne();
+    for arg in args {
+        f.ins()
+            .local_get(arg)
+            .local_get(arg)
+            .f64_sub()
+            .f64_const(0.0.into())
+            .f64_eq()
+            .i32_and();
+    }
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, FMA_OVERFLOW);
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);
