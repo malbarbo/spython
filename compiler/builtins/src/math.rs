@@ -2,6 +2,8 @@
 //! from the `libm` crate. They can differ from the libm of glibc in the last
 //! bit.
 
+use crate::div::fmod;
+
 macro_rules! unary {
     ($($export:ident = $func:ident;)*) => {
         $(
@@ -64,6 +66,41 @@ pub extern "C" fn f64_ulp(x: f64) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn f64_ldexp(x: f64, i: i32) -> f64 {
     libm::ldexp(x, i)
+}
+
+/// `math.remainder(x, y)`, as `m_remainder` of CPython computes it. The
+/// result is exact, and a tie goes to the even multiple of `y`. A `y` of 0
+/// and an infinite `x` give nan.
+#[unsafe(no_mangle)]
+pub extern "C" fn f64_remainder(x: f64, y: f64) -> f64 {
+    if x.is_finite() && y.is_finite() {
+        if y == 0.0 {
+            return f64::NAN;
+        }
+        let (absx, absy) = (libm::fabs(x), libm::fabs(y));
+        let m = fmod(absx, absy);
+        let c = absy - m;
+        let r = if m < c {
+            m
+        } else if m > c {
+            -c
+        } else {
+            // A tie. `absx - m` is an exact multiple of `absy`, and the
+            // `fmod` tells whether half of it is an odd multiple.
+            m - 2.0 * fmod(0.5 * (absx - m), absy)
+        };
+        return libm::copysign(1.0, x) * r;
+    }
+    if x.is_nan() {
+        return x;
+    }
+    if y.is_nan() {
+        return y;
+    }
+    if x.is_infinite() {
+        return f64::NAN;
+    }
+    x
 }
 
 #[unsafe(no_mangle)]

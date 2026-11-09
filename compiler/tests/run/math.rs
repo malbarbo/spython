@@ -610,3 +610,40 @@ fn ldexp_too_large_raises_overflow_error() {
         );
     }
 }
+
+#[test]
+fn remainder_follows_python() {
+    same_as_cpython(
+        "remainder_follows_python",
+        indoc! {"
+            import math
+            from math import remainder
+
+            inf = math.inf
+            print(remainder(5, 2), remainder(7, 2), remainder(-5, 2), remainder(5.5, -2), remainder(-0.0, 1))
+            print(remainder(10, 3), remainder(11, 3), remainder(1e308, 3), remainder(5e-324, 1e-323))
+            print(remainder(0.1, 0.03), remainder(3, 1.5), remainder(4.5, 1.5), remainder(True, 2))
+            print(remainder(7, inf), remainder(-7, -inf), remainder(math.nan, 0), remainder(1, math.nan))
+        "},
+    );
+}
+
+#[test]
+fn remainder_raises_as_in_python() {
+    for (name, call) in [
+        ("remainder_by_0_raises_value_error", "math.remainder(1, 0)"),
+        (
+            "remainder_of_an_infinity_raises_value_error",
+            "math.remainder(-math.inf, 2)",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import math
+
+                print({call})
+            "},
+        );
+    }
+}

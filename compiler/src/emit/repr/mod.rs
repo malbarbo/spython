@@ -10,7 +10,7 @@ use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE};
-use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, Rep, SiteFrame};
+use crate::ir::{ArithOp, CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame};
 use float::FloatRepr;
 use int::IntRepr;
 use str::StrRepr;
@@ -282,6 +282,12 @@ impl Reprs {
     /// CPython.
     pub fn math_call(&mut self, m: &mut ModuleState, f: &mut FuncState, func: MathFunc) {
         self.float.math_call(m, f, &mut self.str, &self.exc, func);
+    }
+
+    /// Pops `x` and `y` and pushes `func` of them, or raises the error of
+    /// CPython.
+    pub fn math2_call(&mut self, m: &mut ModuleState, f: &mut FuncState, func: MathFunc2) {
+        self.float.math2_call(m, f, &mut self.str, &self.exc, func);
     }
 
     /// Pops `y` and `x` and pushes `math.atan2(y, x)`.

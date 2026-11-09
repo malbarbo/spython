@@ -206,6 +206,14 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         site: Site,
     },
+    /// A function of `math` of two `float`s. A result that CPython rejects
+    /// raises at the site.
+    Math2Call {
+        func: MathFunc2,
+        x: Box<Expr>,
+        y: Box<Expr>,
+        site: Site,
+    },
     /// `math.atan2(y, x)` of two `float`s.
     Atan2 {
         y: Box<Expr>,
@@ -516,6 +524,28 @@ impl MathFunc {
     }
 }
 
+/// A function of `math` of two `float`s that has a builtin and raises as
+/// `math_2` of CPython does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum MathFunc2 {
+    Remainder,
+}
+
+impl MathFunc2 {
+    pub fn of(name: &str) -> Option<MathFunc2> {
+        match name {
+            "remainder" => Some(MathFunc2::Remainder),
+            _ => None,
+        }
+    }
+
+    pub fn builtin(self) -> &'static str {
+        match self {
+            MathFunc2::Remainder => "f64_remainder",
+        }
+    }
+}
+
 /// The values that `math.isnan`, `math.isinf` and `math.isfinite` accept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FloatClass {
@@ -614,6 +644,7 @@ impl Expr {
             | Expr::Hypot { .. }
             | Expr::Copysign { .. }
             | Expr::Nextafter { .. }
+            | Expr::Math2Call { .. }
             | Expr::Ldexp { .. }
             | Expr::Fmod { .. }
             | Expr::LogBase { .. }

@@ -13,7 +13,7 @@ use crate::cpython::{
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::Host;
-use crate::ir::{CmpOp, DivOp, FloatClass, FloatOp, MathFunc};
+use crate::ir::{CmpOp, DivOp, FloatClass, FloatOp, MathFunc, MathFunc2};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -34,6 +34,9 @@ pub(super) enum FloatRepr {
         /// `(func (param f64) (result f64))` for each function of `math`
         /// from the libm, which the module gets at the first use.
         maths: BTreeMap<MathFunc, FuncIdx>,
+        /// `(func (param f64 f64) (result f64))` for each function of
+        /// `math` of two `float`s, which the module gets at the first use.
+        maths2: BTreeMap<MathFunc2, FuncIdx>,
         /// `(func (param f64 f64) (result f64))` for `math.log(x, base)`,
         /// which the module gets at the first use.
         log_base: Option<FuncIdx>,
@@ -57,6 +60,7 @@ impl FloatRepr {
             pow: None,
             round_digits: None,
             maths: BTreeMap::new(),
+            maths2: BTreeMap::new(),
             log_base: None,
             fmod: None,
             ldexp: None,
@@ -236,6 +240,26 @@ impl FloatRepr {
                 let index = *maths
                     .entry(func)
                     .or_insert_with(|| add_math(m, str, exc, func));
+                f.ins().call(index);
+            }
+        }
+    }
+
+    /// Pops `x` and `y` and pushes `func` of them, or raises the error of
+    /// CPython.
+    pub fn math2_call(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+        func: MathFunc2,
+    ) {
+        match self {
+            FloatRepr::F64 { maths2, .. } => {
+                let index = *maths2
+                    .entry(func)
+                    .or_insert_with(|| add_math2(m, str, exc, func));
                 f.ins().call(index);
             }
         }
@@ -524,6 +548,63 @@ fn add_math(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Math
         MATH_DOMAIN_ERROR
     };
     str.literal(m, &mut f, message);
+    exc.raise(&mut f);
+    f.end();
+    f.ins().local_get(r);
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `func`, which calls its builtin and raises as `math_2`
+/// in `Modules/mathmodule.c` of CPython does. A nan from two values that
+/// are not nan raises `ValueError`, and an infinity from two finite values
+/// raises `OverflowError`.
+fn add_math2(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: MathFunc2) -> FuncIdx {
+    let builtin = m.builtin(func.builtin());
+    let ty = m.func_type(&[ValType::F64, ValType::F64], &[ValType::F64]);
+    let mut f = FuncState::new(2);
+    let (x, y) = (f.param(0), f.param(1));
+    let r = f.local(ValType::F64);
+    f.ins()
+        .local_get(x)
+        .local_get(y)
+        .call(builtin)
+        .local_tee(r)
+        .local_get(r)
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_eq()
+        .i32_and()
+        .local_get(y)
+        .local_get(y)
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, MATH_DOMAIN_ERROR);
+    exc.raise(&mut f);
+    f.end();
+    // `r` is not nan here, so `r - r` is not 0 for an infinity alone, and
+    // `x - x` is 0 for a finite `x` alone.
+    f.ins()
+        .local_get(r)
+        .local_get(r)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_ne()
+        .local_get(x)
+        .local_get(x)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_eq()
+        .i32_and()
+        .local_get(y)
+        .local_get(y)
+        .f64_sub()
+        .f64_const(0.0.into())
+        .f64_eq()
+        .i32_and();
+    f.if_(BlockType::Empty);
+    str.literal(m, &mut f, MATH_RANGE_ERROR);
     exc.raise(&mut f);
     f.end();
     f.ins().local_get(r);

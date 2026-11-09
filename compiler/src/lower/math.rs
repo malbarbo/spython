@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FloatClass, FloatOp, MathFunc, Rep};
+use crate::ir::{Expr, FloatClass, FloatOp, MathFunc, MathFunc2, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -110,11 +110,18 @@ impl<'a> Lowering<'a, '_> {
                 | "radians"
                 | "nextafter"
                 | "ldexp"
-        ) || MathFunc::of(member).is_some();
+        ) || MathFunc::of(member).is_some()
+            || MathFunc2::of(member).is_some();
         if !known {
             return Err(unsupported(call, "this function of math"));
         }
         let value = match (member, &*call.arguments.args, &*call.arguments.keywords) {
+            (_, [x, y], []) if let Some(func) = MathFunc2::of(member) => Expr::Math2Call {
+                func,
+                x: Box::new(self.math_float(x)?),
+                y: Box::new(self.math_float(y)?),
+                site: self.site(call.range()),
+            },
             ("gcd", args, []) => Expr::IntGcd {
                 args: args
                     .iter()
@@ -158,17 +165,18 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(call.range()),
             },
             (_, [arg], [])
-                if !matches!(
-                    member,
-                    "atan2"
-                        | "hypot"
-                        | "copysign"
-                        | "fmod"
-                        | "gcd"
-                        | "factorial"
-                        | "nextafter"
-                        | "ldexp"
-                ) =>
+                if MathFunc2::of(member).is_none()
+                    && !matches!(
+                        member,
+                        "atan2"
+                            | "hypot"
+                            | "copysign"
+                            | "fmod"
+                            | "gcd"
+                            | "factorial"
+                            | "nextafter"
+                            | "ldexp"
+                    ) =>
             {
                 self.math_unary(call, member, arg)?
             }
