@@ -31,6 +31,22 @@ jobs:
       - name: Check
         run: make check
 
+  # The tests of the builtins compare them with the python3 of the runner,
+  # and the CPython of Linux is the reference.
+  builtins:
+    name: Test the builtins (Linux)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Test
+        run: cd compiler/builtins && cargo test
+
   wasm:
     name: Build & Test WASM
     runs-on: ubuntu-24.04
