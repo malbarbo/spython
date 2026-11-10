@@ -82,6 +82,13 @@ pub extern "C" fn str_title_at(cp: u32, i: u32) -> i32 {
     mapped(&TITLE_SIMPLE, &TITLE_SPECIAL, cp, i)
 }
 
+/// The code point `i` of `str.casefold` of the `str` of the code point
+/// `cp`, or -1 when the result has `i` code points or fewer.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_fold_at(cp: u32, i: u32) -> i32 {
+    mapped(&FOLD_SIMPLE, &FOLD_SPECIAL, cp, i)
+}
+
 /// Returns 1 if `cp` has the property `Uppercase`, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn str_is_uppercase(cp: u32) -> u32 {

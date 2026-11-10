@@ -41,6 +41,7 @@ fn main() {
     mapping(&mut code, "UPPER", &cases.upper);
     mapping(&mut code, "LOWER", &cases.lower);
     mapping(&mut code, "TITLE", &cases.title);
+    mapping(&mut code, "FOLD", &fold(&read("CaseFolding.txt")));
     std::fs::write(out.join("unicode.rs"), code).expect("the tables written");
 }
 
@@ -131,6 +132,25 @@ impl Cases {
             title: changed(title),
         }
     }
+}
+
+/// The mapping of `str.casefold` of CPython, which is the full folding of
+/// `CaseFolding.txt`, with the status `C` or `F`. A code point without one
+/// stays the same.
+fn fold(folding: &str) -> Vec<(u32, Vec<u32>)> {
+    let mut fold = Vec::new();
+    for line in folding.lines() {
+        let line = line.split('#').next().unwrap_or_default();
+        let fields: Vec<&str> = line.split(';').map(str::trim).collect();
+        let [cp, "C" | "F", mapped, ""] = fields.as_slice() else {
+            continue;
+        };
+        fold.push((
+            code_point(cp),
+            mapped.split_whitespace().map(code_point).collect(),
+        ));
+    }
+    fold
 }
 
 /// Writes the statics `{name}_SIMPLE` and `{name}_SPECIAL` of a mapping of

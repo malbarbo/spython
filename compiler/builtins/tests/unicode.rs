@@ -1,8 +1,8 @@
 use std::process::Command;
 
 use builtins::unicode::{
-    str_is_case_ignorable, str_is_cased, str_is_lowercase, str_is_printable, str_is_uppercase,
-    str_lower_at, str_title_at, str_upper_at,
+    str_fold_at, str_is_case_ignorable, str_is_cased, str_is_lowercase, str_is_printable,
+    str_is_uppercase, str_lower_at, str_title_at, str_upper_at,
 };
 
 /// What `python` prints: for each code point, in order, `1` when
@@ -111,4 +111,9 @@ fn title_matches_cpython() {
 fn is_uppercase_and_is_lowercase_match_cpython() {
     same_as_cpython(str_is_uppercase, "c.isupper()");
     same_as_cpython(str_is_lowercase, "c.islower()");
+}
+
+#[test]
+fn casefold_matches_cpython() {
+    same_mapping_as_cpython(str_fold_at, "casefold");
 }
