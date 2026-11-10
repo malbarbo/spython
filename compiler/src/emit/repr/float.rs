@@ -403,9 +403,6 @@ impl FloatRepr {
             FloatRepr::F64 { .. } => {
                 let infinity = f64::INFINITY.into();
                 match class {
-                    FloatClass::Inf => {
-                        f.ins().f64_abs().f64_const(infinity).f64_eq();
-                    }
                     // A comparison with `nan` is false.
                     FloatClass::Finite => {
                         f.ins().f64_abs().f64_const(infinity).f64_lt();
