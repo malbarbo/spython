@@ -928,6 +928,26 @@ impl Emitter<'_> {
                 self.expr(f, index);
                 self.at(f, *site, |e, f| e.reprs.str_index(&mut e.m, f));
             }
+            Expr::Slice {
+                value,
+                start,
+                stop,
+                site,
+            } => {
+                self.expr(f, value);
+                match start {
+                    Some(start) => self.expr(f, start),
+                    None => self.reprs.int_literal(f, 0),
+                }
+                match stop {
+                    Some(stop) => {
+                        self.expr(f, stop);
+                        self.reprs.slice_stop(f);
+                    }
+                    None => self.reprs.slice_to_the_end(f),
+                }
+                self.at(f, *site, |e, f| e.reprs.str_slice(&mut e.m, f));
+            }
             Expr::Len { operand, site } => {
                 self.expr(f, operand);
                 self.at(f, *site, |e, f| e.reprs.str_len(f));

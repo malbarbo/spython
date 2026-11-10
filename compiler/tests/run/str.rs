@@ -130,12 +130,48 @@ fn an_index_out_of_range_raises_index_error() {
 }
 
 #[test]
-fn a_slice_is_unsupported() {
+fn a_slice_gives_the_code_points_between_two_indices() {
+    same_as_cpython(
+        "a_slice_gives_the_code_points_between_two_indices",
+        indoc! {"
+            s = 'ação é'
+            n = len(s)
+            print(s[1:3], s[:2], s[2:], s[:], s[0:n], s[1:-1], s[-3:], s[:-2], s[-2:-1])
+            print(s[3:1] + '|', s[10:] + '|', s[:10], s[-10:2], s[5:-10] + '|', s[n:] + '|')
+            print(s[True:], s[:False] + '|', s[None:2], s[1:None], len(s[2:5]), s[2:5][1])
+            print(''[1:] + '|', ''[:-1] + '|', 'a'[0:1], s[1073741823:] + '|', s[-1073741824:])
+        "},
+    );
+}
+
+#[test]
+fn a_slice_evaluates_the_str_and_then_each_index() {
+    same_as_cpython(
+        "a_slice_evaluates_the_str_and_then_each_index",
+        indoc! {"
+            def text(s: str) -> str:
+                print('text', s)
+                return s
+
+
+            def index(n: int) -> int:
+                print('index', n)
+                return 6 // n
+
+
+            print(text('abcdef')[index(3):index(2)])
+            print(text('abcdef')[index(0):index(1)])
+        "},
+    );
+}
+
+#[test]
+fn a_slice_with_a_step_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-        print('abc'[1:2])
+        print('abc'[::2])
     "}),
-        "a slice"
+        "a slice with a step"
     );
 }
 

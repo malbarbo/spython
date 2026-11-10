@@ -420,6 +420,16 @@ pub(crate) enum Expr {
         index: Box<Expr>,
         site: Site,
     },
+    /// The code points of a `str` from the `int` `start` up to the `int`
+    /// `stop`, as a `str`. The slice goes from the first code point without
+    /// a `start`, and to the last one without a `stop`. The site is where
+    /// the program runs out of memory for the result.
+    Slice {
+        value: Box<Expr>,
+        start: Option<Box<Expr>>,
+        stop: Option<Box<Expr>>,
+        site: Site,
+    },
     /// `len` of a `str`. A length outside 31 bits stops the program at the
     /// site.
     Len {
@@ -787,6 +797,7 @@ impl Expr {
             | Expr::Join { .. }
             | Expr::Repeat { .. }
             | Expr::StrNew { .. }
+            | Expr::Slice { .. }
             | Expr::Captured
             | Expr::CapturedException
             | Expr::Index { .. } => Rep::Str,

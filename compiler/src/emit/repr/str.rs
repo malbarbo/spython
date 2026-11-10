@@ -47,6 +47,10 @@ pub(in crate::emit) enum StrRepr {
         scratch: i32,
         /// The global that holds each literal, by its text.
         literals: HashMap<String, GlobalIdx>,
+        /// `(func (param (ref $Str) i32 i32) (result (ref $Str)))`, which
+        /// gives the slice between the two indices, as `s[start:stop]`. The
+        /// module gets it at the first use.
+        slice: Option<FuncIdx>,
         /// `(func (result (ref $Str)))`, which gives what the program wrote
         /// to the buffer of its captured output, and empties the buffer. A
         /// program that captures its output has it.
@@ -72,6 +76,7 @@ impl StrRepr {
             from_scratch: None,
             scratch: host.scratch,
             literals: HashMap::new(),
+            slice: None,
             captured: host
                 .capture
                 .map(|capture| add_capture(m, array, capture.char)),
@@ -210,6 +215,17 @@ impl StrRepr {
         match self {
             StrRepr::Ucs4 { .. } => {
                 f.ins().array_len();
+            }
+        }
+    }
+
+    /// Pops a `str` and two `i32`, and pushes the slice of the `str` from
+    /// the first index up to the second, as `s[start:stop]` in Python.
+    pub fn slice(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { array, slice, .. } => {
+                let slice = *slice.get_or_insert_with(|| add_slice(m, *array));
+                f.ins().call(slice);
             }
         }
     }
@@ -730,6 +746,61 @@ fn add_repeat(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
 /// The code points of `s` in UCS-4, little endian.
 fn encode(s: &str) -> Vec<u8> {
     s.chars().flat_map(|c| (c as u32).to_le_bytes()).collect()
+}
+
+/// The function of `s[start:stop]`. An index below 0 counts from the end,
+/// and each index stays between 0 and the length, as in Python.
+fn add_slice(m: &mut ModuleState, array: TypeIdx) -> FuncIdx {
+    let ty = m.func_type(
+        &[array.ref_to(false), ValType::I32, ValType::I32],
+        &[array.ref_to(false)],
+    );
+    let mut f = FuncState::new(3);
+    let (s, start, stop) = (f.param(0), f.param(1), f.param(2));
+    let len = f.local(ValType::I32);
+    let result = f.local(array.ref_to(true));
+    f.ins().local_get(s).array_len().local_set(len);
+    for index in [start, stop] {
+        f.ins().local_get(index).i32_const(0).i32_lt_s();
+        f.if_(BlockType::Empty);
+        f.ins()
+            .local_get(index)
+            .local_get(len)
+            .i32_add()
+            .local_tee(index)
+            .i32_const(0)
+            .i32_lt_s();
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(0).local_set(index);
+        f.end();
+        f.else_();
+        f.ins().local_get(index).local_get(len).i32_gt_s();
+        f.if_(BlockType::Empty);
+        f.ins().local_get(len).local_set(index);
+        f.end();
+        f.end();
+    }
+    // A `stop` before the `start` gives an empty `str`.
+    f.ins().local_get(stop).local_get(start).i32_lt_s();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(start).local_set(stop);
+    f.end();
+    f.ins()
+        .local_get(stop)
+        .local_get(start)
+        .i32_sub()
+        .array_new_default(array)
+        .local_tee(result)
+        .i32_const(0)
+        .local_get(s)
+        .local_get(start)
+        .local_get(stop)
+        .local_get(start)
+        .i32_sub()
+        .array_copy(array, array)
+        .local_get(result)
+        .ref_as_non_null();
+    m.add_func(ty, f.finish())
 }
 
 /// The code points below this one each have one `str`, which the first

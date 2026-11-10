@@ -92,8 +92,21 @@ impl<'a> Lowering<'a, '_> {
                 if value.rep() != Rep::Str {
                     return Err(unsupported(&*sub.value, "a subscript of this type"));
                 }
-                if matches!(&*sub.slice, ast::Expr::Slice(_)) {
-                    return Err(unsupported(&*sub.slice, "a slice"));
+                if let ast::Expr::Slice(slice) = &*sub.slice {
+                    if slice.step.is_some() {
+                        return Err(unsupported(slice, "a slice with a step"));
+                    }
+                    // `None` stands for a bound that the slice leaves out.
+                    let bound = |bound: &Option<Box<ast::Expr>>| match bound.as_deref() {
+                        None | Some(ast::Expr::NoneLiteral(_)) => Ok(None),
+                        Some(bound) => self.int_operand(bound).map(Box::new).map(Some),
+                    };
+                    return Ok(Expr::Slice {
+                        value: Box::new(value),
+                        start: bound(&slice.lower)?,
+                        stop: bound(&slice.upper)?,
+                        site: self.site(sub.range()),
+                    });
                 }
                 let index = self.int_operand(&sub.slice)?;
                 Ok(Expr::Index {

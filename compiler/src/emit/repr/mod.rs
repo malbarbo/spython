@@ -486,6 +486,29 @@ impl Reprs {
         f.ins().call(builtin);
     }
 
+    /// Pops an `int`, the `stop` of a slice, and pushes it as
+    /// [`Self::str_slice`] takes it.
+    pub fn slice_stop(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+    }
+
+    /// Pushes the `stop` of a slice that goes to the end of the `str`, as
+    /// [`Self::str_slice`] takes it. No `str` is longer than this `stop`.
+    pub fn slice_to_the_end(&self, f: &mut FuncState) {
+        f.ins().i32_const(i32::MAX);
+    }
+
+    /// Pops a `str`, an `int` `start` and a `stop`, and pushes the slice of
+    /// the `str` between the two.
+    pub fn str_slice(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let stop = f.temp(ValType::I32);
+        f.ins().local_set(stop);
+        self.int.as_i32(f);
+        f.ins().local_get(stop);
+        f.free(stop);
+        self.str.slice(m, f);
+    }
+
     /// Pops a `str` and an `int`, and pushes the code point at that index
     /// as a `str`. An index out of range raises `IndexError`.
     pub fn str_index(&mut self, m: &mut ModuleState, f: &mut FuncState) {
