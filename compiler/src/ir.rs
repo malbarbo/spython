@@ -318,11 +318,6 @@ pub(crate) enum Expr {
         tolerances: Vec<(Tolerance, Expr)>,
         site: Site,
     },
-    /// Whether a `float` is of `class`, as a `bool`.
-    FloatIs {
-        class: FloatClass,
-        operand: Box<Expr>,
-    },
     /// The square root of a `float`. A value below 0 raises `ValueError`
     /// at the site.
     FloatSqrt {
@@ -672,13 +667,6 @@ pub(crate) enum Tolerance {
     Abs,
 }
 
-/// The values that `math.isfinite` accepts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FloatClass {
-    /// Neither `nan` nor an infinity.
-    Finite,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArithOp {
     Add,
@@ -782,7 +770,6 @@ impl Expr {
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_)
-            | Expr::FloatIs { .. }
             | Expr::IsClose { .. }
             | Expr::Truth(_)
             | Expr::Not(_)

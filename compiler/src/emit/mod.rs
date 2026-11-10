@@ -823,10 +823,6 @@ impl Emitter<'_> {
                 f.free(abs);
                 self.at(f, *site, |e, f| e.reprs.isclose(&mut e.m, f));
             }
-            Expr::FloatIs { class, operand } => {
-                self.expr(f, operand);
-                self.reprs.float_is(f, *class);
-            }
             Expr::FloatSqrt { operand, site } => {
                 self.expr(f, operand);
                 self.at(f, *site, |e, f| e.reprs.float_sqrt(&mut e.m, f));

@@ -13,7 +13,7 @@ use crate::cpython::{
 use crate::emit::module::{FuncIdx, FuncState, LocalIdx, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::emit::runtime::host::{Host, SCRATCH_SIZE};
-use crate::ir::{CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2};
+use crate::ir::{CmpOp, DivOp, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -393,21 +393,6 @@ impl FloatRepr {
             FloatRepr::F64 { isclose, .. } => {
                 let index = *isclose.get_or_insert_with(|| add_isclose(m, str, exc));
                 f.ins().call(index);
-            }
-        }
-    }
-
-    /// Pops a `float` and pushes the `bool` of whether it is of `class`.
-    pub fn is(&self, f: &mut FuncState, class: FloatClass) {
-        match self {
-            FloatRepr::F64 { .. } => {
-                let infinity = f64::INFINITY.into();
-                match class {
-                    // A comparison with `nan` is false.
-                    FloatClass::Finite => {
-                        f.ins().f64_abs().f64_const(infinity).f64_lt();
-                    }
-                }
             }
         }
     }

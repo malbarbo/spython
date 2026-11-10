@@ -7,3 +7,7 @@ def isnan(x: float) -> bool:
 
 def isinf(x: float) -> bool:
     return abs(x) == 1e999
+
+
+def isfinite(x: float) -> bool:
+    return abs(x) < 1e999

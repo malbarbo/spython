@@ -7,7 +7,7 @@ use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{
-    Choice, Expr, FloatClass, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance,
+    Choice, Expr, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance,
 };
 
 impl<'a> Lowering<'a, '_> {
@@ -225,19 +225,9 @@ impl<'a> Lowering<'a, '_> {
         member: &str,
         arg: &ast::Expr,
     ) -> Result<Option<Expr>, Error> {
-        if matches!(member, "isnan" | "isinf") {
+        if matches!(member, "isnan" | "isinf" | "isfinite") {
             let args = vec![self.math_float(arg)?];
             return self.prelude_call(call, "math", member, args).map(Some);
-        }
-        let class = match member {
-            "isfinite" => Some(FloatClass::Finite),
-            _ => None,
-        };
-        if let Some(class) = class {
-            return Ok(Some(Expr::FloatIs {
-                class,
-                operand: Box::new(self.math_float(arg)?),
-            }));
         }
         if let Some(func) = MathFunc::of(member) {
             return Ok(Some(Expr::MathCall {

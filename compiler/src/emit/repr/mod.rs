@@ -13,8 +13,7 @@ use crate::cpython::{
     Class, ISQRT_OF_A_NEGATIVE, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
-    ArithOp, Choice, CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep,
-    SiteFrame,
+    ArithOp, Choice, CmpOp, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -382,11 +381,6 @@ impl Reprs {
     /// `math.isclose`, or raises `ValueError` for a negative tolerance.
     pub fn isclose(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.float.isclose(m, f, &mut self.str, &self.exc);
-    }
-
-    /// Pops a `float` and pushes the `bool` of whether it is of `class`.
-    pub fn float_is(&self, f: &mut FuncState, class: FloatClass) {
-        self.float.is(f, class);
     }
 
     /// Pops a `float` and pushes its square root, or raises `ValueError`
