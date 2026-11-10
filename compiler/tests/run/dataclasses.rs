@@ -372,6 +372,36 @@ fn a_deep_repr_raises_recursion_error() {
     );
 }
 
+/// The `repr` of an object inside its own `repr` is `...`.
+#[test]
+fn the_repr_of_a_cycle_writes_three_dots() {
+    same_as_cpython(
+        "the_repr_of_a_cycle_writes_three_dots",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class No:
+                v: int
+                prox: 'No | None'
+
+            @dataclass
+            class Par:
+                a: No
+                b: No
+
+            a = No(1, None)
+            a.prox = a
+            print(a)
+            b = No(2, a)
+            a.prox = b
+            print(b, a)
+            print(Par(a, a))
+            print(repr(a) == str(a))
+        "},
+    );
+}
+
 #[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [

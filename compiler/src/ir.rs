@@ -116,6 +116,9 @@ pub(crate) struct UserClass {
     /// The function that gives the `str` of an object, when the program
     /// writes one.
     pub str: Option<FuncId>,
+    /// `true` when the `repr` of an object writes `...` for the object
+    /// inside its own `repr`, as the `repr` of a dataclass does.
+    pub repr_guard: bool,
 }
 
 pub(crate) struct Func {
@@ -306,6 +309,16 @@ pub(crate) enum Expr {
     New {
         class: ClassId,
         fields: Vec<Expr>,
+    },
+    /// Whether the `repr` of the object runs, as a `bool`.
+    InRepr(Box<Expr>),
+    /// `value`, which runs with `object` among the objects whose `repr`
+    /// runs. An exception leaves the object there, and an example of a
+    /// docstring starts with no object there, as the `finally` of CPython
+    /// leaves none.
+    DuringRepr {
+        object: Box<Expr>,
+        value: Box<Expr>,
     },
     /// The object at `member` among the members of `class`.
     Member {
@@ -1055,7 +1068,8 @@ impl Expr {
             | Expr::IsClose { .. }
             | Expr::Truth(_)
             | Expr::Not(_)
-            | Expr::Compare(..) => Rep::Bool,
+            | Expr::Compare(..)
+            | Expr::InRepr(_) => Rep::Bool,
             Expr::None => Rep::None,
             Expr::Load { rep, .. }
             | Expr::Call { rep, .. }
@@ -1065,7 +1079,7 @@ impl Expr {
             Expr::Member { class, .. } | Expr::New { class, .. } => Rep::Object(*class),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
-            Expr::After { value, .. } => value.rep(),
+            Expr::After { value, .. } | Expr::DuringRepr { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
             Expr::Print { .. } | Expr::WriteErr(_) | Expr::Stop { .. } => Rep::None,
         }

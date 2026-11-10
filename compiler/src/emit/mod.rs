@@ -1091,6 +1091,16 @@ impl Emitter<'_> {
                 self.reprs.bool_not(f);
             }
             Expr::Member { class, member } => self.reprs.member(f, *class, *member),
+            Expr::InRepr(object) => {
+                self.expr(f, object);
+                self.reprs.in_repr(f);
+            }
+            Expr::DuringRepr { object, value } => {
+                self.expr(f, object);
+                self.reprs.push_repr(f);
+                self.expr(f, value);
+                self.reprs.pop_repr(f);
+            }
             Expr::New { class, fields } => {
                 for field in fields {
                     self.expr(f, field);

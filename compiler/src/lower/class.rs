@@ -58,6 +58,7 @@ impl<'a> Classes<'a> {
                     .map(|member| vec![Expr::Str(member.name), member.value])
                     .collect(),
                 str: class.str,
+                repr_guard: class.kind == Kind::Dataclass,
             })
             .collect()
     }
@@ -547,16 +548,26 @@ impl<'a> Lowering<'a, '_> {
         // A field may hold an object of the class itself.
         self.classes.borrow_mut().get_mut(class).repr = Some(wrapper);
         let (wrapper_site, repr_site) = self.repr_sites(fields.len());
+        // The `wrapper` of `reprlib.recursive_repr` gives `...` for an
+        // object whose `repr` runs.
+        let call = Expr::Call {
+            func: repr,
+            args: vec![own(class)],
+            order: None,
+            rep: Rep::Str,
+            site: Some(wrapper_site),
+            check: None,
+        };
         self.define(
             wrapper,
             true,
-            vec![Stmt::Return(Some(Expr::Call {
-                func: repr,
-                args: vec![own(class)],
-                order: None,
-                rep: Rep::Str,
-                site: Some(wrapper_site),
-                check: None,
+            vec![Stmt::Return(Some(Expr::IfElse {
+                cond: Box::new(Expr::InRepr(Box::new(own(class)))),
+                then: Box::new(Expr::Str("...".to_owned())),
+                else_: Box::new(Expr::DuringRepr {
+                    object: Box::new(own(class)),
+                    value: Box::new(call),
+                }),
             }))],
         );
         let mut parts = vec![Expr::Str(format!("{}(", def.name))];

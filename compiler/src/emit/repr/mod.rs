@@ -5,7 +5,9 @@ mod int;
 pub(super) mod str;
 mod uniform;
 
-use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
+use wasm_encoder::{
+    AbstractHeapType, BlockType, ConstExpr, HeapType, RefType, StorageType, ValType,
+};
 
 use super::module::{FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TypeIdx};
 use super::runtime::exc::Exceptions;
@@ -41,6 +43,10 @@ pub(crate) struct Reprs {
     /// The function that gives the `str` of an object of each class, when
     /// the program writes one.
     class_strs: Vec<Option<FuncIdx>>,
+    /// The struct of a node of the stack of the objects whose `repr` runs,
+    /// with the object and the node under it, and the global of the top of
+    /// the stack, when a class guards its `repr`.
+    repr_stack: Option<(TypeIdx, GlobalIdx)>,
 }
 
 impl Reprs {
@@ -62,13 +68,14 @@ impl Reprs {
             classes: Vec::new(),
             members: Vec::new(),
             class_strs: Vec::new(),
+            repr_stack: None,
         };
         // A field of a class may hold an object of any class, its own too,
         // so the structs refer to each other by the indices that they will
         // have in their rec group.
         let first = m.next_type_index();
         reprs.classes = (0..classes.len()).map(|i| first.plus(i)).collect();
-        let structs: Vec<Vec<(StorageType, bool)>> = classes
+        let mut structs: Vec<Vec<(StorageType, bool)>> = classes
             .iter()
             .map(|class| {
                 class
@@ -81,7 +88,26 @@ impl Reprs {
                     .collect()
             })
             .collect();
-        let group = m.rec_group(&structs);
+        let node = first.plus(classes.len());
+        let guarded = classes.iter().any(|class| class.repr_guard);
+        if guarded {
+            let object = ValType::Ref(RefType {
+                nullable: false,
+                heap_type: HeapType::Abstract {
+                    shared: false,
+                    ty: AbstractHeapType::Eq,
+                },
+            });
+            structs.push(vec![
+                (StorageType::Val(object), false),
+                (StorageType::Val(node.ref_to(true)), false),
+            ]);
+        }
+        let mut group = m.rec_group(&structs);
+        if guarded {
+            let top = m.global(node.ref_to(true), &ConstExpr::ref_null(node.heap_type()));
+            reprs.repr_stack = Some((group.pop().expect("the node of the stack"), top));
+        }
         debug_assert_eq!(group, reprs.classes, "the classes in their rec group");
         reprs.members = classes
             .iter()
@@ -147,6 +173,74 @@ impl Reprs {
     /// sets the field to the value.
     pub fn set_field(&self, f: &mut FuncState, class: ClassId, field: u32) {
         f.ins().struct_set(self.class(class), field);
+    }
+
+    /// The node and the top of the stack of the objects whose `repr` runs.
+    fn repr_stack(&self) -> (TypeIdx, GlobalIdx) {
+        self.repr_stack.expect("a class that guards its repr")
+    }
+
+    /// Pops an object and pushes whether its `repr` runs, as an `i32`.
+    pub fn in_repr(&self, f: &mut FuncState) {
+        let (node, top) = self.repr_stack();
+        let object = f.temp(ValType::Ref(RefType {
+            nullable: true,
+            heap_type: HeapType::Abstract {
+                shared: false,
+                ty: AbstractHeapType::Eq,
+            },
+        }));
+        let next = f.temp(node.ref_to(true));
+        let found = f.temp(ValType::I32);
+        f.ins()
+            .local_set(object)
+            .global_get(top)
+            .local_set(next)
+            .i32_const(0)
+            .local_set(found);
+        let done = f.block(BlockType::Empty);
+        let nodes = f.loop_(BlockType::Empty);
+        f.ins().local_get(next).ref_is_null();
+        f.br_if(done);
+        f.ins()
+            .local_get(next)
+            .ref_as_non_null()
+            .struct_get(node, 0)
+            .local_get(object)
+            .ref_eq()
+            .local_set(found)
+            .local_get(found);
+        f.br_if(done);
+        f.ins()
+            .local_get(next)
+            .ref_as_non_null()
+            .struct_get(node, 1)
+            .local_set(next);
+        f.br(nodes);
+        f.end();
+        f.end();
+        f.ins().local_get(found);
+        for local in [object, next, found] {
+            f.free(local);
+        }
+    }
+
+    /// Pops an object and puts it on the top of the stack of the objects
+    /// whose `repr` runs.
+    pub fn push_repr(&self, f: &mut FuncState) {
+        let (node, top) = self.repr_stack();
+        f.ins().global_get(top).struct_new(node).global_set(top);
+    }
+
+    /// Takes the object on the top of the stack of the objects whose
+    /// `repr` runs off the stack.
+    pub fn pop_repr(&self, f: &mut FuncState) {
+        let (node, top) = self.repr_stack();
+        f.ins()
+            .global_get(top)
+            .ref_as_non_null()
+            .struct_get(node, 1)
+            .global_set(top);
     }
 
     /// Pushes the member at `member` of `class`.
@@ -646,6 +740,11 @@ impl Reprs {
     /// the buffer of `capture`. [`Self::end_example`] closes it with the
     /// label that this returns.
     pub fn begin_example(&self, f: &mut FuncState, capture: &Capture) -> Label {
+        // An example before this one may have raised inside a `repr`, which
+        // leaves objects on the stack.
+        if let Some((node, top)) = self.repr_stack {
+            f.ins().ref_null(node.heap_type()).global_set(top);
+        }
         self.exc.begin_example(f, capture)
     }
 

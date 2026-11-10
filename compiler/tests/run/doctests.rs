@@ -370,6 +370,35 @@ fn an_example_writes_the_repr_of_a_dataclass() {
     );
 }
 
+/// An exception inside a `repr` leaves no object among the objects whose
+/// `repr` runs, as the `finally` of `reprlib` in CPython.
+#[test]
+fn an_example_after_an_exception_in_a_repr_writes_the_whole_repr() {
+    same_as_the_runner(
+        "an_example_after_an_exception_in_a_repr_writes_the_whole_repr",
+        indoc! {r#"
+            from dataclasses import dataclass
+
+            @dataclass
+            class No:
+                v: int
+
+            t = No(0)
+
+            def f() -> str:
+                """
+                >>> f()
+                Traceback (most recent call last):
+                  ...
+                RecursionError: maximum recursion depth exceeded
+                >>> t
+                No(v=0)
+                """
+                return repr(t) + f()
+        "#},
+    );
+}
+
 #[test]
 fn the_output_of_an_example_may_have_blank_lines_and_code_points_beyond_ascii() {
     same_as_the_runner(
