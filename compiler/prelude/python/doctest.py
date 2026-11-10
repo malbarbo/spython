@@ -9,7 +9,7 @@ from __spython_prelude__.intrinsics import (
     code_point,
     write_err,
 )
-from __spython_prelude__.str import hex_digit
+from __spython_prelude__.str import hex_digit, is_space
 
 
 def start() -> None:
@@ -158,12 +158,6 @@ def line_end(s: str, start: int) -> int:
     while start < n and code_point(s, start) != 10:
         start += 1
     return start
-
-
-def is_space(c: int) -> bool:
-    """Returns `True` if `str.isspace` accepts the ASCII code point `c`,
-    `False` otherwise."""
-    return c == 32 or (9 <= c and c <= 13) or (28 <= c and c <= 31)
 
 
 def only(s: str, start: int, end: int, spaces: bool) -> bool:
