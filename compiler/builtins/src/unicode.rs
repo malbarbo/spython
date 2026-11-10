@@ -89,6 +89,30 @@ pub extern "C" fn str_fold_at(cp: u32, i: u32) -> i32 {
     mapped(&FOLD_SIMPLE, &FOLD_SPECIAL, cp, i)
 }
 
+/// Returns 1 if `str.isalpha` accepts `cp`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_alpha(cp: u32) -> u32 {
+    u32::from(contains(&ALPHA_BMP, &ALPHA_ASTRAL, cp))
+}
+
+/// Returns 1 if `str.isdecimal` accepts `cp`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_decimal(cp: u32) -> u32 {
+    u32::from(contains(&DECIMAL_BMP, &DECIMAL_ASTRAL, cp))
+}
+
+/// Returns 1 if `str.isdigit` accepts `cp`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_digit(cp: u32) -> u32 {
+    u32::from(contains(&DIGIT_BMP, &DIGIT_ASTRAL, cp))
+}
+
+/// Returns 1 if `str.isnumeric` accepts `cp`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_numeric(cp: u32) -> u32 {
+    u32::from(contains(&NUMERIC_BMP, &NUMERIC_ASTRAL, cp))
+}
+
 /// Returns 1 if `cp` has the property `Uppercase`, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn str_is_uppercase(cp: u32) -> u32 {

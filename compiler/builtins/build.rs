@@ -25,6 +25,22 @@ fn main() {
     set(&mut code, "PRINTABLE", |cp| {
         cp == 0x20 || !matches!(category(&categories, cp).as_bytes(), [b'C' | b'Z', ..])
     });
+    // CPython takes a letter as alphabetic, and a code point with a decimal,
+    // a digit or a numeric value in the UCD as decimal, digit or numeric.
+    set(&mut code, "ALPHA", |cp| {
+        category(&categories, cp).starts_with('L')
+    });
+    let data = read("UnicodeData.txt");
+    for (name, field) in [("DECIMAL", 6), ("DIGIT", 7)] {
+        let members = field_members(&data, field);
+        set(&mut code, name, |cp| {
+            members.get(cp as usize).copied().unwrap_or(false)
+        });
+    }
+    let numeric = listed(&read("DerivedNumericValues.txt"));
+    set(&mut code, "NUMERIC", |cp| {
+        numeric.get(cp as usize).copied().unwrap_or(false)
+    });
     let derived = read("DerivedCoreProperties.txt");
     for (name, property) in [
         ("CASED", "Cased"),
@@ -48,6 +64,40 @@ fn main() {
 /// A code point in hexadecimal.
 fn code_point(text: &str) -> u32 {
     u32::from_str_radix(text.trim(), 16).expect("a code point in hexadecimal")
+}
+
+/// Whether each code point has a value in the field `field` of
+/// `UnicodeData.txt`. A range of code points has no such value.
+fn field_members(data: &str, field: usize) -> Vec<bool> {
+    let mut members = vec![false; END as usize];
+    for line in data.lines() {
+        let fields: Vec<&str> = line.split(';').collect();
+        if fields.get(field).is_some_and(|value| !value.is_empty()) {
+            let cp = code_point(fields.first().expect("a code point"));
+            *members.get_mut(cp as usize).expect("a code point") = true;
+        }
+    }
+    members
+}
+
+/// Whether a line of `data`, a file of the UCD whose lines start with a
+/// code point or a range, lists each code point.
+fn listed(data: &str) -> Vec<bool> {
+    let mut members = vec![false; END as usize];
+    for line in data.lines() {
+        let line = line.split('#').next().unwrap_or_default();
+        let Some((range, _)) = line.split_once(';') else {
+            continue;
+        };
+        let (first, last) = match range.split_once("..") {
+            Some((first, last)) => (code_point(first), code_point(last)),
+            None => (code_point(range), code_point(range)),
+        };
+        for cp in first..=last {
+            *members.get_mut(cp as usize).expect("a code point") = true;
+        }
+    }
+    members
 }
 
 /// Whether each code point has `property` in `DerivedCoreProperties.txt`,
