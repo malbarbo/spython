@@ -129,7 +129,7 @@ impl<'a> Lowering<'a, '_> {
     /// raises UnicodeEncodeError.
     fn check_surrogate(&self, node: &impl Ranged, value: &str) -> Result<(), Error> {
         let source = self
-            .source
+            .source()
             .get(std::ops::Range::<usize>::from(node.range()));
         if value.contains('\u{fffd}') && source.is_none_or(|text| text.contains('\\')) {
             return Err(unsupported(

@@ -30,7 +30,7 @@ impl<'a> Lowering<'a, '_> {
         {
             return Err(unsupported(call, "a call of a local variable"));
         }
-        let func = match call_target(self.model, call) {
+        let func = match call_target(self.model(), call) {
             Some(CallTarget::Function(def)) => self.funcs.borrow().ids.get(&def).copied(),
             // The checker sees no function in a name that the `def` has yet
             // to bind.
@@ -260,12 +260,12 @@ impl<'a> Lowering<'a, '_> {
     /// The name of the function or the class of the builtins that `func`
     /// reads. `None` when `func` reads neither.
     pub(super) fn builtin_name(&self, func: &ast::Expr) -> Option<String> {
-        let (name, file) = match expr_shape(self.model, func)? {
+        let (name, file) = match expr_shape(self.model(), func)? {
             Shape::Function(def) => (def.name, def.file),
             Shape::Class(class) => (class.name, class.file),
             _ => return None,
         };
-        is_builtins(self.model.db(), file).then_some(name)
+        is_builtins(self.model().db(), file).then_some(name)
     }
 }
 

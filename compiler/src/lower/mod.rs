@@ -8,7 +8,7 @@ mod name_error;
 mod stmt;
 mod vars;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use ruff_db::files::File;
@@ -31,11 +31,14 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let module = parsed.load(db);
     let model = SemanticModel::new(db, program_file);
     let source = source_text(db, file);
-    let lowering = Lowering {
+    let unit = Unit {
         model: &model,
         source: source.as_str(),
-        file: FileLines::new(source.as_str()),
+        lines: FileLines::new(source.as_str()),
         path,
+    };
+    let lowering = Lowering {
+        unit: Cell::new(&unit),
         sites: RefCell::new(Vec::new()),
         vars: RefCell::new(Vars::default()),
         funcs: RefCell::new(Funcs::default()),
@@ -63,13 +66,19 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     })
 }
 
-struct Lowering<'a, 'db> {
+/// What the lowering reads of one file of the program.
+struct Unit<'a, 'db> {
     model: &'a SemanticModel<'db>,
     source: &'a str,
     /// The lines of `source`, for the frames of the sites.
-    file: FileLines<'a>,
+    lines: FileLines<'a>,
     /// The path of the file in a traceback.
     path: &'a str,
+}
+
+struct Lowering<'a, 'db> {
+    /// The file of the code that the lowering is in.
+    unit: Cell<&'a Unit<'a, 'db>>,
     sites: RefCell<Vec<SiteFrame>>,
     /// The variables of the module.
     vars: RefCell<Vars>,
@@ -193,7 +202,15 @@ impl Scope {
     }
 }
 
-impl<'a> Lowering<'a, '_> {
+impl<'a, 'db> Lowering<'a, 'db> {
+    fn model(&self) -> &'a SemanticModel<'db> {
+        self.unit.get().model
+    }
+
+    fn source(&self) -> &'a str {
+        self.unit.get().source
+    }
+
     /// Gives each variable that the code assigns the rep of its values,
     /// which the checker infers, and declares each function of the module.
     /// A read or a call may come before the assignment, as in a loop, so
@@ -236,7 +253,7 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<(), Error> {
         for (targets, value) in assigned {
             // The lowering of the assignment rejects a value without a rep.
-            let Some(rep) = shape_rep(expr_shape(self.model, value)) else {
+            let Some(rep) = shape_rep(expr_shape(self.model(), value)) else {
                 continue;
             };
             for target in *targets {
@@ -295,7 +312,7 @@ impl<'a> Lowering<'a, '_> {
         if let Some(param) = parameters.args.get(MAX_PARAMS) {
             return Err(unsupported(param, "a def with more than 1000 parameters"));
         }
-        let info = function_info(self.model, def).ok_or_else(|| unsupported(def, "this def"))?;
+        let info = function_info(self.model(), def).ok_or_else(|| unsupported(def, "this def"))?;
         let params = parameters
             .args
             .iter()
@@ -414,8 +431,9 @@ impl<'a> Lowering<'a, '_> {
             .borrow()
             .as_ref()
             .map_or_else(|| "<module>".to_owned(), |scope| scope.name.clone());
-        let number = traceback::line(&self.file, range);
-        let text = traceback::frame(self.path, &name, &self.file, range);
+        let unit = self.unit.get();
+        let number = traceback::line(&unit.lines, range);
+        let text = traceback::frame(unit.path, &name, &unit.lines, range);
         let mut lines = self.lines.borrow_mut();
         let count = u32::try_from(lines.len()).expect("fewer than 2^32 lines");
         let line = *lines.entry((name, number)).or_insert(count);

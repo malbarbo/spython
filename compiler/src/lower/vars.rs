@@ -48,7 +48,7 @@ impl<'a> Lowering<'a, '_> {
             _ => None,
         };
         if let Some((var, rep)) = local {
-            let check = if is_definitely_bound(self.model, name) {
+            let check = if is_definitely_bound(self.model(), name) {
                 None
             } else {
                 if let Some(scope) = self.scope.borrow_mut().as_mut() {
@@ -90,10 +90,10 @@ impl<'a> Lowering<'a, '_> {
     /// `None` when the read always finds a value. A function may run before
     /// the module assigns the global, so every read in a function checks.
     pub(super) fn global_check(&self, name: &ast::ExprName) -> Result<Option<Check>, Error> {
-        if self.scope.borrow().is_none() && is_definitely_bound(self.model, name) {
+        if self.scope.borrow().is_none() && is_definitely_bound(self.model(), name) {
             return Ok(None);
         }
-        if is_implicit_global(self.model, name.id.as_str()) {
+        if is_implicit_global(self.model(), name.id.as_str()) {
             // Without a value, the read takes the builtin of the name.
             return Err(unsupported(name, "a name that may be a builtin"));
         }
