@@ -714,8 +714,7 @@ impl Reprs {
                 let value = f.temp(self.str.val_type(true));
                 f.ins().local_tee(value).ref_is_null();
                 f.if_(BlockType::Empty);
-                self.str.literal(m, f, "None");
-                self.str.write(f);
+                self.write(m, f, Rep::None);
                 f.else_();
                 f.ins().local_get(value).ref_as_non_null();
                 self.str.write(f);
@@ -849,8 +848,7 @@ impl Reprs {
         let value = f.param(0);
         f.ins().local_get(value).ref_is_null();
         f.if_(BlockType::Empty);
-        self.str.literal(m, &mut f, "None");
-        self.str.write(&mut f);
+        self.write(m, &mut f, Rep::None);
         f.ins().return_();
         f.end();
         for (rep, box_type) in self.uniform.boxes(m) {
