@@ -1,10 +1,14 @@
 //! Statements.
 
 use ruff_python_ast as ast;
+use ruff_text_size::Ranged;
+use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
+use super::call::is_builtins;
 use super::flow::imported_name;
 use super::{Lowering, params_of, unsupported};
 use crate::Error;
+use crate::cpython::Class;
 use crate::ir::{Place, Rep, Stmt};
 
 impl<'a> Lowering<'a, '_> {
@@ -123,6 +127,7 @@ impl<'a> Lowering<'a, '_> {
                 Ok(Some(Stmt::Def(id)))
             }
             ast::Stmt::Return(r) => self.return_(r).map(Some),
+            ast::Stmt::Raise(r) => self.raise(r).map(Some),
             ast::Stmt::Import(i) => {
                 if let Some(alias) = i.names.iter().find(|alias| alias.name.as_str() != "math") {
                     return Err(unsupported(alias, "an import of this module"));
@@ -167,6 +172,46 @@ impl<'a> Lowering<'a, '_> {
             })
             .collect();
         Ok(Some(Stmt::Import(ids)))
+    }
+
+    /// `raise C`, `raise C()` or `raise C(text)` of a class of the builtins,
+    /// with a `str` as the text.
+    fn raise(&self, r: &ast::StmtRaise) -> Result<Stmt, Error> {
+        let (Some(exc), None) = (r.exc.as_deref(), &r.cause) else {
+            return Err(unsupported(r, "this raise"));
+        };
+        let (class, args) = match exc {
+            ast::Expr::Call(call) if call.arguments.keywords.is_empty() => {
+                (&*call.func, &*call.arguments.args)
+            }
+            ast::Expr::Call(_) => return Err(unsupported(exc, "a raise with these arguments")),
+            class => (class, &[][..]),
+        };
+        let class = match expr_shape(self.model(), class) {
+            Some(Shape::Class(id)) if is_builtins(self.model().db(), id.file) => {
+                Class::of(&id.name)
+            }
+            _ => None,
+        };
+        let Some(class) = class else {
+            return Err(unsupported(exc, "a raise of this exception"));
+        };
+        let arg = match args {
+            [] => None,
+            [arg] => {
+                let lowered = self.expr(arg)?;
+                if lowered.rep() != Rep::Str {
+                    return Err(unsupported(arg, "an exception with this argument"));
+                }
+                Some(lowered)
+            }
+            _ => return Err(unsupported(exc, "a raise with these arguments")),
+        };
+        Ok(Stmt::Raise {
+            class,
+            arg,
+            site: self.site(r.range()),
+        })
     }
 
     fn return_(&self, r: &ast::StmtReturn) -> Result<Stmt, Error> {

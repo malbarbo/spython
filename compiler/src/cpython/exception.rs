@@ -16,11 +16,24 @@ macro_rules! classes {
         }
 
         impl Class {
+            #[cfg(test)]
+            const ALL: &[Class] = &[$(Class::$name,)*];
+
             /// The name of the class in a traceback.
             pub fn name(self) -> &'static str {
                 match self {
                     $(Class::$name => stringify!($name),)*
                     Class::Limit => "spython",
+                }
+            }
+
+            /// The class that the builtins name `name`, when a `raise`
+            /// with at most one argument, a `str`, writes the traceback
+            /// that the compiler writes for it.
+            pub fn of(name: &str) -> Option<Class> {
+                match name {
+                    $(stringify!($name) => Some(Class::$name),)*
+                    _ => None,
                 }
             }
 
@@ -36,12 +49,25 @@ macro_rules! classes {
     };
 }
 
+// The builtins have more classes. An exception group, `KeyboardInterrupt`
+// and `SystemExit` do not end the program with the usual traceback,
+// `KeyError` writes the `repr` of its argument, `SyntaxError` and the
+// classes that derive from it write the place of the error, and the three
+// errors of Unicode take five arguments.
 classes! {
     BaseException: None,
+    GeneratorExit: Some(BaseException),
     Exception: Some(BaseException),
     ArithmeticError: Some(Exception),
+    FloatingPointError: Some(ArithmeticError),
     OverflowError: Some(ArithmeticError),
     ZeroDivisionError: Some(ArithmeticError),
+    AssertionError: Some(Exception),
+    AttributeError: Some(Exception),
+    BufferError: Some(Exception),
+    EOFError: Some(Exception),
+    ImportError: Some(Exception),
+    ModuleNotFoundError: Some(ImportError),
     LookupError: Some(Exception),
     IndexError: Some(LookupError),
     MemoryError: Some(Exception),
@@ -49,17 +75,43 @@ classes! {
     UnboundLocalError: Some(NameError),
     OSError: Some(Exception),
     BlockingIOError: Some(OSError),
+    ChildProcessError: Some(OSError),
     ConnectionError: Some(OSError),
     BrokenPipeError: Some(ConnectionError),
+    ConnectionAbortedError: Some(ConnectionError),
+    ConnectionRefusedError: Some(ConnectionError),
+    ConnectionResetError: Some(ConnectionError),
     FileExistsError: Some(OSError),
     FileNotFoundError: Some(OSError),
     InterruptedError: Some(OSError),
     IsADirectoryError: Some(OSError),
     NotADirectoryError: Some(OSError),
     PermissionError: Some(OSError),
+    ProcessLookupError: Some(OSError),
+    TimeoutError: Some(OSError),
+    ReferenceError: Some(Exception),
     RuntimeError: Some(Exception),
+    NotImplementedError: Some(RuntimeError),
+    PythonFinalizationError: Some(RuntimeError),
     RecursionError: Some(RuntimeError),
+    StopAsyncIteration: Some(Exception),
+    StopIteration: Some(Exception),
+    SystemError: Some(Exception),
+    TypeError: Some(Exception),
     ValueError: Some(Exception),
+    UnicodeError: Some(ValueError),
+    Warning: Some(Exception),
+    BytesWarning: Some(Warning),
+    DeprecationWarning: Some(Warning),
+    EncodingWarning: Some(Warning),
+    FutureWarning: Some(Warning),
+    ImportWarning: Some(Warning),
+    PendingDeprecationWarning: Some(Warning),
+    ResourceWarning: Some(Warning),
+    RuntimeWarning: Some(Warning),
+    SyntaxWarning: Some(Warning),
+    UnicodeWarning: Some(Warning),
+    UserWarning: Some(Warning),
 }
 
 /// An exception of `class` whose argument has `text`, which is empty for
@@ -88,5 +140,53 @@ pub(crate) fn last_line(class: Class, text: &str) -> String {
         class.name().to_owned()
     } else {
         format!("{}: {text}", class.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    use super::{Class, last_line};
+
+    /// Writes, for each class that the arguments name, its base and the
+    /// last line of the traceback of an exception without an argument, of
+    /// one with an empty `str` and of one with a `str`.
+    const DRIVER: &str = r#"
+import builtins, sys, traceback
+for name in sys.argv[1:]:
+    c = getattr(builtins, name)
+    last = [traceback.format_exception_only(e)[-1].rstrip("\n") for e in (c(), c(""), c("a b"))]
+    print(name, c.__base__.__name__, *last, sep="|")
+"#;
+
+    #[test]
+    fn each_class_has_the_base_and_the_last_line_of_cpython() {
+        let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".to_owned());
+        let output = Command::new(python)
+            .args(["-c", DRIVER])
+            .args(Class::ALL.iter().map(|class| class.name()))
+            .output()
+            .expect("python3 to run");
+        assert!(output.status.success(), "{output:?}");
+        let ours: Vec<String> = Class::ALL
+            .iter()
+            .map(|class| {
+                let base = class.base().map_or("object", Class::name);
+                let lines = ["", "", "a b"].map(|text| last_line(*class, text));
+                format!("{}|{base}|{}", class.name(), lines.join("|"))
+            })
+            .collect();
+        let theirs = String::from_utf8(output.stdout).expect("utf-8");
+        assert_eq!(ours, theirs.lines().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_class_has_the_name_that_names_it() {
+        for class in Class::ALL {
+            assert_eq!(Class::of(class.name()), Some(*class));
+        }
+        assert_eq!(Class::of("spython"), None);
+        assert_eq!(Class::of("KeyError"), None);
     }
 }

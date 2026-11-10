@@ -22,6 +22,7 @@ mod memory;
 mod name_error;
 mod numeric;
 mod print;
+mod raise;
 mod recursion;
 mod str;
 mod vars;

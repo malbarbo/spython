@@ -319,7 +319,7 @@ fn one_arg<'c>(call: &'c ast::ExprCall, what: &str) -> Result<&'c ast::Expr, Err
 }
 
 /// Returns `true` if `file` is the `builtins` module, `false` otherwise.
-fn is_builtins(db: &dyn Db, file: File) -> bool {
+pub(super) fn is_builtins(db: &dyn Db, file: File) -> bool {
     let resolver_file = db.program_file(file).resolver_file(db);
     file_to_module(db, resolver_file).is_some_and(|m| m.is_known(db, KnownModule::Builtins))
 }

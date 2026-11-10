@@ -1,6 +1,8 @@
 //! The program after lowering. Every Python decision is already made here,
 //! and the emitter only translates.
 
+use crate::cpython::Class;
+
 pub(crate) struct Program {
     pub body: Vec<Stmt>,
     /// The variables of the module, by their [`VarId`].
@@ -124,6 +126,13 @@ pub(crate) enum Stmt {
     },
     Break,
     Continue,
+    /// Raises an exception of the class at the site, with the `str` as the
+    /// text of its argument, or without an argument.
+    Raise {
+        class: Class,
+        arg: Option<Expr>,
+        site: Site,
+    },
 }
 
 pub(crate) enum Expr {

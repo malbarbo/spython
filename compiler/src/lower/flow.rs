@@ -1,6 +1,6 @@
 //! What the lowering reads from a body before it lowers it: the names that
 //! the body binds, their order in the code, and whether the body always
-//! returns or breaks.
+//! returns, raises or breaks.
 
 use std::collections::HashSet;
 
@@ -94,6 +94,11 @@ impl<'a> Bindings<'a> {
                         self.visit(value);
                     }
                 }
+                ast::Stmt::Raise(r) => {
+                    if let Some(exc) = &r.exc {
+                        self.visit(exc);
+                    }
+                }
                 ast::Stmt::Global(g) => self
                     .globals
                     .extend(g.names.iter().map(|name| name.id.as_str())),
@@ -145,7 +150,7 @@ impl<'a> Bindings<'a> {
 /// The answer is `false` in a case this check cannot decide.
 pub(super) fn always_returns(body: &[ast::Stmt]) -> bool {
     body.iter().any(|stmt| match stmt {
-        ast::Stmt::Return(_) => true,
+        ast::Stmt::Return(_) | ast::Stmt::Raise(_) => true,
         ast::Stmt::If(i) => {
             always_returns(&i.body)
                 && i.elif_else_clauses

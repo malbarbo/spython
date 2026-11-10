@@ -246,6 +246,15 @@ impl Emitter<'_> {
                 let target = self.code.loops.last().expect("a break in a loop").break_;
                 f.br(target);
             }
+            Stmt::Raise { class, arg, site } => {
+                if let Some(arg) = arg {
+                    self.expr(f, arg);
+                }
+                self.at(f, *site, |e, f| match arg {
+                    Some(_) => e.reprs.raise_text(&mut e.m, f, *class),
+                    None => e.reprs.raise(&mut e.m, f, &Message::new(*class, "")),
+                });
+            }
             Stmt::Continue => {
                 let target = self
                     .code
