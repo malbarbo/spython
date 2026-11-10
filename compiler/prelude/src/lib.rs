@@ -8,6 +8,7 @@ pub const PACKAGE: &str = "__spython_prelude__";
 pub const FILES: &[(&str, &str)] = &[
     ("__init__.py", include_str!("../python/__init__.py")),
     ("doctest.py", include_str!("../python/doctest.py")),
+    ("float.py", include_str!("../python/float.py")),
     ("int.py", include_str!("../python/int.py")),
     ("intrinsics.pyi", include_str!("../python/intrinsics.pyi")),
     ("math.py", include_str!("../python/math.py")),

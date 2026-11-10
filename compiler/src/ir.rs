@@ -446,6 +446,9 @@ pub(crate) enum Expr {
     /// The value of a code point as a decimal digit, as an `int`, or -1
     /// when the code point is not a decimal digit.
     DecimalValue(Box<Expr>),
+    /// The `float` of a `str` of ASCII in the form of a `float` of Python
+    /// without underscores.
+    ParseFloat(Box<Expr>),
     /// Whether a code point is in `set`, as a `bool`.
     CodePointIs {
         set: CodePointSet,
@@ -927,7 +930,8 @@ impl Expr {
             | Expr::FloatCeil(_)
             | Expr::FloatRoundDigits { .. }
             | Expr::Div { .. }
-            | Expr::FloatPow { .. } => Rep::Float,
+            | Expr::FloatPow { .. }
+            | Expr::ParseFloat(_) => Rep::Float,
             Expr::Bool(_)
             | Expr::IsNone(_)
             | Expr::CodePointIs { .. }

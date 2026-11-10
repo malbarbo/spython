@@ -112,16 +112,6 @@ fn float_of_a_number_follows_python() {
 }
 
 #[test]
-fn float_of_a_str_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-            print(float('1.5'))
-        "}),
-        "float of this type"
-    );
-}
-
-#[test]
 fn pow_of_two_values_is_the_power_operator() {
     same_as_cpython(
         "pow_of_two_values_is_the_power_operator",

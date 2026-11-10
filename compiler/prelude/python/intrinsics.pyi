@@ -81,3 +81,6 @@ def stop(text: str) -> NoReturn:
 
 def decimal_value(code_point: int) -> int:
     """The value of the code point as a decimal digit, or -1 when `str.isdecimal` does not accept it."""
+
+def parse_float(text: str) -> float:
+    """The `float` of `text`, which is ASCII in the form of a float of Python without underscores."""

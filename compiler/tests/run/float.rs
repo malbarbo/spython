@@ -307,3 +307,48 @@ fn a_program_without_a_float_links_no_builtin() {
         }
     }
 }
+
+#[test]
+fn float_of_a_str_reads_it_as_cpython_does() {
+    same_as_cpython(
+        "float_of_a_str_reads_it_as_cpython_does",
+        indoc! {"
+            print(float('1.5'), float(' -2 '), float('.5'), float('5.'), float('1.e5'), float('1e1_0'))
+            print(float('+nan'), float('-InFiNiTy'), float('iNf'), float('1e400'), float('1.5e-400'), float('-0'))
+            print(float('1_0.2_5e-1_0'), float('١.٥'), float('\\u3000 7\\x85'), float('0' * 5000 + '1.25'))
+            print(float('0.1'), float('9007199254740993'), float('2.4703282292062328e-324'), float('1' * 400))
+        "},
+    );
+    for (i, source) in [
+        "float('')",
+        "float('é')",
+        "float('x' * 300)",
+        "float('1_')",
+        "float('1__0')",
+        "float('_1')",
+        "float('inf_')",
+        "float('.')",
+        "float('1e')",
+        "float('1e+')",
+        "float('0x1p3')",
+        "float('1\\x00')",
+        "float('nan(1)')",
+        "float('infinit')",
+        "float('.e5')",
+        "float('e5')",
+        "float('++1')",
+        "float('1,5')",
+        "float('\\x1c1')",
+        "float('1_.5')",
+        "float('1._5')",
+        "float('1e_5')",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        same_as_cpython(
+            &format!("float_of_an_invalid_str_raises_valueerror_{i}"),
+            &format!("print({source})\n"),
+        );
+    }
+}

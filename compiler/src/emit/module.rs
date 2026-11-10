@@ -649,6 +649,8 @@ impl<'a> Ins<'a> {
         ref_is_null();
         ref_i31();
         i31_get_s();
+        memory_size(mem: u32);
+        memory_grow(mem: u32);
         ref_null(ty: HeapType);
         return_();
         select();

@@ -64,6 +64,9 @@ pub(crate) struct Host {
     /// The address of [`SCRATCH_SIZE`] bytes where the module and a builtin
     /// pass values to each other.
     pub scratch: i32,
+    /// The first address after the area of the host, where the memory is
+    /// free up to its end, and grows.
+    pub free: i32,
     /// `(func)`, which ends a write, as one call of `write` in CPython.
     pub end_write: FuncIdx,
     /// The global with the error of WASI of the write that failed, and 0
@@ -188,6 +191,7 @@ impl Host {
             start: add_start(m, &s, fd_fdstat_get),
             write_char: add_write_char(m, &s, &funcs),
             scratch: at(SCRATCH),
+            free: at(STDERR_BUFFER_END),
             end_write: add_end_write(m, &s, &funcs),
             error: s.error,
             flush: add_flush(m, &funcs),

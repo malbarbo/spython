@@ -52,9 +52,13 @@ pub(super) enum FloatRepr {
         /// `(func (param f64 f64 f64 f64) (result i32))` for
         /// `math.isclose`, which the module gets at the first use.
         isclose: Option<FuncIdx>,
+        /// `(func (param (ref $Str)) (result f64))` for `float` of a `str`,
+        /// which the module gets at the first use.
+        parse: Option<FuncIdx>,
         write_char: FuncIdx,
         end_write: FuncIdx,
         scratch: i32,
+        free: i32,
     },
 }
 
@@ -72,9 +76,11 @@ impl FloatRepr {
             ldexp: None,
             fma: None,
             isclose: None,
+            parse: None,
             write_char: host.write_char,
             end_write: host.end_write,
             scratch: host.scratch,
+            free: host.free,
         }
     }
 
@@ -436,6 +442,17 @@ impl FloatRepr {
 
     /// Pops a `float` and writes its `repr` to the standard output, as one
     /// write.
+    /// Pops a `str` of ASCII in the form of a `float` of Python without
+    /// underscores, and pushes its `float`.
+    pub fn parse(&mut self, m: &mut ModuleState, f: &mut FuncState, str: &StrRepr) {
+        match self {
+            FloatRepr::F64 { parse, free, .. } => {
+                let func = *parse.get_or_insert_with(|| add_parse(m, str, *free));
+                f.ins().call(func);
+            }
+        }
+    }
+
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         match self {
             FloatRepr::F64 {
@@ -451,6 +468,65 @@ impl FloatRepr {
             }
         }
     }
+}
+
+/// The function that reads a `str` of ASCII as a `float`. It copies the
+/// `str` to the free memory after the area of the host, which grows when
+/// the `str` does not fit, and `f64_parse` reads it there.
+fn add_parse(m: &mut ModuleState, str: &StrRepr, free: i32) -> FuncIdx {
+    let parse = m.builtin("f64_parse");
+    let ty = m.func_type(&[str.val_type(false)], &[ValType::F64]);
+    let mut f = FuncState::new(1);
+    let s = f.param(0);
+    let (len, i, pages) = (
+        f.local(ValType::I32),
+        f.local(ValType::I32),
+        f.local(ValType::I32),
+    );
+    f.ins().local_get(s);
+    str.len(&mut f);
+    f.ins().local_set(len);
+    f.ins()
+        .i32_const(free)
+        .local_get(len)
+        .i32_add()
+        .i32_const(0xFFFF)
+        .i32_add()
+        .i32_const(16)
+        .i32_shr_u()
+        .memory_size(0)
+        .i32_sub()
+        .local_tee(pages)
+        .i32_const(0)
+        .i32_gt_s();
+    f.if_(BlockType::Empty);
+    f.ins()
+        .local_get(pages)
+        .memory_grow(0)
+        .i32_const(-1)
+        .i32_eq();
+    f.if_(BlockType::Empty);
+    f.ins().unreachable();
+    f.end();
+    f.end();
+    let done = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(len).i32_ge_u();
+    f.br_if(done);
+    f.ins().local_get(i).local_get(s).local_get(i);
+    str.get(&mut f);
+    f.ins().i32_store8(MemArg {
+        offset: u64::try_from(free).expect("a positive address"),
+        align: 0,
+        target: MemArgTarget::Memory(0),
+        ordering: None,
+    });
+    f.ins().local_get(i).i32_const(1).i32_add().local_set(i);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().i32_const(free).local_get(len).call(parse);
+    m.add_func(ty, f.finish())
 }
 
 /// The function of `op`, which raises `ZeroDivisionError` with the message

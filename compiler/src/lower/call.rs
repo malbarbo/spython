@@ -274,7 +274,8 @@ impl<'a> Lowering<'a, '_> {
                 let lowered = self.expr(arg)?;
                 match lowered.rep() {
                     Rep::Int | Rep::Bool | Rep::Float => float_value(lowered, arg),
-                    Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => {
+                    Rep::Str => self.prelude_call(call, "float", "float_of_str", vec![lowered]),
+                    Rep::None | Rep::StrOrNone | Rep::Uniform => {
                         Err(unsupported(arg, "float of this type"))
                     }
                 }

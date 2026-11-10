@@ -565,6 +565,12 @@ impl Reprs {
         self.int.small_as_int(f);
     }
 
+    /// Pops a `str` of ASCII in the form of a `float` of Python without
+    /// underscores, and pushes its `float`.
+    pub fn parse_float(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.float.parse(m, f, &self.str);
+    }
+
     /// Pops an `int`, a code point, and pushes the `int` of its value as a
     /// decimal digit, or -1.
     pub fn decimal_value(&self, m: &mut ModuleState, f: &mut FuncState) {

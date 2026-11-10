@@ -301,6 +301,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }),
             "write_err" => arg().map(Expr::WriteErr),
             "decimal_value" => arg().map(Expr::DecimalValue),
+            "parse_float" => arg().map(Expr::ParseFloat),
             "stop" => arg().map(|text| Expr::Stop {
                 text,
                 site: self.site(call.range()),
