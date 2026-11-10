@@ -94,6 +94,12 @@ impl<'a> Bindings<'a> {
                         self.visit(value);
                     }
                 }
+                ast::Stmt::Assert(a) => {
+                    self.visit(&a.test);
+                    if let Some(msg) = &a.msg {
+                        self.visit(msg);
+                    }
+                }
                 ast::Stmt::Raise(r) => {
                     if let Some(exc) = &r.exc {
                         self.visit(exc);

@@ -124,3 +124,58 @@ fn each_raise_outside_what_the_compiler_covers_has_its_own_message() {
         "this raise"
     );
 }
+
+#[test]
+fn an_assert_that_holds_does_nothing() {
+    same_as_cpython(
+        "an_assert_that_holds_does_nothing",
+        indoc! {"
+            def text() -> str:
+                print('text')
+                return 'no'
+
+
+            def f(n: int) -> int:
+                assert n > 0
+                assert n, text()
+                assert 'a' and n < 100, 'large'
+                return n
+
+
+            print(f(3))
+            assert f(4) == 4
+        "},
+    );
+}
+
+#[test]
+fn an_assert_that_fails_raises_assertion_error_at_the_condition() {
+    for (name, source) in [
+        ("bare", "x = 1\nassert x > 1\n"),
+        ("text", "x = 1\nassert x > 1, 'x is ' + str(x)\n"),
+        ("empty", "x = 1\nassert x > 1, ''\n"),
+        ("whole", "x = ''\nassert x\n"),
+        ("lines", "x = 1\nassert (\n    x >\n    1\n), 'two lines'\n"),
+        (
+            "function",
+            "def f(n: int) -> int:\n    assert n > 0, 'neg'\n    return n\n\n\nprint(f(1))\nprint(f(-1))\n",
+        ),
+        (
+            "raises",
+            "def text() -> str:\n    return str(1 // int(0.0))\n\n\nassert 1 > 2, text()\n",
+        ),
+    ] {
+        same_as_cpython(
+            &format!("an_assert_that_fails_raises_assertion_error_at_the_condition_{name}"),
+            source,
+        );
+    }
+}
+
+#[test]
+fn an_assert_with_a_text_that_is_not_a_str_is_unsupported() {
+    assert_eq!(
+        unsupported("x = 1\nassert x > 1, x\n"),
+        "an exception with this argument"
+    );
+}

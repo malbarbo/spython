@@ -128,6 +128,29 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Stmt::Return(r) => self.return_(r).map(Some),
             ast::Stmt::Raise(r) => self.raise(r).map(Some),
+            ast::Stmt::Assert(a) => {
+                let arg = match a.msg.as_deref() {
+                    Some(msg) => {
+                        let lowered = self.expr(msg)?;
+                        if lowered.rep() != Rep::Str {
+                            return Err(unsupported(msg, "an exception with this argument"));
+                        }
+                        Some(lowered)
+                    }
+                    None => None,
+                };
+                // The traceback marks the condition, and the program
+                // evaluates the text only when the condition is false.
+                Ok(Some(Stmt::If {
+                    cond: self.truth_of(&a.test)?,
+                    then: Vec::new(),
+                    else_: vec![Stmt::Raise {
+                        class: Class::AssertionError,
+                        arg,
+                        site: self.site(a.test.range()),
+                    }],
+                }))
+            }
             ast::Stmt::Import(i) => {
                 if let Some(alias) = i.names.iter().find(|alias| alias.name.as_str() != "math") {
                     return Err(unsupported(alias, "an import of this module"));
