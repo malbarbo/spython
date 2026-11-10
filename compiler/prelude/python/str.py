@@ -348,6 +348,24 @@ def rjust(s: str, width: int, fillchar: str | None = None) -> str:
     return pad(s, width - len(s), 0, fill)
 
 
+def zfill(s: str, width: int) -> str:
+    n = len(s)
+    if n >= width:
+        return s
+    zeros = width - n
+    b = builder_new(width)
+    i = 0
+    while i < zeros:
+        b[i] = 48
+        i += 1
+    put(b, zeros, s)
+    # A sign goes before the zeros.
+    if n > 0 and (code_point(s, 0) == 43 or code_point(s, 0) == 45):
+        b[0] = code_point(s, 0)
+        b[zeros] = 48
+    return builder_done(b)
+
+
 def fill_code_point(fillchar: str | None) -> int:
     """The code point that pads, which is a space without `fillchar`."""
     if fillchar is None:

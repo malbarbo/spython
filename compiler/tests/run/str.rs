@@ -470,3 +470,14 @@ fn center_ljust_and_rjust_pad_a_str_to_a_width() {
         "},
     );
 }
+
+#[test]
+fn zfill_pads_with_zeros_after_the_sign() {
+    same_as_cpython(
+        "zfill_pads_with_zeros_after_the_sign",
+        indoc! {"
+            print('42'.zfill(5), '-42'.zfill(5), '+42'.zfill(5), '42'.zfill(1), '-'.zfill(3), '+'.zfill(1))
+            print(repr(''.zfill(3)), 'é😀'.zfill(4), '--1'.zfill(5), 'a-1'.zfill(5), '42'.zfill(-1))
+        "},
+    );
+}

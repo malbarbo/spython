@@ -32,6 +32,7 @@ const STR_METHODS: &[&str] = &[
     "startswith",
     "strip",
     "upper",
+    "zfill",
 ];
 
 /// Each module of the prelude that the database of `file` has, by name.
