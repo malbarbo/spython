@@ -70,7 +70,7 @@ impl<'a> Lowering<'a, '_> {
             if self.imports.borrow().ids.contains_key(id) {
                 return Err(unsupported(name, "a name of an import as a value"));
             }
-            if self.funcs.borrow().ids.contains_key(id) {
+            if self.funcs.borrow().names.contains_key(id) {
                 return Err(unsupported(name, "a function as a value"));
             }
             return Err(unsupported(name, "a name that the module does not assign"));

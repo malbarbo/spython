@@ -16,7 +16,7 @@ use ruff_db::parsed::parsed_module;
 use ruff_db::source::source_text;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
-use ty_python_semantic::types::lowering::{Shape, expr_shape, function_info};
+use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_info};
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::Error;
@@ -130,7 +130,9 @@ impl Vars {
 
 #[derive(Default)]
 struct Funcs<'a> {
-    ids: HashMap<String, FuncId>,
+    ids: HashMap<DefId, FuncId>,
+    /// The function that each name of the module binds.
+    names: HashMap<String, FuncId>,
     sigs: Vec<Sig<'a>>,
     /// Whether the program asks which globals got a value first, by the id
     /// of the function.
@@ -170,6 +172,7 @@ struct Sig<'a> {
 }
 
 struct Scope {
+    func: FuncId,
     /// The name of the function, which its frames in a traceback show.
     name: String,
     ret: Rep,
@@ -253,7 +256,7 @@ impl<'a> Lowering<'a, '_> {
         let vars = match scope.as_mut() {
             Some(scope) => &mut scope.vars,
             None => {
-                if self.funcs.borrow().ids.contains_key(name) {
+                if self.funcs.borrow().names.contains_key(name) {
                     return Err(unsupported(value, "a name of a function and of a variable"));
                 }
                 if self.imports.borrow().ids.contains_key(name) {
@@ -296,9 +299,9 @@ impl<'a> Lowering<'a, '_> {
         let params = parameters
             .args
             .iter()
-            .zip(info.params)
+            .zip(&info.params)
             .map(|(param, info)| {
-                shape_rep(Some(info.shape))
+                shape_rep(Some(info.shape.clone()))
                     .ok_or_else(|| unsupported(param, "a parameter of this type"))
             })
             .collect::<Result<_, _>>()?;
@@ -317,11 +320,12 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(def, "a name of an import and of a function"));
         }
         let mut funcs = self.funcs.borrow_mut();
-        if funcs.ids.contains_key(name) {
+        if funcs.names.contains_key(name) {
             return Err(unsupported(def, "two functions of the same name"));
         }
         let id = FuncId::new(funcs.sigs.len());
-        funcs.ids.insert(name.to_owned(), id);
+        funcs.ids.insert(info.id, id);
+        funcs.names.insert(name.to_owned(), id);
         funcs.sigs.push(Sig { def, params, ret });
         funcs.ordered.push(false);
         Ok(())
@@ -377,6 +381,7 @@ impl<'a> Lowering<'a, '_> {
             .map(str::to_owned)
             .collect();
         *self.scope.borrow_mut() = Some(Scope {
+            func: id,
             name: def.name.to_string(),
             ret: sig.ret,
             locals,

@@ -5,7 +5,7 @@ use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::Db;
-use ty_python_semantic::types::lowering::{Shape, expr_shape};
+use ty_python_semantic::types::lowering::{CallTarget, Shape, call_target, expr_shape};
 
 use super::expr::float_value;
 use super::{Lowering, unsupported};
@@ -30,7 +30,13 @@ impl<'a> Lowering<'a, '_> {
         {
             return Err(unsupported(call, "a call of a local variable"));
         }
-        let Some(func) = self.funcs.borrow().ids.get(callee).copied() else {
+        let func = match call_target(self.model, call) {
+            Some(CallTarget::Function(def)) => self.funcs.borrow().ids.get(&def).copied(),
+            // The checker sees no function in a name that the `def` has yet
+            // to bind.
+            _ => self.funcs.borrow().names.get(callee).copied(),
+        };
+        let Some(func) = func else {
             return Err(unsupported(
                 call,
                 "a call of a function that the module does not define",

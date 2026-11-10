@@ -29,7 +29,7 @@ impl<'a> Lowering<'a, '_> {
             .map(|(id, global)| (Binding::Global(id), global.to_owned()))
             .chain(
                 funcs
-                    .ids
+                    .names
                     .iter()
                     .map(|(func, id)| (Binding::Func(*id), func.clone())),
             )
@@ -44,13 +44,7 @@ impl<'a> Lowering<'a, '_> {
         // CPython lists the locals, the globals and the builtins, and the
         // frame of the module lists its globals as its locals too.
         let (factor, params) = match scope.as_ref() {
-            Some(scope) => {
-                let id = funcs
-                    .ids
-                    .get(&scope.name)
-                    .expect("the function of the scope");
-                (1, funcs.get(*id).params.len())
-            }
+            Some(scope) => (1, funcs.get(scope.func).params.len()),
             None => (2, 0),
         };
         let most = locals.len()
@@ -103,7 +97,7 @@ impl<'a> Lowering<'a, '_> {
                 .filter(|_| scope.is_local("self"))
                 .filter(|(_, rep)| has_attribute(Some(*rep), name))
                 .map(|(id, _)| Binding::Local(id)),
-            None => match (module.find("self"), funcs.ids.get("self")) {
+            None => match (module.find("self"), funcs.names.get("self")) {
                 (Some((id, rep)), _) if has_attribute(Some(rep), name) => Some(Binding::Global(id)),
                 (_, Some(id)) if has_attribute(None, name) => Some(Binding::Func(*id)),
                 _ => None,

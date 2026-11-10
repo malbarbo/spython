@@ -91,7 +91,7 @@ impl<'a> Lowering<'a, '_> {
                 let id = *self
                     .funcs
                     .borrow()
-                    .ids
+                    .names
                     .get(def.name.as_str())
                     .expect("a declared function");
                 Ok(Some(Stmt::Def(id)))
