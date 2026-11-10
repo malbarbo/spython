@@ -257,6 +257,18 @@ def put(b: StrBuilder, at: int, t: str) -> int:
     return at + n
 
 
+def removeprefix(s: str, prefix: str) -> str:
+    if startswith(s, prefix, None, None):
+        return s[len(prefix) :]
+    return s
+
+
+def removesuffix(s: str, suffix: str) -> str:
+    if endswith(s, suffix, None, None):
+        return s[: len(s) - len(suffix)]
+    return s
+
+
 def is_in(sub: str, s: str) -> bool:
     return find(s, sub, None, None) >= 0
 

@@ -19,6 +19,8 @@ const STR_METHODS: &[&str] = &[
     "find",
     "index",
     "lower",
+    "removeprefix",
+    "removesuffix",
     "replace",
     "rfind",
     "rindex",

@@ -428,3 +428,16 @@ fn replace_changes_each_occurrence_up_to_a_count() {
         "},
     );
 }
+
+#[test]
+fn removeprefix_and_removesuffix_drop_an_end_that_matches() {
+    same_as_cpython(
+        "removeprefix_and_removesuffix_drop_an_end_that_matches",
+        indoc! {"
+            s = 'é😀abcé😀'
+            print(s.removeprefix('é😀'), s.removeprefix('😀'), s.removeprefix(''), s.removeprefix(s))
+            print(s.removesuffix('é😀'), s.removesuffix('é'), s.removesuffix(''), s.removesuffix(s))
+            print(''.removeprefix(''), ''.removesuffix('a'), 'a'.removeprefix('ab'))
+        "},
+    );
+}
