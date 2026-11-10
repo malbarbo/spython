@@ -3,17 +3,43 @@
 use ruff_python_ast as ast;
 
 use super::flow::imported_name;
-use super::{Lowering, unsupported};
+use super::{Lowering, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Rep, Stmt};
+use crate::ir::{Place, Rep, Stmt};
 
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
         for stmt in body {
+            if let ast::Stmt::FunctionDef(def) = stmt {
+                lowered.extend(self.defaults(def)?);
+            }
             lowered.extend(self.stmt(stmt)?);
         }
         Ok(lowered)
+    }
+
+    /// The assignment of the default of each parameter of `def`, which the
+    /// `def` evaluates once, in the order of the parameters.
+    fn defaults(&self, def: &ast::StmtFunctionDef) -> Result<Vec<Stmt>, Error> {
+        let Some(id) = self.funcs.borrow().names.get(def.name.as_str()).copied() else {
+            return Ok(Vec::new());
+        };
+        let sig = self.funcs.borrow().get(id).clone();
+        params_of(def)
+            .zip(&sig.defaults)
+            .filter_map(|(param, var)| Some((param.default.as_deref()?, (*var)?)))
+            .map(|(default, var)| {
+                let value = self.expr(default)?;
+                if value.rep() != self.vars.borrow().get(var).rep {
+                    return Err(unsupported(default, "a default of this type"));
+                }
+                Ok(Stmt::Assign {
+                    targets: vec![Place::Global(var)],
+                    value,
+                })
+            })
+            .collect()
     }
 
     fn stmt(&self, stmt: &ast::Stmt) -> Result<Option<Stmt>, Error> {

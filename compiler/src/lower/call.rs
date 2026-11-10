@@ -12,7 +12,7 @@ use ty_python_semantic::types::lowering::{
 use super::expr::float_value;
 use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Expr, MinMaxOp, Rep};
+use crate::ir::{Expr, MinMaxOp, Place, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -95,6 +95,18 @@ impl<'a> Lowering<'a, '_> {
             }
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
             args.push(lowered);
+        }
+        // The `def` gives each default its value, and a call that finds the
+        // function comes after the `def`.
+        for ((slot, default), rep) in order.iter_mut().zip(&sig.defaults).zip(&sig.params) {
+            if let (None, Some(var)) = (&slot, default) {
+                *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
+                args.push(Expr::Load {
+                    place: Place::Global(*var),
+                    rep: *rep,
+                    check: None,
+                });
+            }
         }
         let order = order
             .into_iter()

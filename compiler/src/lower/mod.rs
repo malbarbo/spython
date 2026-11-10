@@ -118,13 +118,18 @@ impl Vars {
     }
 
     fn add(&mut self, name: &str, rep: Rep) {
-        let id = VarId::new(self.list.len());
+        let id = self.add_unnamed(rep);
         self.ids.insert(name.to_owned(), id);
+    }
+
+    /// A new variable that no name of the program reads.
+    fn add_unnamed(&mut self, rep: Rep) -> VarId {
         self.list.push(Var {
             rep,
             flagged: false,
             ordered: false,
         });
+        VarId::new(self.list.len() - 1)
     }
 
     /// The name of each variable, by its id.
@@ -179,6 +184,9 @@ impl Imports {
 struct Sig<'a> {
     def: &'a ast::StmtFunctionDef,
     params: Vec<Rep>,
+    /// The variable of the module that holds the default of each parameter
+    /// that has one. The `def` gives the variable its value.
+    defaults: Vec<Option<VarId>>,
     ret: Rep,
 }
 
@@ -307,9 +315,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
         {
             return Err(unsupported(&**parameters, "these parameters"));
         }
-        if let Some(param) = params_of(def).find(|p| p.default.is_some()) {
-            return Err(unsupported(param, "a parameter with a default"));
-        }
         if let Some(param) = params_of(def).nth(MAX_PARAMS) {
             return Err(unsupported(param, "a def with more than 1000 parameters"));
         }
@@ -320,7 +325,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 shape_rep(Some(info.shape.clone()))
                     .ok_or_else(|| unsupported(param, "a parameter of this type"))
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
         let ret = match info.ret {
             Shape::None => Rep::None,
             shape => shape_rep(Some(shape)).ok_or_else(|| match &def.returns {
@@ -339,10 +344,20 @@ impl<'a, 'db> Lowering<'a, 'db> {
         if funcs.names.contains_key(name) {
             return Err(unsupported(def, "two functions of the same name"));
         }
+        let mut vars = self.vars.borrow_mut();
+        let defaults = params_of(def)
+            .zip(&params)
+            .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
+            .collect();
         let id = FuncId::new(funcs.sigs.len());
         funcs.ids.insert(info.id, id);
         funcs.names.insert(name.to_owned(), id);
-        funcs.sigs.push(Sig { def, params, ret });
+        funcs.sigs.push(Sig {
+            def,
+            params,
+            defaults,
+            ret,
+        });
         funcs.ordered.push(false);
         Ok(())
     }

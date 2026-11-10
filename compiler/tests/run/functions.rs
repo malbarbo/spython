@@ -273,13 +273,6 @@ fn a_function_that_may_end_without_a_return_is_unsupported() {
 
 #[test]
 fn a_def_outside_what_the_compiler_covers_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-            def f(n: int = 1) -> int:
-                return n
-        "}),
-        "a parameter with a default"
-    );
     let params = (0..1001).map(|i| format!("p{i}: int")).collect::<Vec<_>>();
     assert_eq!(
         unsupported(&formatdoc! {"
@@ -363,6 +356,55 @@ fn a_call_gives_a_keyword_only_parameter_by_its_name() {
 
             print(only(b=trace(1), a=trace(2)))
             show(trace(3), times=trace(2), sep='-')
+        "},
+    );
+}
+
+#[test]
+fn a_def_evaluates_a_default_once_and_a_call_without_the_argument_takes_it() {
+    same_as_cpython(
+        "a_def_evaluates_a_default_once_and_a_call_without_the_argument_takes_it",
+        indoc! {"
+            def trace(n: int) -> int:
+                print('eval', n)
+                return n
+
+
+            base = 10
+
+
+            def show(a: int, b: int = trace(base), *, sep: str = '-', end: str = '.') -> None:
+                print(str(a) + sep + str(b) + end)
+
+
+            base = 20
+            show(1)
+            show(2, 3)
+            show(4, end='!')
+            show(b=trace(5), a=trace(6), sep='+')
+            show(sep=':', a=7)
+
+
+            def inner() -> None:
+                show(8)
+                show(9, sep='=')
+
+
+            inner()
+        "},
+    );
+}
+
+#[test]
+fn a_default_that_raises_stops_the_def() {
+    same_as_cpython(
+        "a_default_that_raises_stops_the_def",
+        indoc! {"
+            def f(n: int = 1 // 0) -> int:  # ty: ignore[division-by-zero]
+                return n
+
+
+            print(f())
         "},
     );
 }
