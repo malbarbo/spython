@@ -6,6 +6,7 @@
 use wasm_encoder::{AbstractHeapType, BlockType, HeapType, RefType, StorageType, ValType};
 
 use super::super::module::{FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
+use crate::ir::Rep;
 
 const EQ: HeapType = HeapType::Abstract {
     shared: false,
@@ -19,6 +20,7 @@ pub(super) struct UniformRepr {
 
 /// `False` and `True`, which the module makes once.
 struct Bools {
+    ty: TypeIdx,
     false_: GlobalIdx,
     true_: GlobalIdx,
 }
@@ -60,6 +62,24 @@ impl UniformRepr {
             .get_or_insert_with(|| m.struct_type(&[(StorageType::Val(ValType::F64), false)]))
     }
 
+    /// The rep of a boxed value of a type other than `str`, with the type
+    /// of its box. `None` and a `str` have no box of their own.
+    pub fn boxes(&mut self, m: &mut ModuleState) -> [(Rep, HeapType); 3] {
+        let float = self.float_type(m).heap_type();
+        let bool = self.bool_type(m).heap_type();
+        [
+            (
+                Rep::Int,
+                HeapType::Abstract {
+                    shared: false,
+                    ty: AbstractHeapType::I31,
+                },
+            ),
+            (Rep::Float, float),
+            (Rep::Bool, bool),
+        ]
+    }
+
     /// Pops a boxed `int` and pushes it as an `i32`.
     pub fn unbox_int(&self, f: &mut FuncState) {
         let i31 = HeapType::Abstract {
@@ -94,6 +114,10 @@ impl UniformRepr {
         f.end();
     }
 
+    fn bool_type(&mut self, m: &mut ModuleState) -> TypeIdx {
+        self.bools(m).ty
+    }
+
     fn bools(&mut self, m: &mut ModuleState) -> &Bools {
         self.bool.get_or_insert_with(|| {
             // The field tells the two apart from a `$Float` and from each
@@ -111,6 +135,7 @@ impl UniformRepr {
                 global
             };
             Bools {
+                ty,
                 false_: global(0),
                 true_: global(1),
             }

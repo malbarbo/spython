@@ -1086,8 +1086,11 @@ impl Emitter<'_> {
         for arg in args {
             self.expr(f, arg);
             let rep = arg.rep();
-            let local = f.temp(self.reprs.local_type(rep).expect("an argument has a value"));
-            f.ins().local_set(local);
+            // `None` has no value to keep.
+            let local = self.reprs.local_type(rep).map(|ty| f.temp(ty));
+            if let Some(local) = local {
+                f.ins().local_set(local);
+            }
             values.push((rep, local));
         }
         for (i, (rep, local)) in values.into_iter().enumerate() {
@@ -1097,9 +1100,11 @@ impl Emitter<'_> {
                     .call(self.host.write_char)
                     .call(self.host.end_write);
             }
-            self.reprs.load(f, rep, local);
+            if let Some(local) = local {
+                self.reprs.load(f, rep, local);
+                f.free(local);
+            }
             self.reprs.write(&mut self.m, f, rep);
-            f.free(local);
         }
         f.ins()
             .i32_const('\n' as i32)

@@ -136,14 +136,7 @@ impl<'a> Lowering<'a, '_> {
             .arguments
             .args
             .iter()
-            .map(|arg| {
-                let lowered = self.expr(arg)?;
-                match lowered.rep() {
-                    Rep::None => Err(unsupported(arg, "print of None")),
-                    Rep::StrOrNone | Rep::Uniform => Err(unsupported(arg, "print of a union")),
-                    Rep::Int | Rep::Float | Rep::Bool | Rep::Str => Ok(lowered),
-                }
-            })
+            .map(|arg| self.expr(arg))
             .collect::<Result<_, _>>()?;
         Ok(Expr::Print {
             args,

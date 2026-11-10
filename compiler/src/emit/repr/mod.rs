@@ -7,7 +7,7 @@ mod uniform;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use super::module::{FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
+use super::module::{FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
@@ -25,6 +25,9 @@ pub(crate) struct Reprs {
     float: FloatRepr,
     str: StrRepr,
     uniform: UniformRepr,
+    /// `(func (param (ref null eq)))`, which writes a value of a union. A
+    /// module that writes none goes without it.
+    write_uniform: Option<FuncIdx>,
     exc: Exceptions,
 }
 
@@ -41,6 +44,7 @@ impl Reprs {
             float,
             str,
             uniform: UniformRepr::new(),
+            write_uniform: None,
             exc,
         }
     }
@@ -644,7 +648,7 @@ impl Reprs {
     }
 
     /// Pops a value of `rep` and writes what `str` gives for it to the
-    /// standard output.
+    /// standard output. `None` has no value to pop.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {
         match rep {
             Rep::Int => self.int.write(f, &self.str),
@@ -659,7 +663,60 @@ impl Reprs {
                 f.end();
             }
             Rep::Str => self.str.write(f),
-            Rep::None | Rep::StrOrNone | Rep::Uniform => panic!("a value of rep {rep:?} to write"),
+            Rep::StrOrNone => {
+                let value = f.temp(self.str.val_type(true));
+                f.ins().local_tee(value).ref_is_null();
+                f.if_(BlockType::Empty);
+                self.str.literal(m, f, "None");
+                self.str.write(f);
+                f.else_();
+                f.ins().local_get(value).ref_as_non_null();
+                self.str.write(f);
+                f.end();
+                f.free(value);
+            }
+            Rep::Uniform => {
+                let write = match self.write_uniform {
+                    Some(write) => write,
+                    None => {
+                        let write = self.add_write_uniform(m);
+                        self.write_uniform = Some(write);
+                        write
+                    }
+                };
+                f.ins().call(write);
+            }
+            Rep::None => {
+                self.str.literal(m, f, "None");
+                self.str.write(f);
+            }
         }
+    }
+
+    /// Defines the function that writes a value of a union, after the
+    /// test of its type.
+    fn add_write_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        let ty = m.func_type(&[self.uniform.val_type()], &[]);
+        let mut f = FuncState::new(1);
+        let value = f.param(0);
+        f.ins().local_get(value).ref_is_null();
+        f.if_(BlockType::Empty);
+        self.str.literal(m, &mut f, "None");
+        self.str.write(&mut f);
+        f.ins().return_();
+        f.end();
+        for (rep, box_type) in self.uniform.boxes(m) {
+            f.ins().local_get(value).ref_test(box_type);
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value);
+            self.narrow(m, &mut f, Rep::Uniform, rep);
+            self.write(m, &mut f, rep);
+            f.ins().return_();
+            f.end();
+        }
+        f.ins().local_get(value);
+        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
+        self.str.write(&mut f);
+        m.add_func(ty, f.finish())
     }
 }

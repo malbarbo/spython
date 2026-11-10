@@ -127,13 +127,47 @@ fn is_none_tests_a_value_and_narrows_a_union() {
 }
 
 #[test]
+fn print_writes_a_value_of_a_union_as_its_type_says() {
+    same_as_cpython(
+        "print_writes_a_value_of_a_union_as_its_type_says",
+        indoc! {"
+            def show(x: int | float | bool | str | None) -> None:
+                print(x)
+
+
+            def maybe(s: str | None) -> None:
+                print('<', s, '>')
+
+
+            show(None)
+            show(-1073741824)
+            show(1073741823)
+            show(0.1)
+            show(-0.0)
+            show(1e16)
+            show(1e999 - 1e999)
+            show(True)
+            show(False)
+            show('')
+            show('é😀')
+            maybe(None)
+            maybe('a')
+            n: int | None = None
+            f: float | None = 2.5
+            print(n, f, n, f)
+            print(None, maybe('b'), None)
+        "},
+    );
+}
+
+#[test]
 fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-            def f(s: str | None) -> None:
-                print(s)
+            def f(s: str | None) -> str:
+                return str(s)
         "}),
-        "print of a union"
+        "str of a union"
     );
     assert_eq!(
         unsupported(indoc! {"
@@ -148,13 +182,6 @@ fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
                 pass
         "}),
         "a variable self of a union"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
-            def f(x: int | float) -> None:
-                print(x)
-        "}),
-        "print of a union"
     );
     assert_eq!(
         unsupported(indoc! {"
