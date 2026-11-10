@@ -398,9 +398,21 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     None => slot_shape(self.model(), target),
                 };
                 let shape = declared.or_else(|| expr_shape(self.model(), value));
+                // The checker gives a copy of a name of the module the type
+                // of the name at the copy. That type may be narrower than
+                // the variable, or empty for a name that the module assigns
+                // only in a branch that the checker deems dead.
+                let copied = self
+                    .module_copy(targets, value)
+                    .and_then(|(_, from)| self.vars.borrow().find(from))
+                    .map(|(_, rep)| rep);
+                let rep = match (self.rep_of(shape), copied) {
+                    (Some(rep), Some(copied)) => Some(join(rep, copied)),
+                    (rep, copied) => rep.or(copied),
+                };
                 if let ast::Expr::Name(name) = target
                     && keep(name.id.as_str())
-                    && let Some(rep) = self.rep_of(shape)
+                    && let Some(rep) = rep
                 {
                     self.declare_var(name.id.as_str(), rep, value)?;
                 }
@@ -697,6 +709,22 @@ fn holds(rep: Rep, value: Rep) -> bool {
         Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
         Rep::Uniform => true,
         _ => rep == value,
+    }
+}
+
+/// The narrowest rep that holds the values of `a` and the values of `b`.
+fn join(a: Rep, b: Rep) -> Rep {
+    if holds(a, b) {
+        a
+    } else if holds(b, a) {
+        b
+    } else if [a, b]
+        .iter()
+        .all(|rep| matches!(rep, Rep::Str | Rep::None | Rep::StrOrNone))
+    {
+        Rep::StrOrNone
+    } else {
+        Rep::Uniform
     }
 }
 

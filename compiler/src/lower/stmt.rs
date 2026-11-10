@@ -79,8 +79,10 @@ impl<'a> Lowering<'a, '_> {
                     value: self.expr(&a.value)?,
                 }))
             }
-            ast::Stmt::Assign(a) if self.module_copy(a).is_some() => {
-                let (target, from) = self.module_copy(a).expect("a copy of a name of the module");
+            ast::Stmt::Assign(a) if self.module_copy(&a.targets, &a.value).is_some() => {
+                let (target, from) = self
+                    .module_copy(&a.targets, &a.value)
+                    .expect("a copy of a name of the module");
                 let (from, rep) = self
                     .vars
                     .borrow()
@@ -219,9 +221,12 @@ impl<'a> Lowering<'a, '_> {
     /// of a name of the module that the examples of the docstrings assign.
     /// The runner gives the examples a copy of the globals of the module,
     /// and a name without a value stays without one in the copy.
-    fn module_copy<'s>(&self, a: &'s ast::StmtAssign) -> Option<(&'s ast::Expr, &'s str)> {
-        let ([target @ ast::Expr::Name(to)], ast::Expr::Name(from)) = (&*a.targets, &*a.value)
-        else {
+    pub(super) fn module_copy<'s>(
+        &self,
+        targets: &'s [ast::Expr],
+        value: &'s ast::Expr,
+    ) -> Option<(&'s ast::Expr, &'s str)> {
+        let ([target @ ast::Expr::Name(to)], ast::Expr::Name(from)) = (targets, value) else {
             return None;
         };
         let copy = |name: &ast::ExprName| name.id.starts_with(MODULE_COPY_PREFIX);

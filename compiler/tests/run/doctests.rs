@@ -544,3 +544,44 @@ fn a_verbose_report_has_the_first_line_of_each_example_that_passes() {
         true,
     );
 }
+
+#[test]
+fn an_example_assigns_a_name_that_the_module_assigns_in_a_dead_branch() {
+    same_as_the_runner(
+        "an_example_assigns_a_name_that_the_module_assigns_in_a_dead_branch",
+        indoc! {r#"
+            n = 0
+            if n > 0:
+                s = 'a'
+
+
+            def f() -> None:
+                """
+                >>> s = 'b'
+                >>> s
+                'b'
+                """
+        "#},
+    );
+}
+
+#[test]
+fn an_example_assigns_a_name_that_the_checker_narrows_in_the_module() {
+    same_as_the_runner(
+        "an_example_assigns_a_name_that_the_checker_narrows_in_the_module",
+        indoc! {r#"
+            x: str | None = None
+            x = 'a'
+
+
+            def f() -> None:
+                """
+                >>> x
+                'a'
+                >>> x = 'b'
+                >>> x
+                'b'
+                """
+        "#},
+    );
+}
