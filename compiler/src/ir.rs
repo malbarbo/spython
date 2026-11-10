@@ -790,20 +790,44 @@ pub(crate) enum CodePointSet {
 }
 
 impl CodePointSet {
+    /// Each set, with its function in the stub of the intrinsics and its
+    /// builtin.
+    const NAMES: [(CodePointSet, &str, &str); 11] = [
+        (CodePointSet::Printable, "is_printable", "str_is_printable"),
+        (CodePointSet::Cased, "is_cased", "str_is_cased"),
+        (
+            CodePointSet::CaseIgnorable,
+            "is_case_ignorable",
+            "str_is_case_ignorable",
+        ),
+        (CodePointSet::Uppercase, "is_uppercase", "str_is_uppercase"),
+        (CodePointSet::Lowercase, "is_lowercase", "str_is_lowercase"),
+        (CodePointSet::Alpha, "is_alpha", "str_is_alpha"),
+        (CodePointSet::Decimal, "is_decimal", "str_is_decimal"),
+        (CodePointSet::Digit, "is_digit", "str_is_digit"),
+        (CodePointSet::Numeric, "is_numeric", "str_is_numeric"),
+        (CodePointSet::XidStart, "is_xid_start", "str_is_xid_start"),
+        (
+            CodePointSet::XidContinue,
+            "is_xid_continue",
+            "str_is_xid_continue",
+        ),
+    ];
+
+    /// The set that the function `name` of the stub of the intrinsics tests.
+    pub fn of(name: &str) -> Option<Self> {
+        Self::NAMES
+            .iter()
+            .find(|(_, stub, _)| *stub == name)
+            .map(|(set, ..)| *set)
+    }
+
     pub fn builtin(self) -> &'static str {
-        match self {
-            CodePointSet::Printable => "str_is_printable",
-            CodePointSet::Cased => "str_is_cased",
-            CodePointSet::CaseIgnorable => "str_is_case_ignorable",
-            CodePointSet::Uppercase => "str_is_uppercase",
-            CodePointSet::Lowercase => "str_is_lowercase",
-            CodePointSet::Alpha => "str_is_alpha",
-            CodePointSet::Decimal => "str_is_decimal",
-            CodePointSet::Digit => "str_is_digit",
-            CodePointSet::Numeric => "str_is_numeric",
-            CodePointSet::XidStart => "str_is_xid_start",
-            CodePointSet::XidContinue => "str_is_xid_continue",
-        }
+        Self::NAMES
+            .iter()
+            .find(|(set, ..)| *set == self)
+            .map(|(.., builtin)| *builtin)
+            .expect("a builtin for each set")
     }
 }
 
@@ -818,13 +842,30 @@ pub(crate) enum Case {
 }
 
 impl Case {
+    /// Each mapping, with its function in the stub of the intrinsics and
+    /// its builtin.
+    const NAMES: [(Case, &str, &str); 4] = [
+        (Case::Upper, "upper_at", "str_upper_at"),
+        (Case::Lower, "lower_at", "str_lower_at"),
+        (Case::Title, "title_at", "str_title_at"),
+        (Case::Fold, "fold_at", "str_fold_at"),
+    ];
+
+    /// The mapping that the function `name` of the stub of the intrinsics
+    /// gives.
+    pub fn of(name: &str) -> Option<Self> {
+        Self::NAMES
+            .iter()
+            .find(|(_, stub, _)| *stub == name)
+            .map(|(case, ..)| *case)
+    }
+
     pub fn builtin(self) -> &'static str {
-        match self {
-            Case::Upper => "str_upper_at",
-            Case::Lower => "str_lower_at",
-            Case::Title => "str_title_at",
-            Case::Fold => "str_fold_at",
-        }
+        Self::NAMES
+            .iter()
+            .find(|(case, ..)| *case == self)
+            .map(|(.., builtin)| *builtin)
+            .expect("a builtin for each mapping")
     }
 }
 
