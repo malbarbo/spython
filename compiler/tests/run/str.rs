@@ -396,3 +396,21 @@ fn startswith_and_endswith_test_the_ends_of_a_slice() {
         "},
     );
 }
+
+#[test]
+fn in_tells_whether_a_str_is_in_another() {
+    same_as_cpython(
+        "in_tells_whether_a_str_is_in_another",
+        indoc! {"
+            def first(s: str) -> str:
+                print('first', s)
+                return s
+
+
+            s = 'abcé😀'
+            print('a' in s, 'cé' in s, '😀' in s, '' in s, 'x' in s, s + 'x' in s)
+            print('a' not in s, 'x' not in s, '' in '', 'a' in '')
+            print(first('a') in first('ba'))
+        "},
+    );
+}

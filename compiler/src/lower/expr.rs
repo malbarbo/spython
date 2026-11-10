@@ -247,6 +247,20 @@ impl<'a> Lowering<'a, '_> {
                 _ => Expr::Not(Box::new(is_none)),
             });
         }
+        if let ([op @ (ast::CmpOp::In | ast::CmpOp::NotIn)], [left, right]) =
+            (&*c.ops, &*c.operands)
+        {
+            let sub = self.expr(left)?;
+            let s = self.expr(right)?;
+            if sub.rep() != Rep::Str || s.rep() != Rep::Str {
+                return Err(unsupported(c, "in between values that are not strs"));
+            }
+            let is_in = self.prelude_call(c, "str", "is_in", vec![sub, s])?;
+            return Ok(match op {
+                ast::CmpOp::In => is_in,
+                _ => Expr::Not(Box::new(is_in)),
+            });
+        }
         let ops = c
             .ops
             .iter()

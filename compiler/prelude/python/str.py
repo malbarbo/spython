@@ -202,6 +202,10 @@ def endswith(
     return found_at(s, suffix, last)
 
 
+def is_in(sub: str, s: str) -> bool:
+    return find(s, sub, None, None) >= 0
+
+
 def found_at(s: str, sub: str, i: int) -> bool:
     """Whether `sub` is in `s` from `i` on, with `i + len(sub) <= len(s)`."""
     m = len(sub)
