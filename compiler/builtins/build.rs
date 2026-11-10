@@ -47,6 +47,8 @@ fn main() {
         ("CASE_IGNORABLE", "Case_Ignorable"),
         ("UPPERCASE", "Uppercase"),
         ("LOWERCASE", "Lowercase"),
+        ("XID_START", "XID_Start"),
+        ("XID_CONTINUE", "XID_Continue"),
     ] {
         let members = property_members(&derived, property);
         set(&mut code, name, |cp| {

@@ -89,6 +89,18 @@ pub extern "C" fn str_fold_at(cp: u32, i: u32) -> i32 {
     mapped(&FOLD_SIMPLE, &FOLD_SPECIAL, cp, i)
 }
 
+/// Returns 1 if `cp` has the property `XID_Start`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_xid_start(cp: u32) -> u32 {
+    u32::from(contains(&XID_START_BMP, &XID_START_ASTRAL, cp))
+}
+
+/// Returns 1 if `cp` has the property `XID_Continue`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_xid_continue(cp: u32) -> u32 {
+    u32::from(contains(&XID_CONTINUE_BMP, &XID_CONTINUE_ASTRAL, cp))
+}
+
 /// Returns 1 if `str.isalpha` accepts `cp`, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn str_is_alpha(cp: u32) -> u32 {

@@ -2,8 +2,8 @@ use std::process::Command;
 
 use builtins::unicode::{
     str_fold_at, str_is_alpha, str_is_case_ignorable, str_is_cased, str_is_decimal, str_is_digit,
-    str_is_lowercase, str_is_numeric, str_is_printable, str_is_uppercase, str_lower_at,
-    str_title_at, str_upper_at,
+    str_is_lowercase, str_is_numeric, str_is_printable, str_is_uppercase, str_is_xid_continue,
+    str_is_xid_start, str_lower_at, str_title_at, str_upper_at,
 };
 
 /// What `python` prints: for each code point, in order, `1` when
@@ -125,4 +125,11 @@ fn is_alpha_decimal_digit_and_numeric_match_cpython() {
     same_as_cpython(str_is_decimal, "c.isdecimal()");
     same_as_cpython(str_is_digit, "c.isdigit()");
     same_as_cpython(str_is_numeric, "c.isnumeric()");
+}
+
+#[test]
+fn xid_start_and_xid_continue_match_cpython() {
+    // `_` starts an identifier in Python, but it does not have `XID_Start`.
+    same_as_cpython(str_is_xid_start, "c.isidentifier() and c != '_'");
+    same_as_cpython(str_is_xid_continue, "('a' + c).isidentifier()");
 }
