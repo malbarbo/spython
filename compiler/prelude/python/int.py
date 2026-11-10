@@ -55,6 +55,7 @@ def int_of_str(s: str, base: int) -> int:
         invalid(s, given)
     start = i
     digits = 0
+    nonzero = False
     underscore = False
     while digit_value(ascii_at(s, i)) < base or ascii_at(s, i) == 95:
         if ascii_at(s, i) == 95:
@@ -64,10 +65,18 @@ def int_of_str(s: str, base: int) -> int:
         else:
             underscore = False
             digits += 1
+            if digit_value(ascii_at(s, i)) != 0:
+                nonzero = True
         i += 1
     if underscore:
         invalid(s, given)
     end = i
+    if digits == 0:
+        invalid(s, given)
+    while is_ascii_space(ascii_at(s, i)):
+        i += 1
+    if i < n:
+        invalid(s, given)
     if (
         digits > 4300
         and base != 2
@@ -81,11 +90,7 @@ def int_of_str(s: str, base: int) -> int:
             + str(digits)
             + " digits; use sys.set_int_max_str_digits() to increase the limit"
         )
-    if digits == 0:
-        invalid(s, given)
-    while is_ascii_space(ascii_at(s, i)):
-        i += 1
-    if i < n:
+    if zero_only and nonzero:
         invalid(s, given)
     # The value goes down from 0, since the least int has no opposite.
     value = 0
@@ -97,8 +102,6 @@ def int_of_str(s: str, base: int) -> int:
                 too_large()
             value = value * base - d
         i += 1
-    if zero_only and value != 0:
-        invalid(s, given)
     if negative:
         return value
     if value == -1073741824:
