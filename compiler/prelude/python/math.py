@@ -2,7 +2,8 @@
 
 
 def isnan(x: float) -> bool:
-    return x != x
+    # Only NaN differs from itself.
+    return x != x  # noqa: PLR0124
 
 
 def isinf(x: float) -> bool:
