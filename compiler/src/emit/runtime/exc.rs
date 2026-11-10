@@ -1,5 +1,6 @@
 //! The exceptions, and the traceback of an exception that nothing catches.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
@@ -16,13 +17,19 @@ use crate::emit::runtime::host::Host;
 use crate::ir::SiteFrame;
 
 pub(in crate::emit) struct Exceptions {
-    /// `(struct (field $message (ref $Str)) (field $tb (mut (ref null $Frame))))`.
-    /// The message is the last line of the traceback.
+    /// `(struct (field $class (ref $Class)) (field $arg (ref null $Str))
+    /// (field $tb (mut (ref null $Frame))))`. The argument is null for an
+    /// exception without one.
     exc: TypeIdx,
+    /// `(struct (field $name (ref $Str)) (field $base (ref null $Class)))`,
+    /// a class of exception.
+    class: TypeIdx,
+    /// The global of each class that the module raises, and of its bases.
+    classes: RefCell<HashMap<Class, GlobalIdx>>,
     /// The tag of every exception, whose payload is a `(ref $Exc)`.
     tag: TagIdx,
-    /// `(func (param (ref $Str)))`, which raises an exception with the
-    /// message.
+    /// `(func (param (ref null $Str) (ref $Class)))`, which raises an
+    /// exception of the class with the argument.
     raise: FuncIdx,
     /// `(func (param i32))`, which raises the `OSError` of the error of
     /// WASI.
@@ -66,8 +73,15 @@ impl Exceptions {
             (StorageType::Val(ValType::I32), false),
             (StorageType::Val(frame.ref_to(true)), false),
         ]);
-        let exc = m.struct_type(&[
+        let class = m.next_type_index();
+        m.struct_type(&[
             (StorageType::Val(str_type.ref_to(false)), false),
+            (StorageType::Val(class.ref_to(true)), false),
+        ]);
+        let mut classes = HashMap::new();
+        let exc = m.struct_type(&[
+            (StorageType::Val(class.ref_to(false)), false),
+            (StorageType::Val(str_type.ref_to(true)), false),
             (StorageType::Val(frame.ref_to(true)), true),
         ]);
         let tag_type = m.func_type(&[exc.ref_to(false)], &[]);
@@ -79,26 +93,31 @@ impl Exceptions {
         let depth = m.global(ValType::I32, &ConstExpr::i32_const(1));
         let repeated = add_repeated(m, str);
 
-        let raise_type = m.func_type(&[str_type.ref_to(false)], &[]);
-        let mut f = FuncState::new(1);
-        let message = f.param(0);
+        let raise_type = m.func_type(&[str_type.ref_to(true), class.ref_to(false)], &[]);
+        let mut f = FuncState::new(2);
+        let (arg, of) = (f.param(0), f.param(1));
         f.ins()
-            .local_get(message)
+            .local_get(of)
+            .local_get(arg)
             .ref_null(frame.heap_type())
             .struct_new(exc)
             .throw(tag);
         let raise = m.add_func(raise_type, f.finish());
-        let os_error_message = add_os_error_message(m, str);
+        let os_error_line = add_os_error_line(m, str);
+        let os_error_class = add_os_error_class(m, str, class, &mut classes);
         let os_error_type = m.func_type(&[ValType::I32], &[]);
         let mut f = FuncState::new(1);
         let errno = f.param(0);
         f.ins()
             .local_get(errno)
-            .call(os_error_message)
+            .i32_const(0)
+            .call(os_error_line)
+            .local_get(errno)
+            .call(os_error_class)
             .call(raise)
             .unreachable();
         let os_error = m.add_func(os_error_type, f.finish());
-        let exit = add_exit(m, host, str, os_error_message);
+        let exit = add_exit(m, host, str, os_error_line);
 
         let frame_type = m.func_type(&[exc.ref_to(false), ValType::I32], &[]);
         // The frame of the site goes before the frames of the functions
@@ -109,9 +128,9 @@ impl Exceptions {
             .local_get(e)
             .local_get(site)
             .local_get(e)
-            .struct_get(exc, 1)
+            .struct_get(exc, 2)
             .struct_new(frame)
-            .struct_set(exc, 1);
+            .struct_set(exc, 2);
         let add_frame = m.add_func(frame_type, f.finish());
 
         let mut f = FuncState::new(2);
@@ -148,7 +167,7 @@ impl Exceptions {
         str.write(&mut f);
         f.ins()
             .local_get(e)
-            .struct_get(exc, 1)
+            .struct_get(exc, 2)
             .local_set(next)
             .i32_const(-1)
             .local_set(last);
@@ -194,8 +213,28 @@ impl Exceptions {
             .local_get(count)
             .call(repeated)
             .local_get(e)
-            .struct_get(exc, 0);
+            .struct_get(exc, 0)
+            .struct_get(class, 0);
         str.write(&mut f);
+        // CPython writes the class alone when the text of the argument is
+        // empty.
+        let arg = f.local(str_type.ref_to(true));
+        let no_text = f.block(BlockType::Empty);
+        f.ins()
+            .local_get(e)
+            .struct_get(exc, 1)
+            .local_tee(arg)
+            .ref_is_null();
+        f.br_if(no_text);
+        f.ins().local_get(arg).ref_as_non_null();
+        str.truth(&mut f);
+        f.ins().i32_eqz();
+        f.br_if(no_text);
+        str.literal(m, &mut f, ": ");
+        str.write(&mut f);
+        f.ins().local_get(arg).ref_as_non_null();
+        str.write(&mut f);
+        f.end();
         f.ins()
             .i32_const('\n' as i32)
             .call(host.write_char)
@@ -205,6 +244,8 @@ impl Exceptions {
 
         Exceptions {
             exc,
+            class,
+            classes: RefCell::new(classes),
             tag,
             raise,
             os_error,
@@ -254,11 +295,15 @@ impl Exceptions {
         f: &mut FuncState,
         message: &Message,
     ) {
-        str.literal(m, f, &message.line());
-        f.ins().call(self.raise).unreachable();
+        if message.text.is_empty() {
+            f.ins().ref_null(str.type_index().heap_type());
+        } else {
+            str.literal(m, f, message.text);
+        }
+        self.raise_text(m, str, f, message.class);
     }
 
-    /// Pops a `str` that is not empty, and raises an exception of `class`
+    /// Pops a `str`, which may be null, and raises an exception of `class`
     /// with it as the text of the argument.
     pub fn raise_text(
         &self,
@@ -267,13 +312,12 @@ impl Exceptions {
         f: &mut FuncState,
         class: Class,
     ) {
-        let text = f.temp(str.val_type(true));
-        f.ins().local_set(text);
-        str.literal(m, f, &format!("{}: ", class.name()));
-        f.ins().local_get(text).ref_as_non_null();
-        str.concat(f);
-        f.free(text);
-        f.ins().call(self.raise).unreachable();
+        let global = class_global(m, str, self.class, &mut self.classes.borrow_mut(), class);
+        f.ins()
+            .global_get(global)
+            .ref_as_non_null()
+            .call(self.raise)
+            .unreachable();
     }
 
     /// Pops an error of WASI and raises its `OSError`.
@@ -399,41 +443,116 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
     m.add_func(ty, f.finish())
 }
 
-/// The function that raises the `OSError` of an error of WASI. The texts
-/// are bytes in one segment, which costs less than a literal for each.
-/// `(func (param i32) (result (ref $Str)))`, which gives the last line of
-/// the traceback of the `OSError` of the error of WASI.
-fn add_os_error_message(m: &mut ModuleState, str: &StrRepr) -> FuncIdx {
+/// The global that holds `class`, which `_start` builds before the
+/// program runs, after the global of its base.
+fn class_global(
+    m: &mut ModuleState,
+    str: &mut StrRepr,
+    class_type: TypeIdx,
+    classes: &mut HashMap<Class, GlobalIdx>,
+    class: Class,
+) -> GlobalIdx {
+    if let Some(global) = classes.get(&class) {
+        return *global;
+    }
+    let base = class
+        .base()
+        .map(|base| class_global(m, str, class_type, classes, base));
+    let name = str.literal_global(m, class.name());
+    let global = m.global(
+        class_type.ref_to(true),
+        &ConstExpr::ref_null(class_type.heap_type()),
+    );
+    let mut ins = Ins::new(&mut m.init);
+    ins.global_get(name).ref_as_non_null();
+    match base {
+        Some(base) => ins.global_get(base),
+        None => ins.ref_null(class_type.heap_type()),
+    };
+    ins.struct_new(class_type).global_set(global);
+    classes.insert(class, global);
+    global
+}
+
+/// `(func (param i32) (result (ref $Class)))`, which gives the class of
+/// the `OSError` of the error of WASI.
+fn add_os_error_class(
+    m: &mut ModuleState,
+    str: &mut StrRepr,
+    class_type: TypeIdx,
+    classes: &mut HashMap<Class, GlobalIdx>,
+) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32], &[class_type.ref_to(false)]);
+    let mut f = FuncState::new(1);
+    let errno = f.param(0);
+    for (code, class, _) in OS_ERRORS {
+        if class == Class::OSError {
+            continue;
+        }
+        let global = class_global(m, str, class_type, classes, class);
+        f.ins().local_get(errno).i32_const(code).i32_eq();
+        f.if_(BlockType::Empty);
+        f.ins().global_get(global).ref_as_non_null().return_();
+        f.end();
+    }
+    let global = class_global(m, str, class_type, classes, Class::OSError);
+    f.ins().global_get(global).ref_as_non_null();
+    m.add_func(ty, f.finish())
+}
+
+/// `(func (param i32 i32) (result (ref $Str)))`, which gives the last line
+/// of the traceback of the `OSError` of the error of WASI when the second
+/// parameter is not 0, and the text of the argument of the `OSError`
+/// otherwise. The lines are bytes in one segment, which costs less than a
+/// literal for each.
+fn add_os_error_line(m: &mut ModuleState, str: &StrRepr) -> FuncIdx {
     let mut texts = Vec::new();
     let mut places = Vec::new();
     for (errno, class, text) in OS_ERRORS {
-        let text = last_line(class, text);
+        let line = last_line(class, text);
         let start = i32::try_from(texts.len()).expect("texts shorter than 2^31");
-        let len = i32::try_from(text.len()).expect("a text shorter than 2^31");
-        texts.extend_from_slice(text.as_bytes());
-        places.push((errno, start, len));
+        let len = i32::try_from(line.len()).expect("a text shorter than 2^31");
+        let text_len = i32::try_from(text.len()).expect("a text shorter than 2^31");
+        texts.extend_from_slice(line.as_bytes());
+        places.push((errno, start, len, text_len));
     }
     let data = m.passive_data(texts);
-    let ty = m.func_type(&[ValType::I32], &[str.val_type(false)]);
-    let mut f = FuncState::new(1);
-    let errno = f.param(0);
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[str.val_type(false)]);
+    let mut f = FuncState::new(2);
+    let (errno, whole) = (f.param(0), f.param(1));
     let start = f.local(ValType::I32);
     let len = f.local(ValType::I32);
+    let text_len = f.local(ValType::I32);
     let found = f.block(BlockType::Empty);
-    for (code, at, size) in places {
+    for (code, at, size, text_size) in places {
         f.ins().local_get(errno).i32_const(code).i32_eq();
         f.if_(BlockType::Empty);
         f.ins()
             .i32_const(at)
             .local_set(start)
             .i32_const(size)
-            .local_set(len);
+            .local_set(len)
+            .i32_const(text_size)
+            .local_set(text_len);
         f.br(found);
         f.end();
     }
     // wasmtime gives `fd_write` no other error, and neither does the deno
     // of the tests.
     f.ins().unreachable();
+    f.end();
+    // The text of the argument is the end of the line.
+    f.ins().local_get(whole).i32_eqz();
+    f.if_(BlockType::Empty);
+    f.ins()
+        .local_get(start)
+        .local_get(len)
+        .local_get(text_len)
+        .i32_sub()
+        .i32_add()
+        .local_set(start)
+        .local_get(text_len)
+        .local_set(len);
     f.end();
     f.ins()
         .local_get(start)
@@ -450,7 +569,7 @@ fn add_exit(
     m: &mut ModuleState,
     host: &Host,
     str: &mut StrRepr,
-    os_error_message: FuncIdx,
+    os_error_line: FuncIdx,
 ) -> FuncIdx {
     let ty = m.func_type(&[ValType::I32], &[]);
     let mut f = FuncState::new(1);
@@ -461,7 +580,7 @@ fn add_exit(
     f.ins().call(host.to_stderr);
     str.literal(m, &mut f, FLUSH_FAILED);
     str.write(&mut f);
-    f.ins().local_get(error).call(os_error_message);
+    f.ins().local_get(error).i32_const(1).call(os_error_line);
     str.write(&mut f);
     f.ins()
         .i32_const('\n' as i32)

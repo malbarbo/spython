@@ -1,9 +1,10 @@
 //! The classes of the builtin exceptions, and an exception as its class
 //! and the text of its argument.
 
-/// Declares each class by its name in a traceback.
+/// Declares each class with its base, a base before the classes that
+/// derive from it.
 macro_rules! classes {
-    ($($name:ident,)*) => {
+    ($($name:ident: $base:expr,)*) => {
         /// A class of exception of CPython.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub(crate) enum Class {
@@ -22,28 +23,43 @@ macro_rules! classes {
                     Class::Limit => "spython",
                 }
             }
+
+            /// The class that this one derives from.
+            pub fn base(self) -> Option<Class> {
+                use Class::*;
+                match self {
+                    $($name => $base,)*
+                    Limit => None,
+                }
+            }
         }
     };
 }
 
 classes! {
-    OverflowError,
-    ZeroDivisionError,
-    IndexError,
-    MemoryError,
-    NameError,
-    UnboundLocalError,
-    OSError,
-    BlockingIOError,
-    BrokenPipeError,
-    FileExistsError,
-    FileNotFoundError,
-    InterruptedError,
-    IsADirectoryError,
-    NotADirectoryError,
-    PermissionError,
-    RecursionError,
-    ValueError,
+    BaseException: None,
+    Exception: Some(BaseException),
+    ArithmeticError: Some(Exception),
+    OverflowError: Some(ArithmeticError),
+    ZeroDivisionError: Some(ArithmeticError),
+    LookupError: Some(Exception),
+    IndexError: Some(LookupError),
+    MemoryError: Some(Exception),
+    NameError: Some(Exception),
+    UnboundLocalError: Some(NameError),
+    OSError: Some(Exception),
+    BlockingIOError: Some(OSError),
+    ConnectionError: Some(OSError),
+    BrokenPipeError: Some(ConnectionError),
+    FileExistsError: Some(OSError),
+    FileNotFoundError: Some(OSError),
+    InterruptedError: Some(OSError),
+    IsADirectoryError: Some(OSError),
+    NotADirectoryError: Some(OSError),
+    PermissionError: Some(OSError),
+    RuntimeError: Some(Exception),
+    RecursionError: Some(RuntimeError),
+    ValueError: Some(Exception),
 }
 
 /// An exception of `class` whose argument has `text`, which is empty for

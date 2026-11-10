@@ -146,7 +146,7 @@ impl Reprs {
         self.exc.raise_os_error(f);
     }
 
-    /// Pops a `str` that is not empty, and raises an exception of `class`
+    /// Pops a `str`, which may be null, and raises an exception of `class`
     /// with it as the text of the argument.
     pub fn raise_text(&mut self, m: &mut ModuleState, f: &mut FuncState, class: Class) {
         self.exc.raise_text(m, &mut self.str, f, class);
