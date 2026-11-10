@@ -15,6 +15,7 @@ use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
 /// The methods of `str` that the module `str` of the prelude defines.
 const STR_METHODS: &[&str] = &[
     "capitalize",
+    "casefold",
     "center",
     "count",
     "endswith",
@@ -256,12 +257,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "code_point" => arg()
                 .zip(arg())
                 .map(|(value, index)| Expr::CodePoint { value, index }),
-            "upper_at" | "lower_at" | "title_at" => {
+            "upper_at" | "lower_at" | "title_at" | "fold_at" => {
                 arg().zip(arg()).map(|(operand, index)| Expr::CaseAt {
                     case: match name {
                         "upper_at" => Case::Upper,
                         "lower_at" => Case::Lower,
-                        _ => Case::Title,
+                        "title_at" => Case::Title,
+                        _ => Case::Fold,
                     },
                     operand,
                     index,

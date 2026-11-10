@@ -775,6 +775,7 @@ pub(crate) enum Case {
     Upper,
     Lower,
     Title,
+    Fold,
 }
 
 impl Case {
@@ -783,6 +784,7 @@ impl Case {
             Case::Upper => "str_upper_at",
             Case::Lower => "str_lower_at",
             Case::Title => "str_title_at",
+            Case::Fold => "str_fold_at",
         }
     }
 }

@@ -5,6 +5,7 @@ from __spython_prelude__.intrinsics import (
     builder_done,
     builder_new,
     code_point,
+    fold_at,
     is_case_ignorable,
     is_cased,
     is_lowercase,
@@ -517,6 +518,33 @@ def slice_end(end: int | None, n: int) -> int:
     if end < 0:
         return max(end + n, 0)
     return end
+
+
+def casefold(s: str) -> str:
+    n = len(s)
+    size = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        k = 1
+        while fold_at(c, k) >= 0:
+            k += 1
+        size += k
+        i += 1
+    b = builder_new(size)
+    at = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        k = 0
+        m = fold_at(c, 0)
+        while m >= 0:
+            b[at] = m
+            at += 1
+            k += 1
+            m = fold_at(c, k)
+        i += 1
+    return builder_done(b)
 
 
 def capitalize(s: str) -> str:

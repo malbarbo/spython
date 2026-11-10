@@ -51,3 +51,6 @@ def is_uppercase(code_point: int) -> bool:
 
 def is_lowercase(code_point: int) -> bool:
     """Whether the code point has the property `Lowercase` of Unicode."""
+
+def fold_at(code_point: int, index: int) -> int:
+    """The code point at `index` of `str.casefold` of the code point, or -1 past its end."""

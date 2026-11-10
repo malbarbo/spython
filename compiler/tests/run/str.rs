@@ -518,3 +518,13 @@ fn capitalize_title_and_swapcase_use_the_title_case_and_the_final_sigma() {
         "},
     );
 }
+
+#[test]
+fn casefold_folds_each_code_point_without_the_final_sigma() {
+    same_as_cpython(
+        "casefold_folds_each_code_point_without_the_final_sigma",
+        indoc! {"
+            print('Straße ΟΔΟΣ ﬁ İ Ꭰꭰ ẞ 𐐀'.casefold(), repr(''.casefold()), 'ABC'.casefold() == 'abc')
+        "},
+    );
+}
