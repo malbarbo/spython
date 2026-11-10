@@ -291,7 +291,7 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `repr(x)` of a number, which is `str(x)`.
+    /// `repr(x)` of a number or of a `str`.
     pub(super) fn repr(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let arg = one_arg(call, "this call of repr")?;
         let lowered = self.expr(arg)?;
@@ -308,7 +308,8 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         match lowered.rep() {
             Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
-            Rep::Str | Rep::None => Err(unsupported(node, "repr of this type")),
+            Rep::Str => self.prelude_call(&range, "str", "repr_of", vec![lowered]),
+            Rep::None => Err(unsupported(node, "repr of this type")),
         }
     }
 
