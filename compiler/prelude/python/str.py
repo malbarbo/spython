@@ -26,26 +26,27 @@ from __spython_prelude__.intrinsics import (
 
 def repr_of(s: str) -> str:
     n = len(s)
-    single = False
+    singles = 0
     double = False
+    # The size without the escapes of the quotes, which the length of a
+    # quote leaves out with a quote of -1, which no code point is.
+    size = 2
     i = 0
     while i < n:
         c = code_point(s, i)
         if c == 39:
-            single = True
+            singles += 1
         elif c == 34:
             double = True
+        size += escaped_len(c, -1)
         i += 1
     # The quotes are single unless the text has a single one and no double
-    # one.
+    # one. A single quote escapes each single quote of the text.
     quote = 39
-    if single and not double:
+    if singles > 0 and not double:
         quote = 34
-    size = 2
-    i = 0
-    while i < n:
-        size += escaped_len(code_point(s, i), quote)
-        i += 1
+    else:
+        size += singles
     b = builder_new(size)
     b[0] = quote
     at = 1
