@@ -298,49 +298,67 @@ impl<'a> Lowering<'a, '_> {
         let mut body = Vec::new();
         let mut mutable = None;
         for ((node, (name, rep)), var) in dataclass_fields(def).zip(fields).zip(defaults) {
-            let (Some(value), Some(var)) = (node.value.as_deref(), var) else {
-                continue;
-            };
-            let lowered = self.expr(value)?;
-            match lowered.rep() {
-                Rep::Object(class)
-                    if mutable.is_none()
-                        && self.classes.borrow().get(class).kind == Kind::Dataclass =>
-                {
-                    let object = self.classes.borrow().get(class).def.name.to_string();
-                    let decorator = &def
-                        .decorator_list
-                        .first()
-                        .expect("the decorator of a dataclass")
-                        .expression;
-                    let frames = mutable_default_frames(decorator.is_call_expr());
-                    mutable = Some(Stmt::Raise {
-                        class: Class::ValueError,
-                        arg: Some(Expr::Str(mutable_default(&object, name))),
-                        site: self.site_with(decorator.range(), &frames),
-                    });
-                }
-                Rep::ObjectOrNone(_) | Rep::Uniform
-                    if self.may_be_dataclass(expr_shape(self.model(), value)) =>
-                {
-                    return Err(unsupported(
-                        value,
-                        "a default that may be an object of a dataclass",
-                    ));
-                }
-                _ => {}
+            // CPython evaluates the default, binds the name and then
+            // evaluates the annotation.
+            if let (Some(value), Some(var)) = (node.value.as_deref(), var) {
+                body.push(self.class_default(def, value, name, *rep, *var, &mut mutable)?);
             }
-            let lowered = coerce(lowered, *rep)
-                .ok_or_else(|| unsupported(value, "a default of this type"))?;
-            body.push(Stmt::Assign {
-                targets: vec![Place::Global(*var)],
-                value: lowered,
-            });
-            if let Some(scope) = self.scope.borrow_mut().as_mut() {
-                scope.namespace.push(name.clone());
-            }
+            body.extend(self.annotation_checks(std::iter::once(&*node.annotation))?);
         }
         Ok((body, mutable))
+    }
+
+    /// The assignment of `value`, the default of the field `name` of `def`,
+    /// to `var`, which holds values of `rep`. `mutable` gets the raise of
+    /// the decorator when the default is the first that is an object of a
+    /// dataclass.
+    fn class_default(
+        &self,
+        def: &ast::StmtClassDef,
+        value: &ast::Expr,
+        name: &str,
+        rep: Rep,
+        var: VarId,
+        mutable: &mut Option<Stmt>,
+    ) -> Result<Stmt, Error> {
+        let lowered = self.expr(value)?;
+        match lowered.rep() {
+            Rep::Object(class)
+                if mutable.is_none()
+                    && self.classes.borrow().get(class).kind == Kind::Dataclass =>
+            {
+                let object = self.classes.borrow().get(class).def.name.to_string();
+                let decorator = &def
+                    .decorator_list
+                    .first()
+                    .expect("the decorator of a dataclass")
+                    .expression;
+                let frames = mutable_default_frames(decorator.is_call_expr());
+                *mutable = Some(Stmt::Raise {
+                    class: Class::ValueError,
+                    arg: Some(Expr::Str(mutable_default(&object, name))),
+                    site: self.site_with(decorator.range(), &frames),
+                });
+            }
+            Rep::ObjectOrNone(_) | Rep::Uniform
+                if self.may_be_dataclass(expr_shape(self.model(), value)) =>
+            {
+                return Err(unsupported(
+                    value,
+                    "a default that may be an object of a dataclass",
+                ));
+            }
+            _ => {}
+        }
+        let lowered =
+            coerce(lowered, rep).ok_or_else(|| unsupported(value, "a default of this type"))?;
+        if let Some(scope) = self.scope.borrow_mut().as_mut() {
+            scope.namespace.push(name.to_owned());
+        }
+        Ok(Stmt::Assign {
+            targets: vec![Place::Global(var)],
+            value: lowered,
+        })
     }
 
     /// Returns `true` if a value of `shape` may be an object of a dataclass

@@ -207,6 +207,54 @@ fn a_default_of_a_dataclass_raises_value_error() {
     }
 }
 
+/// CPython 3.13 evaluates an annotation without quotes in the body of the
+/// class, after the default of the field.
+#[test]
+fn an_annotation_raises_name_error_for_a_class_without_a_value() {
+    for (name, field) in [
+        (
+            "an_annotation_raises_name_error_for_its_own_class",
+            "prox: No | None",
+        ),
+        (
+            "an_annotation_raises_name_error_after_the_default",
+            "prox: No | None = f()",
+        ),
+        (
+            "an_annotation_raises_name_error_for_a_later_class",
+            "segunda: Outra | None = None",
+        ),
+        ("an_annotation_in_quotes_runs", "prox: 'No | None' = f()"),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                from dataclasses import dataclass
+                from enum import Enum
+
+                class Cor(Enum):
+                    A = 1
+
+                def f() -> None:
+                    print('default')
+                    return None
+
+                @dataclass
+                class No:
+                    v: int
+                    cor: Cor | None
+                    {field}
+
+                @dataclass
+                class Outra:
+                    x: int
+
+                print(1)
+            "},
+        );
+    }
+}
+
 #[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [
@@ -348,6 +396,20 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                     y: int = x
             "},
             "a read of a name of the class in its body",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    outra: Outra | None = None
+
+                @dataclass
+                class Outra:
+                    x: int
+            "},
+            "a name near a name of the class",
         ),
         (
             indoc! {"
