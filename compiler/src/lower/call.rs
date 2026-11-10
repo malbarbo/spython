@@ -35,10 +35,14 @@ impl<'a> Lowering<'a, '_> {
         // The checker sees no function, and binds no argument, in a name
         // that the `def` has yet to bind.
         let (func, bindings) = match call_target(self.model(), call) {
-            Some(CallTarget::Function(def)) => (
-                self.funcs.borrow().ids.get(&def).copied(),
-                call_bindings(self.model(), call),
-            ),
+            Some(CallTarget::Function(def)) => {
+                let known = self.funcs.borrow().ids.get(&def).copied();
+                let func = match known {
+                    Some(func) => Some(func),
+                    None => self.prelude_def(&def)?,
+                };
+                (func, call_bindings(self.model(), call))
+            }
             _ => (self.funcs.borrow().names.get(callee).copied(), None),
         };
         let Some(func) = func else {
@@ -50,7 +54,12 @@ impl<'a> Lowering<'a, '_> {
         // The `def` is the one binding of the name in the module, so the call
         // finds the function, or raises `NameError` before the `def` runs.
         let sig = self.funcs.borrow().get(func).clone();
-        let check = self.global_check(name)?;
+        // The prelude has every function of its own from the start.
+        let check = if self.in_prelude() {
+            None
+        } else {
+            self.global_check(name)?
+        };
         let (args, order) = self.arguments(call, &sig, bindings.as_deref())?;
         Ok(Expr::Call {
             func,
@@ -68,7 +77,7 @@ impl<'a> Lowering<'a, '_> {
     fn arguments(
         &self,
         call: &ast::ExprCall,
-        sig: &Sig<'a>,
+        sig: &Sig<'a, '_>,
         bindings: Option<&[ArgBinding]>,
     ) -> Result<(Vec<Expr>, Vec<u32>), Error> {
         let mut order: Vec<Option<u32>> = sig.params.iter().map(|_| None).collect();

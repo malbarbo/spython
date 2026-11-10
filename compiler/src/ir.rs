@@ -662,10 +662,9 @@ pub(crate) enum Tolerance {
     Abs,
 }
 
-/// The values that `math.isnan`, `math.isinf` and `math.isfinite` accept.
+/// The values that `math.isinf` and `math.isfinite` accept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FloatClass {
-    Nan,
     Inf,
     /// Neither `nan` nor an infinity.
     Finite,

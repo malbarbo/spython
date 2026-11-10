@@ -674,6 +674,7 @@ version = "0.3.0"
 dependencies = [
  "engine",
  "indoc",
+ "prelude",
  "ruff_db",
  "ruff_python_ast",
  "ruff_python_parser",

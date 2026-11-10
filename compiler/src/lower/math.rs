@@ -225,8 +225,11 @@ impl<'a> Lowering<'a, '_> {
         member: &str,
         arg: &ast::Expr,
     ) -> Result<Option<Expr>, Error> {
+        if member == "isnan" {
+            let args = vec![self.math_float(arg)?];
+            return self.prelude_call(call, "math", member, args).map(Some);
+        }
         let class = match member {
-            "isnan" => Some(FloatClass::Nan),
             "isinf" => Some(FloatClass::Inf),
             "isfinite" => Some(FloatClass::Finite),
             _ => None,

@@ -403,12 +403,6 @@ impl FloatRepr {
             FloatRepr::F64 { .. } => {
                 let infinity = f64::INFINITY.into();
                 match class {
-                    // `nan` is the one value that differs from itself.
-                    FloatClass::Nan => {
-                        let x = f.temp(ValType::F64);
-                        f.ins().local_tee(x).local_get(x).f64_ne();
-                        f.free(x);
-                    }
                     FloatClass::Inf => {
                         f.ins().f64_abs().f64_const(infinity).f64_eq();
                     }

@@ -5,6 +5,7 @@ mod expr;
 mod flow;
 mod math;
 mod name_error;
+mod prelude;
 mod stmt;
 mod vars;
 
@@ -12,8 +13,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use ruff_db::files::File;
-use ruff_db::parsed::parsed_module;
-use ruff_db::source::source_text;
+use ruff_db::parsed::{ParsedModuleRef, parsed_module};
+use ruff_db::source::{SourceText, source_text};
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_info};
@@ -26,19 +27,16 @@ use flow::{Assigned, Bindings, always_returns};
 use name_error::unbound_local;
 
 pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Error> {
-    let program_file = db.program_file(file);
-    let parsed = parsed_module(db, program_file.python_file(db));
-    let module = parsed.load(db);
-    let model = SemanticModel::new(db, program_file);
-    let source = source_text(db, file);
-    let unit = Unit {
-        model: &model,
-        source: source.as_str(),
-        lines: FileLines::new(source.as_str()),
-        path,
-    };
+    let main = Loaded::new(db, file);
+    let prelude = prelude::load(db, file);
+    let unit = Unit::new(&main, path, None);
+    let prelude: Vec<Unit> = prelude
+        .iter()
+        .map(|(name, loaded)| Unit::new(loaded, name, Some(name)))
+        .collect();
     let lowering = Lowering {
         unit: Cell::new(&unit),
+        prelude: &prelude,
         sites: RefCell::new(Vec::new()),
         vars: RefCell::new(Vars::default()),
         funcs: RefCell::new(Funcs::default()),
@@ -46,7 +44,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
     };
-    let suite = module.suite().as_slice();
+    let suite = main.module.suite().as_slice();
     lowering.declare_vars(&Bindings::of(suite))?;
     let body = lowering.body(suite)?;
     // The lowering of a function may declare another one, which goes to the
@@ -68,23 +66,77 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     })
 }
 
+/// A file of the program, parsed, with its types.
+struct Loaded<'db> {
+    file: File,
+    module: ParsedModuleRef,
+    model: SemanticModel<'db>,
+    source: SourceText,
+}
+
+impl<'db> Loaded<'db> {
+    fn new(db: &'db dyn Db, file: File) -> Self {
+        let program_file = db.program_file(file);
+        Loaded {
+            file,
+            module: parsed_module(db, program_file.python_file(db)).load(db),
+            model: SemanticModel::new(db, program_file),
+            source: source_text(db, file),
+        }
+    }
+}
+
 /// What the lowering reads of one file of the program.
 struct Unit<'a, 'db> {
+    file: File,
     model: &'a SemanticModel<'db>,
     source: &'a str,
     /// The lines of `source`, for the frames of the sites.
     lines: FileLines<'a>,
     /// The path of the file in a traceback.
     path: &'a str,
+    /// The name of the module of the prelude that the file is, and `None`
+    /// for the file of the program.
+    prelude: Option<&'a str>,
+    /// The functions of a module of the prelude, by name.
+    defs: HashMap<&'a str, &'a ast::StmtFunctionDef>,
+}
+
+impl<'a, 'db> Unit<'a, 'db> {
+    fn new(loaded: &'a Loaded<'db>, path: &'a str, prelude: Option<&'a str>) -> Self {
+        let defs = match prelude {
+            Some(_) => loaded
+                .module
+                .suite()
+                .iter()
+                .filter_map(|stmt| match stmt {
+                    ast::Stmt::FunctionDef(def) => Some((def.name.as_str(), def)),
+                    _ => None,
+                })
+                .collect(),
+            None => HashMap::new(),
+        };
+        Unit {
+            file: loaded.file,
+            model: &loaded.model,
+            source: loaded.source.as_str(),
+            lines: FileLines::new(loaded.source.as_str()),
+            path,
+            prelude,
+            defs,
+        }
+    }
 }
 
 struct Lowering<'a, 'db> {
     /// The file of the code that the lowering is in.
     unit: Cell<&'a Unit<'a, 'db>>,
+    /// The modules of the prelude.
+    prelude: &'a [Unit<'a, 'db>],
     sites: RefCell<Vec<SiteFrame>>,
     /// The variables of the module.
     vars: RefCell<Vars>,
-    funcs: RefCell<Funcs<'a>>,
+    funcs: RefCell<Funcs<'a, 'db>>,
     imports: RefCell<Imports>,
     /// The function whose body the lowering is in, and `None` in the code
     /// of the module.
@@ -145,19 +197,28 @@ impl Vars {
 }
 
 #[derive(Default)]
-struct Funcs<'a> {
+struct Funcs<'a, 'db> {
     ids: HashMap<DefId, FuncId>,
     /// The function that each name of the module binds.
     names: HashMap<String, FuncId>,
-    sigs: Vec<Sig<'a>>,
+    sigs: Vec<Sig<'a, 'db>>,
     /// Whether the program asks which globals got a value first, by the id
     /// of the function.
     ordered: Vec<bool>,
 }
 
-impl<'a> Funcs<'a> {
-    fn get(&self, id: FuncId) -> &Sig<'a> {
+impl<'a, 'db> Funcs<'a, 'db> {
+    fn get(&self, id: FuncId) -> &Sig<'a, 'db> {
         self.sigs.get(id.index()).expect("a function of the module")
+    }
+
+    /// Adds the function of `def` to the end of the queue of the lowering.
+    fn add(&mut self, def: DefId, sig: Sig<'a, 'db>) -> FuncId {
+        let id = FuncId::new(self.sigs.len());
+        self.ids.insert(def, id);
+        self.sigs.push(sig);
+        self.ordered.push(false);
+        id
     }
 }
 
@@ -181,7 +242,9 @@ impl Imports {
 
 /// What a call needs to know of a function before its body is lowered.
 #[derive(Clone)]
-struct Sig<'a> {
+struct Sig<'a, 'db> {
+    /// The file of the function.
+    unit: &'a Unit<'a, 'db>,
     def: &'a ast::StmtFunctionDef,
     params: Vec<Rep>,
     /// The variable of the module that holds the default of each parameter
@@ -305,6 +368,40 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     fn declare_func(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
+        let (id, params, ret) = self.signature(def)?;
+        let name = def.name.as_str();
+        if self.vars.borrow().ids.contains_key(name) {
+            return Err(unsupported(def, "a name of a function and of a variable"));
+        }
+        if self.imports.borrow().ids.contains_key(name) {
+            return Err(unsupported(def, "a name of an import and of a function"));
+        }
+        let mut funcs = self.funcs.borrow_mut();
+        if funcs.names.contains_key(name) {
+            return Err(unsupported(def, "two functions of the same name"));
+        }
+        let mut vars = self.vars.borrow_mut();
+        let defaults = params_of(def)
+            .zip(&params)
+            .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
+            .collect();
+        let func = funcs.add(
+            id,
+            Sig {
+                unit: self.unit.get(),
+                def,
+                params,
+                defaults,
+                ret,
+            },
+        );
+        funcs.names.insert(name.to_owned(), func);
+        Ok(())
+    }
+
+    /// The id of `def`, a function of the file that the lowering is in,
+    /// with the rep of each parameter and of the result.
+    fn signature(&self, def: &ast::StmtFunctionDef) -> Result<(DefId, Vec<Rep>, Rep), Error> {
         if def.is_async || !def.decorator_list.is_empty() || def.type_params.is_some() {
             return Err(unsupported(def, "this def"));
         }
@@ -333,33 +430,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 None => unsupported(&def.name, "a result of this type"),
             })?,
         };
-        let name = def.name.as_str();
-        if self.vars.borrow().ids.contains_key(name) {
-            return Err(unsupported(def, "a name of a function and of a variable"));
-        }
-        if self.imports.borrow().ids.contains_key(name) {
-            return Err(unsupported(def, "a name of an import and of a function"));
-        }
-        let mut funcs = self.funcs.borrow_mut();
-        if funcs.names.contains_key(name) {
-            return Err(unsupported(def, "two functions of the same name"));
-        }
-        let mut vars = self.vars.borrow_mut();
-        let defaults = params_of(def)
-            .zip(&params)
-            .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
-            .collect();
-        let id = FuncId::new(funcs.sigs.len());
-        funcs.ids.insert(info.id, id);
-        funcs.names.insert(name.to_owned(), id);
-        funcs.sigs.push(Sig {
-            def,
-            params,
-            defaults,
-            ret,
-        });
-        funcs.ordered.push(false);
-        Ok(())
+        Ok((info.id, params, ret))
     }
 
     /// Declares `name`, which `alias` imports in the module, in a `from`
@@ -388,9 +459,16 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(())
     }
 
-    /// The body of the function, lowered in its own scope.
+    /// The body of the function, lowered in its own scope and in its file.
     fn func(&self, id: FuncId) -> Result<Func, Error> {
         let sig = self.funcs.borrow().get(id).clone();
+        let outer = self.unit.replace(sig.unit);
+        let func = self.func_of(id, &sig);
+        self.unit.set(outer);
+        func
+    }
+
+    fn func_of(&self, id: FuncId, sig: &Sig<'a, 'db>) -> Result<Func, Error> {
         let def = sig.def;
         let mut vars = Vars::default();
         let mut locals = HashSet::new();
