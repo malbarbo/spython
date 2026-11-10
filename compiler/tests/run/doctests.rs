@@ -337,6 +337,10 @@ fn the_output_of_an_example_may_have_blank_lines_and_code_points_beyond_ascii() 
                 y
                 >>> 'ação' + '日本'
                 'ação日本'
+                >>> print('<BLANKLINE>x')
+                <BLANKLINE>x
+                >>> print('<BLANKLINE>x')
+                <BLANKLINE>
                 >>> print()
                 """
                 print(s)

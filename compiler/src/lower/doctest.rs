@@ -92,16 +92,12 @@ impl<'a> Lowering<'a, '_> {
     fn report(&self, example: &Example) -> Result<Vec<Stmt>, Error> {
         let tests = self.tests.as_ref().expect("a program that tests its file");
         let (failed, errors, outcome) = (tests.failed, tests.errors, tests.outcome);
-        let want = to_ascii(&example.want);
-        let exc = example.exc_msg.as_deref().map(to_ascii).unwrap_or_default();
         let shown = |text: &str| Expr::Str(text.replace('\n', "\n      "));
         let args = vec![
             shown(example.source.trim_end_matches('\n')),
             shown(example.want.strip_suffix('\n').unwrap_or(&example.want)),
-            Expr::Str(want.clone()),
-            Expr::Str(blank_lines(&want)),
-            Expr::Str(exc.clone()),
-            Expr::Str(blank_lines(&exc)),
+            Expr::Str(example.want.clone()),
+            Expr::Str(example.exc_msg.clone().unwrap_or_default()),
             Expr::Bool(example.exc_msg.is_some()),
             Expr::Bool(tests.verbose),
         ];
@@ -194,52 +190,5 @@ fn load_int(var: VarId) -> Expr {
         place: Place::Global(var),
         rep: Rep::Int,
         check: None,
-    }
-}
-
-/// `text` with an escape in the place of each character that is not ASCII,
-/// as `str.encode('ASCII', 'backslashreplace')` writes it.
-fn to_ascii(text: &str) -> String {
-    let mut ascii = String::new();
-    for c in text.chars() {
-        match u32::from(c) {
-            _ if c.is_ascii() => ascii.push(c),
-            code @ ..0x100 => ascii.push_str(&format!("\\x{code:02x}")),
-            code @ ..0x1_0000 => ascii.push_str(&format!("\\u{code:04x}")),
-            code => ascii.push_str(&format!("\\U{code:08x}")),
-        }
-    }
-    ascii
-}
-
-/// The ASCII text `want` with an empty line in the place of each line that
-/// is `<BLANKLINE>` and spaces, which is how the output asks for a blank
-/// line.
-fn blank_lines(want: &str) -> String {
-    // `str.isspace` of an ASCII character.
-    let is_space = |c: char| matches!(c, ' ' | '\t'..='\r' | '\x1c'..='\x1f');
-    want.split('\n')
-        .map(|line| match line.strip_prefix("<BLANKLINE>") {
-            Some(rest) if rest.chars().all(is_space) => "",
-            _ => line,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{blank_lines, to_ascii};
-
-    #[test]
-    fn the_output_of_an_example_is_compared_in_ascii() {
-        assert_eq!(
-            to_ascii("a\\é\u{100}\u{1f600}\n"),
-            "a\\\\xe9\\u0100\\U0001f600\n"
-        );
-        assert_eq!(
-            blank_lines("a\n<BLANKLINE>\n<BLANKLINE> \t\n<BLANKLINE>x\n <BLANKLINE>\n"),
-            "a\n\n\n<BLANKLINE>x\n <BLANKLINE>\n"
-        );
     }
 }

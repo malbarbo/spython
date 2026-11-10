@@ -8,7 +8,13 @@ from __spython_prelude__.intrinsics import (
     code_point,
     write_err,
 )
-from __spython_prelude__.str import find, is_space, put, put_hex_escape
+from __spython_prelude__.str import (
+    find,
+    is_space,
+    put,
+    put_hex_escape,
+    startswith,
+)
 
 
 def start() -> None:
@@ -23,9 +29,7 @@ def example(
     source: str,
     shown_want: str,
     want: str,
-    blank_want: str,
     exc: str,
-    blank_exc: str,
     expects: bool,
     verbose: bool,
 ) -> int:
@@ -33,21 +37,20 @@ def example(
     fails and 2 when it raises an exception that it does not expect.
 
     `source` and `shown_want` are the code and the output as the report shows them.
-    `want` is the output in ASCII, and `blank_want` is `want` with nothing in the
-    place of each `<BLANKLINE>`. `exc` and `blank_exc` are the same for the exception
-    that the example expects, when `expects` is true.
+    `want` is the output that the example asks for, and `exc` is the exception that
+    the example expects, when `expects` is true.
     """
     got = captured_output()
     exc_line = captured_exception()
     raised = len(exc_line) > 0
     if not raised:
-        ok = same_output(want, blank_want, got)
+        ok = same_output(want, got)
     elif expects:
         got = exc_line
-        ok = same_output(exc, blank_exc, got)
+        ok = same_output(exc, got)
     else:
         got = got + exc_line
-        ok = same_output(want, blank_want, got)
+        ok = same_output(want, got)
     if ok:
         if verbose:
             write_err("    ok: " + first_line(source) + "\n")
@@ -97,12 +100,15 @@ def plural(n: int, word: str) -> str:
     return str(n) + " " + word + "s"
 
 
-def same_output(want: str, blank_want: str, got: str) -> bool:
-    """Returns `True` if `got` is the output that `want` asks for, `False` otherwise."""
+def same_output(want: str, got: str) -> bool:
+    """Returns `True` if `got` is the output that `want` asks for, `False` otherwise.
+    The two match in ASCII, and a line of `want` that is `<BLANKLINE>` asks for a
+    line of spaces."""
+    ascii_want = to_ascii(want)
     ascii_got = to_ascii(got)
-    if ascii_got == want:
+    if ascii_got == ascii_want:
         return True
-    return blank_spaces(ascii_got) == blank_want
+    return emptied(ascii_got, False) == emptied(ascii_want, True)
 
 
 def to_ascii(s: str) -> str:
@@ -161,14 +167,14 @@ def only(s: str, start: int, end: int, spaces: bool) -> bool:
     return True
 
 
-def blank_spaces(s: str) -> str:
-    """The ASCII text `s` without the spaces of each line that has nothing else."""
+def emptied(s: str, marks: bool) -> str:
+    """The ASCII text `s` with nothing in each line that `empty` accepts."""
     n = len(s)
     size = 0
     i = 0
     while i <= n:
         end = line_end(s, i)
-        if not only(s, i, end, True):
+        if not empty(s, i, end, marks):
             size += end - i
         if end < n:
             size += 1
@@ -178,13 +184,24 @@ def blank_spaces(s: str) -> str:
     i = 0
     while i <= n:
         end = line_end(s, i)
-        if not only(s, i, end, True):
+        if not empty(s, i, end, marks):
             at = put(b, at, s[i:end])
         if end < n:
             b[at] = 10
             at += 1
         i = end + 1
     return builder_done(b)
+
+
+def empty(s: str, start: int, end: int, marks: bool) -> bool:
+    """Returns `True` if the line of `s` from `start` to `end` has only spaces,
+    after a `<BLANKLINE>` when `marks` is true, `False` otherwise."""
+    if marks:
+        mark = "<BLANKLINE>"
+        if not startswith(s, mark, start, end):
+            return False
+        start += len(mark)
+    return only(s, start, end, True)
 
 
 def shown(output: str) -> str:
