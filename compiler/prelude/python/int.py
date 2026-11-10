@@ -131,7 +131,8 @@ def is_ascii_space(c: int) -> bool:
 
 
 def is_prefix(c: int, base: int) -> bool:
-    """Whether `c` is the letter after the 0 of the prefix of `base`."""
+    """Returns `True` if `c` is the letter after the 0 of the prefix of
+    `base`, `False` otherwise."""
     if base == 16:
         return c == 120 or c == 88
     if base == 8:

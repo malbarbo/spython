@@ -161,13 +161,14 @@ def line_end(s: str, start: int) -> int:
 
 
 def is_space(c: int) -> bool:
-    """Whether `str.isspace` accepts the ASCII code point `c`."""
+    """Returns `True` if `str.isspace` accepts the ASCII code point `c`,
+    `False` otherwise."""
     return c == 32 or (9 <= c and c <= 13) or (28 <= c and c <= 31)
 
 
 def only(s: str, start: int, end: int, spaces: bool) -> bool:
-    """Whether each code point of `s` from `start` to `end` is a blank, or a space
-    of any kind when `spaces` is true."""
+    """Returns `True` if each code point of `s` from `start` to `end` is a
+    blank, or a space of any kind when `spaces` is true, `False` otherwise."""
     while start < end:
         c = code_point(s, start)
         if spaces and not is_space(c):

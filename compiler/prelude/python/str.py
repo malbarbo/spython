@@ -254,7 +254,7 @@ def replace(s: str, old: str, new: str, count: int | None = None) -> str:
 
 
 def found_at_most(s: str, sub: str, i: int) -> bool:
-    """Whether `sub` is in `s` from `i` on."""
+    """Returns `True` if `sub` is in `s` from `i` on, `False` otherwise."""
     return i + len(sub) <= len(s) and found_at(s, sub, i)
 
 
@@ -311,7 +311,8 @@ def strip_end(s: str, chars: str | None, first: int) -> int:
 
 
 def stripped(c: int, chars: str | None) -> bool:
-    """Whether a strip of `chars` drops `c`, and a strip of `None` drops the white space."""
+    """Returns `True` if a strip of `chars` drops `c`, `False` otherwise. A
+    strip of `None` drops the white space."""
     if chars is None:
         return is_space(c)
     n = len(chars)
@@ -452,8 +453,9 @@ def isupper(s: str) -> bool:
 
 
 def istitle(s: str) -> bool:
-    """Whether each cased word of `s` starts with an upper or title case
-    code point, and goes on in lower case, with at least one word."""
+    """Returns `True` if each cased word of `s` starts with an upper or title
+    case code point and goes on in lower case, with at least one word,
+    `False` otherwise."""
     n = len(s)
     cased = False
     previous_is_cased = False
@@ -477,7 +479,7 @@ def istitle(s: str) -> bool:
 
 
 def is_titlecase(c: int) -> bool:
-    """Whether `c` is in the category `Lt`."""
+    """Returns `True` if `c` is in the category `Lt`, `False` otherwise."""
     if c < 0x1C5 or c > 0x1FFC:
         return False
     if c < 0x1F88:
@@ -493,7 +495,7 @@ def is_titlecase(c: int) -> bool:
 
 
 def is_space(c: int) -> bool:
-    """Whether `str.isspace` accepts `c`."""
+    """Returns `True` if `str.isspace` accepts `c`, `False` otherwise."""
     if c < 128:
         return c == 32 or 9 <= c <= 13 or 28 <= c <= 31
     if c < 0x2000:
@@ -693,7 +695,8 @@ def step_bound(bound: int | None, n: int, negative: bool, missing: int) -> int:
 
 
 def found_at(s: str, sub: str, i: int) -> bool:
-    """Whether `sub` is in `s` from `i` on, with `i + len(sub) <= len(s)`."""
+    """Returns `True` if `sub` is in `s` from `i` on, `False` otherwise. The
+    caller keeps `i + len(sub) <= len(s)`."""
     m = len(sub)
     j = 0
     while j < m:

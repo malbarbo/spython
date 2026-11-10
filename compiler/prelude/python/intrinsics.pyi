@@ -17,7 +17,7 @@ def code_point(s: str, index: int) -> int:
     """The code point of `s` at `index`, which is not negative and is below `len(s)`."""
 
 def is_printable(code_point: int) -> bool:
-    """Whether `str.isprintable` accepts the code point."""
+    """Returns `True` if `str.isprintable` accepts the code point, `False` otherwise."""
 
 def write_err(text: str) -> None:
     """Writes `text` to the standard error, and flushes it."""
@@ -37,10 +37,12 @@ def lower_at(code_point: int, index: int) -> int:
     sigma gives the small sigma that is not the final one."""
 
 def is_cased(code_point: int) -> bool:
-    """Whether the code point has the property `Cased` of Unicode."""
+    """Returns `True` if the code point has the property `Cased` of Unicode,
+    `False` otherwise."""
 
 def is_case_ignorable(code_point: int) -> bool:
-    """Whether the code point has the property `Case_Ignorable` of Unicode."""
+    """Returns `True` if the code point has the property `Case_Ignorable` of Unicode,
+    `False` otherwise."""
 
 def natural_power(base: int, exp: int) -> int:
     """`base ** exp` for an `exp` that is not negative. A power outside 31 bits stops the program."""
@@ -49,31 +51,35 @@ def title_at(code_point: int, index: int) -> int:
     """The code point at `index` of the title case of the code point, or -1 past its end."""
 
 def is_uppercase(code_point: int) -> bool:
-    """Whether the code point has the property `Uppercase` of Unicode."""
+    """Returns `True` if the code point has the property `Uppercase` of Unicode,
+    `False` otherwise."""
 
 def is_lowercase(code_point: int) -> bool:
-    """Whether the code point has the property `Lowercase` of Unicode."""
+    """Returns `True` if the code point has the property `Lowercase` of Unicode,
+    `False` otherwise."""
 
 def fold_at(code_point: int, index: int) -> int:
     """The code point at `index` of `str.casefold` of the code point, or -1 past its end."""
 
 def is_alpha(code_point: int) -> bool:
-    """Whether `str.isalpha` accepts the code point."""
+    """Returns `True` if `str.isalpha` accepts the code point, `False` otherwise."""
 
 def is_decimal(code_point: int) -> bool:
-    """Whether `str.isdecimal` accepts the code point."""
+    """Returns `True` if `str.isdecimal` accepts the code point, `False` otherwise."""
 
 def is_digit(code_point: int) -> bool:
-    """Whether `str.isdigit` accepts the code point."""
+    """Returns `True` if `str.isdigit` accepts the code point, `False` otherwise."""
 
 def is_numeric(code_point: int) -> bool:
-    """Whether `str.isnumeric` accepts the code point."""
+    """Returns `True` if `str.isnumeric` accepts the code point, `False` otherwise."""
 
 def is_xid_start(code_point: int) -> bool:
-    """Whether the code point has the property `XID_Start` of Unicode."""
+    """Returns `True` if the code point has the property `XID_Start` of Unicode,
+    `False` otherwise."""
 
 def is_xid_continue(code_point: int) -> bool:
-    """Whether the code point has the property `XID_Continue` of Unicode."""
+    """Returns `True` if the code point has the property `XID_Continue` of Unicode,
+    `False` otherwise."""
 
 def stop(text: str) -> NoReturn:
     """Stops the program with the error of spython of `text`, for what CPython does and spython

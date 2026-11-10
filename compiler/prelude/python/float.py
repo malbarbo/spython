@@ -85,8 +85,8 @@ def is_digit(c: int) -> bool:
 
 
 def word_at(s: str, i: int, end: int, word: str) -> bool:
-    """Whether `s` from `i` up to `end` is `word`, a word of small ASCII
-    letters, in any case."""
+    """Returns `True` if `s` from `i` up to `end` is `word`, a word of small
+    ASCII letters, in any case, `False` otherwise."""
     n = len(word)
     if end - i != n:
         return False
