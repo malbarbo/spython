@@ -337,8 +337,6 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// The name of the function or the class of the builtins that `func`
-    /// reads. `None` when `func` reads neither.
     /// `ord` of a `str`, which the prelude defines.
     pub(super) fn ord(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let arg = one_arg(call, "this call of ord")?;
@@ -361,6 +359,8 @@ impl<'a> Lowering<'a, '_> {
         self.prelude_call(call, "str", "chr_of", vec![lowered])
     }
 
+    /// The name of the function or the class of the builtins that `func`
+    /// reads. `None` when `func` reads neither.
     pub(super) fn builtin_name(&self, func: &ast::Expr) -> Option<String> {
         let (name, file) = match expr_shape(self.model(), func)? {
             Shape::Function(def) => (def.name, def.file),
