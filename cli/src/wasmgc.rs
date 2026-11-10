@@ -58,9 +58,15 @@ pub fn test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Spytho
                     .collect(),
             })
             .collect();
-        let module =
-            compiler::compile_tests(&program.db, program.file, &name, &docstrings, verbose)
-                .map_err(|error| compile_error(file, &error))?;
+        let module = compiler::compile_tests(
+            &program.db,
+            program.file,
+            &name,
+            &docstrings,
+            &program.copies,
+            verbose,
+        )
+        .map_err(|error| compile_error(file, &error))?;
         passed &= execute(&module)?;
     }
     if passed {

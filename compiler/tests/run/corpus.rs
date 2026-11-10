@@ -115,8 +115,14 @@ fn tests_from_corpus(file: &Path) -> Outcome {
     let path = file.to_str().expect("a path in utf-8");
     let program = engine::check::doctest_program(&checked.db, checked.file);
     let docstrings = docstrings(program.docstrings);
-    let module = match compiler::compile_tests(&program.db, program.file, path, &docstrings, false)
-    {
+    let module = match compiler::compile_tests(
+        &program.db,
+        program.file,
+        path,
+        &docstrings,
+        &program.copies,
+        false,
+    ) {
         Ok(module) => module,
         Err(compiler::Error::Unsupported { .. }) => return Outcome::Unsupported,
         Err(err) => panic!("{path}: {err:?}"),

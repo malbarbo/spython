@@ -470,6 +470,9 @@ pub struct DoctestProgram {
     pub file: File,
     /// Each docstring with an example, in the order of the source.
     pub docstrings: Vec<DoctestFunction>,
+    /// The variables of the module where the source copies a name of the
+    /// module for the examples.
+    pub copies: Vec<String>,
 }
 
 /// The function of the synthetic source that has the examples of a
@@ -533,6 +536,7 @@ pub fn doctest_program(db: &ProjectDatabase, file: File) -> DoctestProgram {
         db: scratch,
         file: syn_file,
         docstrings,
+        copies: map.copies,
     }
 }
 

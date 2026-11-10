@@ -13,6 +13,9 @@ use crate::{Docstring, Error, Example};
 /// What the lowering keeps for a program that tests its file.
 pub(super) struct Tests<'a> {
     pub docstrings: &'a [Docstring],
+    /// The variables of the module that hold a copy of a name of the
+    /// module for the examples.
+    pub copies: &'a [String],
     pub verbose: bool,
     /// The variable of the module that counts the examples that fail.
     pub failed: VarId,

@@ -37,7 +37,7 @@ pub(crate) fn lower(
     db: &dyn Db,
     file: File,
     path: &str,
-    tests: Option<(&[Docstring], bool)>,
+    tests: Option<(&[Docstring], &[String], bool)>,
 ) -> Result<Program, Error> {
     let main = Loaded::new(db, file);
     let prelude = prelude::load(db, file);
@@ -47,8 +47,9 @@ pub(crate) fn lower(
         .map(|(name, loaded)| Unit::new(loaded, name, Some(name)))
         .collect();
     let mut vars = Vars::default();
-    let tests = tests.map(|(docstrings, verbose)| Tests {
+    let tests = tests.map(|(docstrings, copies, verbose)| Tests {
         docstrings,
+        copies,
         verbose,
         failed: vars.add_unnamed(Rep::Int),
         errors: vars.add_unnamed(Rep::Int),

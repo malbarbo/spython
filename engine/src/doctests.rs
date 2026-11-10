@@ -992,6 +992,9 @@ pub struct SyntheticMap {
     /// Byte offset in the synthetic source where the verbatim copy of the
     /// original ends (i.e. where the appended lines begin).
     pub original_len: u32,
+    /// The variables of the module that hold a copy of a name of the
+    /// module for the snippets, sorted.
+    pub copies: Vec<String>,
 }
 
 /// Build a synthetic Python source: the original verbatim, then one
@@ -1025,9 +1028,12 @@ pub fn build_synthetic_source(
         .map(|snippet| copied_names(&snippet.code, module_names))
         .collect();
     let all_copies: BTreeSet<&String> = copies.iter().flatten().collect();
+    let mut module_copies = Vec::with_capacity(all_copies.len());
     for name in all_copies {
-        syn.push_str(&format!("{MODULE_COPY_PREFIX}{name}__ = {name}\n"));
+        let copy = format!("{MODULE_COPY_PREFIX}{name}__");
+        syn.push_str(&format!("{copy} = {name}\n"));
         line_map.push(SyntheticLine::ModuleCopy);
+        module_copies.push(copy);
     }
 
     for (idx, (snippet, copies)) in snippets.iter().zip(&copies).enumerate() {
@@ -1065,6 +1071,7 @@ pub fn build_synthetic_source(
         SyntheticMap {
             lines: line_map,
             original_len,
+            copies: module_copies,
         },
     )
 }

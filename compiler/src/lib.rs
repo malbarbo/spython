@@ -77,16 +77,23 @@ pub struct Example {
 
 /// The module that runs the doctests of the program in `file`, as the
 /// `test` command of spython runs them. `file` has a function for each of
-/// `docstrings`, and a traceback names it by `path`. With `verbose`, the
-/// report has the examples that pass too.
+/// `docstrings`, and a traceback names it by `path`. `copies` holds the
+/// variables of the module where `file` copies a name of the module for the
+/// examples. With `verbose`, the report has the examples that pass too.
 pub fn compile_tests(
     db: &dyn Db,
     file: File,
     path: &str,
     docstrings: &[Docstring],
+    copies: &[String],
     verbose: bool,
 ) -> Result<Module, Error> {
-    module(lower::lower(db, file, path, Some((docstrings, verbose)))?)
+    module(lower::lower(
+        db,
+        file,
+        path,
+        Some((docstrings, copies, verbose)),
+    )?)
 }
 
 fn module(program: ir::Program) -> Result<Module, Error> {

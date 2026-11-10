@@ -28,7 +28,14 @@ pub(super) fn compile_tests(
     let program = doctest_program(&checked.db, checked.file);
     let docstrings = docstrings(program.docstrings);
     let path = path.to_str().expect("a path in utf-8");
-    compiler::compile_tests(&program.db, program.file, path, &docstrings, verbose)
+    compiler::compile_tests(
+        &program.db,
+        program.file,
+        path,
+        &docstrings,
+        &program.copies,
+        verbose,
+    )
 }
 
 /// The docstrings of the checker as the compiler takes them.

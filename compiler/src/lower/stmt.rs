@@ -11,10 +11,6 @@ use crate::Error;
 use crate::cpython::Class;
 use crate::ir::{Expr, Place, Rep, Stmt};
 
-/// The prefix of the copy of a name of the module, which the engine writes
-/// for the examples of the docstrings.
-const MODULE_COPY_PREFIX: &str = "__spython_module_";
-
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
@@ -224,8 +220,9 @@ impl<'a> Lowering<'a, '_> {
         let ([target @ ast::Expr::Name(to)], ast::Expr::Name(from)) = (targets, value) else {
             return None;
         };
-        let copy = |name: &ast::ExprName| name.id.starts_with(MODULE_COPY_PREFIX);
-        (self.tests.is_some() && (copy(to) || copy(from))).then_some((target, from.id.as_str()))
+        let copies = self.tests.as_ref()?.copies;
+        let copy = |name: &ast::ExprName| copies.iter().any(|copy| *copy == name.id.as_str());
+        (copy(to) || copy(from)).then_some((target, from.id.as_str()))
     }
 
     /// The text of an exception that `arg` gives, which has to be a `str`.
