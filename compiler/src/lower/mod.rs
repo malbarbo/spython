@@ -508,6 +508,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let scope = self.scope.take().expect("the scope of the function");
         Ok(Func {
             ordered: false,
+            frame: !self.in_prelude(),
             params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
             vars: scope.vars.list,
             ret: sig.ret,
@@ -518,6 +519,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// A new site for the instruction at `range`, in the code that the
     /// lowering is in.
     fn site(&self, range: TextRange) -> Site {
+        if self.in_prelude() {
+            return Site::NONE;
+        }
         let name = self
             .scope
             .borrow()

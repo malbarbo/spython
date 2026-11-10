@@ -44,7 +44,10 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             let ty = m.func_type(&params, &results);
             FuncSlots {
                 index: m.reserve(ty),
-                defined: m.global(ValType::I32, &ConstExpr::i32_const(0)),
+                // No `def` binds a function of the prelude.
+                defined: func
+                    .frame
+                    .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
             }
         })
         .collect();
@@ -71,7 +74,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         order,
         code: Code {
             func: None,
-            site,
+            site: Some(site),
             loops: Vec::new(),
             vars: Vec::new(),
         },
@@ -116,8 +119,9 @@ struct Emitter<'a> {
 struct Code {
     /// The function, and `None` in the module.
     func: Option<FuncId>,
-    /// The local that holds the site of the instruction that may raise.
-    site: LocalIdx,
+    /// The local that holds the site of the instruction that may raise,
+    /// and `None` in a function without a frame.
+    site: Option<LocalIdx>,
     /// The target of `break` and of `continue`, for each loop
     /// that encloses the current statement.
     loops: Vec<Loop>,
@@ -143,14 +147,14 @@ struct Slots<I> {
 struct FuncSlots {
     index: FuncIdx,
     /// The global that is not 0 once the `def` has run, as the flag of a
-    /// variable.
-    defined: GlobalIdx,
+    /// variable. A function without a frame has none.
+    defined: Option<GlobalIdx>,
 }
 
 impl Emitter<'_> {
     fn func(&mut self, id: FuncId, func: &Func) {
         let mut f = FuncState::new(func.params);
-        let site = f.local(ValType::I32);
+        let site = func.frame.then(|| f.local(ValType::I32));
         let mut vars = Vec::new();
         for (i, var) in func.vars.iter().enumerate() {
             let value = match u32::try_from(i) {
@@ -176,6 +180,17 @@ impl Emitter<'_> {
             loops: Vec::new(),
             vars,
         };
+        let index = self.func_slots(id).index;
+        let Some(site) = site else {
+            self.body(&mut f, &func.body);
+            // Every path of the body of a function with a result ends in a
+            // `return` or a `raise`.
+            if func.ret != Rep::None {
+                f.ins().unreachable();
+            }
+            self.m.define(index, f.finish());
+            return;
+        };
         self.reprs.enter(&mut f);
         self.reprs.begin(&mut f);
         self.body(&mut f, &func.body);
@@ -183,7 +198,6 @@ impl Emitter<'_> {
             self.stmt(&mut f, &Stmt::Return(None));
         }
         self.reprs.end_function(&mut f, site);
-        let index = self.func_slots(id).index;
         self.m.define_frame(index, f, &[]);
     }
 
@@ -208,7 +222,7 @@ impl Emitter<'_> {
                 }
             }
             Stmt::Def(func) => {
-                let defined = self.func_slots(*func).defined;
+                let defined = self.defined(*func);
                 let ordered = self.program_func(*func).ordered;
                 self.define_global(f, defined, ordered);
             }
@@ -228,7 +242,9 @@ impl Emitter<'_> {
                 if let Some(value) = value {
                     self.expr(f, value);
                 }
-                self.reprs.leave(f);
+                if self.code.site.is_some() {
+                    self.reprs.leave(f);
+                }
                 f.ins().return_();
             }
             Stmt::If { cond, then, else_ } => {
@@ -368,9 +384,13 @@ impl Emitter<'_> {
     /// gets the frame of the site, and so does a trap, which wasmtime gives
     /// when the program runs out of memory.
     fn at(&mut self, f: &mut FuncState, site: Site, emit: impl FnOnce(&mut Self, &mut FuncState)) {
-        f.ins()
-            .i32_const(site_index(site))
-            .local_set(self.code.site);
+        // An exception of a function without a frame has the site of the
+        // call of the function.
+        let Some(local) = self.code.site else {
+            emit(self, f);
+            return;
+        };
+        f.ins().i32_const(site_index(site)).local_set(local);
         let start = f.position();
         emit(self, f);
         f.mark(start, site);
@@ -495,7 +515,7 @@ impl Emitter<'_> {
             Binding::Global(var) => f
                 .ins()
                 .global_get(self.global_slots(var).defined.expect("a flagged global")),
-            Binding::Func(func) => f.ins().global_get(self.func_slots(func).defined),
+            Binding::Func(func) => f.ins().global_get(self.defined(func)),
             Binding::Import(id) => f.ins().global_get(self.import_slot(id)),
         };
     }
@@ -543,11 +563,23 @@ impl Emitter<'_> {
                 f.free(local);
             }
         }
+        let frame = self.program_func(func).frame;
         self.at(f, site, |e, f| {
-            e.reprs.call_fits(f);
-            e.raise_if_zero(f, &RECURSION_ERROR);
+            // A function without a frame does not count against the limit
+            // of the recursion.
+            if frame {
+                e.reprs.call_fits(f);
+                e.raise_if_zero(f, &RECURSION_ERROR);
+            }
             f.ins().call(index);
         });
+    }
+
+    /// The global that is not 0 once the `def` of `func` has run.
+    fn defined(&self, func: FuncId) -> GlobalIdx {
+        self.func_slots(func)
+            .defined
+            .expect("a function that a def binds")
     }
 
     fn global_slots(&self, var: VarId) -> &Slots<GlobalIdx> {

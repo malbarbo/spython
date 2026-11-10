@@ -44,6 +44,11 @@ macro_rules! id {
     };
 }
 
+impl Site {
+    /// The site of the code of a function without a frame.
+    pub const NONE: Site = Site(u32::MAX);
+}
+
 id! {
     Site, "sites";
     VarId, "variables";
@@ -89,6 +94,10 @@ pub(crate) struct Import {
 pub(crate) struct Func {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
+    /// `false` for a function of the prelude, which has no frame in a
+    /// traceback, as a builtin of CPython has none. Its code has no site,
+    /// and an exception that it raises has the site of the call.
+    pub frame: bool,
     /// The first variables are the parameters, in order.
     pub params: u32,
     pub vars: Vec<Var>,
