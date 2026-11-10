@@ -145,7 +145,13 @@ impl Exceptions {
                 running: m.global(ValType::I32, &ConstExpr::i32_const(0)),
                 got: m.global(str_type.ref_to(true), &null),
                 raised,
-                caught: add_caught(m, str, (exc, class, tag), &mut classes, raised),
+                caught: add_caught(
+                    m,
+                    str,
+                    (exc, class, tag),
+                    &mut classes,
+                    (raised, host.capture.expect("a program that runs doctests")),
+                ),
             }
         });
 
@@ -552,14 +558,16 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
 
 /// `(func (param (ref $Exc)))`, which takes the exception that ended an
 /// example of a docstring. An exception of [`Class::Limit`] stops the
-/// program, so the function raises it again. For any other, the function
-/// sets `raised` to the last line of its traceback, with the `\n`.
+/// program, so the function writes what the example wrote, as a program
+/// that stops writes it, and raises the exception again. For any other,
+/// the function sets `raised` to the last line of its traceback, with the
+/// `\n`.
 fn add_caught(
     m: &mut ModuleState,
     str: &mut StrRepr,
     (exc, class, tag): (TypeIdx, TypeIdx, TagIdx),
     classes: &mut HashMap<Class, GlobalIdx>,
-    raised: GlobalIdx,
+    (raised, capture): (GlobalIdx, Capture),
 ) -> FuncIdx {
     let limit = class_global(m, str, class, classes, Class::Limit);
     let ty = m.func_type(&[exc.ref_to(false)], &[]);
@@ -573,6 +581,9 @@ fn add_caught(
         .global_get(limit)
         .ref_eq();
     f.if_(BlockType::Empty);
+    f.ins().i32_const(0).global_set(capture.on);
+    str.captured(&mut f);
+    str.write(&mut f);
     f.ins().local_get(e).throw(tag);
     f.end();
     f.ins()

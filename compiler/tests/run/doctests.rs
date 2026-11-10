@@ -475,7 +475,11 @@ fn an_example_that_leaves_the_limit_of_an_int_stops_the_program() {
     let module = compile_tests(source, &file, false).expect("the program to compile");
     let output = wasmtime(name, &module, None);
     assert_eq!(deno(name), output, "deno and wasmtime");
-    assert_eq!(String::from_utf8_lossy(&output.stdout), "", "stdout");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "before\n",
+        "stdout"
+    );
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
         format!(
