@@ -8,7 +8,7 @@ from __spython_prelude__.intrinsics import (
     code_point,
     write_err,
 )
-from __spython_prelude__.str import hex_digit, is_space, put
+from __spython_prelude__.str import is_space, put, put_hex_escape
 
 
 def start() -> None:
@@ -124,18 +124,7 @@ def to_ascii(s: str) -> str:
         if k == 1:
             b[at] = c
         else:
-            b[at] = 92
-            if k == 4:
-                b[at + 1] = 120
-            elif k == 6:
-                b[at + 1] = 117
-            else:
-                b[at + 1] = 85
-            j = k - 1
-            while j >= 2:
-                b[at + j] = hex_digit(c % 16)
-                c = c // 16
-                j -= 1
+            put_hex_escape(b, at, c, k)
         at += k
         i += 1
     return builder_done(b)

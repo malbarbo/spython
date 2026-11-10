@@ -55,22 +55,11 @@ def repr_of(s: str) -> str:
         k = escaped_len(c, quote)
         if k == 1:
             b[at] = c
-        else:
+        elif k == 2:
             b[at] = 92
-            if k == 2:
-                b[at + 1] = escape_letter(c)
-            else:
-                if k == 4:
-                    b[at + 1] = 120
-                elif k == 6:
-                    b[at + 1] = 117
-                else:
-                    b[at + 1] = 85
-                j = k - 1
-                while j >= 2:
-                    b[at + j] = hex_digit(c % 16)
-                    c = c // 16
-                    j -= 1
+            b[at + 1] = escape_letter(c)
+        else:
+            put_hex_escape(b, at, c, k)
         at += k
         i += 1
     b[at] = quote
@@ -874,6 +863,23 @@ def escape_letter(c: int) -> int:
     if c == 13:
         return 114
     return c
+
+
+def put_hex_escape(b: StrBuilder, at: int, c: int, k: int) -> None:
+    """Writes to `b` from `at` on the escape of `c` in `k` code points, which
+    is `\\x` and 2 digits, `\\u` and 4, or `\\U` and 8."""
+    b[at] = 92
+    if k == 4:
+        b[at + 1] = 120
+    elif k == 6:
+        b[at + 1] = 117
+    else:
+        b[at + 1] = 85
+    j = k - 1
+    while j >= 2:
+        b[at + j] = hex_digit(c % 16)
+        c = c // 16
+        j -= 1
 
 
 def hex_digit(d: int) -> int:
