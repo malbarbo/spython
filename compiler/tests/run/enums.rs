@@ -36,6 +36,29 @@ fn an_enum_of_the_accepted_form_runs() {
     );
 }
 
+/// A member is a reference to a struct, which may be null for `None`.
+#[test]
+fn a_function_takes_and_gives_members() {
+    same_as_cpython(
+        "a_function_takes_and_gives_members",
+        indoc! {"
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+
+            def f(c: Cor, d: Cor | None) -> Cor | None:
+                if d is None:
+                    return c
+                if c and d:
+                    return d
+                return None
+
+            print(1)
+        "},
+    );
+}
+
 /// The name of a class is a global, which a `NameError` suggests once the
 /// `class` statement has run.
 #[test]

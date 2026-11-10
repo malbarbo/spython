@@ -5,15 +5,15 @@ mod int;
 pub(super) mod str;
 mod uniform;
 
-use wasm_encoder::{BlockType, ConstExpr, ValType};
+use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
-use super::module::{FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
+use super::module::{FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState, TypeIdx};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
-    ArithOp, Case, Choice, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2,
-    Rep, SiteFrame,
+    ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc,
+    MathFunc2, Rep, SiteFrame, UserClass,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -33,17 +33,20 @@ pub(crate) struct Reprs {
     /// says.
     compare_uniform: Option<FuncIdx>,
     exc: Exceptions,
+    /// The struct of an object of each class of the program, by its
+    /// [`ClassId`].
+    classes: Vec<TypeIdx>,
 }
 
 impl Reprs {
-    /// The representations of a module, which runs doctests when `tests`
-    /// is `true`.
-    pub fn new(m: &mut ModuleState, host: &Host, tests: bool) -> Self {
+    /// The representations of a module with the classes `classes`, which
+    /// runs doctests when `tests` is `true`.
+    pub fn new(m: &mut ModuleState, host: &Host, tests: bool, classes: &[UserClass]) -> Self {
         let mut str = StrRepr::ucs4(m, host);
         let exc = Exceptions::new(m, host, &mut str, tests);
         let int = IntRepr::i31(m, &mut str, &exc);
         let float = FloatRepr::f64(host);
-        Reprs {
+        let mut reprs = Reprs {
             int,
             float,
             str,
@@ -51,7 +54,29 @@ impl Reprs {
             write_uniform: None,
             compare_uniform: None,
             exc,
-        }
+            classes: Vec::new(),
+        };
+        // A field of a class may hold an object of any class, its own too,
+        // so the structs refer to each other by the indices that they will
+        // have in their rec group.
+        let first = m.next_type_index();
+        reprs.classes = (0..classes.len()).map(|i| first.plus(i)).collect();
+        let structs: Vec<Vec<(StorageType, bool)>> = classes
+            .iter()
+            .map(|class| {
+                class
+                    .fields
+                    .iter()
+                    .map(|rep| {
+                        let ty = reprs.local_type(*rep).expect("a field has a value");
+                        (StorageType::Val(ty), class.mutable)
+                    })
+                    .collect()
+            })
+            .collect();
+        let group = m.rec_group(&structs);
+        debug_assert_eq!(group, reprs.classes, "the classes in their rec group");
+        reprs
     }
 
     /// Opens the code of the module or of a function, where the handler
@@ -107,8 +132,17 @@ impl Reprs {
             Rep::Bool => Some(ValType::I32),
             Rep::Str | Rep::StrOrNone => Some(self.str.val_type(true)),
             Rep::Uniform => Some(self.uniform.val_type()),
+            Rep::Object(class) | Rep::ObjectOrNone(class) => Some(self.class(class).ref_to(true)),
             Rep::None => None,
         }
+    }
+
+    /// The struct of an object of `class`.
+    fn class(&self, class: ClassId) -> TypeIdx {
+        *self
+            .classes
+            .get(class.index())
+            .expect("a class of the program")
     }
 
     /// The type of a value of `rep` on the stack, and `None` for a rep that
@@ -116,6 +150,7 @@ impl Reprs {
     pub fn value_type(&self, rep: Rep) -> Option<ValType> {
         match rep {
             Rep::Str => Some(self.str.val_type(false)),
+            Rep::Object(class) => Some(self.class(class).ref_to(false)),
             _ => self.local_type(rep),
         }
     }
@@ -123,7 +158,7 @@ impl Reprs {
     /// Pushes the value of `rep` that `local` holds.
     pub fn load(&self, f: &mut FuncState, rep: Rep, local: LocalIdx) {
         f.ins().local_get(local);
-        if rep == Rep::Str {
+        if matches!(rep, Rep::Str | Rep::Object(_)) {
             f.ins().ref_as_non_null();
         }
     }
@@ -141,6 +176,9 @@ impl Reprs {
                 shared: false,
                 ty: wasm_encoder::AbstractHeapType::Eq,
             }),
+            Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                ConstExpr::ref_null(self.class(class).heap_type())
+            }
             Rep::None => unreachable!("a variable of rep None"),
         };
         m.global(ty, &init)
@@ -149,7 +187,7 @@ impl Reprs {
     /// Pushes the value of `rep` that `global` holds.
     pub fn load_global(&self, f: &mut FuncState, rep: Rep, global: GlobalIdx) {
         f.ins().global_get(global);
-        if rep == Rep::Str {
+        if matches!(rep, Rep::Str | Rep::Object(_)) {
             f.ins().ref_as_non_null();
         }
     }
@@ -171,6 +209,12 @@ impl Reprs {
             (Rep::None, Rep::StrOrNone) => {
                 f.ins().ref_null(self.str.type_index().heap_type());
             }
+            // An object is an `eq`, and null is `None`.
+            (Rep::Object(_) | Rep::ObjectOrNone(_), Rep::Uniform) => {}
+            (Rep::Object(a), Rep::ObjectOrNone(b)) if a == b => {}
+            (Rep::None, Rep::ObjectOrNone(class)) => {
+                f.ins().ref_null(self.class(class).heap_type());
+            }
             _ => unreachable!("a widening of {from:?} to {to:?}"),
         }
     }
@@ -180,11 +224,20 @@ impl Reprs {
     /// have.
     pub fn narrow(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
         match (from, to) {
-            (Rep::StrOrNone | Rep::Uniform, Rep::None) => {
+            (Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_), Rep::None) => {
                 f.ins().drop();
             }
             (Rep::StrOrNone, Rep::Str) => {
                 f.ins().ref_as_non_null();
+            }
+            (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => {
+                f.ins().ref_as_non_null();
+            }
+            (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
+                f.ins().ref_cast(
+                    self.class(class).heap_type(),
+                    matches!(to, Rep::ObjectOrNone(_)),
+                );
             }
             (Rep::Uniform, Rep::Str | Rep::StrOrNone) => {
                 f.ins()
@@ -206,10 +259,10 @@ impl Reprs {
             Rep::None => {
                 f.ins().i32_const(1);
             }
-            Rep::StrOrNone | Rep::Uniform => {
+            Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
                 f.ins().ref_is_null();
             }
-            Rep::Int | Rep::Float | Rep::Bool | Rep::Str => {
+            Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_) => {
                 f.ins().drop().i32_const(0);
             }
         }
@@ -255,6 +308,12 @@ impl Reprs {
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
             Rep::Float => self.float.truth(f),
+            Rep::Object(_) => {
+                f.ins().drop().i32_const(1);
+            }
+            Rep::ObjectOrNone(_) => {
+                f.ins().ref_is_null().i32_eqz();
+            }
             Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("the truth of {rep:?}"),
         }
     }
@@ -272,9 +331,12 @@ impl Reprs {
                 self.str.literal(m, f, "False");
                 f.end();
             }
-            Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => {
-                unreachable!("the str of {rep:?}")
-            }
+            Rep::Str
+            | Rep::None
+            | Rep::StrOrNone
+            | Rep::Uniform
+            | Rep::Object(_)
+            | Rep::ObjectOrNone(_) => unreachable!("the str of {rep:?}"),
         }
     }
 
@@ -690,7 +752,9 @@ impl Reprs {
                     CmpOp::Ge => ins.i32_ge_u(),
                 };
             }
-            Rep::None | Rep::StrOrNone => unreachable!("a comparison of {rep:?}"),
+            Rep::None | Rep::StrOrNone | Rep::Object(_) | Rep::ObjectOrNone(_) => {
+                unreachable!("a comparison of {rep:?}")
+            }
         }
     }
 
@@ -736,6 +800,7 @@ impl Reprs {
                 self.str.literal(m, f, "None");
                 self.str.write(f);
             }
+            Rep::Object(_) | Rep::ObjectOrNone(_) => unreachable!("a write of {rep:?}"),
         }
     }
 

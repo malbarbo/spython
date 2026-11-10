@@ -13,7 +13,7 @@ use super::expr::int_literal;
 use super::flow::imported_name;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ClassId, Expr, UserClass};
+use crate::ir::{ClassId, Expr, Rep, UserClass};
 
 /// The classes of the module.
 #[derive(Default)]
@@ -42,6 +42,8 @@ impl<'a> Classes<'a> {
             .into_iter()
             .map(|class| UserClass {
                 ordered: class.ordered,
+                fields: class.fields,
+                mutable: false,
             })
             .collect()
     }
@@ -52,6 +54,9 @@ pub(super) struct Declared<'a> {
     pub def: &'a ast::StmtClassDef,
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
+    /// The rep of each field of an object of the class. A member of an
+    /// `Enum` has its name and its value.
+    pub fields: Vec<Rep>,
 }
 
 /// A member of an `Enum`, with its value.
@@ -71,12 +76,16 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(&def.name, "two classes of the same name"));
         }
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
+        let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
+        let value = members
+            .first()
+            .map_or(Rep::Int, |member| member.value.rep());
         let mut classes = self.classes.borrow_mut();
         let id = ClassId::new(classes.list.len());
         classes.list.push(Declared {
             def,
             ordered: false,
+            fields: vec![Rep::Str, value],
         });
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);

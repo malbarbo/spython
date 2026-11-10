@@ -19,7 +19,7 @@ use runtime::host::Host;
 pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m, program.tests.is_some());
-    let reprs = Reprs::new(&mut m, &host, program.tests.is_some());
+    let reprs = Reprs::new(&mut m, &host, program.tests.is_some(), &program.classes);
     let vars = program
         .vars
         .iter()

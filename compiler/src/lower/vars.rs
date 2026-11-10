@@ -126,7 +126,7 @@ impl<'a> Lowering<'a, '_> {
     /// of a variable of a union after a test of the value.
     fn narrowed(&self, name: &ast::ExprName, load: Expr) -> Result<Expr, Error> {
         let rep = load.rep();
-        if !matches!(rep, Rep::StrOrNone | Rep::Uniform) {
+        if !matches!(rep, Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_)) {
             return Ok(load);
         }
         let narrowed = match expr_shape(self.model(), &ast::Expr::Name(name.clone())) {

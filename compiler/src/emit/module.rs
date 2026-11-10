@@ -5,10 +5,11 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use wasm_encoder::{
-    BlockType, Catch, CodeSection, ConstExpr, DataCountSection, DataSection, EntityType,
-    ExportKind, ExportSection, FieldType, Function, FunctionSection, GlobalSection, GlobalType,
-    HeapType, Ieee64, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module,
-    RefType, StorageType, TagKind, TagSection, TagType, TypeSection, ValType,
+    BlockType, Catch, CodeSection, CompositeInnerType, CompositeType, ConstExpr, DataCountSection,
+    DataSection, EntityType, ExportKind, ExportSection, FieldType, Function, FunctionSection,
+    GlobalSection, GlobalType, HeapType, Ieee64, ImportSection, InstructionSink, MemArg,
+    MemorySection, MemoryType, Module, RefType, StorageType, StructType, SubType, TagKind,
+    TagSection, TagType, TypeSection, ValType,
 };
 use wasmparser::{Parser, Payload};
 
@@ -36,6 +37,11 @@ pub(crate) struct TypeIdx(u32);
 impl TypeIdx {
     pub fn heap_type(self) -> HeapType {
         HeapType::Concrete(self.0)
+    }
+
+    /// The type `n` places after this one.
+    pub fn plus(self, n: usize) -> TypeIdx {
+        TypeIdx(self.0 + u32::try_from(n).expect("fewer than 2^32 types"))
     }
 
     /// The type of a reference to a value of this type.
@@ -161,6 +167,37 @@ impl ModuleState {
                 mutable,
             }));
         self.next_type()
+    }
+
+    /// The struct types with the fields of each of `structs`, in one rec
+    /// group, so no two of them are the same type. A field can refer to a
+    /// struct of the group by [`Self::next_type_index`] plus the place of
+    /// the struct.
+    pub fn rec_group(&mut self, structs: &[Vec<(StorageType, bool)>]) -> Vec<TypeIdx> {
+        if structs.is_empty() {
+            return Vec::new();
+        }
+        self.types.ty().rec(structs.iter().map(|fields| {
+            SubType {
+                is_final: true,
+                supertype_idxs: Vec::new(),
+                composite_type: CompositeType {
+                    inner: CompositeInnerType::Struct(StructType {
+                        fields: fields
+                            .iter()
+                            .map(|&(element_type, mutable)| FieldType {
+                                element_type,
+                                mutable,
+                            })
+                            .collect(),
+                    }),
+                    shared: false,
+                    descriptor: None,
+                    describes: None,
+                },
+            }
+        }));
+        structs.iter().map(|_| self.next_type()).collect()
     }
 
     /// The index the next type will have.

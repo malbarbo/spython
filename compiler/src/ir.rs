@@ -106,6 +106,10 @@ pub(crate) struct ClassId(u32);
 pub(crate) struct UserClass {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
+    /// The rep of each field of an object of the class, in order.
+    pub fields: Vec<Rep>,
+    /// `true` when the program assigns the fields of an object.
+    pub mutable: bool,
 }
 
 pub(crate) struct Func {
@@ -954,6 +958,10 @@ pub(crate) enum Rep {
     StrOrNone,
     /// A value of any of the other reps, as a union of types holds.
     Uniform,
+    /// An object of the class.
+    Object(ClassId),
+    /// An object of the class or `None`.
+    ObjectOrNone(ClassId),
 }
 
 impl Expr {

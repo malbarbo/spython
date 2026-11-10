@@ -138,7 +138,15 @@ impl<'a> Lowering<'a, '_> {
             .arguments
             .args
             .iter()
-            .map(|arg| self.expr(arg))
+            .map(|arg| {
+                let lowered = self.expr(arg)?;
+                match lowered.rep() {
+                    Rep::Object(_) | Rep::ObjectOrNone(_) => {
+                        Err(unsupported(arg, "print of an object"))
+                    }
+                    _ => Ok(lowered),
+                }
+            })
             .collect::<Result<_, _>>()?;
         Ok(Expr::Print {
             args,
@@ -171,9 +179,12 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(self.int_value(operand, arg)?),
                 site: self.site(call.range()),
             }),
-            Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => {
-                Err(unsupported(arg, "abs of this type"))
-            }
+            Rep::Str
+            | Rep::None
+            | Rep::StrOrNone
+            | Rep::Uniform
+            | Rep::Object(_)
+            | Rep::ObjectOrNone(_) => Err(unsupported(arg, "abs of this type")),
         }
     }
 
@@ -191,7 +202,10 @@ impl<'a> Lowering<'a, '_> {
         }
         let first = self.expr(first)?;
         let rep = first.rep();
-        if matches!(rep, Rep::None | Rep::StrOrNone | Rep::Uniform) {
+        if matches!(
+            rep,
+            Rep::None | Rep::StrOrNone | Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_)
+        ) {
             return Err(unsupported(call, "min or max of None"));
         }
         let mut args = vec![first];
@@ -242,9 +256,15 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(Expr::FloatRound(Box::new(operand))),
                 site,
             }),
-            (Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform, _) => {
-                Err(unsupported(arg, "round of this type"))
-            }
+            (
+                Rep::Str
+                | Rep::None
+                | Rep::StrOrNone
+                | Rep::Uniform
+                | Rep::Object(_)
+                | Rep::ObjectOrNone(_),
+                _,
+            ) => Err(unsupported(arg, "round of this type")),
         }
     }
 
@@ -253,9 +273,13 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(digits)?;
         match lowered.rep() {
             Rep::Int | Rep::Bool => self.int_value(lowered, digits),
-            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => {
-                Err(unsupported(digits, "round to this number of digits"))
-            }
+            Rep::Float
+            | Rep::Str
+            | Rep::None
+            | Rep::StrOrNone
+            | Rep::Uniform
+            | Rep::Object(_)
+            | Rep::ObjectOrNone(_) => Err(unsupported(digits, "round to this number of digits")),
         }
     }
 
@@ -277,9 +301,11 @@ impl<'a> Lowering<'a, '_> {
                 match lowered.rep() {
                     Rep::Int | Rep::Bool | Rep::Float => float_value(lowered, arg),
                     Rep::Str => self.prelude_call(call, "float", "float_of_str", vec![lowered]),
-                    Rep::None | Rep::StrOrNone | Rep::Uniform => {
-                        Err(unsupported(arg, "float of this type"))
-                    }
+                    Rep::None
+                    | Rep::StrOrNone
+                    | Rep::Uniform
+                    | Rep::Object(_)
+                    | Rep::ObjectOrNone(_) => Err(unsupported(arg, "float of this type")),
                 }
             }
             _ => Err(unsupported(call, "this call of float")),
@@ -313,7 +339,7 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
             Rep::Str => self.prelude_call(&range, "str", "repr_of", vec![lowered]),
-            Rep::None | Rep::StrOrNone | Rep::Uniform => {
+            Rep::None | Rep::StrOrNone | Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 Err(unsupported(node, "repr of this type"))
             }
         }
@@ -334,9 +360,11 @@ impl<'a> Lowering<'a, '_> {
                     Rep::Str => {
                         self.prelude_call(call, "int", "int_of_str", vec![lowered, Expr::Int(10)])
                     }
-                    Rep::None | Rep::StrOrNone | Rep::Uniform => {
-                        Err(unsupported(arg, "int of this type"))
-                    }
+                    Rep::None
+                    | Rep::StrOrNone
+                    | Rep::Uniform
+                    | Rep::Object(_)
+                    | Rep::ObjectOrNone(_) => Err(unsupported(arg, "int of this type")),
                 }
             }
             ([arg, base], []) => self.int_with_base(call, arg, base),

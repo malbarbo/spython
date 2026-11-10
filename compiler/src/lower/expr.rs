@@ -93,12 +93,15 @@ impl<'a> Lowering<'a, '_> {
                 let then = self.expr(&i.body)?;
                 let else_ = self.expr(&i.orelse)?;
                 let rep = join(then.rep(), else_.rep());
-                let widen =
-                    |value| Box::new(coerce(value, rep).expect("the join holds both values"));
+                let widen = |value| {
+                    coerce(value, rep)
+                        .map(Box::new)
+                        .ok_or_else(|| unsupported(i, "a conditional expression of these types"))
+                };
                 Ok(Expr::IfElse {
                     cond: Box::new(cond),
-                    then: widen(then),
-                    else_: widen(else_),
+                    then: widen(then)?,
+                    else_: widen(else_)?,
                 })
             }
             ast::Expr::Compare(c) => self.compare(c),
@@ -252,7 +255,10 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(range),
             }),
             Rep::None => Err(unsupported(node, "str of None")),
-            Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
+            Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
+                Err(unsupported(node, "str of a union"))
+            }
+            Rep::Object(_) => Err(unsupported(node, "str of an object")),
         }
     }
 
@@ -304,6 +310,12 @@ impl<'a> Lowering<'a, '_> {
             .chain(c.comparators())
             .map(|operand| Ok((self.expr(operand)?, operand)))
             .collect::<Result<Vec<_>, Error>>()?;
+        if let Some((_, operand)) = operands
+            .iter()
+            .find(|(lowered, _)| matches!(lowered.rep(), Rep::Object(_) | Rep::ObjectOrNone(_)))
+        {
+            return Err(unsupported(*operand, "a comparison of an object"));
+        }
         // A union compares by the types of its values, which the module
         // tests when it runs.
         let union = |(lowered, _): &(Expr, _)| {
@@ -516,7 +528,12 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(operand, "the truth of a union")),
-            Rep::Int | Rep::Float | Rep::Bool | Rep::Str => Ok(lowered),
+            Rep::Int
+            | Rep::Float
+            | Rep::Bool
+            | Rep::Str
+            | Rep::Object(_)
+            | Rep::ObjectOrNone(_) => Ok(lowered),
         }
     }
 
@@ -530,7 +547,13 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int => Ok(lowered),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(lowered))),
-            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => Err(unsupported(
+            Rep::Float
+            | Rep::Str
+            | Rep::None
+            | Rep::StrOrNone
+            | Rep::Uniform
+            | Rep::Object(_)
+            | Rep::ObjectOrNone(_) => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -546,7 +569,12 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         Rep::Bool => Ok(Expr::IntAsFloat(Box::new(Expr::BoolAsInt(Box::new(
             lowered,
         ))))),
-        Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => Err(unsupported(
+        Rep::Str
+        | Rep::None
+        | Rep::StrOrNone
+        | Rep::Uniform
+        | Rep::Object(_)
+        | Rep::ObjectOrNone(_) => Err(unsupported(
             operand,
             "an operator on a value that is not a number",
         )),
@@ -568,7 +596,12 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
 pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
     match lowered.rep() {
         Rep::Bool => Ok(lowered),
-        Rep::Int | Rep::Float | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
+        // An object is true, since neither form of a class defines
+        // `__bool__` or `__len__`, and an object or `None` is true when it
+        // is an object.
+        Rep::Int | Rep::Float | Rep::Str | Rep::Object(_) | Rep::ObjectOrNone(_) => {
+            Ok(Expr::Truth(Box::new(lowered)))
+        }
         Rep::None => Err(unsupported(node, "the truth of None")),
         Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "the truth of a union")),
     }

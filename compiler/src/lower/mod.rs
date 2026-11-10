@@ -669,6 +669,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 Some(Rep::Str)
             }
+            Shape::Instance(class, _) | Shape::EnumMember(class, _) => self
+                .classes
+                .borrow()
+                .ids
+                .get(&class)
+                .copied()
+                .map(Rep::Object),
             // A union of `str` and `None` needs no box, and any other union
             // of values with a rep is uniform.
             Shape::Union(shapes) => shapes
@@ -739,17 +746,25 @@ fn params_of(def: &ast::StmtFunctionDef) -> impl Iterator<Item = &ast::Parameter
 const MAX_PARAMS: usize = 1000;
 
 /// Returns `true` if a variable of `rep` holds the values of `value`,
-/// `false` otherwise.
+/// `false` otherwise. A uniform value holds no object yet, because the
+/// tests of the type of a uniform value know no class.
 fn holds(rep: Rep, value: Rep) -> bool {
     match rep {
         Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
-        Rep::Uniform => true,
+        Rep::ObjectOrNone(class) => {
+            matches!(value, Rep::None) || value == Rep::Object(class) || value == rep
+        }
+        Rep::Uniform => !matches!(value, Rep::Object(_) | Rep::ObjectOrNone(_)),
         _ => rep == value,
     }
 }
 
 /// The narrowest rep that holds the values of `a` and the values of `b`.
 fn join(a: Rep, b: Rep) -> Rep {
+    let object = |rep| match rep {
+        Rep::Object(class) | Rep::ObjectOrNone(class) => Some(class),
+        _ => None,
+    };
     if holds(a, b) {
         a
     } else if holds(b, a) {
@@ -759,6 +774,12 @@ fn join(a: Rep, b: Rep) -> Rep {
         .all(|rep| matches!(rep, Rep::Str | Rep::None | Rep::StrOrNone))
     {
         Rep::StrOrNone
+    } else if let Some(class) = object(a).or(object(b))
+        && [a, b]
+            .iter()
+            .all(|rep| *rep == Rep::None || object(*rep) == Some(class))
+    {
+        Rep::ObjectOrNone(class)
     } else {
         Rep::Uniform
     }
@@ -779,14 +800,19 @@ fn coerce(value: Expr, rep: Rep) -> Option<Expr> {
     }
 }
 
-/// Refuses a variable `self` of a union. The suggestion of a `NameError`
-/// looks for an attribute in the value of `self`, and the compiler knows
-/// the attributes of each rep but not which one a union holds.
+/// Refuses a variable `self` of a union or of a class. The suggestion of a
+/// `NameError` looks for an attribute in the value of `self`, and the
+/// compiler knows the attributes of each builtin rep but not which one a
+/// union holds, nor the attributes of a class.
 fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
-    if name == "self" && matches!(rep, Rep::StrOrNone | Rep::Uniform) {
-        return Err(unsupported(node, "a variable self of a union"));
+    match rep {
+        _ if name != "self" => Ok(()),
+        Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "a variable self of a union")),
+        Rep::Object(_) | Rep::ObjectOrNone(_) => {
+            Err(unsupported(node, "a variable self of a class"))
+        }
+        Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
     }
-    Ok(())
 }
 
 fn unsupported(node: &impl Ranged, what: &str) -> Error {
