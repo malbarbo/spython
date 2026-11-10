@@ -556,7 +556,19 @@ corpus.
   `print` com `sep` ou `end`, `type`, `isinstance`, `id` e `ascii`, além de
   `divmod` com as tuplas e `str.split` com as listas.
 - **3. Nível 2.** Classes sem herança, Enum, dataclass e `match` com
-  todos os padrões.
+  todos os padrões. Feita em 10/nov/2026, sem o `match`, que ficou para
+  uma fatia própria, como registra o [plano da fatia](plano-fatia-3-tipos.md).
+  O compilador lê no texto uma forma fixa de Enum e de dataclass, pede os
+  tipos ao `ty` e não roda o decorador, a base nem as anotações. O teste do
+  corpus verifica o capítulo 05 no nível 2. Dos 10 arquivos, 8 dão a saída
+  do CPython e o relatório do runner. O checker recusa os outros 2, um por
+  uma comparação encadeada e outro por membros de Enum fora de maiúsculas.
+  O `repr` e o `==` de uma dataclass são funções geradas, com os quadros que
+  o CPython mostra no traceback, e o `repr` escreve `...` para um objeto
+  dentro do próprio `repr`. O `str`, o `repr` e o `print` de um objeto ou
+  `None` também passaram a valer. Ficaram de fora o `repr` de um campo de
+  uma união com tipos distintos, o `==` de uma união que pode guardar a
+  mesma dataclass dos dois lados e o `==` em cadeia entre dataclasses.
 - **4. REPL na CLI.**
 - **5. Nível 3.** Arrays, os métodos especiais, `list`, `for`, `range`,
   fatias e `+=`.
