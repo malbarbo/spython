@@ -325,9 +325,6 @@ pub(crate) enum Expr {
         args: Vec<Expr>,
         site: Site,
     },
-    /// `math.comb(n, k)` or `math.perm(n, k)` of two `int`s, by `choice`.
-    /// A negative `int` raises `ValueError` at the site, and a result that
-    /// does not fit in an `int` stops the program there.
     /// `base ** exp` of two `int`s, with an `exp` that is not negative.
     /// The site is where a result outside 31 bits stops the program.
     IntPow {
@@ -335,6 +332,9 @@ pub(crate) enum Expr {
         exp: Box<Expr>,
         site: Site,
     },
+    /// `math.comb(n, k)` or `math.perm(n, k)` of two `int`s, by `choice`.
+    /// A negative `int` raises `ValueError` at the site, and a result that
+    /// does not fit in an `int` stops the program there.
     IntChoose {
         choice: Choice,
         n: Box<Expr>,
