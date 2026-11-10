@@ -615,6 +615,16 @@ def pad(s: str, left: int, right: int, fill: int) -> str:
     return builder_done(b)
 
 
+def ord_of(c: str) -> int:
+    """`ord(c)`."""
+    n = len(c)
+    if n != 1:
+        raise TypeError(
+            "ord() expected a character, but string of length " + str(n) + " found"
+        )
+    return code_point(c, 0)
+
+
 def is_in(sub: str, s: str) -> bool:
     return find(s, sub, None, None) >= 0
 

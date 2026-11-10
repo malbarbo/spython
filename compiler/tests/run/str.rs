@@ -613,3 +613,24 @@ fn isascii_isprintable_and_isidentifier_test_every_code_point() {
         "},
     );
 }
+
+#[test]
+fn ord_gives_the_code_point_of_a_str_of_one() {
+    same_as_cpython(
+        "ord_gives_the_code_point_of_a_str_of_one",
+        indoc! {"
+            def code(s: str) -> int:
+                return ord(s)
+
+
+            print(ord('a'), ord('é'), ord('😀'), ord('\\x00'), code('\\U0010ffff'))
+            print(code('ab'))
+        "},
+    );
+    same_as_cpython(
+        "ord_of_an_empty_str_raises_typeerror",
+        indoc! {"
+            print(ord(''))
+        "},
+    );
+}
