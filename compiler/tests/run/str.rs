@@ -368,3 +368,16 @@ fn find_and_index_look_for_a_str_in_a_slice() {
         "},
     );
 }
+
+#[test]
+fn count_gives_the_occurrences_that_do_not_overlap() {
+    same_as_cpython(
+        "count_gives_the_occurrences_that_do_not_overlap",
+        indoc! {"
+            s = 'aaaa😀a😀'
+            print(s.count('a'), s.count('aa'), s.count('😀'), s.count('x'), s.count(''))
+            print(s.count('a', 2), s.count('a', -3), s.count('aa', 1, 4), s.count('', 2, 5))
+            print(s.count('', 7), s.count('', 8), s.count('', 9), s.count('', 5, 2), ''.count(''))
+        "},
+    );
+}

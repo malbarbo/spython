@@ -77,7 +77,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
         let module = match (receiver.rep(), name) {
-            (Rep::Str, "upper" | "lower" | "find" | "rfind" | "index" | "rindex") => "str",
+            (Rep::Str, "upper" | "lower" | "find" | "rfind" | "index" | "rindex" | "count") => {
+                "str"
+            }
             _ => return Err(unsupported(call, "a call of this method")),
         };
         if !call.arguments.keywords.is_empty() {

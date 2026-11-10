@@ -160,6 +160,26 @@ def rindex(s: str, sub: str, start: int | None = None, end: int | None = None) -
     return i
 
 
+def count(s: str, sub: str, start: int | None = None, end: int | None = None) -> int:
+    n = len(s)
+    first = slice_start(start, n)
+    last = slice_end(end, n)
+    m = len(sub)
+    if last - first < m:
+        return 0
+    if m == 0:
+        return last - first + 1
+    total = 0
+    i = first
+    while i <= last - m:
+        if found_at(s, sub, i):
+            total += 1
+            i += m
+        else:
+            i += 1
+    return total
+
+
 def found_at(s: str, sub: str, i: int) -> bool:
     """Whether `sub` is in `s` from `i` on, with `i + len(sub) <= len(s)`."""
     m = len(sub)
