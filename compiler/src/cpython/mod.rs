@@ -68,8 +68,6 @@ pub(crate) const FMA_INVALID: Message = Message::new(Class::ValueError, "invalid
 pub(crate) const FMA_OVERFLOW: Message = Message::new(Class::OverflowError, "overflow in fma");
 pub(crate) const NEGATIVE_TOLERANCE: Message =
     Message::new(Class::ValueError, "tolerances must be non-negative");
-pub(crate) const ISQRT_OF_A_NEGATIVE: Message =
-    Message::new(Class::ValueError, "isqrt() argument must be nonnegative");
 pub(crate) const NEGATIVE_N: Message =
     Message::new(Class::ValueError, "n must be a non-negative integer");
 pub(crate) const NEGATIVE_K: Message =

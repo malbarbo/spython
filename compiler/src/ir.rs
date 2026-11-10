@@ -296,12 +296,6 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         site: Site,
     },
-    /// `math.isqrt` of an `int`. A negative `int` raises `ValueError` at
-    /// the site.
-    IntIsqrt {
-        operand: Box<Expr>,
-        site: Site,
-    },
     /// `math.fmod(x, y)` of two `float`s, which raises `ValueError` at the
     /// site for a `y` of 0 or an infinite `x`.
     Fmod {
@@ -745,7 +739,6 @@ impl Expr {
             | Expr::IntLcm { .. }
             | Expr::IntChoose { .. }
             | Expr::IntFactorial { .. }
-            | Expr::IntIsqrt { .. }
             | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
             | Expr::Len { .. } => Rep::Int,

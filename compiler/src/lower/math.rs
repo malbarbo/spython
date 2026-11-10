@@ -177,10 +177,10 @@ impl<'a> Lowering<'a, '_> {
                 i: Box::new(self.math_int(i)?),
                 site: self.site(call.range()),
             },
-            ("isqrt", [n], []) => Expr::IntIsqrt {
-                operand: Box::new(self.math_int(n)?),
-                site: self.site(call.range()),
-            },
+            ("isqrt", [n], []) => {
+                let args = vec![self.math_int(n)?];
+                self.prelude_call(call, "math", member, args)?
+            }
             ("comb" | "perm", [n, k], []) => Expr::IntChoose {
                 choice: if member == "comb" {
                     Choice::Comb
