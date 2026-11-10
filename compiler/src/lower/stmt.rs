@@ -172,16 +172,11 @@ impl<'a> Lowering<'a, '_> {
             ast::Stmt::Return(r) => self.return_(r).map(Some),
             ast::Stmt::Raise(r) => self.raise(r).map(Some),
             ast::Stmt::Assert(a) => {
-                let arg = match a.msg.as_deref() {
-                    Some(msg) => {
-                        let lowered = self.expr(msg)?;
-                        if lowered.rep() != Rep::Str {
-                            return Err(unsupported(msg, "an exception with this argument"));
-                        }
-                        Some(lowered)
-                    }
-                    None => None,
-                };
+                let arg = a
+                    .msg
+                    .as_deref()
+                    .map(|msg| self.exception_arg(msg))
+                    .transpose()?;
                 // The traceback marks the condition, and the program
                 // evaluates the text only when the condition is false.
                 Ok(Some(Stmt::If {
@@ -233,6 +228,15 @@ impl<'a> Lowering<'a, '_> {
         (self.tests.is_some() && (copy(to) || copy(from))).then_some((target, from.id.as_str()))
     }
 
+    /// The text of an exception that `arg` gives, which has to be a `str`.
+    fn exception_arg(&self, arg: &ast::Expr) -> Result<Expr, Error> {
+        let lowered = self.expr(arg)?;
+        if lowered.rep() != Rep::Str {
+            return Err(unsupported(arg, "an exception with this argument"));
+        }
+        Ok(lowered)
+    }
+
     /// The import of the names of `aliases`, which the module declares.
     fn import(
         &self,
@@ -280,13 +284,7 @@ impl<'a> Lowering<'a, '_> {
         };
         let arg = match args {
             [] => None,
-            [arg] => {
-                let lowered = self.expr(arg)?;
-                if lowered.rep() != Rep::Str {
-                    return Err(unsupported(arg, "an exception with this argument"));
-                }
-                Some(lowered)
-            }
+            [arg] => Some(self.exception_arg(arg)?),
             _ => return Err(unsupported(exc, "a raise with these arguments")),
         };
         Ok(Stmt::Raise {
