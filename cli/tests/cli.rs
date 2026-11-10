@@ -250,6 +250,52 @@ fn the_wasmgc_backend_runs_a_file() {
     }
 }
 
+/// `test --backend=wasmgc` runs the doctests of each file in a module of
+/// the compiler, and writes what the runner of the interpreter writes.
+#[test]
+fn the_wasmgc_backend_runs_the_doctests_of_a_file() {
+    let main = indoc! {r#"
+        def dobro(n: int) -> int:
+            """
+            >>> dobro(2)
+            4
+            >>> dobro(3)
+            7
+            >>> dobro(1) // 0
+            0
+            """
+            return 2 * n
+
+
+        print('the file runs first')
+    "#};
+    let other = indoc! {r#"
+        def nome() -> str:
+            """
+            >>> nome()
+            'ana'
+            """
+            return 'ana'
+    "#};
+    let dir = new_dir_with("wasmgc_test", &[("main.py", main), ("other.py", other)]);
+    for files in [
+        ["main.py"].as_slice(),
+        ["other.py"].as_slice(),
+        ["--verbose", "other.py", "main.py"].as_slice(),
+    ] {
+        let args: Vec<&str> = std::iter::once("test")
+            .chain(files.iter().copied())
+            .collect();
+        let interpreter = run_spython_native(&args, dir.path());
+        let args: Vec<&str> = ["test", "--backend=wasmgc"]
+            .into_iter()
+            .chain(files.iter().copied())
+            .collect();
+        let compiler = run_spython_native(&args, dir.path());
+        assert_eq!(compiler, interpreter, "{files:?}");
+    }
+}
+
 /// A `str` of 4.8 GB is more than the GC heap of wasmtime holds.
 #[test]
 fn the_wasmgc_backend_writes_the_traceback_of_a_memory_error() {

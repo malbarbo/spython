@@ -81,6 +81,8 @@ enum Command {
         verbose: bool,
         #[bpaf(external(level_arg), fallback(Level::Full))]
         level: Level,
+        #[bpaf(external(backend_arg))]
+        backend: String,
         /// Python files to run doctests from
         #[bpaf(
             positional("FILE"),
@@ -105,6 +107,10 @@ enum Command {
         #[bpaf(positional("COMMAND"), optional)]
         command: Option<String>,
     },
+}
+
+fn invalid_backend(backend: &str) -> SpythonError {
+    SpythonError::Other(format!("invalid backend {backend}: must be rustpython or wasmgc").into())
 }
 
 /// The parser, with the two shorthands the students use most as alternatives
@@ -200,9 +206,7 @@ fn main() -> ExitCode {
         } => match backend.as_str() {
             "rustpython" => run::run_main(&file, level),
             "wasmgc" => wasmgc::run(&file, level),
-            _ => Err(SpythonError::Other(
-                format!("invalid backend {backend}: must be rustpython or wasmgc").into(),
-            )),
+            _ => Err(invalid_backend(&backend)),
         },
         Command::Check { file, level } => check::check_file(&file, level).map(drop),
         Command::Format { check, paths } => format::run(check, &paths),
@@ -210,7 +214,12 @@ fn main() -> ExitCode {
             files,
             verbose,
             level,
-        } => run::run_test(&files, level, verbose),
+            backend,
+        } => match backend.as_str() {
+            "rustpython" => run::run_test(&files, level, verbose),
+            "wasmgc" => wasmgc::test(&files, level, verbose),
+            _ => Err(invalid_backend(&backend)),
+        },
     };
 
     match result {
