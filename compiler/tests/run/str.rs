@@ -414,3 +414,17 @@ fn in_tells_whether_a_str_is_in_another() {
         "},
     );
 }
+
+#[test]
+fn replace_changes_each_occurrence_up_to_a_count() {
+    same_as_cpython(
+        "replace_changes_each_occurrence_up_to_a_count",
+        indoc! {"
+            s = 'aXbXXcé😀X'
+            print(s.replace('X', '--'), s.replace('XX', '😀'), s.replace('X', ''), s.replace('z', 'y'))
+            print(s.replace('X', '_', 2), s.replace('X', '_', 0), s.replace('X', '_', -1), s.replace('X', '_', 9))
+            print('ab'.replace('', '-'), 'ab'.replace('', '-', 2), ''.replace('', 'x'), ''.replace('a', 'b'))
+            print('aaa'.replace('aa', 'b'), 'abc'.replace('abc', ''), 'abc'.replace('', '', 3))
+        "},
+    );
+}

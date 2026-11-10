@@ -19,6 +19,7 @@ const STR_METHODS: &[&str] = &[
     "find",
     "index",
     "lower",
+    "replace",
     "rfind",
     "rindex",
     "startswith",

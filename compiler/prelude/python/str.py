@@ -1,6 +1,7 @@
 """The functions of `str`."""
 
 from __spython_prelude__.intrinsics import (
+    StrBuilder,
     builder_done,
     builder_new,
     code_point,
@@ -200,6 +201,60 @@ def endswith(
     if last < first:
         return False
     return found_at(s, suffix, last)
+
+
+def replace(s: str, old: str, new: str, count: int | None = None) -> str:
+    n = len(s)
+    m = len(old)
+    # An empty `old` is before each code point and at the end.
+    limit = n + 1
+    if count is not None and count >= 0:
+        limit = count
+    k = 0
+    if m == 0:
+        k = min(limit, n + 1)
+    else:
+        i = 0
+        while k < limit and i <= n - m:
+            if found_at(s, old, i):
+                k += 1
+                i += m
+            else:
+                i += 1
+    if k == 0:
+        return s
+    b = builder_new(n + k * (len(new) - m))
+    at = 0
+    done = 0
+    i = 0
+    while i < n:
+        if done < k and found_at_most(s, old, i):
+            at = put(b, at, new)
+            done += 1
+            if m > 0:
+                i += m
+                continue
+        b[at] = code_point(s, i)
+        at += 1
+        i += 1
+    if done < k:
+        put(b, at, new)
+    return builder_done(b)
+
+
+def found_at_most(s: str, sub: str, i: int) -> bool:
+    """Whether `sub` is in `s` from `i` on."""
+    return i + len(sub) <= len(s) and found_at(s, sub, i)
+
+
+def put(b: StrBuilder, at: int, t: str) -> int:
+    """Writes `t` to `b` from `at` on, and gives the index after it."""
+    n = len(t)
+    i = 0
+    while i < n:
+        b[at + i] = code_point(t, i)
+        i += 1
+    return at + n
 
 
 def is_in(sub: str, s: str) -> bool:
