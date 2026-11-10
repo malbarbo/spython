@@ -49,10 +49,12 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let suite = module.suite().as_slice();
     lowering.declare_vars(&Bindings::of(suite))?;
     let body = lowering.body(suite)?;
-    let count = lowering.funcs.borrow().sigs.len();
-    let mut funcs: Vec<Func> = (0..count)
-        .map(|i| lowering.func(FuncId::new(i)))
-        .collect::<Result<_, _>>()?;
+    // The lowering of a function may declare another one, which goes to the
+    // end of the queue.
+    let mut funcs: Vec<Func> = Vec::new();
+    while funcs.len() < lowering.funcs.borrow().sigs.len() {
+        funcs.push(lowering.func(FuncId::new(funcs.len()))?);
+    }
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
         func.ordered = *ordered;
