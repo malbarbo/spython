@@ -66,3 +66,9 @@ def is_digit(code_point: int) -> bool:
 
 def is_numeric(code_point: int) -> bool:
     """Whether `str.isnumeric` accepts the code point."""
+
+def is_xid_start(code_point: int) -> bool:
+    """Whether the code point has the property `XID_Start` of Unicode."""
+
+def is_xid_continue(code_point: int) -> bool:
+    """Whether the code point has the property `XID_Continue` of Unicode."""

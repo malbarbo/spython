@@ -762,6 +762,10 @@ pub(crate) enum CodePointSet {
     Digit,
     /// The code points that `str.isnumeric` accepts.
     Numeric,
+    /// The code points with the property `XID_Start`.
+    XidStart,
+    /// The code points with the property `XID_Continue`.
+    XidContinue,
 }
 
 impl CodePointSet {
@@ -776,6 +780,8 @@ impl CodePointSet {
             CodePointSet::Decimal => "str_is_decimal",
             CodePointSet::Digit => "str_is_digit",
             CodePointSet::Numeric => "str_is_numeric",
+            CodePointSet::XidStart => "str_is_xid_start",
+            CodePointSet::XidContinue => "str_is_xid_continue",
         }
     }
 }

@@ -15,6 +15,8 @@ from __spython_prelude__.intrinsics import (
     is_numeric,
     is_printable,
     is_uppercase,
+    is_xid_continue,
+    is_xid_start,
     lower_at,
     title_at,
     upper_at,
@@ -383,6 +385,41 @@ def isspace(s: str) -> bool:
             return False
         i += 1
     return n > 0
+
+
+def isascii(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if code_point(s, i) >= 128:
+            return False
+        i += 1
+    return True
+
+
+def isprintable(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if not is_printable(code_point(s, i)):
+            return False
+        i += 1
+    return True
+
+
+def isidentifier(s: str) -> bool:
+    n = len(s)
+    if n == 0:
+        return False
+    c = code_point(s, 0)
+    if c != 95 and not is_xid_start(c):
+        return False
+    i = 1
+    while i < n:
+        if not is_xid_continue(code_point(s, i)):
+            return False
+        i += 1
+    return True
 
 
 def islower(s: str) -> bool:

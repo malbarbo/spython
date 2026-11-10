@@ -586,3 +586,30 @@ fn isupper_islower_and_istitle_look_at_the_cased_code_points() {
         "},
     );
 }
+
+#[test]
+fn isascii_isprintable_and_isidentifier_test_every_code_point() {
+    same_as_cpython(
+        "isascii_isprintable_and_isidentifier_test_every_code_point",
+        indoc! {"
+            def show(s: str) -> None:
+                print(repr(s), s.isascii(), s.isprintable(), s.isidentifier())
+
+
+            show('')
+            show('abc')
+            show('_x1')
+            show('1x')
+            show('é')
+            show('a b')
+            show('a\\n')
+            show('\\x7f')
+            show('ação')
+            show('℘x')
+            show('x·')
+            show('𝔘𝔫𝔦')
+            show('a-b')
+            show('\\u00ad')
+        "},
+    );
+}

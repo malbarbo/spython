@@ -24,10 +24,13 @@ const STR_METHODS: &[&str] = &[
     "index",
     "isalnum",
     "isalpha",
+    "isascii",
     "isdecimal",
     "isdigit",
+    "isidentifier",
     "islower",
     "isnumeric",
+    "isprintable",
     "isspace",
     "istitle",
     "isupper",
@@ -279,22 +282,23 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 })
             }
             "is_printable" | "is_cased" | "is_case_ignorable" | "is_uppercase" | "is_lowercase"
-            | "is_alpha" | "is_decimal" | "is_digit" | "is_numeric" => {
-                arg().map(|operand| Expr::CodePointIs {
-                    set: match name {
-                        "is_printable" => CodePointSet::Printable,
-                        "is_cased" => CodePointSet::Cased,
-                        "is_case_ignorable" => CodePointSet::CaseIgnorable,
-                        "is_uppercase" => CodePointSet::Uppercase,
-                        "is_lowercase" => CodePointSet::Lowercase,
-                        "is_alpha" => CodePointSet::Alpha,
-                        "is_decimal" => CodePointSet::Decimal,
-                        "is_digit" => CodePointSet::Digit,
-                        _ => CodePointSet::Numeric,
-                    },
-                    operand,
-                })
-            }
+            | "is_alpha" | "is_decimal" | "is_digit" | "is_numeric" | "is_xid_start"
+            | "is_xid_continue" => arg().map(|operand| Expr::CodePointIs {
+                set: match name {
+                    "is_printable" => CodePointSet::Printable,
+                    "is_cased" => CodePointSet::Cased,
+                    "is_case_ignorable" => CodePointSet::CaseIgnorable,
+                    "is_uppercase" => CodePointSet::Uppercase,
+                    "is_lowercase" => CodePointSet::Lowercase,
+                    "is_alpha" => CodePointSet::Alpha,
+                    "is_decimal" => CodePointSet::Decimal,
+                    "is_digit" => CodePointSet::Digit,
+                    "is_numeric" => CodePointSet::Numeric,
+                    "is_xid_start" => CodePointSet::XidStart,
+                    _ => CodePointSet::XidContinue,
+                },
+                operand,
+            }),
             "write_err" => arg().map(Expr::WriteErr),
             "captured_output" => Some(Expr::Captured),
             "captured_exception" => Some(Expr::CapturedException),
