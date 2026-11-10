@@ -632,23 +632,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
             // A union of `str` and `None` needs no box, and any other union
             // of values with a rep is uniform.
-            Shape::Union(shapes) => {
-                let mut reps = Vec::new();
-                for shape in shapes {
-                    match shape {
-                        Shape::None => reps.push(Rep::None),
-                        shape => reps.push(self.rep_of(Some(shape))?),
-                    }
-                }
-                let first = *reps.first()?;
-                if first != Rep::None && reps.iter().all(|rep| *rep == first) {
-                    Some(first)
-                } else if reps.iter().all(|rep| matches!(rep, Rep::Str | Rep::None)) {
-                    Some(Rep::StrOrNone)
-                } else {
-                    Some(Rep::Uniform)
-                }
-            }
+            Shape::Union(shapes) => shapes
+                .into_iter()
+                .map(|shape| match shape {
+                    Shape::None => Some(Rep::None),
+                    shape => self.rep_of(Some(shape)),
+                })
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .reduce(join),
             _ => None,
         }
     }
