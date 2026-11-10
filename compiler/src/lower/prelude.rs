@@ -14,10 +14,12 @@ use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
 
 /// The methods of `str` that the module `str` of the prelude defines.
 const STR_METHODS: &[&str] = &[
+    "center",
     "count",
     "endswith",
     "find",
     "index",
+    "ljust",
     "lower",
     "lstrip",
     "removeprefix",
@@ -25,6 +27,7 @@ const STR_METHODS: &[&str] = &[
     "replace",
     "rfind",
     "rindex",
+    "rjust",
     "rstrip",
     "startswith",
     "strip",

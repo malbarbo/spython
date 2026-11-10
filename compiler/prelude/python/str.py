@@ -328,6 +328,55 @@ def is_space(c: int) -> bool:
     )
 
 
+def center(s: str, width: int, fillchar: str | None = None) -> str:
+    fill = fill_code_point(fillchar)
+    margin = width - len(s)
+    left = margin // 2
+    # CPython adds `margin & width & 1`.
+    if margin % 2 == 1 and width % 2 == 1:
+        left += 1
+    return pad(s, left, margin - left, fill)
+
+
+def ljust(s: str, width: int, fillchar: str | None = None) -> str:
+    fill = fill_code_point(fillchar)
+    return pad(s, 0, width - len(s), fill)
+
+
+def rjust(s: str, width: int, fillchar: str | None = None) -> str:
+    fill = fill_code_point(fillchar)
+    return pad(s, width - len(s), 0, fill)
+
+
+def fill_code_point(fillchar: str | None) -> int:
+    """The code point that pads, which is a space without `fillchar`."""
+    if fillchar is None:
+        return 32
+    if len(fillchar) != 1:
+        raise TypeError("The fill character must be exactly one character long")
+    return code_point(fillchar, 0)
+
+
+def pad(s: str, left: int, right: int, fill: int) -> str:
+    """`s` with `left` code points `fill` before it and `right` after it."""
+    if left <= 0 and right <= 0:
+        return s
+    left = max(left, 0)
+    right = max(right, 0)
+    n = len(s)
+    b = builder_new(left + n + right)
+    i = 0
+    while i < left:
+        b[i] = fill
+        i += 1
+    put(b, left, s)
+    i = left + n
+    while i < left + n + right:
+        b[i] = fill
+        i += 1
+    return builder_done(b)
+
+
 def is_in(sub: str, s: str) -> bool:
     return find(s, sub, None, None) >= 0
 

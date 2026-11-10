@@ -455,3 +455,18 @@ fn strip_drops_white_space_or_the_given_code_points_at_the_ends() {
         "},
     );
 }
+
+#[test]
+fn center_ljust_and_rjust_pad_a_str_to_a_width() {
+    same_as_cpython(
+        "center_ljust_and_rjust_pad_a_str_to_a_width",
+        indoc! {"
+            print(repr('a'.center(4, '*')), repr('ab'.center(5, '*')), repr('ab'.center(4)), repr('abc'.center(6)))
+            print(repr('é😀'.center(5, '😀')), repr('abc'.center(2)), repr('abc'.center(-1)), repr(''.center(3)))
+            print(repr('ab'.ljust(5, '.')), repr('ab'.ljust(1)), repr('ab'.rjust(5, '😀')), repr('ab'.rjust(2)))
+            padded = 'x'.ljust(3, 'é')
+            print(padded, 'x'.rjust(-3))
+            print('a'.center(9, 'xy'))
+        "},
+    );
+}
