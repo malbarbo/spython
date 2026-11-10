@@ -849,6 +849,21 @@ impl Emitter<'_> {
                 self.raise_if_undefined(f, check);
                 self.expr(f, value);
             }
+            Expr::NotNone { value, text, site } => {
+                self.expr(f, value);
+                let ty = self
+                    .reprs
+                    .local_type(value.rep())
+                    .expect("an object has a value");
+                let local = f.temp(ty);
+                f.ins().local_tee(local).ref_is_null();
+                f.if_(BlockType::Empty);
+                let message = Message::new(Class::AttributeError, text);
+                self.at(f, *site, |e, f| e.reprs.raise(&mut e.m, f, &message));
+                f.end();
+                f.ins().local_get(local);
+                f.free(local);
+            }
             Expr::MathCall {
                 func,
                 operand,

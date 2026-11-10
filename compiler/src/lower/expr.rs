@@ -86,7 +86,7 @@ impl<'a> Lowering<'a, '_> {
                             Some(Rep::Object(class)) => {
                                 let object = self.expr(value)?;
                                 let field = self.object_attribute(attr, object, class)?;
-                                self.narrowed(expr, field)
+                                self.narrowed_field(expr, field)
                             }
                             _ => Err(unsupported(expr, "this expression")),
                         },
@@ -275,12 +275,38 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// `field`, the read `node` of a field, as a value of the type that the
+    /// checker gives to the read. A call between the test that narrows the
+    /// field and the read may assign the field. An object stays valid,
+    /// since it may be null, and a read that the checker narrows to `None`
+    /// keeps the rep of the field. The compiler refuses the other
+    /// narrowings.
+    fn narrowed_field(&self, node: &ast::Expr, field: Expr) -> Result<Expr, Error> {
+        let rep = field.rep();
+        match self.narrowed(node, field)? {
+            Expr::Narrow {
+                value,
+                rep: Rep::None,
+            } => Ok(*value),
+            narrowed => match (rep, narrowed.rep()) {
+                (from, to) if from == to => Ok(narrowed),
+                (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => Ok(narrowed),
+                _ => Err(unsupported(
+                    node,
+                    "a read of a field of a union that a test narrows",
+                )),
+            },
+        }
+    }
+
     /// The function that gives the `str` of a value of `rep`, for an object
-    /// or an object or `None`, and `None` for the other reps.
+    /// or an object or `None`, and `None` for the other reps. An object may
+    /// be null.
     pub(super) fn object_str(&self, rep: Rep) -> Result<Option<FuncId>, Error> {
         match rep {
-            Rep::Object(class) => self.class_str(class).map(Some),
-            Rep::ObjectOrNone(class) => self.or_none_conversion(class, false).map(Some),
+            Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                self.or_none_conversion(class, false).map(Some)
+            }
             _ => Ok(None),
         }
     }

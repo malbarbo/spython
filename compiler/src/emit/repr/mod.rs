@@ -92,7 +92,7 @@ impl Reprs {
         let guarded = classes.iter().any(|class| class.repr_guard);
         if guarded {
             let object = ValType::Ref(RefType {
-                nullable: false,
+                nullable: true,
                 heap_type: HeapType::Abstract {
                     shared: false,
                     ty: AbstractHeapType::Eq,
@@ -158,7 +158,7 @@ impl Reprs {
     /// of `rep`. A field has the type of a local.
     pub fn field(&self, f: &mut FuncState, class: ClassId, field: u32, rep: Rep) {
         f.ins().struct_get(self.class(class), field);
-        if matches!(rep, Rep::Str | Rep::Object(_)) {
+        if rep == Rep::Str {
             f.ins().ref_as_non_null();
         }
     }
@@ -320,11 +320,11 @@ impl Reprs {
     }
 
     /// The type of a value of `rep` on the stack, and `None` for a rep that
-    /// has no value.
+    /// has no value. An object may be null, which stands for a `None` that
+    /// a field got after the test that narrows it.
     pub fn value_type(&self, rep: Rep) -> Option<ValType> {
         match rep {
             Rep::Str => Some(self.str.val_type(false)),
-            Rep::Object(class) => Some(self.class(class).ref_to(false)),
             _ => self.local_type(rep),
         }
     }
@@ -332,7 +332,7 @@ impl Reprs {
     /// Pushes the value of `rep` that `local` holds.
     pub fn load(&self, f: &mut FuncState, rep: Rep, local: LocalIdx) {
         f.ins().local_get(local);
-        if matches!(rep, Rep::Str | Rep::Object(_)) {
+        if rep == Rep::Str {
             f.ins().ref_as_non_null();
         }
     }
@@ -361,7 +361,7 @@ impl Reprs {
     /// Pushes the value of `rep` that `global` holds.
     pub fn load_global(&self, f: &mut FuncState, rep: Rep, global: GlobalIdx) {
         f.ins().global_get(global);
-        if matches!(rep, Rep::Str | Rep::Object(_)) {
+        if rep == Rep::Str {
             f.ins().ref_as_non_null();
         }
     }
@@ -404,14 +404,10 @@ impl Reprs {
             (Rep::StrOrNone, Rep::Str) => {
                 f.ins().ref_as_non_null();
             }
-            (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => {
-                f.ins().ref_as_non_null();
-            }
+            // An object may be null.
+            (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => {}
             (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
-                f.ins().ref_cast(
-                    self.class(class).heap_type(),
-                    matches!(to, Rep::ObjectOrNone(_)),
-                );
+                f.ins().ref_cast(self.class(class).heap_type(), true);
             }
             (Rep::Uniform, Rep::Str | Rep::StrOrNone) => {
                 f.ins()
@@ -433,10 +429,10 @@ impl Reprs {
             Rep::None => {
                 f.ins().i32_const(1);
             }
-            Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
+            Rep::StrOrNone | Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 f.ins().ref_is_null();
             }
-            Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_) => {
+            Rep::Int | Rep::Float | Rep::Bool | Rep::Str => {
                 f.ins().drop().i32_const(0);
             }
         }
@@ -482,10 +478,7 @@ impl Reprs {
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
             Rep::Float => self.float.truth(f),
-            Rep::Object(_) => {
-                f.ins().drop().i32_const(1);
-            }
-            Rep::ObjectOrNone(_) => {
+            Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 f.ins().ref_is_null().i32_eqz();
             }
             Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("the truth of {rep:?}"),

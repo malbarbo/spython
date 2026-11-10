@@ -404,6 +404,83 @@ fn print_converts_each_argument_when_it_writes_it() {
     );
 }
 
+/// The checker keeps the narrowing of a field after a call that assigns
+/// `None` to the field, and the object that the read gives behaves as
+/// `None`.
+#[test]
+fn a_field_that_a_call_assigns_after_the_test_holds_none() {
+    let start = indoc! {"
+        from dataclasses import dataclass
+        from enum import Enum
+
+        class Cor(Enum):
+            A = 1
+
+        @dataclass
+        class No:
+            v: int
+            prox: 'No | None'
+            cor: Cor | None = None
+
+        @dataclass
+        class Par:
+            a: No
+            b: No
+
+        def corta(n: No) -> None:
+            n.prox = None
+            n.cor = None
+
+        def valor(n: No) -> int:
+            return n.v
+
+        t = No(1, No(2, None), Cor.A)
+    "};
+    same_as_cpython(
+        "a_field_that_a_call_assigns_after_the_test_holds_none",
+        &formatdoc! {"
+            {start}
+            if t.prox is not None and t.cor is not None:
+                corta(t)
+                print(t.prox, repr(t.prox), str(t.prox), f'{{t.prox}}')
+                print(t.prox is None, t.prox == t.prox, t.prox == No(2, None), t.cor == Cor.A)
+                print(not t.prox, Par(t.prox, No(3, None)))
+                p = Par(t.prox, t.prox)
+                print(p == Par(t.prox, t.prox), p == Par(No(2, None), t.prox))
+                print(valor(t.prox))
+        "},
+    );
+    same_as_cpython(
+        "a_field_assignment_of_none_raises_attribute_error",
+        &formatdoc! {"
+            {start}
+            if t.prox is not None:
+                corta(t)
+                p = t.prox
+                p.v = 3
+        "},
+    );
+    same_as_cpython(
+        "an_augmented_assignment_of_none_raises_attribute_error",
+        &formatdoc! {"
+            {start}
+            if t.prox is not None:
+                corta(t)
+                p = t.prox
+                p.v += 3
+        "},
+    );
+    same_as_cpython(
+        "a_member_of_none_raises_attribute_error",
+        &formatdoc! {"
+            {start}
+            if t.cor is not None:
+                corta(t)
+                print(t.cor.name)
+        "},
+    );
+}
+
 /// The `repr` of an object inside its own `repr` is `...`.
 #[test]
 fn the_repr_of_a_cycle_writes_three_dots() {
@@ -696,6 +773,21 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 print(Cor(1) is Cor.A)
             "},
             "a call of this class",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    nome: str | None
+
+                def f(p: P) -> int:
+                    if p.nome is not None:
+                        return len(p.nome)
+                    return 0
+            "},
+            "a read of a field of a union that a test narrows",
         ),
         (
             indoc! {"

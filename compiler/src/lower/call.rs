@@ -348,11 +348,8 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
             Rep::Str => self.prelude_call(&range, "str", "repr_of", vec![lowered]),
-            Rep::Object(class) => {
-                let func = self.class_repr(class)?;
-                Ok(self.class_call(func, lowered, range))
-            }
-            Rep::ObjectOrNone(class) => {
+            // An object may be null.
+            Rep::Object(class) | Rep::ObjectOrNone(class) => {
                 let func = self.or_none_conversion(class, true)?;
                 Ok(self.class_call(func, lowered, range))
             }

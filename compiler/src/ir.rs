@@ -298,6 +298,15 @@ pub(crate) enum Expr {
     /// A `float` rounded to the nearest whole value, with a tie going to
     /// the even one, as `round` does.
     FloatRound(Box<Expr>),
+    /// The object that `value` gives. A value of an object may be null,
+    /// because a call may assign `None` to a field after the test that
+    /// narrows the field, and a null raises `AttributeError` with `text` at
+    /// the site, as an attribute of `None` does in CPython.
+    NotNone {
+        value: Box<Expr>,
+        text: String,
+        site: Site,
+    },
     /// The field at `field` of an object of `class`, which has `rep`.
     Field {
         object: Box<Expr>,
@@ -1087,7 +1096,9 @@ impl Expr {
             Expr::Member { class, .. } | Expr::New { class, .. } => Rep::Object(*class),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
-            Expr::After { value, .. } | Expr::DuringRepr { value, .. } => value.rep(),
+            Expr::After { value, .. }
+            | Expr::DuringRepr { value, .. }
+            | Expr::NotNone { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
             Expr::Print { .. } | Expr::WriteErr(_) | Expr::Stop { .. } => Rep::None,
         }

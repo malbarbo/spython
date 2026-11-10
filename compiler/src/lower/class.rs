@@ -420,12 +420,26 @@ impl<'a> Lowering<'a, '_> {
         class: ClassId,
     ) -> Result<Expr, Error> {
         let (field, rep) = self.field_of(attr, class)?;
+        let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
         Ok(Expr::Field {
-            object: Box::new(object),
+            object: Box::new(self.not_none(object, text, attr)),
             class,
             field,
             rep,
         })
+    }
+
+    /// `object`, which raises `AttributeError` with `text` at the site of
+    /// `attr` when it is `None`. A member of an `Enum` is never `None`.
+    fn not_none(&self, object: Expr, text: String, attr: &ast::ExprAttribute) -> Expr {
+        if matches!(object, Expr::Member { .. }) {
+            return object;
+        }
+        Expr::NotNone {
+            value: Box::new(object),
+            text,
+            site: self.site(attr.range()),
+        }
     }
 
     /// The assignment of `value` to `attr`, a field of an object of a
@@ -445,8 +459,12 @@ impl<'a> Lowering<'a, '_> {
         let (field, rep) = self.field_of(attr, class)?;
         let value = coerce(value, rep)
             .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
+        let text = format!(
+            "'NoneType' object has no attribute '{}' and no __dict__ for setting new attributes",
+            attr.attr
+        );
         Ok(Stmt::SetField {
-            object,
+            object: self.not_none(object, text, attr),
             class,
             field,
             value,
@@ -640,22 +658,18 @@ impl<'a> Lowering<'a, '_> {
                 site,
             },
             Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], site)?,
-            Rep::Object(other) => Expr::Call {
-                func: self.class_repr(other)?,
-                args: vec![value],
-                order: None,
-                rep: Rep::Str,
-                site: Some(site),
-                check: None,
-            },
-            Rep::StrOrNone | Rep::ObjectOrNone(_) => {
-                let narrowed = match rep {
-                    Rep::ObjectOrNone(other) => Rep::Object(other),
-                    _ => Rep::Str,
-                };
-                let some = Expr::Narrow {
-                    value: Box::new(self.own_field(class, field)),
-                    rep: narrowed,
+            Rep::StrOrNone | Rep::Object(_) | Rep::ObjectOrNone(_) => {
+                // A field of an object may be null.
+                let some = match rep {
+                    Rep::Object(_) => self.own_field(class, field),
+                    Rep::ObjectOrNone(other) => Expr::Narrow {
+                        value: Box::new(self.own_field(class, field)),
+                        rep: Rep::Object(other),
+                    },
+                    _ => Expr::Narrow {
+                        value: Box::new(self.own_field(class, field)),
+                        rep: Rep::Str,
+                    },
                 };
                 Expr::IfElse {
                     cond: Box::new(Expr::IsNone(Box::new(value))),
@@ -923,15 +937,8 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(c, "an order of objects"));
         }
         let site = Some(self.site(c.range()));
+        // An object may be null, which `__eq__` does not take.
         let eq = match (left.rep(), right.rep()) {
-            (Rep::Object(a), Rep::Object(b)) if a == b => Expr::Call {
-                func: self.class_eq(a)?,
-                args: vec![left, right],
-                order: None,
-                rep: Rep::Bool,
-                site,
-                check: None,
-            },
             (Rep::Object(a) | Rep::ObjectOrNone(a), Rep::Object(b) | Rep::ObjectOrNone(b))
                 if a == b =>
             {
@@ -1023,9 +1030,11 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         let rep = ours.rep();
         let dataclass = |class: ClassId| self.classes.borrow().get(class).kind == Kind::Dataclass;
+        // An object may be null, which `__eq__` does not take.
         let func = match rep {
-            Rep::Object(class) if dataclass(class) => Some(self.class_eq(class)?),
-            Rep::ObjectOrNone(class) if dataclass(class) => Some(self.eq_or_none(class)?),
+            Rep::Object(class) | Rep::ObjectOrNone(class) if dataclass(class) => {
+                Some(self.eq_or_none(class)?)
+            }
             _ => None,
         };
         if let Some(func) = func {
