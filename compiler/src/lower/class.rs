@@ -53,7 +53,7 @@ impl<'a> Classes<'a> {
             .map(|class| UserClass {
                 ordered: class.ordered,
                 fields: class.fields.into_iter().map(|(_, rep)| rep).collect(),
-                mutable: matches!(class.kind, Kind::Dataclass),
+                mutable: class.kind == Kind::Dataclass && !class.frozen,
                 members: class
                     .members
                     .into_iter()
@@ -72,6 +72,9 @@ pub(super) struct Declared<'a> {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
     pub kind: Kind,
+    /// `true` for a dataclass with `frozen=True`, whose fields keep their
+    /// first value.
+    pub frozen: bool,
     /// The name and the rep of each field of an object of the class. A
     /// member of an `Enum` has `name` and `value`.
     pub fields: Vec<(String, Rep)>,
@@ -125,9 +128,11 @@ impl<'a> Lowering<'a, '_> {
         }
         // A decorator other than `dataclass` may make the class something
         // else, which the checker does not describe.
-        if !def.decorator_list.is_empty() {
-            self.dataclass_decorator(def)?;
-        }
+        let frozen = if def.decorator_list.is_empty() {
+            false
+        } else {
+            self.dataclass_decorator(def)?
+        };
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
         let (kind, fields, members) = if def.decorator_list.is_empty() {
             let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
@@ -146,6 +151,7 @@ impl<'a> Lowering<'a, '_> {
             def,
             ordered: false,
             kind,
+            frozen,
             fields,
             members,
             str: None,
@@ -322,10 +328,7 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Stmt, Error> {
         let lowered = self.expr(value)?;
         match lowered.rep() {
-            Rep::Object(class)
-                if mutable.is_none()
-                    && self.classes.borrow().get(class).kind == Kind::Dataclass =>
-            {
+            Rep::Object(class) if mutable.is_none() && self.is_mutable(class) => {
                 let object = self.classes.borrow().get(class).def.name.to_string();
                 let decorator = &def
                     .decorator_list
@@ -340,7 +343,7 @@ impl<'a> Lowering<'a, '_> {
                 });
             }
             Rep::ObjectOrNone(_) | Rep::Uniform
-                if self.may_be_dataclass(expr_shape(self.model(), value)) =>
+                if self.may_be_mutable(expr_shape(self.model(), value)) =>
             {
                 return Err(unsupported(
                     value,
@@ -360,22 +363,21 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
-    /// Returns `true` if a value of `shape` may be an object of a dataclass
-    /// of the module, `false` otherwise.
-    fn may_be_dataclass(&self, shape: Option<Shape>) -> bool {
-        match shape {
-            Some(Shape::Instance(class, _)) => {
-                let classes = self.classes.borrow();
-                classes
-                    .ids
-                    .get(&class)
-                    .is_some_and(|id| classes.get(*id).kind == Kind::Dataclass)
-            }
-            Some(Shape::Union(shapes)) => shapes
-                .into_iter()
-                .any(|shape| self.may_be_dataclass(Some(shape))),
-            _ => false,
-        }
+    /// Returns `true` if a value of `shape` may be an object of a class
+    /// that [`Self::is_mutable`] accepts, `false` otherwise.
+    fn may_be_mutable(&self, shape: Option<Shape>) -> bool {
+        let mut found = Vec::new();
+        self.classes_in(shape, &mut found);
+        found.into_iter().any(|class| self.is_mutable(class))
+    }
+
+    /// Returns `true` if `class` is a dataclass whose fields a program may
+    /// assign, `false` otherwise. CPython calls a default of such a class
+    /// mutable, because the `__eq__` of the class takes its hash away.
+    fn is_mutable(&self, class: ClassId) -> bool {
+        let classes = self.classes.borrow();
+        let declared = classes.get(class);
+        declared.kind == Kind::Dataclass && !declared.frozen
     }
 
     /// The value of `attr`, an attribute of a class, which has to be a
@@ -433,12 +435,10 @@ impl<'a> Lowering<'a, '_> {
         attr: &ast::ExprAttribute,
         value: Expr,
     ) -> Result<Stmt, Error> {
+        // The checker rejects an assignment to a field of a frozen
+        // dataclass, whose fields the struct keeps immutable.
         let class = match self.rep_of(expr_shape(self.model(), &attr.value)) {
-            Some(Rep::Object(class))
-                if self.classes.borrow().get(class).kind == Kind::Dataclass =>
-            {
-                class
-            }
+            Some(Rep::Object(class)) if self.is_mutable(class) => class,
             _ => return Err(unsupported(attr, "this target")),
         };
         let object = self.expr(&attr.value)?;
@@ -1309,23 +1309,36 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// Checks that the one decorator of `def` is `dataclass`, which the
-    /// compiler takes without arguments.
-    fn dataclass_decorator(&self, def: &ast::StmtClassDef) -> Result<(), Error> {
+    /// compiler takes without arguments or with `frozen=True`, and returns
+    /// `true` for `frozen=True`.
+    fn dataclass_decorator(&self, def: &ast::StmtClassDef) -> Result<bool, Error> {
         let decorator = match &*def.decorator_list {
             [decorator] => &decorator.expression,
             _ => return Err(unsupported(def, "a class with these decorators")),
         };
-        let func = match decorator {
-            ast::Expr::Call(call) if call.arguments.is_empty() => &*call.func,
-            ast::Expr::Call(_) => {
-                return Err(unsupported(decorator, "a dataclass with these arguments"));
-            }
-            func => func,
+        let (func, frozen) = match decorator {
+            ast::Expr::Call(call) => match (&*call.arguments.args, &*call.arguments.keywords) {
+                ([], []) => (&*call.func, false),
+                ([], [keyword])
+                    if keyword
+                        .arg
+                        .as_ref()
+                        .is_some_and(|arg| arg.as_str() == "frozen")
+                        && matches!(
+                            keyword.value,
+                            ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value: true, .. })
+                        ) =>
+                {
+                    (&*call.func, true)
+                }
+                _ => return Err(unsupported(decorator, "a dataclass with these arguments")),
+            },
+            func => (func, false),
         };
         if !self.names_dataclass(def, func) {
             return Err(unsupported(decorator, "this decorator of a class"));
         }
-        Ok(())
+        Ok(frozen)
     }
 
     /// Checks that `def`, a class with a decorator, has the form of a

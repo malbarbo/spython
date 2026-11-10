@@ -460,6 +460,42 @@ fn objects_of_a_dataclass_compare_by_their_fields() {
     );
 }
 
+/// A frozen dataclass is hashable, so an object of it may be a default.
+#[test]
+fn a_frozen_dataclass_runs() {
+    same_as_cpython(
+        "a_frozen_dataclass_runs",
+        indoc! {"
+            import dataclasses
+            from dataclasses import dataclass
+
+            @dataclass(frozen=True)
+            class Ponto:
+                x: int
+                y: int = 0
+
+            @dataclasses.dataclass(frozen=True)
+            class No:
+                v: int
+                prox: 'No | None'
+
+            @dataclass
+            class Caixa:
+                canto: Ponto = Ponto(1, 2)
+
+            def lista(n: int) -> No | None:
+                if n == 0:
+                    return None
+                return No(n, lista(n - 1))
+
+            p = Ponto(3)
+            print(p, p.x + p.y, p == Ponto(3, 0), Caixa(), Caixa().canto is Caixa().canto)
+            print(lista(2), lista(3) == lista(3), lista(3) != lista(2))
+            print(lista(600))
+        "},
+    );
+}
+
 #[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [
@@ -479,6 +515,16 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 from dataclasses import dataclass
 
                 @dataclass(order=True)
+                class P:
+                    x: int
+            "},
+            "a dataclass with these arguments",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass(frozen=False)
                 class P:
                     x: int
             "},
