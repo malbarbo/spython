@@ -6,8 +6,8 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{
-    DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, FACTORIAL_TOO_LARGE, INFINITY_TO_INT,
-    MODULO_BY_ZERO, NAN_TO_INT, NEGATIVE_K, NEGATIVE_N,
+    Class, DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, FACTORIAL_TOO_LARGE, INFINITY_TO_INT,
+    MODULO_BY_ZERO, Message, NAN_TO_INT, NEGATIVE_K, NEGATIVE_N,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -372,13 +372,12 @@ fn check_divisor(
     f: &mut FuncState,
     str: &mut StrRepr,
     exc: &Exceptions,
-    message: &str,
+    message: &Message,
 ) {
     let divisor = f.param(1);
     f.ins().local_get(divisor).i32_eqz();
     f.if_(BlockType::Empty);
-    str.literal(m, f, message);
-    exc.raise(f);
+    exc.raise(m, str, f, message);
     f.end();
 }
 
@@ -394,7 +393,7 @@ fn add_floor_div(
     let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
     let mut f = FuncState::new(2);
     let (a, b) = (f.param(0), f.param(1));
-    check_divisor(m, &mut f, str, exc, DIVISION_BY_ZERO);
+    check_divisor(m, &mut f, str, exc, &DIVISION_BY_ZERO);
     f.ins()
         .local_get(a)
         .i64_extend_i32_s()
@@ -426,7 +425,7 @@ fn add_modulo(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncI
     let mut f = FuncState::new(2);
     let (a, b) = (f.param(0), f.param(1));
     let r = f.local(ValType::I32);
-    check_divisor(m, &mut f, str, exc, MODULO_BY_ZERO);
+    check_divisor(m, &mut f, str, exc, &MODULO_BY_ZERO);
     f.ins()
         .local_get(a)
         .local_get(b)
@@ -456,8 +455,7 @@ fn add_convert_f64(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> 
     let x = f.param(0);
     f.ins().local_get(x).local_get(x).f64_ne();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, NAN_TO_INT);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &NAN_TO_INT);
     f.end();
     f.ins()
         .local_get(x)
@@ -465,8 +463,7 @@ fn add_convert_f64(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> 
         .f64_const(f64::INFINITY.into())
         .f64_eq();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, INFINITY_TO_INT);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &INFINITY_TO_INT);
     f.end();
     #[expect(clippy::cast_precision_loss, reason = "31 bits fit in an f64")]
     let (below, above) = ((MIN - 1) as f64, (MAX + 1) as f64);
@@ -481,14 +478,8 @@ fn add_convert_f64(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> 
     f.if_(BlockType::Empty);
     f.ins().local_get(x).i32_trunc_f64_s().return_();
     f.end();
-    str.literal(
-        m,
-        &mut f,
-        &format!(
-            "OverflowError: cannot convert float to an int of spython, which goes from {MIN} to {MAX}"
-        ),
-    );
-    exc.raise(&mut f);
+    let text = format!("cannot convert float to an int of spython, which goes from {MIN} to {MAX}");
+    exc.raise(m, str, &mut f, &Message::new(Class::OverflowError, &text));
     m.add_func(ty, f.finish())
 }
 
@@ -576,10 +567,10 @@ fn add_lcm(m: &mut ModuleState, gcd: FuncIdx) -> FuncIdx {
     m.add_func(ty, f.finish())
 }
 
-/// The message of a result of `func` that does not fit in an `int`. The
-/// message does not give the result, which may not fit in an `i64`.
+/// The text of the error of a result of `func` that does not fit in an
+/// `int`. The text does not give the result, which may not fit in an `i64`.
 fn too_large(func: &str) -> String {
-    format!("spython: the result of {func} does not fit in an int, which goes from {MIN} to {MAX}")
+    format!("the result of {func} does not fit in an int, which goes from {MIN} to {MAX}")
 }
 
 /// The function of `math.comb(n, k)` or `math.perm(n, k)`, which raises as
@@ -596,8 +587,7 @@ fn add_choose(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, choice: 
     for (arg, message) in [(n, NEGATIVE_N), (k, NEGATIVE_K)] {
         f.ins().local_get(arg).i32_const(0).i32_lt_s();
         f.if_(BlockType::Empty);
-        str.literal(m, &mut f, message);
-        exc.raise(&mut f);
+        exc.raise(m, str, &mut f, &message);
         f.end();
     }
     f.ins().local_get(k).local_get(n).i32_gt_s();
@@ -643,8 +633,8 @@ fn add_choose(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, choice: 
     }
     f.ins().local_get(r).i64_const(MAX).i64_gt_s();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, &too_large(choice.name()));
-    exc.raise(&mut f);
+    let text = too_large(choice.name());
+    exc.raise(m, str, &mut f, &Message::new(Class::Limit, &text));
     f.end();
     f.br(again);
     f.end();
@@ -661,8 +651,8 @@ fn add_lcm_end(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Func
     let v = f.param(0);
     f.ins().local_get(v).i64_const(MAX).i64_gt_u();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, &too_large("lcm"));
-    exc.raise(&mut f);
+    let text = too_large("lcm");
+    exc.raise(m, str, &mut f, &Message::new(Class::Limit, &text));
     f.end();
     f.ins().local_get(v).i32_wrap_i64();
     m.add_func(ty, f.finish())
@@ -678,13 +668,11 @@ fn add_factorial(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Fu
     let r = f.local(ValType::I32);
     f.ins().local_get(n).i32_const(0).i32_lt_s();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, FACTORIAL_OF_A_NEGATIVE);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &FACTORIAL_OF_A_NEGATIVE);
     f.end();
     f.ins().local_get(n).i32_const(12).i32_gt_s();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, FACTORIAL_TOO_LARGE);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &FACTORIAL_TOO_LARGE);
     f.end();
     f.ins().i32_const(1).local_set(r);
     let done = f.block(BlockType::Empty);
@@ -819,7 +807,7 @@ fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Fun
     let ty = m.func_type(&[ValType::I64], &[]);
     let mut f = FuncState::new(1);
     let v = f.param(0);
-    str.literal(m, &mut f, "spython: the result ");
+    str.literal(m, &mut f, "the result ");
     f.ins().local_get(v);
     str.decimal(&mut f);
     str.concat(&mut f);
@@ -829,6 +817,6 @@ fn add_overflow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Fun
         &format!(" does not fit in an int, which goes from {MIN} to {MAX}"),
     );
     str.concat(&mut f);
-    exc.raise(&mut f);
+    exc.raise_text(m, str, &mut f, Class::Limit);
     m.add_func(ty, f.finish())
 }

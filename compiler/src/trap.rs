@@ -2,7 +2,7 @@
 
 use crate::Module;
 use crate::cpython::traceback::uncaught;
-use crate::cpython::{MEMORY_ERROR, RECURSION_ERROR};
+use crate::cpython::{MEMORY_ERROR, Message, RECURSION_ERROR};
 
 /// What wasmtime writes for an allocation larger than the GC heap holds,
 /// and for one larger than any heap holds.
@@ -19,7 +19,7 @@ impl Module {
     /// Returns `None` for any other error, and when the backtrace lacks a
     /// frame that the traceback needs.
     pub fn memory_error(&self, stderr: &str) -> Option<String> {
-        self.uncaught_trap(stderr, &OUT_OF_MEMORY, MEMORY_ERROR)
+        self.uncaught_trap(stderr, &OUT_OF_MEMORY, &MEMORY_ERROR)
     }
 
     /// The traceback that CPython writes for a `RecursionError`, for the
@@ -31,11 +31,10 @@ impl Module {
     /// Returns `None` for any other error, and when the backtrace lacks a
     /// frame that the traceback needs.
     pub fn recursion_error(&self, stderr: &str) -> Option<String> {
-        self.uncaught_trap(stderr, &STACK_EXHAUSTED, RECURSION_ERROR)
+        self.uncaught_trap(stderr, &STACK_EXHAUSTED, &RECURSION_ERROR)
     }
 
-    /// The traceback of an exception with `message` as its last line, for
-    /// the standard error of a wasmtime run that stopped with one of
+    /// The traceback of the exception of `message`, for the standard error of a wasmtime run that stopped with one of
     /// `traps`.
     ///
     /// Returns `None` for any other error, when a frame stopped in code
@@ -44,7 +43,7 @@ impl Module {
     /// site, and neither has the code that builds the literals. Wasmtime
     /// keeps 20 frames of the backtrace unless `-D max-backtrace` asks for
     /// more.
-    fn uncaught_trap(&self, stderr: &str, traps: &[&str], message: &str) -> Option<String> {
+    fn uncaught_trap(&self, stderr: &str, traps: &[&str], message: &Message) -> Option<String> {
         // What the program wrote comes first, and no line of it starts with
         // `Error: `, which starts the error of wasmtime.
         let wasmtime_error = stderr
@@ -76,7 +75,7 @@ impl Module {
             return None;
         }
         frames.reverse();
-        Some(uncaught(&frames, message))
+        Some(uncaught(&frames, &message.line()))
     }
 }
 

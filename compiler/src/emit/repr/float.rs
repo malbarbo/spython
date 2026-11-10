@@ -6,9 +6,9 @@ use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{
-    FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO, FMA_INVALID,
-    FMA_OVERFLOW, INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR,
-    NEGATIVE_TOLERANCE, RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
+    Class, FLOAT_FLOOR_DIVISION_BY_ZERO, FLOAT_MODULO_BY_ZERO, FLOAT_TRUE_DIVISION_BY_ZERO,
+    FMA_INVALID, FMA_OVERFLOW, INT_TRUE_DIVISION_BY_ZERO, MATH_DOMAIN_ERROR, MATH_RANGE_ERROR,
+    Message, NEGATIVE_TOLERANCE, RESULT_OUT_OF_RANGE, ROUNDED_TOO_LARGE, ZERO_TO_A_NEGATIVE_POWER,
 };
 use crate::emit::module::{FuncIdx, FuncState, LocalIdx, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -493,8 +493,7 @@ fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, op: DivOp) 
     let (a, b) = (f.param(0), f.param(1));
     f.ins().local_get(b).f64_const(0.0.into()).f64_eq();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, message);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &message);
     f.end();
     f.ins().local_get(a).local_get(b);
     match builtin {
@@ -507,8 +506,11 @@ fn add_div(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, op: DivOp) 
 /// The message of a negative base with an exponent that is not whole,
 /// where CPython gives a `complex`. The `float-exponent` lint rejects the
 /// programs that could get here.
-const COMPLEX_POWER: &str = "spython: a negative number to a fractional power gives a complex number, \
-     which spython does not have";
+const COMPLEX_POWER: Message = Message::new(
+    Class::Limit,
+    "a negative number to a fractional power gives a complex number, \
+     which spython does not have",
+);
 
 /// The function of `**`, which calls `f64_pow`. `f64_pow` gives a result
 /// that is not finite for finite operands only where CPython raises, or
@@ -526,16 +528,13 @@ fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     // An infinite result from a base of 0 has a negative exponent.
     f.ins().local_get(a).f64_const(0.0.into()).f64_eq();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, ZERO_TO_A_NEGATIVE_POWER);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &ZERO_TO_A_NEGATIVE_POWER);
     f.end();
     f.ins().local_get(r).local_get(r).f64_ne();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, COMPLEX_POWER);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &COMPLEX_POWER);
     f.end();
-    str.literal(m, &mut f, RESULT_OUT_OF_RANGE);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &RESULT_OUT_OF_RANGE);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
@@ -562,8 +561,7 @@ fn add_math(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Math
         .f64_eq()
         .i32_and();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, MATH_DOMAIN_ERROR);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &MATH_DOMAIN_ERROR);
     f.end();
     lost_finite(&mut f, r, &[x]);
     f.if_(BlockType::Empty);
@@ -572,8 +570,7 @@ fn add_math(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Math
     } else {
         MATH_DOMAIN_ERROR
     };
-    str.literal(m, &mut f, message);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &message);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
@@ -605,13 +602,11 @@ fn add_math2(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, func: Mat
         .f64_eq()
         .i32_and();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, MATH_DOMAIN_ERROR);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &MATH_DOMAIN_ERROR);
     f.end();
     lost_finite(&mut f, r, &[x, y]);
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, MATH_RANGE_ERROR);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &MATH_RANGE_ERROR);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
@@ -635,13 +630,11 @@ fn add_fma(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
         f.ins().local_get(arg).local_get(arg).f64_eq().i32_and();
     }
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, FMA_INVALID);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &FMA_INVALID);
     f.end();
     lost_finite(&mut f, r, &args);
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, FMA_OVERFLOW);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &FMA_OVERFLOW);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
@@ -666,8 +659,7 @@ fn add_isclose(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Func
         .f64_lt()
         .i32_or();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, NEGATIVE_TOLERANCE);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &NEGATIVE_TOLERANCE);
     f.end();
     f.ins().local_get(a).local_get(b).f64_eq();
     f.if_(BlockType::Empty);
@@ -736,8 +728,7 @@ fn add_fmod(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx
         .f64_eq()
         .i32_and();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, MATH_DOMAIN_ERROR);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &MATH_DOMAIN_ERROR);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
@@ -755,8 +746,7 @@ fn add_ldexp(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncId
     f.ins().local_get(x).local_get(i).call(builtin).local_set(r);
     lost_finite(&mut f, r, &[x]);
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, MATH_RANGE_ERROR);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &MATH_RANGE_ERROR);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())
@@ -779,8 +769,7 @@ fn add_log_base(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, log: F
         .f64_const(0.0.into())
         .f64_eq();
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, FLOAT_TRUE_DIVISION_BY_ZERO);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &FLOAT_TRUE_DIVISION_BY_ZERO);
     f.end();
     f.ins().local_get(den).f64_div();
     m.add_func(ty, f.finish())
@@ -797,8 +786,7 @@ fn add_round_digits(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) ->
     f.ins().local_get(x).local_get(n).call(builtin).local_set(r);
     lost_finite(&mut f, r, &[x]);
     f.if_(BlockType::Empty);
-    str.literal(m, &mut f, ROUNDED_TOO_LARGE);
-    exc.raise(&mut f);
+    exc.raise(m, str, &mut f, &ROUNDED_TOO_LARGE);
     f.end();
     f.ins().local_get(r);
     m.add_func(ty, f.finish())

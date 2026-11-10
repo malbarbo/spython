@@ -10,7 +10,7 @@ use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{
-    ISQRT_OF_A_NEGATIVE, MATH_DOMAIN_ERROR, MEMORY_ERROR, STR_INDEX_OUT_OF_RANGE,
+    Class, ISQRT_OF_A_NEGATIVE, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
     ArithOp, Choice, CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep,
@@ -136,10 +136,9 @@ impl Reprs {
         }
     }
 
-    /// Raises an exception with `message`, the last line of its traceback.
-    pub fn raise(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &str) {
-        self.str.literal(m, f, message);
-        self.exc.raise(f);
+    /// Raises the exception of `message`.
+    pub fn raise(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &Message) {
+        self.exc.raise(m, &mut self.str, f, message);
     }
 
     /// Pops an error of WASI and raises its `OSError`.
@@ -147,10 +146,10 @@ impl Reprs {
         self.exc.raise_os_error(f);
     }
 
-    /// Pops a `str` and raises an exception with it as the last line of its
-    /// traceback.
-    pub fn raise_message(&self, f: &mut FuncState) {
-        self.exc.raise(f);
+    /// Pops a `str` that is not empty, and raises an exception of `class`
+    /// with it as the text of the argument.
+    pub fn raise_text(&mut self, m: &mut ModuleState, f: &mut FuncState, class: Class) {
+        self.exc.raise_text(m, &mut self.str, f, class);
     }
 
     /// Pushes the `str` with the text `s`.
@@ -277,7 +276,7 @@ impl Reprs {
         self.int.literal(f, 0);
         self.int.compare(f, CmpOp::Lt);
         f.if_(BlockType::Empty);
-        self.raise(m, f, ISQRT_OF_A_NEGATIVE);
+        self.raise(m, f, &ISQRT_OF_A_NEGATIVE);
         f.end();
         f.ins().local_get(n);
         f.free(n);
@@ -398,7 +397,7 @@ impl Reprs {
         self.float.literal(f, 0.0);
         self.float.compare(f, CmpOp::Lt);
         f.if_(BlockType::Empty);
-        self.raise(m, f, MATH_DOMAIN_ERROR);
+        self.raise(m, f, &MATH_DOMAIN_ERROR);
         f.end();
         f.ins().local_get(x);
         f.free(x);
@@ -431,7 +430,7 @@ impl Reprs {
     pub fn str_repeat(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.as_i32(f);
         self.str.repeat(f);
-        self.raise_if_null(m, f, MEMORY_ERROR);
+        self.raise_if_null(m, f, &MEMORY_ERROR);
     }
 
     /// Pops a `str` and an `int`, and pushes the code point at that index
@@ -439,12 +438,12 @@ impl Reprs {
     pub fn str_index(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         self.int.as_i32(f);
         self.str.index(f);
-        self.raise_if_null(m, f, STR_INDEX_OUT_OF_RANGE);
+        self.raise_if_null(m, f, &STR_INDEX_OUT_OF_RANGE);
     }
 
     /// Raises an exception with `message` when the `str` on the stack is
     /// null, and leaves it as a `str` otherwise.
-    fn raise_if_null(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &str) {
+    fn raise_if_null(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &Message) {
         let result = f.temp(self.str.val_type(true));
         f.ins().local_tee(result).ref_is_null();
         f.if_(BlockType::Empty);

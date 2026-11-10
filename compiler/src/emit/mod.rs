@@ -6,7 +6,7 @@ mod runtime;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use crate::cpython::RECURSION_ERROR;
+use crate::cpython::{Class, Message, RECURSION_ERROR};
 use crate::ir::{
     Binding, Check, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError, Place,
     Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
@@ -343,10 +343,13 @@ impl Emitter<'_> {
         f.ins().i32_eqz();
         f.if_(BlockType::Empty);
         self.at(f, check.site, |e, f| match &check.error {
-            Undefined::Local(message) => e.reprs.raise(&mut e.m, f, message),
+            Undefined::Local(text) => {
+                let message = Message::new(Class::UnboundLocalError, text);
+                e.reprs.raise(&mut e.m, f, &message);
+            }
             Undefined::Global(error) => {
-                e.name_error_message(f, error);
-                e.reprs.raise_message(f);
+                e.name_error_text(f, error);
+                e.reprs.raise_text(&mut e.m, f, Class::NameError);
             }
         });
         f.end();
@@ -364,11 +367,11 @@ impl Emitter<'_> {
         f.mark(start, site);
     }
 
-    /// Pushes the message of `error`, with the suggestion of CPython for
-    /// what the frame has now.
-    fn name_error_message(&mut self, f: &mut FuncState, error: &NameError) {
+    /// Pushes the text of `error`, with the suggestion of CPython for what
+    /// the frame has now.
+    fn name_error_text(&mut self, f: &mut FuncState, error: &NameError) {
         if error.groups.is_empty() && error.self_attr.is_none() {
-            self.reprs.str_literal(&mut self.m, f, &error.message);
+            self.reprs.str_literal(&mut self.m, f, &error.text);
             return;
         }
         let str_type = self.reprs.local_type(Rep::Str).expect("a str has a value");
@@ -441,7 +444,7 @@ impl Emitter<'_> {
         let str_value = self.reprs.value_type(Rep::Str).expect("a str has a value");
         f.ins().local_get(found).ref_is_null();
         f.if_(BlockType::Result(str_value));
-        self.reprs.str_literal(&mut self.m, f, &error.message);
+        self.reprs.str_literal(&mut self.m, f, &error.text);
         f.else_();
         let (before, after) = &error.suggested;
         self.reprs.str_literal(&mut self.m, f, before);
@@ -489,7 +492,7 @@ impl Emitter<'_> {
     }
 
     /// Pops an `i32`, and raises an exception with `message` when it is 0.
-    fn raise_if_zero(&mut self, f: &mut FuncState, message: &str) {
+    fn raise_if_zero(&mut self, f: &mut FuncState, message: &Message) {
         f.ins().i32_eqz();
         f.if_(BlockType::Empty);
         self.reprs.raise(&mut self.m, f, message);
@@ -533,7 +536,7 @@ impl Emitter<'_> {
         }
         self.at(f, site, |e, f| {
             e.reprs.call_fits(f);
-            e.raise_if_zero(f, RECURSION_ERROR);
+            e.raise_if_zero(f, &RECURSION_ERROR);
             f.ins().call(index);
         });
     }

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
 use crate::cpython::{
-    FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, MORE_TIMES, OS_ERRORS, RECURSION_LIMIT,
-    RECURSIVE_CUTOFF, REPEATED, TRACEBACK,
+    Class, FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, MORE_TIMES, Message, OS_ERRORS,
+    RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, TRACEBACK, exception::last_line,
 };
 use crate::emit::module::{
     FuncIdx, FuncState, GlobalIdx, Ins, LocalIdx, ModuleState, TagIdx, TypeIdx,
@@ -246,8 +246,33 @@ impl Exceptions {
             .global_set(self.depth);
     }
 
-    /// Pops the message and raises an exception with it.
-    pub fn raise(&self, f: &mut FuncState) {
+    /// Raises the exception of `message`.
+    pub fn raise(
+        &self,
+        m: &mut ModuleState,
+        str: &mut StrRepr,
+        f: &mut FuncState,
+        message: &Message,
+    ) {
+        str.literal(m, f, &message.line());
+        f.ins().call(self.raise).unreachable();
+    }
+
+    /// Pops a `str` that is not empty, and raises an exception of `class`
+    /// with it as the text of the argument.
+    pub fn raise_text(
+        &self,
+        m: &mut ModuleState,
+        str: &mut StrRepr,
+        f: &mut FuncState,
+        class: Class,
+    ) {
+        let text = f.temp(str.val_type(true));
+        f.ins().local_set(text);
+        str.literal(m, f, &format!("{}: ", class.name()));
+        f.ins().local_get(text).ref_as_non_null();
+        str.concat(f);
+        f.free(text);
         f.ins().call(self.raise).unreachable();
     }
 
@@ -381,7 +406,8 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
 fn add_os_error_message(m: &mut ModuleState, str: &StrRepr) -> FuncIdx {
     let mut texts = Vec::new();
     let mut places = Vec::new();
-    for (errno, text) in OS_ERRORS {
+    for (errno, class, text) in OS_ERRORS {
+        let text = last_line(class, text);
         let start = i32::try_from(texts.len()).expect("texts shorter than 2^31");
         let len = i32::try_from(text.len()).expect("a text shorter than 2^31");
         texts.extend_from_slice(text.as_bytes());

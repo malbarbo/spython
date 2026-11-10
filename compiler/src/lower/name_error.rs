@@ -145,7 +145,7 @@ impl<'a> Lowering<'a, '_> {
         if let Some(binding) = self_attr {
             flag(binding, false);
         }
-        let base = format!("NameError: name '{name}' is not defined");
+        let base = format!("name '{name}' is not defined");
         let (import, or_import) = if names::STDLIB_MODULES.binary_search(&name).is_ok() {
             (
                 format!(". Did you forget to import '{name}'?"),
@@ -155,7 +155,7 @@ impl<'a> Lowering<'a, '_> {
             (String::new(), String::new())
         };
         NameError {
-            message: format!("{base}{import}"),
+            text: format!("{base}{import}"),
             suggested: (format!("{base}. Did you mean: '"), format!("'?{or_import}")),
             self_attr: self_attr.map(|binding| (binding, format!("self.{name}"))),
             limit,
@@ -200,10 +200,7 @@ fn group_of<'m>(
 }
 
 pub(super) fn unbound_local(name: &str) -> String {
-    format!(
-        "UnboundLocalError: cannot access local variable '{name}' where it is not \
-         associated with a value"
-    )
+    format!("cannot access local variable '{name}' where it is not associated with a value")
 }
 
 fn count(n: usize) -> u32 {

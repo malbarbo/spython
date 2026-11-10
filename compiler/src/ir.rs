@@ -418,7 +418,7 @@ pub(crate) struct Check {
 }
 
 pub(crate) enum Undefined {
-    /// The message of the `UnboundLocalError`.
+    /// The text of the `UnboundLocalError`.
     Local(String),
     Global(Box<NameError>),
 }
@@ -427,10 +427,10 @@ pub(crate) enum Undefined {
 /// raise, as CPython does. The candidates are the locals of the frame, the
 /// globals in the order of their first binding, and the builtins.
 pub(crate) struct NameError {
-    /// The message when no candidate has a value.
-    pub message: String,
-    /// The message with a suggestion is the first text, the suggestion and
-    /// the second text.
+    /// The text of the error when no candidate has a value.
+    pub text: String,
+    /// The text with a suggestion is the first text, the suggestion and the
+    /// second text.
     pub suggested: (String, String),
     /// A `self` whose value has an attribute of the name, which CPython
     /// suggests before any candidate when it has a value, with the text of
