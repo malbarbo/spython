@@ -45,7 +45,51 @@ pub struct Module {
 /// The module of the program in `file`, which the checker has accepted.
 /// A traceback names the file by `path`.
 pub fn compile(db: &dyn Db, file: File, path: &str) -> Result<Module, Error> {
-    let program = lower::lower(db, file, path)?;
+    module(lower::lower(db, file, path, None)?)
+}
+
+/// A docstring of a file that has doctests. The checker of spython writes
+/// the file with a function for each docstring, whose body is the code of
+/// the examples.
+pub struct Docstring {
+    /// The name of what the docstring belongs to, as the report of the
+    /// tests shows it.
+    pub owner: String,
+    /// The name of the function that has the code of the examples.
+    pub function: String,
+    pub examples: Vec<Example>,
+}
+
+/// An example of a docstring, as the runner of spython reads it.
+pub struct Example {
+    /// The line of the file where the code of the example starts, from 1.
+    /// The code goes up to the line of the next example of the docstring.
+    pub line: usize,
+    /// The code, which ends in a `\n`.
+    pub source: String,
+    /// The output that the example expects, which is empty or ends in a
+    /// `\n`.
+    pub want: String,
+    /// The last lines of the traceback that the example expects, when it
+    /// expects one.
+    pub exc_msg: Option<String>,
+}
+
+/// The module that runs the doctests of the program in `file`, as the
+/// `test` command of spython runs them. `file` has a function for each of
+/// `docstrings`, and a traceback names it by `path`. With `verbose`, the
+/// report has the examples that pass too.
+pub fn compile_tests(
+    db: &dyn Db,
+    file: File,
+    path: &str,
+    docstrings: &[Docstring],
+    verbose: bool,
+) -> Result<Module, Error> {
+    module(lower::lower(db, file, path, Some((docstrings, verbose)))?)
+}
+
+fn module(program: ir::Program) -> Result<Module, Error> {
     let (bytes, map) = emit::emit(&program);
     validate(&bytes).map_err(Error::Invalid)?;
     Ok(Module {

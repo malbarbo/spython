@@ -44,26 +44,58 @@ impl<'a, 'db> Lowering<'a, 'db> {
         args: Vec<Expr>,
     ) -> Result<Expr, Error> {
         let func = self
+            .prelude_named(module, name)?
+            .ok_or_else(|| unsupported(node, "a builtin that the prelude lacks"))?;
+        let site = self.call_site(func, node);
+        Ok(self.prelude_call_of(func, args, site))
+    }
+
+    /// A call of the function `name` of the module `module` of the prelude
+    /// at `site`, in code that the lowering adds to the program.
+    pub(super) fn prelude_call_at(
+        &self,
+        module: &str,
+        name: &str,
+        args: Vec<Expr>,
+        site: Site,
+    ) -> Result<Expr, Error> {
+        let func = self
+            .prelude_named(module, name)?
+            .expect("a function of the prelude of the compiler");
+        Ok(self.prelude_call_of(func, args, Some(site)))
+    }
+
+    /// The function `name` of the module `module` of the prelude.
+    fn prelude_named(&self, module: &str, name: &str) -> Result<Option<FuncId>, Error> {
+        match self
             .prelude
             .iter()
             .find(|unit| unit.prelude == Some(module))
-            .and_then(|unit| self.prelude_func(unit.file, name).transpose())
-            .ok_or_else(|| unsupported(node, "a builtin that the prelude lacks"))??;
+        {
+            Some(unit) => self.prelude_func(unit.file, name),
+            None => Ok(None),
+        }
+    }
+
+    /// The call of `func`, a function of the prelude, with one argument for
+    /// each parameter.
+    fn prelude_call_of(&self, func: FuncId, args: Vec<Expr>, site: Option<Site>) -> Expr {
         let sig = self.funcs.borrow().get(func).clone();
         debug_assert!(
             args.iter().map(Expr::rep).eq(sig.params.iter().copied()),
-            "the arguments of {module}.{name}"
+            "the arguments of {}",
+            sig.def.name
         );
-        Ok(Expr::Call {
+        Expr::Call {
             func,
             order: (0..args.len())
                 .map(|arg| u32::try_from(arg).expect("fewer than 2^32 arguments"))
                 .collect(),
             args,
             rep: sig.ret,
-            site: self.call_site(func, node),
+            site,
             check: None,
-        })
+        }
     }
 
     /// The function `name` of the module of the prelude in `file`, which
@@ -87,6 +119,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             unit,
             def,
             defaults: params.iter().map(|_| None).collect(),
+            doctest: None,
             params,
             ret,
         };
@@ -142,6 +175,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 set: CodePointSet::Printable,
                 operand,
             }),
+            "write_err" => arg().map(Expr::WriteErr),
+            "captured_output" => Some(Expr::Captured),
+            "captured_exception" => Some(Expr::CapturedException),
             _ => None,
         };
         lowered.ok_or_else(|| unsupported(call, "this call of an intrinsic"))
@@ -164,7 +200,7 @@ mod tests {
         let Ok(checked) = check_source(source, Level::Full, false) else {
             panic!("the checker rejects the program");
         };
-        match crate::lower::lower(&checked.db, checked.file, "test.py") {
+        match crate::lower::lower(&checked.db, checked.file, "test.py", None) {
             Ok(program) => program.funcs.len(),
             Err(error) => panic!("{error:?}"),
         }

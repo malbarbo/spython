@@ -47,6 +47,10 @@ pub(in crate::emit) enum StrRepr {
         scratch: i32,
         /// The global that holds each literal, by its text.
         literals: HashMap<String, GlobalIdx>,
+        /// `(func (result (ref $Str)))`, which gives what the program wrote
+        /// to the buffer of its captured output, and empties the buffer. A
+        /// program that captures its output has it.
+        captured: Option<FuncIdx>,
     },
 }
 
@@ -68,6 +72,20 @@ impl StrRepr {
             from_scratch: None,
             scratch: host.scratch,
             literals: HashMap::new(),
+            captured: host
+                .capture
+                .map(|capture| add_capture(m, array, capture.char)),
+        }
+    }
+
+    /// Pushes what the program wrote to the buffer of its captured output,
+    /// and empties the buffer.
+    pub fn captured(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { captured, .. } => {
+                f.ins()
+                    .call(captured.expect("a program that captures its output"));
+            }
         }
     }
 
@@ -275,6 +293,74 @@ impl StrRepr {
             }
         }
     }
+}
+
+/// Defines `char`, which adds a code point to the buffer of the captured
+/// output, and returns the function that gives the buffer as a `str` and
+/// empties it. The buffer is an array that doubles when it fills.
+fn add_capture(m: &mut ModuleState, array: TypeIdx, char: FuncIdx) -> FuncIdx {
+    let buffer = m.global(array.ref_to(true), &ConstExpr::ref_null(array.heap_type()));
+    let len = m.global(ValType::I32, &ConstExpr::i32_const(0));
+    Ins::new(&mut m.init)
+        .i32_const(64)
+        .array_new_default(array)
+        .global_set(buffer);
+
+    let mut f = FuncState::new(1);
+    let c = f.param(0);
+    let grown = f.local(array.ref_to(true));
+    f.ins()
+        .global_get(len)
+        .global_get(buffer)
+        .ref_as_non_null()
+        .array_len()
+        .i32_eq();
+    f.if_(BlockType::Empty);
+    f.ins()
+        .global_get(len)
+        .i32_const(2)
+        .i32_mul()
+        .array_new_default(array)
+        .local_tee(grown)
+        .i32_const(0)
+        .global_get(buffer)
+        .ref_as_non_null()
+        .i32_const(0)
+        .global_get(len)
+        .array_copy(array, array)
+        .local_get(grown)
+        .global_set(buffer);
+    f.end();
+    f.ins()
+        .global_get(buffer)
+        .ref_as_non_null()
+        .global_get(len)
+        .local_get(c)
+        .array_set(array)
+        .global_get(len)
+        .i32_const(1)
+        .i32_add()
+        .global_set(len);
+    m.define(char, f.finish());
+
+    let ty = m.func_type(&[], &[array.ref_to(false)]);
+    let mut f = FuncState::new(0);
+    let s = f.local(array.ref_to(true));
+    f.ins()
+        .global_get(len)
+        .array_new_default(array)
+        .local_tee(s)
+        .i32_const(0)
+        .global_get(buffer)
+        .ref_as_non_null()
+        .i32_const(0)
+        .global_get(len)
+        .array_copy(array, array)
+        .i32_const(0)
+        .global_set(len)
+        .local_get(s)
+        .ref_as_non_null();
+    m.add_func(ty, f.finish())
 }
 
 fn add_from_scratch(m: &mut ModuleState, array: TypeIdx, scratch: i32) -> FuncIdx {

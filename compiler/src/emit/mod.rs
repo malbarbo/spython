@@ -18,8 +18,8 @@ use runtime::host::Host;
 /// The bytes of the module, with the place of the code of each site.
 pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut m = ModuleState::new();
-    let host = Host::new(&mut m);
-    let reprs = Reprs::new(&mut m, &host);
+    let host = Host::new(&mut m, program.tests.is_some());
+    let reprs = Reprs::new(&mut m, &host, program.tests.is_some());
     let vars = program
         .vars
         .iter()
@@ -85,6 +85,12 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     e.reprs.begin(&mut f);
     for stmt in &program.body {
         e.stmt(&mut f, stmt);
+    }
+    if let Some(tests) = &program.tests {
+        e.reprs.tests_run(&mut f);
+        for stmt in tests {
+            e.stmt(&mut f, stmt);
+        }
     }
     e.reprs.end_module(&mut f, site);
     for (i, func) in program.funcs.iter().enumerate() {
@@ -261,6 +267,16 @@ impl Emitter<'_> {
             Stmt::Break => {
                 let target = self.code.loops.last().expect("a break in a loop").break_;
                 f.br(target);
+            }
+            Stmt::Example(body) => {
+                let capture = self.host.capture.expect("a program that runs doctests");
+                let done = self.reprs.begin_example(f, &capture);
+                self.body(f, body);
+                self.reprs.end_example(&mut self.m, f, &capture, done);
+            }
+            Stmt::Exit(code) => {
+                self.expr(f, code);
+                self.reprs.exit(f);
             }
             Stmt::StrSet {
                 builder,
@@ -885,6 +901,14 @@ impl Emitter<'_> {
                     f.free(n);
                 }
                 self.at(f, *site, |e, f| e.reprs.str_repeat(&mut e.m, f));
+            }
+            Expr::Captured => self.reprs.captured(f),
+            Expr::CapturedException => self.reprs.captured_exception(f),
+            Expr::WriteErr(text) => {
+                self.expr(f, text);
+                f.ins().call(self.host.to_stderr);
+                self.reprs.str_write(f);
+                f.ins().call(self.host.to_stdout);
             }
             Expr::StrNew { len, site } => {
                 self.expr(f, len);

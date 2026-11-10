@@ -7,13 +7,14 @@ use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
 use crate::cpython::{
     Class, FLUSH_FAILED, FLUSH_FAILED_EXIT, MORE_TIME, MORE_TIMES, Message, OS_ERRORS,
-    RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, TRACEBACK, exception::last_line,
+    RAISED_BEFORE_TESTS, RECURSION_LIMIT, RECURSIVE_CUTOFF, REPEATED, TRACEBACK,
+    exception::last_line,
 };
 use crate::emit::module::{
-    FuncIdx, FuncState, GlobalIdx, Ins, LocalIdx, ModuleState, TagIdx, TypeIdx,
+    FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TagIdx, TypeIdx,
 };
 use crate::emit::repr::str::StrRepr;
-use crate::emit::runtime::host::Host;
+use crate::emit::runtime::host::{Capture, Host};
 use crate::ir::SiteFrame;
 
 pub(in crate::emit) struct Exceptions {
@@ -61,10 +62,29 @@ pub(in crate::emit) struct Exceptions {
     /// The global with the number of frames, which starts at 1 for the
     /// frame of the module.
     depth: GlobalIdx,
+    /// What a program that runs doctests has for them.
+    tests: Option<Tests>,
+}
+
+#[derive(Clone, Copy)]
+struct Tests {
+    /// The global that is 1 once the tests run.
+    running: GlobalIdx,
+    /// The global with what the last example wrote, a `(ref null $Str)`.
+    got: GlobalIdx,
+    /// The global with the last line of the traceback of the exception of
+    /// the last example, or with an empty `str`.
+    raised: GlobalIdx,
+    /// `(func (param (ref $Exc)))`, which takes the exception that ended an
+    /// example. It sets `raised`, or raises the exception again when the
+    /// exception stops the program.
+    caught: FuncIdx,
 }
 
 impl Exceptions {
-    pub fn new(m: &mut ModuleState, host: &Host, str: &mut StrRepr) -> Self {
+    /// The exceptions of a module, which runs doctests when `tests` is
+    /// `true`.
+    pub fn new(m: &mut ModuleState, host: &Host, str: &mut StrRepr, tests: bool) -> Self {
         let str_type = str.type_index();
         // `(struct (field $site i32) (field $next (ref null $Frame)))`, a
         // frame of the traceback, from the outermost one.
@@ -118,6 +138,16 @@ impl Exceptions {
             .unreachable();
         let os_error = m.add_func(os_error_type, f.finish());
         let exit = add_exit(m, host, str, os_error_line);
+        let tests = tests.then(|| {
+            let null = ConstExpr::ref_null(str_type.heap_type());
+            let raised = m.global(str_type.ref_to(true), &null);
+            Tests {
+                running: m.global(ValType::I32, &ConstExpr::i32_const(0)),
+                got: m.global(str_type.ref_to(true), &null),
+                raised,
+                caught: add_caught(m, str, (exc, class, tag), &mut classes, raised),
+            }
+        });
 
         let frame_type = m.func_type(&[exc.ref_to(false), ValType::I32], &[]);
         // The frame of the site goes before the frames of the functions
@@ -235,11 +265,15 @@ impl Exceptions {
         f.ins().local_get(arg).ref_as_non_null();
         str.write(&mut f);
         f.end();
-        f.ins()
-            .i32_const('\n' as i32)
-            .call(host.write_char)
-            .i32_const(1)
-            .call(exit);
+        f.ins().i32_const('\n' as i32).call(host.write_char);
+        if let Some(tests) = &tests {
+            f.ins().global_get(tests.running).i32_eqz();
+            f.if_(BlockType::Empty);
+            str.literal(m, &mut f, RAISED_BEFORE_TESTS);
+            str.write(&mut f);
+            f.end();
+        }
+        f.ins().i32_const(1).call(exit);
         let uncaught = m.add_func(frame_type, f.finish());
 
         Exceptions {
@@ -257,7 +291,80 @@ impl Exceptions {
             sites_global,
             text,
             depth,
+            tests,
         }
+    }
+
+    fn tests(&self) -> &Tests {
+        self.tests.as_ref().expect("a program that runs doctests")
+    }
+
+    /// Marks that the tests run, so an exception from here on is not one of
+    /// the body of the file.
+    pub fn tests_run(&self, f: &mut FuncState) {
+        f.ins().i32_const(1).global_set(self.tests().running);
+    }
+
+    /// Opens the body of an example, whose output goes to the buffer of
+    /// `capture`. [`Self::end_example`] closes it with the label that this
+    /// returns.
+    pub fn begin_example(&self, f: &mut FuncState, capture: &Capture) -> Label {
+        f.ins().i32_const(1).global_set(capture.on);
+        let done = f.block(BlockType::Empty);
+        let caught = f.block(BlockType::Result(self.exc.ref_to(false)));
+        f.try_table(BlockType::Empty, self.tag, caught);
+        done
+    }
+
+    /// Closes the body of an example, and keeps what it wrote and the
+    /// exception that ended it.
+    pub fn end_example(
+        &self,
+        m: &mut ModuleState,
+        str: &mut StrRepr,
+        f: &mut FuncState,
+        capture: &Capture,
+        done: Label,
+    ) {
+        let tests = *self.tests();
+        f.end();
+        str.literal(m, f, "");
+        f.ins().global_set(tests.raised);
+        f.br(done);
+        f.end();
+        f.ins().call(tests.caught);
+        f.end();
+        f.ins().i32_const(0).global_set(capture.on);
+        str.captured(f);
+        f.ins().global_set(tests.got);
+    }
+
+    /// Pushes what the last example wrote.
+    pub fn captured(&self, f: &mut FuncState) {
+        f.ins().global_get(self.tests().got).ref_as_non_null();
+    }
+
+    /// Pushes the last line of the traceback of the exception of the last
+    /// example, with its `\n`, or an empty `str`.
+    pub fn captured_exception(&self, f: &mut FuncState) {
+        f.ins().global_get(self.tests().raised).ref_as_non_null();
+    }
+
+    /// Pops an `i32`, flushes the standard output as the end of a module
+    /// does, and ends the program with the exit code 1 when the `i32` is not
+    /// 0, and with 0 otherwise.
+    pub fn exit(&self, f: &mut FuncState) {
+        let code = f.temp(ValType::I32);
+        f.ins()
+            .i32_const(0)
+            .i32_ne()
+            .local_set(code)
+            .call(self.flush)
+            .drop()
+            .local_get(code)
+            .call(self.exit)
+            .unreachable();
+        f.free(code);
     }
 
     /// Pushes 1 when a call has room for one more frame, and 0 when the call
@@ -440,6 +547,62 @@ fn add_repeated(m: &mut ModuleState, str: &mut StrRepr) -> FuncIdx {
     str.write(&mut f);
     f.end();
     f.end();
+    m.add_func(ty, f.finish())
+}
+
+/// `(func (param (ref $Exc)))`, which takes the exception that ended an
+/// example of a docstring. An exception of [`Class::Limit`] stops the
+/// program, so the function raises it again. For any other, the function
+/// sets `raised` to the last line of its traceback, with the `\n`.
+fn add_caught(
+    m: &mut ModuleState,
+    str: &mut StrRepr,
+    (exc, class, tag): (TypeIdx, TypeIdx, TagIdx),
+    classes: &mut HashMap<Class, GlobalIdx>,
+    raised: GlobalIdx,
+) -> FuncIdx {
+    let limit = class_global(m, str, class, classes, Class::Limit);
+    let ty = m.func_type(&[exc.ref_to(false)], &[]);
+    let mut f = FuncState::new(1);
+    let e = f.param(0);
+    let arg = f.local(str.val_type(true));
+    let line = f.local(str.val_type(true));
+    f.ins()
+        .local_get(e)
+        .struct_get(exc, 0)
+        .global_get(limit)
+        .ref_eq();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(e).throw(tag);
+    f.end();
+    f.ins()
+        .local_get(e)
+        .struct_get(exc, 0)
+        .struct_get(class, 0)
+        .local_set(line);
+    // The class alone is the line of an exception without a text.
+    let no_text = f.block(BlockType::Empty);
+    f.ins()
+        .local_get(e)
+        .struct_get(exc, 1)
+        .local_tee(arg)
+        .ref_is_null();
+    f.br_if(no_text);
+    f.ins().local_get(arg).ref_as_non_null();
+    str.truth(&mut f);
+    f.ins().i32_eqz();
+    f.br_if(no_text);
+    f.ins().local_get(line).ref_as_non_null();
+    str.literal(m, &mut f, ": ");
+    str.concat(&mut f);
+    f.ins().local_get(arg).ref_as_non_null();
+    str.concat(&mut f);
+    f.ins().local_set(line);
+    f.end();
+    f.ins().local_get(line).ref_as_non_null();
+    str.literal(m, &mut f, "\n");
+    str.concat(&mut f);
+    f.ins().global_set(raised);
     m.add_func(ty, f.finish())
 }
 

@@ -48,15 +48,24 @@ impl<'a> Lowering<'a, '_> {
             _ => None,
         };
         if let Some((var, rep)) = local {
-            let check = if is_definitely_bound(self.model(), name) {
+            // An example of a docstring that raises leaves the names that it
+            // would assign without a value, and they are names of a module
+            // for the examples after it.
+            let doctest = self.in_doctest();
+            let check = if !doctest && is_definitely_bound(self.model(), name) {
                 None
             } else {
                 if let Some(scope) = self.scope.borrow_mut().as_mut() {
                     scope.vars.get_mut(var).flagged = true;
                 }
+                let error = if doctest {
+                    Undefined::Global(Box::new(self.name_error(id)))
+                } else {
+                    Undefined::Local(unbound_local(id))
+                };
                 Some(Check {
                     site: self.site(name.range()),
-                    error: Undefined::Local(unbound_local(id)),
+                    error,
                 })
             };
             return Ok(Expr::Load {

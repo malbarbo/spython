@@ -15,11 +15,17 @@ use ruff_python_parser::parse_module;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 /// The text CPython writes for a frame of the function `name`, in the file
-/// at `path`, when the instruction that failed covers `range` of `file`.
-pub(crate) fn frame(path: &str, name: &str, file: &FileLines, range: TextRange) -> String {
+/// at `path`, when the instruction that failed covers `range` of `file`,
+/// which starts at the line `number` of the file at `path`.
+pub(crate) fn frame(
+    path: &str,
+    name: &str,
+    number: usize,
+    file: &FileLines,
+    range: TextRange,
+) -> String {
     format!(
-        "  File \"{path}\", line {}, in {name}\n{}",
-        line(file, range),
+        "  File \"{path}\", line {number}, in {name}\n{}",
         source_lines(file, range)
     )
 }

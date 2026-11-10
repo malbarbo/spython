@@ -5,6 +5,11 @@ use crate::cpython::Class;
 
 pub(crate) struct Program {
     pub body: Vec<Stmt>,
+    /// The code that runs the doctests after the body, for a program that
+    /// tests its file. An exception of the body ends such a program with
+    /// the text of [`crate::cpython::RAISED_BEFORE_TESTS`] after the
+    /// traceback.
+    pub tests: Option<Vec<Stmt>>,
     /// The variables of the module, by their [`VarId`].
     pub vars: Vec<Var>,
     /// The functions of the module, by their [`FuncId`].
@@ -135,6 +140,15 @@ pub(crate) enum Stmt {
     },
     Break,
     Continue,
+    /// Runs an example of a docstring. What the body writes to the standard
+    /// output goes to a buffer, and an exception of the body ends the body
+    /// and nothing else, unless its class is [`Class::Limit`]. After the
+    /// example, [`Expr::Captured`] gives what the body wrote, and
+    /// [`Expr::CapturedException`] the exception.
+    Example(Vec<Stmt>),
+    /// Ends the program, with the exit code 0 when the `int` is 0, and 1
+    /// otherwise.
+    Exit(Expr),
     /// Sets the code point at the index of a `str` that the prelude still
     /// builds. The index is in range.
     StrSet {
@@ -373,6 +387,15 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// What the body of the last [`Stmt::Example`] wrote to the standard
+    /// output, as a `str`.
+    Captured,
+    /// The last line of the traceback of the exception that ended the body
+    /// of the last [`Stmt::Example`], with its `\n`, as a `str`. An example
+    /// that raised nothing gives an empty `str`.
+    CapturedException,
+    /// Writes a `str` to the standard error, and flushes it.
+    WriteErr(Box<Expr>),
     /// A new `str` of `len` code points, each of them 0, which the prelude
     /// builds with [`Stmt::StrSet`]. The site is where the program runs out
     /// of memory for it.
@@ -764,6 +787,8 @@ impl Expr {
             | Expr::Join { .. }
             | Expr::Repeat { .. }
             | Expr::StrNew { .. }
+            | Expr::Captured
+            | Expr::CapturedException
             | Expr::Index { .. } => Rep::Str,
             Expr::Int(_)
             | Expr::BoolAsInt(_)
@@ -806,7 +831,7 @@ impl Expr {
             Expr::Logic { left, .. } => left.rep(),
             Expr::AfterImport { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
-            Expr::Print { .. } => Rep::None,
+            Expr::Print { .. } | Expr::WriteErr(_) => Rep::None,
         }
     }
 }

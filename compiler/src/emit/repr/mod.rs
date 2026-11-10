@@ -6,9 +6,9 @@ pub(super) mod str;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use super::module::{FuncState, GlobalIdx, LocalIdx, ModuleState};
+use super::module::{FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use super::runtime::exc::Exceptions;
-use super::runtime::host::Host;
+use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
     ArithOp, Choice, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep,
@@ -26,9 +26,11 @@ pub(crate) struct Reprs {
 }
 
 impl Reprs {
-    pub fn new(m: &mut ModuleState, host: &Host) -> Self {
+    /// The representations of a module, which runs doctests when `tests`
+    /// is `true`.
+    pub fn new(m: &mut ModuleState, host: &Host, tests: bool) -> Self {
         let mut str = StrRepr::ucs4(m, host);
-        let exc = Exceptions::new(m, host, &mut str);
+        let exc = Exceptions::new(m, host, &mut str, tests);
         let int = IntRepr::i31(m, &mut str, &exc);
         let float = FloatRepr::f64(host);
         Reprs {
@@ -403,6 +405,54 @@ impl Reprs {
         self.int.as_i32(f);
         self.str.repeat(f);
         self.raise_if_null(m, f, &MEMORY_ERROR);
+    }
+
+    /// Marks that the tests run, so an exception from here on is not one of
+    /// the body of the file.
+    pub fn tests_run(&self, f: &mut FuncState) {
+        self.exc.tests_run(f);
+    }
+
+    /// Opens the body of an example of a docstring, whose output goes to
+    /// the buffer of `capture`. [`Self::end_example`] closes it with the
+    /// label that this returns.
+    pub fn begin_example(&self, f: &mut FuncState, capture: &Capture) -> Label {
+        self.exc.begin_example(f, capture)
+    }
+
+    /// Closes the body of an example, and keeps what it wrote and the
+    /// exception that ended it.
+    pub fn end_example(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        capture: &Capture,
+        done: Label,
+    ) {
+        self.exc.end_example(m, &mut self.str, f, capture, done);
+    }
+
+    /// Pushes what the last example wrote, as a `str`.
+    pub fn captured(&self, f: &mut FuncState) {
+        self.exc.captured(f);
+    }
+
+    /// Pushes the last line of the traceback of the exception of the last
+    /// example, with its `\n`, or an empty `str`.
+    pub fn captured_exception(&self, f: &mut FuncState) {
+        self.exc.captured_exception(f);
+    }
+
+    /// Pops a `str` and writes it, as one call of `write` in CPython.
+    pub fn str_write(&self, f: &mut FuncState) {
+        self.str.write(f);
+    }
+
+    /// Pops an `int`, and ends the program with the exit code 0 when the
+    /// `int` is 0, and with 1 otherwise.
+    pub fn exit(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.exc.exit(f);
     }
 
     /// Pops an `int` and pushes a new `str` of that many code points, each

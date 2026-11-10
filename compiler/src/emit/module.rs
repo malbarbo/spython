@@ -629,6 +629,7 @@ impl<'a> Ins<'a> {
         drop();
         memory_copy(dst: u32, src: u32);
         ref_as_non_null();
+        ref_eq();
         ref_is_null();
         ref_null(ty: HeapType);
         return_();

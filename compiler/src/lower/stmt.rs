@@ -9,7 +9,7 @@ use super::flow::imported_name;
 use super::{Lowering, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
-use crate::ir::{Place, Rep, Stmt};
+use crate::ir::{Expr, Place, Rep, Stmt};
 
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
@@ -48,7 +48,20 @@ impl<'a> Lowering<'a, '_> {
 
     fn stmt(&self, stmt: &ast::Stmt) -> Result<Option<Stmt>, Error> {
         match stmt {
-            ast::Stmt::Expr(e) => Ok(Some(Stmt::Expr(self.expr(&e.value)?))),
+            ast::Stmt::Expr(e) => {
+                let value = self.expr(&e.value)?;
+                // An example of a docstring writes the `repr` of the value
+                // of each expression statement that is not `None`, as the
+                // interactive prompt does.
+                if self.in_doctest() && value.rep() != Rep::None {
+                    let text = self.repr_of(value, &*e.value, e.range())?;
+                    return Ok(Some(Stmt::Expr(Expr::Print {
+                        args: vec![text],
+                        site: self.site(e.range()),
+                    })));
+                }
+                Ok(Some(Stmt::Expr(value)))
+            }
             ast::Stmt::Assign(a)
                 if self.in_prelude() && a.targets.iter().any(|t| t.is_subscript_expr()) =>
             {
@@ -252,8 +265,9 @@ impl<'a> Lowering<'a, '_> {
     }
 
     fn return_(&self, r: &ast::StmtReturn) -> Result<Stmt, Error> {
-        let Some(ret) = self.scope.borrow().as_ref().map(|scope| scope.ret) else {
-            return Err(unsupported(r, "a return outside a function"));
+        let ret = match self.scope.borrow().as_ref() {
+            Some(scope) if scope.doctest.is_none() => scope.ret,
+            _ => return Err(unsupported(r, "a return outside a function")),
         };
         match r.value.as_deref() {
             None | Some(ast::Expr::NoneLiteral(_)) if ret == Rep::None => Ok(Stmt::Return(None)),

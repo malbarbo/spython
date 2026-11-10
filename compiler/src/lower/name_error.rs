@@ -23,6 +23,8 @@ impl<'a> Lowering<'a, '_> {
                 .filter_map(|local| Some((scope.vars.find(local)?.0, local.clone())))
                 .collect()
         });
+        // The names that the checker adds for the doctests are not names of
+        // the program.
         let globals: Vec<(Binding, String)> = module
             .names()
             .into_iter()
@@ -33,6 +35,7 @@ impl<'a> Lowering<'a, '_> {
                     .iter()
                     .map(|(func, id)| (Binding::Func(*id), func.clone())),
             )
+            .filter(|(_, name)| !name.starts_with(RESERVED_PREFIX))
             .chain(
                 imports
                     .ids
@@ -202,6 +205,10 @@ fn group_of<'m>(
 pub(super) fn unbound_local(name: &str) -> String {
     format!("cannot access local variable '{name}' where it is not associated with a value")
 }
+
+/// The prefix of the names that spython keeps for itself, which the checker
+/// rejects in a program.
+const RESERVED_PREFIX: &str = "__spython_";
 
 fn count(n: usize) -> u32 {
     u32::try_from(n).expect("fewer than 2^32 names")

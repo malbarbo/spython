@@ -75,9 +75,24 @@ pub(crate) struct Host {
     pub flush: FuncIdx,
     /// `(func)`, which sends what comes after it to the standard error.
     pub to_stderr: FuncIdx,
+    /// `(func)`, which flushes the standard error and sends what comes after
+    /// it to the standard output again.
+    pub to_stdout: FuncIdx,
+    /// What a program that captures its output has for it.
+    pub capture: Option<Capture>,
     /// `(func (param i32))`, which flushes the standard error and ends the
     /// program with the exit code.
     pub exit: FuncIdx,
+}
+
+/// How a program sends what it writes to the standard output to a buffer.
+#[derive(Clone, Copy)]
+pub(crate) struct Capture {
+    /// The global that is 1 while a write goes to the buffer.
+    pub on: GlobalIdx,
+    /// `(func (param i32))`, which adds a code point to the buffer. The
+    /// representation of `str` defines it.
+    pub char: FuncIdx,
 }
 
 /// The globals of the buffers.
@@ -102,6 +117,7 @@ struct State {
     newline: GlobalIdx,
     /// 1 after [`Host::to_stderr`].
     to_stderr: GlobalIdx,
+    capture: Option<Capture>,
     /// The bytes of `STDERR_BUFFER`.
     stderr_end: GlobalIdx,
 }
@@ -117,7 +133,9 @@ struct Funcs {
 }
 
 impl Host {
-    pub fn new(m: &mut ModuleState) -> Self {
+    /// The host of a module, which captures its output when `capture` is
+    /// `true`.
+    pub fn new(m: &mut ModuleState, capture: bool) -> Self {
         let fd_write_ty = m.func_type(
             &[ValType::I32, ValType::I32, ValType::I32, ValType::I32],
             &[ValType::I32],
@@ -129,6 +147,13 @@ impl Host {
         let proc_exit = m.import_func("wasi_snapshot_preview1", "proc_exit", proc_exit_ty);
         // WASI reads the buffers from the memory the module exports by this name.
         m.memory("memory", at(STDERR_BUFFER_END));
+        let capture = capture.then(|| {
+            let ty = m.func_type(&[ValType::I32], &[]);
+            Capture {
+                on: m.global(ValType::I32, &ConstExpr::i32_const(0)),
+                char: m.reserve(ty),
+            }
+        });
         let mut global = |init| m.global(ValType::I32, &ConstExpr::i32_const(init));
         let s = State {
             error: global(0),
@@ -141,6 +166,7 @@ impl Host {
             direct: global(0),
             newline: global(0),
             to_stderr: global(0),
+            capture,
             stderr_end: global(0),
         };
         let write_once = add_write_once(m, fd_write);
@@ -166,6 +192,8 @@ impl Host {
             error: s.error,
             flush: add_flush(m, &funcs),
             to_stderr: add_to_stderr(m, &s),
+            to_stdout: add_to_stdout(m, &s, &funcs),
+            capture,
             exit: add_exit(m, &funcs, proc_exit),
         }
     }
@@ -525,6 +553,12 @@ fn add_write_char(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     f.ins().return_();
     f.end();
 
+    if let Some(capture) = &s.capture {
+        f.ins().global_get(capture.on);
+        f.if_(BlockType::Empty);
+        f.ins().local_get(c).call(capture.char).return_();
+        f.end();
+    }
     f.ins().global_get(s.error);
     f.if_(BlockType::Empty);
     f.ins().return_();
@@ -623,6 +657,9 @@ fn add_end_write(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
     let error = f.local(ValType::I32);
     let done = f.block(BlockType::Empty);
     f.ins().global_get(s.to_stderr).global_get(s.error).i32_or();
+    if let Some(capture) = &s.capture {
+        f.ins().global_get(capture.on).i32_or();
+    }
     f.br_if(done);
 
     f.ins().global_get(s.direct);
@@ -695,6 +732,16 @@ fn add_to_stderr(m: &mut ModuleState, s: &State) -> FuncIdx {
     let ty = m.func_type(&[], &[]);
     let mut f = FuncState::new(0);
     f.ins().i32_const(1).global_set(s.to_stderr);
+    m.add_func(ty, f.finish())
+}
+
+fn add_to_stdout(m: &mut ModuleState, s: &State, funcs: &Funcs) -> FuncIdx {
+    let ty = m.func_type(&[], &[]);
+    let mut f = FuncState::new(0);
+    f.ins()
+        .call(funcs.flush_stderr)
+        .i32_const(0)
+        .global_set(s.to_stderr);
     m.add_func(ty, f.finish())
 }
 

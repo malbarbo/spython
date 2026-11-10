@@ -26,6 +26,10 @@ pub(crate) const REPEATED: &str = "  [Previous line repeated ";
 pub(crate) const MORE_TIME: &str = " more time]\n";
 pub(crate) const MORE_TIMES: &str = " more times]\n";
 
+/// What the runner of the doctests writes after the traceback of a file
+/// that raises before its tests run.
+pub(crate) const RAISED_BEFORE_TESTS: &str = "The file raised an exception before its tests ran.\n";
+
 /// The line before the error of the flush of `sys.stdout` at the exit.
 pub(crate) const FLUSH_FAILED: &str = "Exception ignored on flushing sys.stdout:\n";
 /// The exit code of CPython when the flush at the exit fails.

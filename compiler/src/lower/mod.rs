@@ -1,6 +1,7 @@
 //! From the syntax tree and the types of the checker to the IR.
 
 mod call;
+mod doctest;
 mod expr;
 mod flow;
 mod math;
@@ -20,13 +21,22 @@ use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_info};
 use ty_python_semantic::{Db, SemanticModel};
 
-use crate::Error;
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Var, VarId};
+use crate::{Docstring, Error};
+use doctest::{DoctestScope, Tests};
 use flow::{Assigned, Bindings, always_returns};
 use name_error::unbound_local;
 
-pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Error> {
+/// The program of `file`. With `tests`, the docstrings of the file and
+/// whether the report shows every example, the program runs the doctests
+/// after the body of the file.
+pub(crate) fn lower(
+    db: &dyn Db,
+    file: File,
+    path: &str,
+    tests: Option<(&[Docstring], bool)>,
+) -> Result<Program, Error> {
     let main = Loaded::new(db, file);
     let prelude = prelude::load(db, file);
     let unit = Unit::new(&main, path, None);
@@ -34,12 +44,21 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         .iter()
         .map(|(name, loaded)| Unit::new(loaded, name, Some(name)))
         .collect();
+    let mut vars = Vars::default();
+    let tests = tests.map(|(docstrings, verbose)| Tests {
+        docstrings,
+        verbose,
+        failed: vars.add_unnamed(Rep::Int),
+        errors: vars.add_unnamed(Rep::Int),
+        outcome: vars.add_unnamed(Rep::Int),
+    });
     let lowering = Lowering {
         unit: Cell::new(&unit),
+        tests,
         prelude: &prelude,
         intrinsics: prelude::intrinsics(db, file),
         sites: RefCell::new(Vec::new()),
-        vars: RefCell::new(Vars::default()),
+        vars: RefCell::new(vars),
         funcs: RefCell::new(Funcs::default()),
         imports: RefCell::new(Imports::default()),
         scope: RefCell::new(None),
@@ -50,6 +69,10 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let suite = main.module.suite().as_slice();
     lowering.declare_vars(&Bindings::of(suite))?;
     let body = lowering.body(suite)?;
+    let tests = match &lowering.tests {
+        Some(_) => Some(lowering.tests_driver()?),
+        None => None,
+    };
     // The lowering of a function may declare another one, which goes to the
     // end of the queue.
     let mut funcs: Vec<Func> = Vec::new();
@@ -67,6 +90,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     }
     Ok(Program {
         body,
+        tests,
         vars: lowering.vars.into_inner().list,
         funcs,
         imports: lowering.imports.into_inner().list,
@@ -139,6 +163,8 @@ impl<'a, 'db> Unit<'a, 'db> {
 struct Lowering<'a, 'db> {
     /// The file of the code that the lowering is in.
     unit: Cell<&'a Unit<'a, 'db>>,
+    /// The doctests of a program that tests its file.
+    tests: Option<Tests<'a>>,
     /// The modules of the prelude.
     prelude: &'a [Unit<'a, 'db>],
     /// The stub of the functions of the prelude that are instructions of
@@ -153,7 +179,8 @@ struct Lowering<'a, 'db> {
     /// of the module.
     scope: RefCell<Option<Scope>>,
     /// The line of the frame of each line of each function, and of the
-    /// module, by the name of the function and the number of the line.
+    /// module, by the path and the name of the frame, and the number of the
+    /// line.
     lines: RefCell<HashMap<(String, usize), u32>>,
     /// The functions of the prelude, which the lowering lowers at their
     /// first call, by the index of their id.
@@ -270,11 +297,15 @@ struct Sig<'a, 'db> {
     /// The variable of the module that holds the default of each parameter
     /// that has one. The `def` gives the variable its value.
     defaults: Vec<Option<VarId>>,
+    /// The docstring whose examples are the body of the function.
+    doctest: Option<&'a Docstring>,
     ret: Rep,
 }
 
 struct Scope {
     func: FuncId,
+    /// The docstring whose examples are the body of the function.
+    doctest: Option<DoctestScope>,
     /// The name of the function, which its frames in a traceback show.
     name: String,
     ret: Rep,
@@ -405,6 +436,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .zip(&params)
             .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
             .collect();
+        let doctest = self.tests.as_ref().and_then(|tests| {
+            tests
+                .docstrings
+                .iter()
+                .find(|docstring| docstring.function == name)
+        });
         let func = funcs.add(
             id,
             Sig {
@@ -412,6 +449,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 def,
                 params,
                 defaults,
+                doctest,
                 ret,
             },
         );
@@ -511,6 +549,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .collect();
         *self.scope.borrow_mut() = Some(Scope {
             func: id,
+            doctest: sig.doctest.map(|docstring| DoctestScope {
+                owner: docstring.owner.clone(),
+                example: None,
+            }),
             name: def.name.to_string(),
             ret: sig.ret,
             locals,
@@ -518,7 +560,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
             vars,
         });
         self.declare_vars(&bindings)?;
-        let body = self.body(&def.body)?;
+        let body = match sig.doctest {
+            Some(docstring) => self.doctest_body(def, docstring)?,
+            None => self.body(&def.body)?,
+        };
         if sig.ret != Rep::None && !always_returns(&def.body) {
             return Err(unsupported(
                 &def.name,
@@ -565,14 +610,28 @@ impl<'a, 'db> Lowering<'a, 'db> {
             self.raises.set(true);
             return Site::NONE;
         }
-        let name = self
-            .scope
-            .borrow()
-            .as_ref()
-            .map_or_else(|| "<module>".to_owned(), |scope| scope.name.clone());
         let unit = self.unit.get();
         let number = traceback::line(&unit.lines, range);
-        let text = traceback::frame(unit.path, &name, &unit.lines, range);
+        let (path, name, number) = match self.scope.borrow().as_ref() {
+            None => (unit.path.to_owned(), "<module>".to_owned(), number),
+            // The code of an example is a file of its own, as in the
+            // `doctest` of CPython.
+            Some(Scope {
+                doctest:
+                    Some(DoctestScope {
+                        owner,
+                        example: Some((index, first)),
+                    }),
+                ..
+            }) => (
+                format!("<doctest {owner}[{index}]>"),
+                "<module>".to_owned(),
+                number + 1 - first,
+            ),
+            Some(scope) => (unit.path.to_owned(), scope.name.clone(), number),
+        };
+        let text = traceback::frame(&path, &name, number, &unit.lines, range);
+        let name = format!("{path}\n{name}");
         let mut lines = self.lines.borrow_mut();
         let count = u32::try_from(lines.len()).expect("fewer than 2^32 lines");
         let line = *lines.entry((name, number)).or_insert(count);

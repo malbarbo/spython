@@ -16,3 +16,13 @@ def code_point(s: str, index: int) -> int:
 
 def is_printable(code_point: int) -> bool:
     """Whether `str.isprintable` accepts the code point."""
+
+def write_err(text: str) -> None:
+    """Writes `text` to the standard error, and flushes it."""
+
+def captured_output() -> str:
+    """What the last example of a docstring wrote to the standard output."""
+
+def captured_exception() -> str:
+    """The last line of the traceback of the exception that ended the last example of a
+    docstring, with its line feed. An example that raised nothing gives an empty `str`."""
