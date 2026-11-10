@@ -307,9 +307,13 @@ fn categories(data: &str) -> Vec<String> {
 }
 
 /// Writes the statics `{name}_BMP` and `{name}_ASTRAL`, the two lists of a
-/// set of code points, as `contains` of `src/unicode.rs` reads them. The set
-/// has the code points that `accepts` accepts.
+/// set of code points, and the constant `{name}_ASCII`, the bits of the
+/// ASCII code points of the set, as `contains` of `src/unicode.rs` reads
+/// them. The set has the code points that `accepts` accepts.
 fn set(code: &mut String, name: &str, accepts: impl Fn(u32) -> bool) {
+    let ascii = (0..128)
+        .filter(|&cp| accepts(cp))
+        .fold(0u128, |bits, cp| bits | 1 << cp);
     let (mut bmp, mut astral) = (Vec::new(), Vec::new());
     let mut inside = false;
     for cp in 0..END {
@@ -323,7 +327,7 @@ fn set(code: &mut String, name: &str, accepts: impl Fn(u32) -> bool) {
     }
     writeln!(
         code,
-        "static {name}_BMP: [u16; {}] = {bmp:?};\nstatic {name}_ASTRAL: [u32; {}] = {astral:?};",
+        "const {name}_ASCII: u128 = {ascii};\nstatic {name}_BMP: [u16; {}] = {bmp:?};\nstatic {name}_ASTRAL: [u32; {}] = {astral:?};",
         bmp.len(),
         astral.len(),
     )
