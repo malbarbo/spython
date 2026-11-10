@@ -815,6 +815,11 @@ impl Emitter<'_> {
                 }
                 self.at(f, *site, |e, f| e.reprs.lcm_end(&mut e.m, f));
             }
+            Expr::IntPow { base, exp, site } => {
+                self.expr(f, base);
+                self.expr(f, exp);
+                self.at(f, *site, |e, f| e.reprs.int_pow(&mut e.m, f));
+            }
             Expr::IntChoose { choice, n, k, site } => {
                 self.expr(f, n);
                 self.expr(f, k);

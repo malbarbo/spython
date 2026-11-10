@@ -39,3 +39,6 @@ def is_cased(code_point: int) -> bool:
 
 def is_case_ignorable(code_point: int) -> bool:
     """Whether the code point has the property `Case_Ignorable` of Unicode."""
+
+def natural_power(base: int, exp: int) -> int:
+    """`base ** exp` for an `exp` that is not negative. A power outside 31 bits stops the program."""

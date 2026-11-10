@@ -217,3 +217,58 @@ fn the_traceback_of_the_int_limit_has_no_carets_under_a_whole_line() {
         "1073741824",
     );
 }
+
+#[test]
+fn a_power_of_two_ints_has_the_type_that_its_exponent_gives() {
+    same_as_cpython(
+        "a_power_of_two_ints_has_the_type_that_its_exponent_gives",
+        indoc! {"
+            def power(b: int, e: int) -> None:
+                print(b ** e, pow(b, e))
+
+
+            n = 3
+            print(2 ** 10, (-3) ** 3, 0 ** 0, 7 ** 1, (-1024) ** 3, 2 ** True, 5 ** False, n ** 2)
+            print(2 ** -1, (-2) ** -3, 10 ** -2, (-1) ** -1)
+            power(2, 10)
+            power(-2, 29)
+            power(-64, 5)
+            power(3, 0)
+            power(2, -2)
+            power(-1, 1000001)
+            power(0, 5)
+            power(1, 1073741823)
+            power(5, -1)
+            k = 2
+            k **= 3
+            print(k)
+            power(0, -1)
+        "},
+    );
+}
+
+#[test]
+fn a_power_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "a_power_outside_31_bits_stops_the_program",
+        indoc! {"
+            print(2 ** 29)
+            print(2 ** 30)
+        "},
+        "536870912\n",
+        2,
+        "    print(2 ** 30)\n          ~~^^~~~\n",
+        "of **",
+    );
+    stops_at_the_int_limit(
+        "a_power_with_a_variable_exponent_outside_31_bits_stops_the_program",
+        indoc! {"
+            e = len('a' * 40)
+            print((-2) ** e)
+        "},
+        "",
+        2,
+        "    print((-2) ** e)\n          ~~~~~^^~~\n",
+        "of **",
+    );
+}

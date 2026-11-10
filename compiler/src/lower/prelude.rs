@@ -187,6 +187,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 site: self.site(call.range()),
             }),
             "builder_done" => arg().map(|builder| *builder),
+            "natural_power" => arg().zip(arg()).map(|(base, exp)| Expr::IntPow {
+                base,
+                exp,
+                site: self.site(call.range()),
+            }),
             "code_point" => arg()
                 .zip(arg())
                 .map(|(value, index)| Expr::CodePoint { value, index }),

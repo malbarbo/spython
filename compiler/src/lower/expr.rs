@@ -2,6 +2,7 @@
 
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
+use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::{Lowering, coerce, unsupported};
 use crate::Error;
@@ -310,7 +311,7 @@ impl<'a> Lowering<'a, '_> {
         node: &impl Ranged,
         op: ast::Operator,
         (left, left_node): (Expr, &impl Ranged),
-        (right, right_node): (Expr, &impl Ranged),
+        (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
         match (op, left.rep(), right.rep()) {
             (ast::Operator::Add, Rep::Str, Rep::Str) => {
@@ -345,6 +346,9 @@ impl<'a> Lowering<'a, '_> {
                 right: Box::new(float_value(right, right_node)?),
                 site: self.site(node.range()),
             });
+        }
+        if op == ast::Operator::Pow && !floats {
+            return self.int_power(node, (left, left_node), (right, right_node));
         }
         if op == ast::Operator::Pow && floats {
             return Ok(Expr::FloatPow {
@@ -386,6 +390,51 @@ impl<'a> Lowering<'a, '_> {
             right: Box::new(self.int_value(right, right_node)?),
             site: self.site(node.range()),
         })
+    }
+
+    /// `left ** right` of two `int`s. The type of the exponent gives the
+    /// type of the power, as the checker does. A negative literal gives a
+    /// `float`, a literal that is not negative gives an `int`, and any
+    /// other `int` gives an `int` or a `float`.
+    fn int_power(
+        &self,
+        node: &impl Ranged,
+        (left, left_node): (Expr, &impl Ranged),
+        (right, right_node): (Expr, &ast::Expr),
+    ) -> Result<Expr, Error> {
+        // The sign of the exponent, when its type tells it.
+        let sign = |shape: &Shape| match shape {
+            Shape::IntLit(exp) if *exp < 0 => Some(true),
+            Shape::IntLit(_) | Shape::BoolLit(_) | Shape::Bool => Some(false),
+            _ => None,
+        };
+        let negative = match expr_shape(self.model(), right_node) {
+            Some(Shape::Union(shapes)) => {
+                let signs: Option<Vec<_>> = shapes.iter().map(sign).collect();
+                signs.and_then(|signs| {
+                    let first = *signs.first()?;
+                    signs.iter().all(|sign| *sign == first).then_some(first)
+                })
+            }
+            shape => shape.as_ref().and_then(sign),
+        };
+        if negative == Some(true) {
+            return Ok(Expr::FloatPow {
+                left: Box::new(float_value(left, left_node)?),
+                right: Box::new(float_value(right, right_node)?),
+                site: self.site(node.range()),
+            });
+        }
+        let base = self.int_value(left, left_node)?;
+        let exp = self.int_value(right, right_node)?;
+        if negative == Some(false) {
+            return Ok(Expr::IntPow {
+                base: Box::new(base),
+                exp: Box::new(exp),
+                site: self.site(node.range()),
+            });
+        }
+        self.prelude_call(node, "int", "power", vec![base, exp])
     }
 
     fn unary(&self, u: &ast::ExprUnaryOp) -> Result<Expr, Error> {

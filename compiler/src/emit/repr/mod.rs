@@ -339,6 +339,12 @@ impl Reprs {
     /// Pops `n` and `k` and pushes `math.comb(n, k)` or `math.perm(n, k)`,
     /// by `choice`, or raises the error of a negative `int` or of a result
     /// that does not fit.
+    /// Pops an `int` and an exponent that is not negative, and pushes the
+    /// power.
+    pub fn int_pow(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.pow(m, f, &mut self.str, &self.exc);
+    }
+
     pub fn choose(&mut self, m: &mut ModuleState, f: &mut FuncState, choice: Choice) {
         self.int.choose(m, f, &mut self.str, &self.exc, choice);
     }

@@ -49,6 +49,9 @@ pub(super) enum IntRepr {
         /// `(func (param i32 i32) (result i32))` for `math.comb` and
         /// `math.perm`, which the module gets at the first use.
         chooses: BTreeMap<Choice, FuncIdx>,
+        /// `(func (param i32 i32) (result i32))` for `**`, which the module
+        /// gets at the first use.
+        pow: Option<FuncIdx>,
     },
 }
 
@@ -75,6 +78,7 @@ impl IntRepr {
             lcm: None,
             lcm_end: None,
             chooses: BTreeMap::new(),
+            pow: None,
         }
     }
 
@@ -259,6 +263,21 @@ impl IntRepr {
         match self {
             IntRepr::I31 { lcm_end, .. } => {
                 let func = *lcm_end.get_or_insert_with(|| add_lcm_end(m, str, exc));
+                f.ins().call(func);
+            }
+        }
+    }
+
+    pub fn pow(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+    ) {
+        match self {
+            IntRepr::I31 { pow, .. } => {
+                let func = *pow.get_or_insert_with(|| add_pow(m, str, exc));
                 f.ins().call(func);
             }
         }
@@ -612,6 +631,55 @@ fn add_choose(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions, choice: 
     f.if_(BlockType::Empty);
     let text = too_large(choice.name());
     exc.raise(m, str, &mut f, &Message::new(Class::Limit, &text));
+    f.end();
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(r).i32_wrap_i64();
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `base ** exp` with an `exp` that is not negative, by
+/// squares. The square of the base is a factor of the power when a bit of
+/// the exponent is left, and the base is not -1, 0 or 1 when the square
+/// grows. So a square or a product outside 31 bits means a power outside
+/// them, and the program stops there.
+fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let mut f = FuncState::new(2);
+    let (base, exp) = (f.param(0), f.param(1));
+    let (r, b) = (f.local(ValType::I64), f.local(ValType::I64));
+    let text = too_large("**");
+    let mut fits = |f: &mut FuncState, v| {
+        f.ins()
+            .local_get(v)
+            .i64_const(-MIN)
+            .i64_add()
+            .i64_const(MAX - MIN + 1)
+            .i64_ge_u();
+        f.if_(BlockType::Empty);
+        exc.raise(m, str, f, &Message::new(Class::Limit, &text));
+        f.end();
+    };
+    f.ins().i64_const(1).local_set(r);
+    f.ins().local_get(base).i64_extend_i32_s().local_set(b);
+    let done = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(exp).i32_eqz();
+    f.br_if(done);
+    f.ins().local_get(exp).i32_const(1).i32_and();
+    f.if_(BlockType::Empty);
+    f.ins().local_get(r).local_get(b).i64_mul().local_set(r);
+    fits(&mut f, r);
+    f.end();
+    f.ins()
+        .local_get(exp)
+        .i32_const(1)
+        .i32_shr_u()
+        .local_tee(exp);
+    f.if_(BlockType::Empty);
+    f.ins().local_get(b).local_get(b).i64_mul().local_set(b);
+    fits(&mut f, b);
     f.end();
     f.br(again);
     f.end();
