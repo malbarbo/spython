@@ -617,3 +617,14 @@ O hello world leva hoje 141 ms no `main`, com o checker.
   definição dele no prelude sem passar pelo nome impresso.
 - Um módulo `host/` com um arquivo por host, quando houver um segundo.
   Hoje o `trap.rs` lê só o stderr do wasmtime externo.
+- A atribuição a um subscrito no prelude vira `StrSet` porque o código é
+  do prelude, sem olhar o tipo do alvo. Com as listas, a instrução sai do
+  tipo do alvo, e o `StrBuilder` entra no mesmo `match`.
+- A posição `linha:coluna` de um erro do compilador dentro de um exemplo
+  de docstring, que hoje aponta para o projeto sintético. Entra junto com
+  as mensagens de erro do compilador.
+- Um tipo próprio de variável para o escopo dos doctests, se esse escopo
+  crescer, por exemplo com um `def` dentro de um exemplo.
+- Carregar um módulo do prelude só quando o programa chama uma função
+  dele. Hoje toda compilação lê os cinco módulos, e falta medir quanto
+  isso custa.
