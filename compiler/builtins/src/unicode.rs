@@ -119,6 +119,21 @@ pub extern "C" fn str_is_digit(cp: u32) -> u32 {
     u32::from(contains(&DIGIT_BMP, &DIGIT_ASTRAL, cp))
 }
 
+/// The value of `cp` as a decimal digit, or -1 when `str.isdecimal` does not
+/// accept it.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_decimal_value(cp: u32) -> i32 {
+    let zero = DECIMAL_ZEROS
+        .partition_point(|&zero| zero <= cp)
+        .checked_sub(1)
+        .and_then(|at| DECIMAL_ZEROS.get(at));
+    match zero {
+        // A digit is below 10.
+        Some(&zero) if cp - zero < 10 => (cp - zero) as i32,
+        _ => -1,
+    }
+}
+
 /// Returns 1 if `str.isnumeric` accepts `cp`, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn str_is_numeric(cp: u32) -> u32 {

@@ -1,5 +1,7 @@
 use std::process::Command;
 
+use builtins::unicode::str_decimal_value;
+
 use builtins::unicode::{
     str_fold_at, str_is_alpha, str_is_case_ignorable, str_is_cased, str_is_decimal, str_is_digit,
     str_is_lowercase, str_is_numeric, str_is_printable, str_is_uppercase, str_is_xid_continue,
@@ -132,4 +134,24 @@ fn xid_start_and_xid_continue_match_cpython() {
     // `_` starts an identifier in Python, but it does not have `XID_Start`.
     same_as_cpython(str_is_xid_start, "c.isidentifier() and c != '_'");
     same_as_cpython(str_is_xid_continue, "('a' + c).isidentifier()");
+}
+
+#[test]
+fn decimal_value_matches_cpython() {
+    let program = "import sys, unicodedata\n\
+         sys.stdout.write('\\n'.join(str(unicodedata.decimal(chr(c), -1)) \
+         for c in range(0x110000)))";
+    let output = Command::new(std::env::var("PYTHON").unwrap_or_else(|_| "python3".into()))
+        .args(["-c", program])
+        .output()
+        .expect("python3 should run");
+    assert!(output.status.success(), "{output:?}");
+    let expected = String::from_utf8(output.stdout).expect("digits are ASCII");
+    let mismatches: Vec<String> = (0..0x11_0000)
+        .zip(expected.lines())
+        .filter(|(cp, want)| str_decimal_value(*cp).to_string() != *want)
+        .map(|(cp, _)| format!("U+{cp:04X}"))
+        .take(20)
+        .collect();
+    assert!(mismatches.is_empty(), "{mismatches:?}");
 }

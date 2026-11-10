@@ -37,6 +37,18 @@ fn main() {
             members.get(cp as usize).copied().unwrap_or(false)
         });
     }
+    // Each decimal digit is in a run of the ten digits from its zero.
+    let zeros: Vec<u32> = data
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split(';').collect();
+            (fields.get(6) == Some(&"0")).then(|| code_point(fields.first().expect("a code point")))
+        })
+        .collect();
+    code.push_str(&format!(
+        "static DECIMAL_ZEROS: [u32; {}] = {zeros:?};\n",
+        zeros.len()
+    ));
     let numeric = listed(&read("DerivedNumericValues.txt"));
     set(&mut code, "NUMERIC", |cp| {
         numeric.get(cp as usize).copied().unwrap_or(false)
