@@ -277,10 +277,11 @@ pub(crate) enum Expr {
     /// A `float` rounded to the nearest whole value, with a tie going to
     /// the even one, as `round` does.
     FloatRound(Box<Expr>),
-    /// `value`, once the import of `import` has run. A read of a name of
-    /// an import before the import raises `NameError`.
-    AfterImport {
-        import: ImportId,
+    /// `value`, once the name of `binding` has a value. A read of the name
+    /// before raises the error of `check`, as a read of a name of an
+    /// import before the import does.
+    After {
+        binding: Binding,
         check: Check,
         value: Box<Expr>,
     },
@@ -1026,7 +1027,7 @@ impl Expr {
             | Expr::Narrow { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
-            Expr::AfterImport { value, .. } => value.rep(),
+            Expr::After { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
             Expr::Print { .. } | Expr::WriteErr(_) | Expr::Stop { .. } => Rep::None,
         }

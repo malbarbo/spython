@@ -6,7 +6,9 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Choice, Expr, FloatFunc2, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance};
+use crate::ir::{
+    Binding, Choice, Expr, FloatFunc2, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance,
+};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -59,8 +61,8 @@ impl<'a> Lowering<'a, '_> {
             .get(imported.id.as_str())
             .expect("a declared import");
         Ok(match self.global_check(imported)? {
-            Some(check) => Expr::AfterImport {
-                import,
+            Some(check) => Expr::After {
+                binding: Binding::Import(import),
                 check,
                 value: Box::new(value),
             },

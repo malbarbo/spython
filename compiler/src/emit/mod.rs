@@ -798,12 +798,12 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.float_round(f);
             }
-            Expr::AfterImport {
-                import,
+            Expr::After {
+                binding,
                 check,
                 value,
             } => {
-                self.bound(f, Binding::Import(*import));
+                self.bound(f, *binding);
                 self.raise_if_undefined(f, check);
                 self.expr(f, value);
             }
