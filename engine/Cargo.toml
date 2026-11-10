@@ -36,6 +36,9 @@ workspace = true
 prelude = { path = "../compiler/prelude" }
 # The macros of the modules that build a scene and hold the display.
 rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4", default-features = false }
+# The classes of characters of the str of the interpreter, which the
+# reading of a docstring follows as the runner does.
+rustpython-unicode = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4" }
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
 ty_python_semantic = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }
 ty_python_core = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }

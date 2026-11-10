@@ -159,7 +159,7 @@ fn exc_msg(want: &str) -> Option<String> {
     let at = lines.iter().skip(1).position(|line| {
         line.chars()
             .next()
-            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            .is_some_and(|c| rustpython_unicode::classify::is_alnum(c) || c == '_')
     })?;
     Some(lines.get(at + 1..)?.join("\n"))
 }
@@ -1214,6 +1214,12 @@ mod tests {
         let parsed = parse_module(src).expect("the test source parses");
         let module = parsed.into_syntax();
         extract_doctests(&module, src)
+    }
+
+    #[test]
+    fn the_exception_starts_at_a_line_that_str_isalnum_accepts() {
+        let want = "Traceback (most recent call last):\n\u{903} mark\nValueError: x\n";
+        assert_eq!(exc_msg(want).as_deref(), Some("ValueError: x\n"));
     }
 
     #[test]

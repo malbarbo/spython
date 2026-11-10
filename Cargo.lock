@@ -1172,6 +1172,7 @@ dependencies = [
  "ruff_ranged_value",
  "ruff_text_size",
  "rustpython",
+ "rustpython-unicode",
  "rustpython-vm",
  "salsa",
  "sinteract",
