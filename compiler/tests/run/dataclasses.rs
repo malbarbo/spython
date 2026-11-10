@@ -402,6 +402,64 @@ fn the_repr_of_a_cycle_writes_three_dots() {
     );
 }
 
+/// The `__eq__` of a dataclass returns `True` for the same object before
+/// it compares the fields, so an object with a `nan` or with a cycle is
+/// equal to itself.
+#[test]
+fn objects_of_a_dataclass_compare_by_their_fields() {
+    same_as_cpython(
+        "objects_of_a_dataclass_compare_by_their_fields",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+                B = 2
+
+            @dataclass
+            class P:
+                x: int
+                y: float
+                nome: str | None
+                cor: Cor | None
+
+            @dataclass
+            class Q:
+                x: int
+
+            @dataclass
+            class No:
+                v: int
+                prox: 'No | None'
+
+            @dataclass
+            class Vazia:
+                pass
+
+            def iguais(p: P | None, q: P | None) -> bool:
+                return p == q
+
+            a = P(1, 2.0, None, Cor.A)
+            b = P(1, 2.0, None, Cor.A)
+            c = P(1, 2.0, 'c', None)
+            print(a == b, a != b, a == c, a != c, a == a)
+            n = P(1, float('nan'), None, None)
+            print(n == n, n == P(1, n.y, None, None))
+            print(iguais(None, None), iguais(a, None), iguais(None, a), iguais(a, b))
+            print(a == Q(1), Q(1) != a, Q(1) == 1, Vazia() == Vazia())
+            l1 = No(1, No(2, None))
+            print(l1 == No(1, No(2, None)), l1 == No(1, None), l1 != No(1, No(3, None)))
+            c1 = No(1, None)
+            c1.prox = c1
+            print(c1 == c1, c1 != c1)
+            c2 = No(1, None)
+            c2.prox = c2
+            print(c1 == c2)
+        "},
+    );
+}
+
 #[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [
@@ -515,10 +573,40 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 class P:
                     x: int
 
-                def f(a: P, b: P) -> bool:
+                def f(a: P, b: P, c: P) -> bool:
+                    return a == b == c
+            "},
+            "a chain of comparisons of dataclasses",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    x: int
+
+                def f(a: P | int, b: P | int) -> bool:
                     return a == b
             "},
-            "== of a dataclass",
+            "== of a union with a dataclass",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    x: int
+
+                @dataclass
+                class Q:
+                    p: P | int
+
+                def f(a: Q, b: Q) -> bool:
+                    return a == b
+            "},
+            "== of a field of a union with a dataclass",
         ),
         (
             indoc! {"

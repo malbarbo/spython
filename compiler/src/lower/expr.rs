@@ -345,16 +345,17 @@ impl<'a> Lowering<'a, '_> {
             .chain(c.comparators())
             .map(|operand| Ok((self.expr(operand)?, operand)))
             .collect::<Result<Vec<_>, Error>>()?;
-        // A member of an `Enum` is equal to itself alone.
+        if operands
+            .windows(2)
+            .any(|pair| matches!(pair, [left, right] if self.share_dataclass(left, right)))
+        {
+            return self.dataclass_compare(c, ops, operands);
+        }
+        // A member of an `Enum` is equal to itself alone, and an object of
+        // a dataclass is not equal to a value of another class or type.
         if operands.iter().any(|(lowered, _)| is_object(lowered.rep())) {
             if ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne)) {
                 return Err(unsupported(c, "an order of objects"));
-            }
-            if operands
-                .iter()
-                .any(|(lowered, _)| self.is_dataclass(lowered.rep()))
-            {
-                return Err(unsupported(c, "== of a dataclass"));
             }
             // The tests of the type of a uniform value compare an object
             // with a value of another class or type.

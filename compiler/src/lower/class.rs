@@ -21,7 +21,9 @@ use super::{HashSet, Lowering, Scope, Vars, coerce, unsupported};
 use crate::Error;
 use crate::cpython::Class;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
-use crate::ir::{Binding, ClassId, Expr, FuncId, Place, Rep, Site, Stmt, UserClass, VarId};
+use crate::ir::{
+    Binding, ClassId, CmpOp, Expr, FuncId, LogicOp, Place, Rep, Site, Stmt, UserClass, VarId,
+};
 
 /// The classes of the module.
 #[derive(Default)]
@@ -83,6 +85,11 @@ pub(super) struct Declared<'a> {
     /// The function that makes an object of a dataclass from a value for
     /// each field, once a call needs it.
     pub init: Option<FuncId>,
+    /// The function `__eq__` of a dataclass, once a comparison needs it.
+    pub eq: Option<FuncId>,
+    /// The function that compares two values of a dataclass that may be
+    /// `None`, once a comparison needs it.
+    pub eq_or_none: Option<FuncId>,
     /// The functions that give the `str` and the `repr` of an object of the
     /// class or `None`, once a conversion needs them.
     pub or_none: [Option<FuncId>; 2],
@@ -144,6 +151,8 @@ impl<'a> Lowering<'a, '_> {
             str: None,
             repr: None,
             init: None,
+            eq: None,
+            eq_or_none: None,
             or_none: [None; 2],
             defaults: Vec::new(),
         });
@@ -853,15 +862,263 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// Returns `true` if a value of `rep` is an object of a dataclass, or
-    /// `None`, `false` otherwise.
-    pub(super) fn is_dataclass(&self, rep: Rep) -> bool {
-        match rep {
-            Rep::Object(class) | Rep::ObjectOrNone(class) => {
-                self.classes.borrow().get(class).kind == Kind::Dataclass
-            }
-            _ => false,
+    /// Returns `true` if the lowered operands `left` and `right`, each with
+    /// its node, may be objects of the same dataclass, `false` otherwise.
+    pub(super) fn share_dataclass(
+        &self,
+        left: &(Expr, &ast::Expr),
+        right: &(Expr, &ast::Expr),
+    ) -> bool {
+        let right = self.dataclasses_of(right);
+        self.dataclasses_of(left)
+            .iter()
+            .any(|class| right.contains(class))
+    }
+
+    /// The dataclasses whose objects the lowered `operand`, with its node,
+    /// may be.
+    fn dataclasses_of(&self, (lowered, node): &(Expr, &ast::Expr)) -> Vec<ClassId> {
+        let mut found = Vec::new();
+        match lowered.rep() {
+            Rep::Object(class) | Rep::ObjectOrNone(class) => found.push(class),
+            Rep::Uniform => self.classes_in(expr_shape(self.model(), node), &mut found),
+            _ => {}
         }
+        let classes = self.classes.borrow();
+        found.retain(|class| classes.get(*class).kind == Kind::Dataclass);
+        found
+    }
+
+    /// Adds the class of each object that a value of `shape` may be to
+    /// `found`.
+    fn classes_in(&self, shape: Option<Shape>, found: &mut Vec<ClassId>) {
+        match shape {
+            Some(Shape::Instance(class, _)) => {
+                found.extend(self.classes.borrow().ids.get(&class).copied());
+            }
+            Some(Shape::Union(shapes)) => {
+                for shape in shapes {
+                    self.classes_in(Some(shape), found);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The comparison `c`, with `ops` and the lowered `operands`, where two
+    /// operands may be objects of the same dataclass. The `__eq__` of the
+    /// class compares them, and `!=` is `not` of `==`, as in CPython.
+    pub(super) fn dataclass_compare(
+        &self,
+        c: &ast::ExprCompare,
+        ops: Vec<CmpOp>,
+        operands: Vec<(Expr, &ast::Expr)>,
+    ) -> Result<Expr, Error> {
+        let (Ok([op]), Ok([(left, _), (right, _)])) =
+            (<[CmpOp; 1]>::try_from(ops), <[_; 2]>::try_from(operands))
+        else {
+            return Err(unsupported(c, "a chain of comparisons of dataclasses"));
+        };
+        if !matches!(op, CmpOp::Eq | CmpOp::Ne) {
+            return Err(unsupported(c, "an order of objects"));
+        }
+        let site = Some(self.site(c.range()));
+        let eq = match (left.rep(), right.rep()) {
+            (Rep::Object(a), Rep::Object(b)) if a == b => Expr::Call {
+                func: self.class_eq(a)?,
+                args: vec![left, right],
+                order: None,
+                rep: Rep::Bool,
+                site,
+                check: None,
+            },
+            (Rep::Object(a) | Rep::ObjectOrNone(a), Rep::Object(b) | Rep::ObjectOrNone(b))
+                if a == b =>
+            {
+                let rep = Rep::ObjectOrNone(a);
+                let coerced = |value| coerce(value, rep).expect("an object or None");
+                Expr::Call {
+                    func: self.eq_or_none(a)?,
+                    args: vec![coerced(left), coerced(right)],
+                    order: None,
+                    rep: Rep::Bool,
+                    site,
+                    check: None,
+                }
+            }
+            _ => return Err(unsupported(c, "== of a union with a dataclass")),
+        };
+        Ok(match op {
+            CmpOp::Ne => Expr::Not(Box::new(eq)),
+            _ => eq,
+        })
+    }
+
+    /// The function `__eq__` of `class`, a dataclass, as CPython 3.13
+    /// writes it. Two objects are equal when they are the same object, or
+    /// when each field of one is equal to the field of the other, in order.
+    /// The code is on the line 10 plus the number of lines of the code of
+    /// `__init__`, after the `__init__` and the `__repr__`.
+    fn class_eq(&self, class: ClassId) -> Result<FuncId, Error> {
+        if let Some(func) = self.classes.borrow().get(class).eq {
+            return Ok(func);
+        }
+        let (def, fields) = {
+            let classes = self.classes.borrow();
+            let declared = classes.get(class);
+            (declared.def, declared.fields.clone())
+        };
+        let object = Rep::Object(class);
+        let func = self.reserve(vec![object, object], Rep::Bool);
+        // A field may hold an object of the class itself.
+        self.classes.borrow_mut().get_mut(class).eq = Some(func);
+        let line = 10 + fields.len().max(1);
+        let site = self.add_site(
+            "<string>\n__eq__".to_owned(),
+            line,
+            format!("  File \"<string>\", line {line}, in __eq__\n"),
+        );
+        let other = || Expr::Load {
+            place: Place::Local(VarId::new(1)),
+            rep: object,
+            check: None,
+        };
+        let mut same = None;
+        for (i, ((_, rep), node)) in fields.iter().zip(dataclass_fields(def)).enumerate() {
+            let field = u32::try_from(i).expect("fewer than 2^32 fields");
+            let theirs = Expr::Field {
+                object: Box::new(other()),
+                class,
+                field,
+                rep: *rep,
+            };
+            let eq = self.field_eq(self.own_field(class, field), theirs, site, node)?;
+            same = Some(match same {
+                None => eq,
+                Some(before) => Expr::Logic {
+                    op: LogicOp::And,
+                    left: Box::new(before),
+                    right: Box::new(eq),
+                },
+            });
+        }
+        let body = Expr::Logic {
+            op: LogicOp::Or,
+            left: Box::new(Expr::Is(Box::new(own(class)), Box::new(other()))),
+            right: Box::new(same.unwrap_or(Expr::Bool(true))),
+        };
+        self.define(func, true, vec![Stmt::Return(Some(body))]);
+        Ok(func)
+    }
+
+    /// Whether `ours` and `theirs`, the values of a field `node` of two
+    /// objects of a dataclass, are equal, as a `bool`. The code at `site`
+    /// compares them.
+    fn field_eq(
+        &self,
+        ours: Expr,
+        theirs: Expr,
+        site: Site,
+        node: &ast::StmtAnnAssign,
+    ) -> Result<Expr, Error> {
+        let rep = ours.rep();
+        let dataclass = |class: ClassId| self.classes.borrow().get(class).kind == Kind::Dataclass;
+        let func = match rep {
+            Rep::Object(class) if dataclass(class) => Some(self.class_eq(class)?),
+            Rep::ObjectOrNone(class) if dataclass(class) => Some(self.eq_or_none(class)?),
+            _ => None,
+        };
+        if let Some(func) = func {
+            return Ok(Expr::Call {
+                func,
+                args: vec![ours, theirs],
+                order: None,
+                rep: Rep::Bool,
+                site: Some(site),
+                check: None,
+            });
+        }
+        if rep == Rep::Uniform {
+            let mut found = Vec::new();
+            self.classes_in(self.field_shape(node), &mut found);
+            if found.into_iter().any(dataclass) {
+                return Err(unsupported(
+                    node,
+                    "== of a field of a union with a dataclass",
+                ));
+            }
+        }
+        // A union compares by the types of its values.
+        if matches!(rep, Rep::StrOrNone | Rep::Uniform) {
+            let uniform = |value| coerce(value, Rep::Uniform).expect("a uniform value");
+            return Ok(Expr::Compare(
+                Box::new(uniform(ours)),
+                vec![(CmpOp::Eq, uniform(theirs))],
+            ));
+        }
+        Ok(Expr::Compare(Box::new(ours), vec![(CmpOp::Eq, theirs)]))
+    }
+
+    /// The type of the field `node` of a dataclass, as the checker gives it.
+    fn field_shape(&self, node: &ast::StmtAnnAssign) -> Option<Shape> {
+        let ast::Expr::Name(name) = &*node.target else {
+            return None;
+        };
+        let classes = self.classes.borrow();
+        let def = classes
+            .list
+            .iter()
+            .find(|class| class.def.range().contains_range(node.range()))?
+            .def;
+        class_info(self.model(), def)?
+            .dataclass_fields?
+            .into_iter()
+            .find(|field| field.name == name.id.as_str())
+            .map(|field| field.shape)
+    }
+
+    /// The function that compares two values of `class`, a dataclass, that
+    /// may be `None`. A value is equal to `None` when it is `None`, and the
+    /// `__eq__` of the class compares two objects. The function has no
+    /// frame.
+    fn eq_or_none(&self, class: ClassId) -> Result<FuncId, Error> {
+        if let Some(func) = self.classes.borrow().get(class).eq_or_none {
+            return Ok(func);
+        }
+        let eq = self.class_eq(class)?;
+        let param = |i| Expr::Load {
+            place: Place::Local(VarId::new(i)),
+            rep: Rep::ObjectOrNone(class),
+            check: None,
+        };
+        let narrow = |i| Expr::Narrow {
+            value: Box::new(param(i)),
+            rep: Rep::Object(class),
+        };
+        let body = Expr::IfElse {
+            cond: Box::new(Expr::Logic {
+                op: LogicOp::Or,
+                left: Box::new(Expr::IsNone(Box::new(param(0)))),
+                right: Box::new(Expr::IsNone(Box::new(param(1)))),
+            }),
+            then: Box::new(Expr::Is(Box::new(param(0)), Box::new(param(1)))),
+            else_: Box::new(Expr::Call {
+                func: eq,
+                args: vec![narrow(0), narrow(1)],
+                order: None,
+                rep: Rep::Bool,
+                site: Some(Site::NONE),
+                check: None,
+            }),
+        };
+        let or_none = Rep::ObjectOrNone(class);
+        let func = self.generated(
+            vec![or_none, or_none],
+            Rep::Bool,
+            vec![Stmt::Return(Some(body))],
+        );
+        self.classes.borrow_mut().get_mut(class).eq_or_none = Some(func);
+        Ok(func)
     }
 
     /// The class that `name` reads, and `None` when it reads no class of
