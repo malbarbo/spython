@@ -10,7 +10,14 @@ fn main() {
     let dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it"))
         .join("builtins");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets it"));
-    for path in ["src", "Cargo.toml", "Cargo.lock", ".cargo/config.toml"] {
+    for path in [
+        "src",
+        "build.rs",
+        "ucd",
+        "Cargo.toml",
+        "Cargo.lock",
+        ".cargo/config.toml",
+    ] {
         println!("cargo:rerun-if-changed={}", dir.join(path).display());
     }
 

@@ -23,6 +23,7 @@ mod math;
 mod pow;
 mod round;
 mod tanh;
+pub mod unicode;
 
 pub use div::{floor_div, fmod, modulo};
 pub use gamma::{gamma, lgamma};
