@@ -102,7 +102,7 @@ fn each_raise_outside_what_the_compiler_covers_has_its_own_message() {
 
             raise E('a')
         "}),
-        "this statement"
+        "a class other than an Enum"
     );
     assert_eq!(
         unsupported("raise ValueError(1)\n"),

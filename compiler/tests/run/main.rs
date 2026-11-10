@@ -14,6 +14,7 @@ use engine::check::check_source;
 mod control;
 mod corpus;
 mod doctests;
+mod enums;
 mod float;
 mod functions;
 mod imports;

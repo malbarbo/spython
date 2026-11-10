@@ -31,6 +31,9 @@ pub(super) struct Bindings<'a> {
     /// Each assignment of a value.
     pub assignments: Vec<Assigned<'a>>,
     pub defs: Vec<&'a ast::StmtFunctionDef>,
+    /// The `class` statements of the body, out of its `if`s and its
+    /// `while`s.
+    pub classes: Vec<&'a ast::StmtClassDef>,
     /// Each name that an import binds, with the alias that binds it and
     /// the module of a `from` import.
     pub imports: Vec<(&'a str, &'a ast::Alias, Option<&'a str>)>,
@@ -49,6 +52,10 @@ impl<'a> Bindings<'a> {
     pub fn of(body: &'a [ast::Stmt]) -> Self {
         let mut bindings = Bindings::default();
         bindings.add(body);
+        bindings.classes = body
+            .iter()
+            .filter_map(ast::Stmt::as_class_def_stmt)
+            .collect();
         bindings
     }
 

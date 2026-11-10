@@ -169,6 +169,7 @@ impl<'a> Lowering<'a, '_> {
                     .expect("a declared function");
                 Ok(Some(Stmt::Def(id)))
             }
+            ast::Stmt::ClassDef(def) => Ok(Some(Stmt::Class(self.class_of(def)?))),
             ast::Stmt::Return(r) => self.return_(r).map(Some),
             ast::Stmt::Raise(r) => self.raise(r).map(Some),
             ast::Stmt::Assert(a) => {

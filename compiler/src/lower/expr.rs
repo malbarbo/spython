@@ -575,7 +575,7 @@ pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
 }
 
 /// The `int` of a literal, which has to fit in 31 bits.
-fn int_literal(node: &impl Ranged, value: Option<i64>) -> Result<Expr, Error> {
+pub(super) fn int_literal(node: &impl Ranged, value: Option<i64>) -> Result<Expr, Error> {
     match value {
         Some(v) if (INT_MIN..=INT_MAX).contains(&v) => {
             Ok(Expr::Int(i32::try_from(v).expect("31 bits fit in an i32")))

@@ -1,6 +1,7 @@
 //! From the syntax tree and the types of the checker to the IR.
 
 mod call;
+mod class;
 mod doctest;
 mod expr;
 mod flow;
@@ -26,6 +27,7 @@ use ty_python_semantic::{Db, SemanticModel};
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Var, VarId};
 use crate::{Docstring, Error};
+use class::Classes;
 use doctest::{DoctestScope, Tests};
 use flow::{Assigned, Bindings, always_returns};
 use name_error::unbound_local;
@@ -64,6 +66,7 @@ pub(crate) fn lower(
         vars: RefCell::new(vars),
         funcs: RefCell::new(Funcs::default()),
         imports: RefCell::new(Imports::default()),
+        classes: RefCell::new(Classes::default()),
         assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
@@ -99,6 +102,7 @@ pub(crate) fn lower(
         vars: lowering.vars.into_inner().list,
         funcs,
         imports: lowering.imports.into_inner().list,
+        classes: lowering.classes.into_inner().into_ir(),
         sites: lowering.sites.into_inner(),
     })
 }
@@ -137,6 +141,8 @@ struct Unit<'a, 'db> {
     prelude: Option<&'a str>,
     /// The functions of a module of the prelude, by name.
     defs: HashMap<&'a str, &'a ast::StmtFunctionDef>,
+    /// The statements of the module.
+    suite: &'a [ast::Stmt],
 }
 
 impl<'a, 'db> Unit<'a, 'db> {
@@ -161,6 +167,7 @@ impl<'a, 'db> Unit<'a, 'db> {
             path,
             prelude,
             defs,
+            suite: loaded.module.suite().as_slice(),
         }
     }
 }
@@ -180,6 +187,7 @@ struct Lowering<'a, 'db> {
     vars: RefCell<Vars>,
     funcs: RefCell<Funcs<'a, 'db>>,
     imports: RefCell<Imports>,
+    classes: RefCell<Classes<'a>>,
     /// The globals that a function declares with `global`, which a call may
     /// assign between a test of the value and a read.
     assigned_globals: RefCell<HashSet<String>>,
@@ -364,6 +372,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
             for (name, alias, from) in &bindings.imports {
                 self.declare_import(name, alias, *from)?;
             }
+            for class in &bindings.classes {
+                self.declare_class(class)?;
+            }
             for def in &bindings.defs {
                 self.declare_func(def)?;
                 self.declare_globals(def)?;
@@ -442,6 +453,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 if self.imports.borrow().ids.contains_key(name) {
                     return Err(unsupported(value, "a name of an import and of a variable"));
                 }
+                if self.classes.borrow().names.contains_key(name) {
+                    return Err(unsupported(value, "a name of a class and of a variable"));
+                }
                 &mut *module
             }
         };
@@ -465,6 +479,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         if self.imports.borrow().ids.contains_key(name) {
             return Err(unsupported(def, "a name of an import and of a function"));
+        }
+        if self.classes.borrow().names.contains_key(name) {
+            return Err(unsupported(def, "a name of a class and of a function"));
         }
         let mut funcs = self.funcs.borrow_mut();
         if funcs.names.contains_key(name) {
