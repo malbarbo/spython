@@ -144,9 +144,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         );
         Expr::Call {
             func,
-            order: (0..args.len())
-                .map(|arg| u32::try_from(arg).expect("fewer than 2^32 arguments"))
-                .collect(),
+            order: None,
             args,
             rep: sig.ret,
             site,

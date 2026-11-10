@@ -581,7 +581,7 @@ impl Emitter<'_> {
         &mut self,
         f: &mut FuncState,
         func: FuncId,
-        (args, order): (&[Expr], &[u32]),
+        (args, order): (&[Expr], Option<&[u32]>),
         site: Option<Site>,
         check: Option<&Check>,
     ) {
@@ -590,11 +590,7 @@ impl Emitter<'_> {
             self.bound(f, Binding::Func(func));
             self.raise_if_undefined(f, check);
         }
-        if order.iter().map(|arg| *arg as usize).eq(0..args.len()) {
-            for arg in args {
-                self.expr(f, arg);
-            }
-        } else {
+        if let Some(order) = order {
             // The program evaluates the arguments in the order of the call.
             let mut values = Vec::new();
             for arg in args {
@@ -610,6 +606,10 @@ impl Emitter<'_> {
             }
             for (_, local) in values {
                 f.free(local);
+            }
+        } else {
+            for arg in args {
+                self.expr(f, arg);
             }
         }
         let Some(site) = site else {
@@ -707,7 +707,7 @@ impl Emitter<'_> {
                 site,
                 check,
                 ..
-            } => self.call(f, *func, (args, order), *site, check.as_ref()),
+            } => self.call(f, *func, (args, order.as_deref()), *site, check.as_ref()),
             Expr::BoolAsInt(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);

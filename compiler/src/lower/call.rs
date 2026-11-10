@@ -78,14 +78,15 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The arguments of `call` in the order of the call, and the argument
-    /// of each parameter of `sig`. Without the `bindings` of the checker, a
+    /// of each parameter of `sig`, or `None` when each parameter takes the
+    /// argument in its place. Without the `bindings` of the checker, a
     /// keyword argument goes to the parameter of its name.
     fn arguments(
         &self,
         call: &ast::ExprCall,
         sig: &Sig<'a, '_>,
         bindings: Option<&[ArgBinding]>,
-    ) -> Result<(Vec<Expr>, Vec<u32>), Error> {
+    ) -> Result<(Vec<Expr>, Option<Vec<u32>>), Error> {
         let mut order: Vec<Option<u32>> = sig.params.iter().map(|_| None).collect();
         let mut args = Vec::new();
         for (i, arg) in call.arguments.iter_source_order().enumerate() {
@@ -121,11 +122,12 @@ impl<'a> Lowering<'a, '_> {
                 });
             }
         }
-        let order = order
+        let order: Vec<u32> = order
             .into_iter()
             .collect::<Option<_>>()
             .ok_or_else(|| unsupported(call, "a call with these arguments"))?;
-        Ok((args, order))
+        let in_place = order.iter().map(|arg| *arg as usize).eq(0..args.len());
+        Ok((args, (!in_place).then_some(order)))
     }
 
     pub(super) fn print(&self, call: &ast::ExprCall) -> Result<Expr, Error> {

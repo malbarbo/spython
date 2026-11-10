@@ -167,7 +167,7 @@ impl<'a> Lowering<'a, '_> {
             stmts.push(Stmt::Expr(Expr::Call {
                 func,
                 args: Vec::new(),
-                order: Vec::new(),
+                order: None,
                 rep: Rep::None,
                 site: Some(site),
                 check: None,
