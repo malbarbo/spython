@@ -192,10 +192,10 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(call.range()),
             },
             // CPython takes `perm(n)` to `factorial(n)`, with its errors.
-            ("factorial" | "perm", [n], []) => Expr::IntFactorial {
-                operand: Box::new(self.math_int(n)?),
-                site: self.site(call.range()),
-            },
+            ("factorial" | "perm", [n], []) => {
+                let args = vec![self.math_int(n)?];
+                self.prelude_call(call, "math", "factorial", args)?
+            }
             ("fmod", [x, y], []) => Expr::Fmod {
                 x: Box::new(self.math_float(x)?),
                 y: Box::new(self.math_float(y)?),

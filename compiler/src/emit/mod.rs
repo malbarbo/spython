@@ -781,10 +781,6 @@ impl Emitter<'_> {
                 self.expr(f, k);
                 self.at(f, *site, |e, f| e.reprs.choose(&mut e.m, f, *choice));
             }
-            Expr::IntFactorial { operand, site } => {
-                self.expr(f, operand);
-                self.at(f, *site, |e, f| e.reprs.factorial(&mut e.m, f));
-            }
             Expr::Fmod { x, y, site } => {
                 self.expr(f, x);
                 self.expr(f, y);

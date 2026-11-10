@@ -6,8 +6,8 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use super::str::StrRepr;
 use crate::cpython::{
-    Class, DIVISION_BY_ZERO, FACTORIAL_OF_A_NEGATIVE, FACTORIAL_TOO_LARGE, INFINITY_TO_INT,
-    MODULO_BY_ZERO, Message, NAN_TO_INT, NEGATIVE_K, NEGATIVE_N,
+    Class, DIVISION_BY_ZERO, INFINITY_TO_INT, MODULO_BY_ZERO, Message, NAN_TO_INT, NEGATIVE_K,
+    NEGATIVE_N,
 };
 use crate::emit::module::{FuncIdx, FuncState, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -39,9 +39,6 @@ pub(super) enum IntRepr {
         /// `int` and 0 does not fit in 31 bits, so it is an `i64` until the
         /// last step.
         gcd: Option<FuncIdx>,
-        /// `(func (param i32) (result i32))` for `math.factorial`, which
-        /// the module gets at the first use.
-        factorial: Option<FuncIdx>,
         /// `(func (param i64 i32) (result i64))` for a step of `math.lcm`,
         /// which the module gets at the first use. An `lcm` that does not
         /// fit in 31 bits stays above `MAX`, but not at its value, so that
@@ -75,7 +72,6 @@ impl IntRepr {
             convert_f64: None,
             round: None,
             gcd: None,
-            factorial: None,
             lcm: None,
             lcm_end: None,
             chooses: BTreeMap::new(),
@@ -274,21 +270,6 @@ impl IntRepr {
                 let func = *chooses
                     .entry(choice)
                     .or_insert_with(|| add_choose(m, str, exc, choice));
-                f.ins().call(func);
-            }
-        }
-    }
-
-    pub fn factorial(
-        &mut self,
-        m: &mut ModuleState,
-        f: &mut FuncState,
-        str: &mut StrRepr,
-        exc: &Exceptions,
-    ) {
-        match self {
-            IntRepr::I31 { factorial, .. } => {
-                let func = *factorial.get_or_insert_with(|| add_factorial(m, str, exc));
                 f.ins().call(func);
             }
         }
@@ -644,43 +625,6 @@ fn add_lcm_end(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> Func
     exc.raise(m, str, &mut f, &Message::new(Class::Limit, &text));
     f.end();
     f.ins().local_get(v).i32_wrap_i64();
-    m.add_func(ty, f.finish())
-}
-
-/// The function of `math.factorial(n)`. `12!` is the greatest factorial
-/// that fits in 31 bits. A larger `n` raises the `OverflowError` that
-/// CPython raises for an `n` above `2^63 - 1`, with 12 as the limit.
-fn add_factorial(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
-    let ty = m.func_type(&[ValType::I32], &[ValType::I32]);
-    let mut f = FuncState::new(1);
-    let n = f.param(0);
-    let r = f.local(ValType::I32);
-    f.ins().local_get(n).i32_const(0).i32_lt_s();
-    f.if_(BlockType::Empty);
-    exc.raise(m, str, &mut f, &FACTORIAL_OF_A_NEGATIVE);
-    f.end();
-    f.ins().local_get(n).i32_const(12).i32_gt_s();
-    f.if_(BlockType::Empty);
-    exc.raise(m, str, &mut f, &FACTORIAL_TOO_LARGE);
-    f.end();
-    f.ins().i32_const(1).local_set(r);
-    let done = f.block(BlockType::Empty);
-    let again = f.loop_(BlockType::Empty);
-    f.ins().local_get(n).i32_const(1).i32_le_s();
-    f.br_if(done);
-    f.ins()
-        .local_get(r)
-        .local_get(n)
-        .i32_mul()
-        .local_set(r)
-        .local_get(n)
-        .i32_const(1)
-        .i32_sub()
-        .local_set(n);
-    f.br(again);
-    f.end();
-    f.end();
-    f.ins().local_get(r);
     m.add_func(ty, f.finish())
 }
 

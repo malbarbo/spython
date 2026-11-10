@@ -36,3 +36,17 @@ def isqrt(n: int) -> int:
         x = y
         y = (x + n // x) // 2
     return x
+
+
+def factorial(n: int) -> int:
+    if n < 0:
+        raise ValueError("factorial() not defined for negative values")
+    # CPython raises this error for an `n` above `2^63 - 1`. The greatest
+    # factorial that fits in an `int` of spython is `12!`.
+    if n > 12:
+        raise OverflowError("factorial() argument should not exceed 12")
+    result = 1
+    while n > 1:
+        result = result * n
+        n = n - 1
+    return result

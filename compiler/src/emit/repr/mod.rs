@@ -259,12 +259,6 @@ impl Reprs {
         self.int.choose(m, f, &mut self.str, &self.exc, choice);
     }
 
-    /// Pops an `int` and pushes `math.factorial` of it, or raises the error
-    /// of a negative `int` or of an `int` above 12.
-    pub fn factorial(&mut self, m: &mut ModuleState, f: &mut FuncState) {
-        self.int.factorial(m, f, &mut self.str, &self.exc);
-    }
-
     /// Pops an `int` and a number of digits, and pushes the `int` rounded
     /// to those digits.
     pub fn int_round(&mut self, m: &mut ModuleState, f: &mut FuncState) {

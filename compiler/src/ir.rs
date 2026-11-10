@@ -290,12 +290,6 @@ pub(crate) enum Expr {
         k: Box<Expr>,
         site: Site,
     },
-    /// `math.factorial` of an `int`. A negative `int` raises `ValueError`
-    /// at the site, and an `int` above 12 raises `OverflowError` there.
-    IntFactorial {
-        operand: Box<Expr>,
-        site: Site,
-    },
     /// `math.fmod(x, y)` of two `float`s, which raises `ValueError` at the
     /// site for a `y` of 0 or an infinite `x`.
     Fmod {
@@ -738,7 +732,6 @@ impl Expr {
             | Expr::IntGcd { .. }
             | Expr::IntLcm { .. }
             | Expr::IntChoose { .. }
-            | Expr::IntFactorial { .. }
             | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
             | Expr::Len { .. } => Rep::Int,

@@ -54,16 +54,6 @@ pub(crate) const ZERO_TO_A_NEGATIVE_POWER: Message = Message::new(
 );
 pub(crate) const MATH_DOMAIN_ERROR: Message = Message::new(Class::ValueError, "math domain error");
 pub(crate) const MATH_RANGE_ERROR: Message = Message::new(Class::OverflowError, "math range error");
-pub(crate) const FACTORIAL_OF_A_NEGATIVE: Message = Message::new(
-    Class::ValueError,
-    "factorial() not defined for negative values",
-);
-/// The error of CPython for an `n` above `2^63 - 1`, with the limit of an
-/// `int` of spython, whose greatest factorial is `12!`.
-pub(crate) const FACTORIAL_TOO_LARGE: Message = Message::new(
-    Class::OverflowError,
-    "factorial() argument should not exceed 12",
-);
 pub(crate) const FMA_INVALID: Message = Message::new(Class::ValueError, "invalid operation in fma");
 pub(crate) const FMA_OVERFLOW: Message = Message::new(Class::OverflowError, "overflow in fma");
 pub(crate) const NEGATIVE_TOLERANCE: Message =
