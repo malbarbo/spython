@@ -13,6 +13,7 @@ from __spython_prelude__.str import (
     is_space,
     put,
     put_hex_escape,
+    put_range,
     startswith,
 )
 
@@ -185,7 +186,7 @@ def emptied(s: str, marks: bool) -> str:
     while i <= n:
         end = line_end(s, i)
         if not empty(s, i, end, marks):
-            at = put(b, at, s[i:end])
+            at = put_range(b, at, s, i, end)
         if end < n:
             b[at] = 10
             at += 1
@@ -230,7 +231,7 @@ def shown(output: str) -> str:
         if end < n and only(output, i, end, False):
             at = put(b, at, mark)
         else:
-            at = put(b, at, output[i:end])
+            at = put_range(b, at, output, i, end)
         if end + 1 < n:
             at = put(b, at, indent)
         i = end + 1

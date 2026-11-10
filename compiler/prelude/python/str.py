@@ -250,12 +250,17 @@ def found_at_most(s: str, sub: str, i: int) -> bool:
 
 def put(b: StrBuilder, at: int, t: str) -> int:
     """Writes `t` to `b` from `at` on, and gives the index after it."""
-    n = len(t)
-    i = 0
-    while i < n:
-        b[at + i] = code_point(t, i)
+    return put_range(b, at, t, 0, len(t))
+
+
+def put_range(b: StrBuilder, at: int, t: str, start: int, end: int) -> int:
+    """Writes `t[start:end]` to `b` from `at` on, and gives the index after it."""
+    i = start
+    while i < end:
+        b[at] = code_point(t, i)
+        at += 1
         i += 1
-    return at + n
+    return at
 
 
 def removeprefix(s: str, prefix: str) -> str:
