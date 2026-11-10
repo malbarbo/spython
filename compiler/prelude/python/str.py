@@ -269,6 +269,65 @@ def removesuffix(s: str, suffix: str) -> str:
     return s
 
 
+def strip(s: str, chars: str | None = None) -> str:
+    first = strip_start(s, chars)
+    return s[first : strip_end(s, chars, first)]
+
+
+def lstrip(s: str, chars: str | None = None) -> str:
+    return s[strip_start(s, chars) :]
+
+
+def rstrip(s: str, chars: str | None = None) -> str:
+    return s[: strip_end(s, chars, 0)]
+
+
+def strip_start(s: str, chars: str | None) -> int:
+    """The index of the first code point of `s` that the strip keeps."""
+    n = len(s)
+    i = 0
+    while i < n and stripped(code_point(s, i), chars):
+        i += 1
+    return i
+
+
+def strip_end(s: str, chars: str | None, first: int) -> int:
+    """The index after the last code point of `s` from `first` on that the strip keeps."""
+    i = len(s)
+    while i > first and stripped(code_point(s, i - 1), chars):
+        i -= 1
+    return i
+
+
+def stripped(c: int, chars: str | None) -> bool:
+    """Whether a strip of `chars` drops `c`, and a strip of `None` drops the white space."""
+    if chars is None:
+        return is_space(c)
+    n = len(chars)
+    i = 0
+    while i < n:
+        if code_point(chars, i) == c:
+            return True
+        i += 1
+    return False
+
+
+def is_space(c: int) -> bool:
+    """Whether `str.isspace` accepts `c`."""
+    if c < 128:
+        return c == 32 or 9 <= c <= 13 or 28 <= c <= 31
+    if c < 0x2000:
+        return c == 0x85 or c == 0xA0 or c == 0x1680
+    return (
+        c <= 0x200A
+        or c == 0x2028
+        or c == 0x2029
+        or c == 0x202F
+        or c == 0x205F
+        or c == 0x3000
+    )
+
+
 def is_in(sub: str, s: str) -> bool:
     return find(s, sub, None, None) >= 0
 

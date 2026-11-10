@@ -441,3 +441,17 @@ fn removeprefix_and_removesuffix_drop_an_end_that_matches() {
         "},
     );
 }
+
+#[test]
+fn strip_drops_white_space_or_the_given_code_points_at_the_ends() {
+    same_as_cpython(
+        "strip_drops_white_space_or_the_given_code_points_at_the_ends",
+        indoc! {"
+            s = ' \\t\\n\\x0b\\x0c\\r\\x1c\\x1f\\x85\\xa0\\u1680\\u2000\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000a b\\u200b\\x1b '
+            print(repr(s.strip()), repr(s.lstrip()), repr(s.rstrip()))
+            t = 'xyé😀a😀yx'
+            print(t.strip('xy'), t.lstrip('yx😀'), t.rstrip('😀xy'), t.strip(''), t.strip(None))
+            print(repr(''.strip()), repr('   '.strip()), repr('   '.rstrip()), repr('xx'.strip('x')))
+        "},
+    );
+}

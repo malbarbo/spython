@@ -19,12 +19,15 @@ const STR_METHODS: &[&str] = &[
     "find",
     "index",
     "lower",
+    "lstrip",
     "removeprefix",
     "removesuffix",
     "replace",
     "rfind",
     "rindex",
+    "rstrip",
     "startswith",
+    "strip",
     "upper",
 ];
 
