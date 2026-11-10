@@ -32,6 +32,8 @@ sinteract = { git = "https://github.com/malbarbo/sinteract.git", branch = "maste
 workspace = true
 
 [dependencies]
+# The Python of the builtins of the compiler, which the checker reads.
+prelude = { path = "../compiler/prelude" }
 # The macros of the modules that build a scene and hold the display.
 rustpython-vm = { git = "https://github.com/malbarbo/RustPython.git", branch = "spython-0.4", default-features = false }
 ty_project = { git = "https://github.com/malbarbo/ruff.git", branch = "spython-0.4" }

@@ -21,14 +21,23 @@ pub const FILES: &[(&str, &str)] = &[
     ("world.py", include_str!("../../lib/spython/world.py")),
 ];
 
-/// Write the embedded spython lib into `system` under `root/_spython_lib/spython/`.
+/// Each package that goes under the directory of the library, with its
+/// files. The prelude of the compiler is one of them, so the compiler finds
+/// it in the database of the checker.
+pub fn packages() -> [(&'static str, &'static [(&'static str, &'static str)]); 2] {
+    [("spython", FILES), (prelude::PACKAGE, prelude::FILES)]
+}
+
+/// Write the embedded packages into `system` under `root/_spython_lib/`.
 /// Returns the path to add to `extra-paths` (i.e. `root/_spython_lib`).
 pub fn write_into<S: WritableSystem>(system: &S, root: &SystemPath) -> SystemPathBuf {
     let lib_root = root.join(LIB_DIR);
-    let pkg_dir = lib_root.join("spython");
-    let _ = system.create_directory_all(&pkg_dir);
-    for (name, content) in FILES {
-        let _ = system.write_file(&pkg_dir.join(name), content);
+    for (package, files) in packages() {
+        let pkg_dir = lib_root.join(package);
+        let _ = system.create_directory_all(&pkg_dir);
+        for (name, content) in files {
+            let _ = system.write_file(&pkg_dir.join(name), content);
+        }
     }
     lib_root
 }

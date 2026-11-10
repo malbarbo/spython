@@ -1,5 +1,5 @@
 [workspace]
-members = ["engine", "cli", "compiler", "wasm"]
+members = ["engine", "cli", "compiler", "compiler/prelude", "wasm"]
 default-members = ["engine", "cli", "compiler"]
 resolver = "3"
 

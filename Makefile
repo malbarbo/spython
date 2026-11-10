@@ -46,7 +46,7 @@ check:
 	cd compiler/builtins && cargo clippy --all-targets -- -D warnings
 	cd compiler/builtins && cargo clippy --target wasm32-unknown-unknown -- -D warnings
 	cd compiler/builtins && cargo fmt -- --check
-	ruff format --check lib/spython/
+	ruff format --check lib/spython/ compiler/prelude/python/
 	deno fmt --check wasm/tests/ wasm/spython.ts compiler/tests/
 
 docs:

@@ -49,15 +49,17 @@ impl OverlaySystem {
     pub fn new(cwd: &SystemPath) -> (Self, SystemPathBuf) {
         let os = OsSystem::new(cwd);
         let lib_root = synthetic_lib_root();
-        let pkg_dir = lib_root.join("spython");
         let mem = MemoryFileSystem::new();
         // Errors writing the in-memory FS shouldn't happen, but if they
         // somehow do the lib just won't resolve. Type errors will surface
         // at the call site as unresolved-import, which is louder than a
         // silent miscompile.
-        let _ = mem.create_directory_all(&pkg_dir);
-        for (name, content) in crate::spython_lib::FILES {
-            let _ = mem.write_file(pkg_dir.join(name), content);
+        for (package, files) in crate::spython_lib::packages() {
+            let pkg_dir = lib_root.join(package);
+            let _ = mem.create_directory_all(&pkg_dir);
+            for (name, content) in files {
+                let _ = mem.write_file(pkg_dir.join(name), content);
+            }
         }
         let system = Self {
             inner: Arc::new(Inner {

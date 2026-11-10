@@ -977,3 +977,44 @@ mod reserved_name_tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod prelude_tests {
+    use super::*;
+
+    #[test]
+    fn the_checker_finds_nothing_in_the_prelude() {
+        let (mut db, _) = in_memory_project("", &[]);
+        let paths: Vec<SystemPathBuf> = prelude::FILES
+            .iter()
+            .map(|(name, _)| {
+                SystemPath::new(LIB_PARENT)
+                    .join(spython_lib::LIB_DIR)
+                    .join(prelude::PACKAGE)
+                    .join(name)
+            })
+            .collect();
+        for path in &paths {
+            assert!(system_path_to_file(&db, path).is_ok(), "{path}");
+        }
+        db.project().set_included_paths(&mut db, paths);
+        let diagnostics = db.check();
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn a_program_may_not_import_the_prelude() {
+        let source = format!("import {}\n", prelude::PACKAGE);
+        let Err(errors) = check_source(&source, Level::Full, false) else {
+            panic!("the import of the prelude passed the check");
+        };
+        assert!(
+            errors
+                .diagnostics
+                .iter()
+                .any(|d| d.id().as_str() == "reserved-name"),
+            "{:?}",
+            errors.diagnostics
+        );
+    }
+}

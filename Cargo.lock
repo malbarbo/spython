@@ -1160,6 +1160,7 @@ dependencies = [
  "dirs-next",
  "dunce",
  "num-traits",
+ "prelude",
  "ruff_db",
  "ruff_macros",
  "ruff_notebook",
@@ -3312,6 +3313,10 @@ dependencies = [
  "predicates-core",
  "termtree",
 ]
+
+[[package]]
+name = "prelude"
+version = "0.3.0"
 
 [[package]]
 name = "proc-macro-crate"
