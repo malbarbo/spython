@@ -51,6 +51,11 @@ use crate::lints::{
 pub const SYNTHETIC_FN_PREFIX: &str = "__spython_doctest_";
 pub const SYNTHETIC_FN_SUFFIX: &str = "__";
 
+/// The name of the synthetic function of the snippet `index`.
+pub fn synthetic_fn_name(index: usize) -> String {
+    format!("{SYNTHETIC_FN_PREFIX}{index}{SYNTHETIC_FN_SUFFIX}")
+}
+
 /// Returns `true` if `name` is one of the synthetic doctest wrapper
 /// functions produced by `build_synthetic_source`.
 pub fn is_synthetic_fn_name(name: &str) -> bool {
@@ -1031,9 +1036,7 @@ pub fn build_synthetic_source(
         line_map.push(SyntheticLine::SyntheticHeader(idx));
         // `def __spython_doctest_N__() -> None:`
         syn.push_str("def ");
-        syn.push_str(SYNTHETIC_FN_PREFIX);
-        syn.push_str(&idx.to_string());
-        syn.push_str(SYNTHETIC_FN_SUFFIX);
+        syn.push_str(&synthetic_fn_name(idx));
         syn.push_str("() -> None:\n");
         line_map.push(SyntheticLine::SyntheticHeader(idx));
         for name in copies {

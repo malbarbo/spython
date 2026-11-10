@@ -402,13 +402,44 @@ pub fn check_file_doctests(
         return diagnostics;
     }
 
+    let (scratch, syn_file, syn_source, syn_map) =
+        synthetic_project(db, file, root, &extraction.snippets);
+
+    let mut raw = annotation_check(&scratch, level, None);
+    raw.extend(type_check(&scratch));
+
+    let remapped = doctests::remap_diagnostics(
+        raw,
+        syn_file,
+        file,
+        &extraction.snippets,
+        &syn_map,
+        &syn_source,
+    );
+    diagnostics.extend(remapped);
+    diagnostics
+}
+/// The project of the synthetic source of `file`, which has the examples of
+/// each of `snippets` as the body of a function, as
+/// [`doctests::build_synthetic_source`] writes it. Returns the project, the
+/// file of the synthetic source in it, the source and its map.
+///
+/// `root` is the directory of the main file, which the imports of every
+/// file resolve from.
+fn synthetic_project(
+    db: &ProjectDatabase,
+    file: File,
+    root: &SystemPath,
+    snippets: &[doctests::DoctestSnippet],
+) -> (ProjectDatabase, File, String, doctests::SyntheticMap) {
+    let source = ruff_db::source::source_text(db, file);
     let module_names: HashSet<&str> = place_table(db, global_scope(db, db.program_file(file)))
         .symbols()
         .filter(|symbol| symbol.is_bound())
         .map(|symbol| symbol.name().as_str())
         .collect();
     let (syn_source, syn_map) =
-        doctests::build_synthetic_source(source_str, &extraction.snippets, &module_names);
+        doctests::build_synthetic_source(source.as_str(), snippets, &module_names);
 
     // A doctest can name what the file around it imports, so the check gets
     // the file's first-party imports as the modules to resolve against --
@@ -427,21 +458,79 @@ pub fn check_file_doctests(
         ),
         None => in_memory_project(&syn_source, &modules),
     };
-
-    let mut raw = annotation_check(&scratch, level, None);
-    raw.extend(type_check(&scratch));
-
-    let remapped = doctests::remap_diagnostics(
-        raw,
-        syn_file,
-        file,
-        &extraction.snippets,
-        &syn_map,
-        &syn_source,
-    );
-    diagnostics.extend(remapped);
-    diagnostics
+    (scratch, syn_file, syn_source, syn_map)
 }
+
+/// The doctests of a file as a program, for a compiler of the file.
+pub struct DoctestProgram {
+    /// The project of the synthetic source.
+    pub db: ProjectDatabase,
+    /// The file of the synthetic source, which has the file and then a
+    /// function for each docstring.
+    pub file: File,
+    /// Each docstring with an example, in the order of the source.
+    pub docstrings: Vec<DoctestFunction>,
+}
+
+/// The function of the synthetic source that has the examples of a
+/// docstring.
+pub struct DoctestFunction {
+    /// The name of what the docstring belongs to, as the report shows it.
+    pub owner: String,
+    /// The name of the function.
+    pub name: String,
+    /// Each example, with the line of the synthetic source where its code
+    /// starts, from 1.
+    pub examples: Vec<(usize, doctests::Example)>,
+}
+
+/// The [`DoctestProgram`] of `file`, which the checker has accepted.
+pub fn doctest_program(db: &ProjectDatabase, file: File) -> DoctestProgram {
+    let parsed = parsed_module(db, db.program_file(file).python_file(db));
+    let module = parsed.load(db);
+    let source = ruff_db::source::source_text(db, file);
+    let snippets = doctests::extract_doctests(module.syntax(), source.as_str()).snippets;
+    // The imports of a file resolve from its directory.
+    let root = file
+        .path(db)
+        .as_system_path()
+        .and_then(SystemPath::parent)
+        .unwrap_or(SystemPath::new(SOURCE_DIR))
+        .to_path_buf();
+    let (scratch, syn_file, _, map) = synthetic_project(db, file, &root, &snippets);
+    let docstrings = snippets
+        .iter()
+        .enumerate()
+        .map(|(index, snippet)| {
+            let first = map
+                .lines
+                .iter()
+                .position(|line| *line == doctests::SyntheticLine::SyntheticBody(index, 0))
+                .map_or(0, |line| line + 1);
+            let mut line = first;
+            let examples = snippet
+                .examples
+                .iter()
+                .map(|example| {
+                    let start = line;
+                    line += example.lines;
+                    (start, example.clone())
+                })
+                .collect();
+            DoctestFunction {
+                owner: snippet.owner.clone(),
+                name: doctests::synthetic_fn_name(index),
+                examples,
+            }
+        })
+        .collect();
+    DoctestProgram {
+        db: scratch,
+        file: syn_file,
+        docstrings,
+    }
+}
+
 /// Recursively collect first-party files transitively imported by `file`.
 pub fn collect_import_files(db: &ProjectDatabase, file: File, seen: &mut HashSet<File>) {
     let parsed = parsed_module(db, db.program_file(file).python_file(db));
