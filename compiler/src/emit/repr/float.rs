@@ -440,8 +440,6 @@ impl FloatRepr {
         }
     }
 
-    /// Pops a `float` and writes its `repr` to the standard output, as one
-    /// write.
     /// Pops a `str` of ASCII in the form of a `float` of Python without
     /// underscores, and pushes its `float`.
     pub fn parse(&mut self, m: &mut ModuleState, f: &mut FuncState, str: &StrRepr) {
@@ -453,6 +451,8 @@ impl FloatRepr {
         }
     }
 
+    /// Pops a `float` and writes its `repr` to the standard output, as one
+    /// write.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState) {
         match self {
             FloatRepr::F64 {
