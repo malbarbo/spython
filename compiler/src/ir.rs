@@ -500,6 +500,13 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// `then if cond else else_`, with `then` and `else_` of the same rep.
+    /// Only the value that `cond` picks runs.
+    IfElse {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        else_: Box<Expr>,
+    },
     /// A chain of comparisons of `int`s, of `float`s or of `str`s, as in
     /// `a < b <= c`.
     /// Each operand after the first comes with the operator on its left.
@@ -995,6 +1002,7 @@ impl Expr {
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
+            Expr::IfElse { then, .. } => then.rep(),
             Expr::AfterImport { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
             Expr::Print { .. } | Expr::WriteErr(_) | Expr::Stop { .. } => Rep::None,

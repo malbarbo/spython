@@ -4,7 +4,7 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
-use super::{Lowering, coerce, unsupported};
+use super::{Lowering, coerce, join, unsupported};
 use crate::Error;
 use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, LogicOp, MinMaxOp, Rep};
 
@@ -88,6 +88,19 @@ impl<'a> Lowering<'a, '_> {
                 self.binary(b, b.op, (left, &*b.left), (right, &*b.right))
             }
             ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
+            ast::Expr::If(i) => {
+                let cond = self.truth_of(&i.test)?;
+                let then = self.expr(&i.body)?;
+                let else_ = self.expr(&i.orelse)?;
+                let rep = join(then.rep(), else_.rep());
+                let widen =
+                    |value| Box::new(coerce(value, rep).expect("the join holds both values"));
+                Ok(Expr::IfElse {
+                    cond: Box::new(cond),
+                    then: widen(then),
+                    else_: widen(else_),
+                })
+            }
             ast::Expr::Compare(c) => self.compare(c),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;

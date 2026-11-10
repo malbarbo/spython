@@ -1,4 +1,5 @@
-//! `not`, `and`, `or`, `if`, `while`, `break` and `pass`.
+//! `not`, `and`, `or`, `if`, the conditional expression, `while`, `break`
+//! and `pass`.
 
 use indoc::indoc;
 
@@ -343,5 +344,53 @@ fn a_loop_that_doubles_an_int_stops_at_the_int_limit() {
         3,
         "    n *= 2\n",
         "1073741824",
+    );
+}
+
+#[test]
+fn a_conditional_expression_gives_the_value_that_the_condition_picks() {
+    same_as_cpython(
+        "a_conditional_expression_gives_the_value_that_the_condition_picks",
+        indoc! {"
+            def sign(n: int) -> str:
+                return 'neg' if n < 0 else 'zero' if n == 0 else 'pos'
+
+            def half(n: int) -> int | float:
+                return n / 2 if n % 2 else n // 2
+
+            n = 3
+            print(sign(-n), sign(0), sign(n), half(3), half(4))
+            print(1 if n else 2, 'a' if '' else 'b', (n if n > 5 else -n) * 2)
+            print(n if n > 5 else 'small')
+        "},
+    );
+}
+
+#[test]
+fn a_conditional_expression_runs_only_the_value_that_the_condition_picks() {
+    same_as_cpython(
+        "a_conditional_expression_runs_only_the_value_that_the_condition_picks",
+        indoc! {"
+            def shown(n: int) -> int:
+                print('shown', n)
+                return n
+
+            print(shown(1) if shown(2) > 1 else shown(3))
+            print(shown(1) if shown(0) else shown(3))
+            print('a') if shown(4) else print('b')
+        "},
+    );
+}
+
+#[test]
+fn a_conditional_expression_narrows_a_str_or_none() {
+    same_as_cpython(
+        "a_conditional_expression_narrows_a_str_or_none",
+        indoc! {"
+            def shout(s: str | None) -> str:
+                return s.upper() if s is not None else '-'
+
+            print(shout('oi'), shout(None))
+        "},
     );
 }

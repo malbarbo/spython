@@ -1025,6 +1025,15 @@ impl Emitter<'_> {
                 self.reprs.bool_not(f);
             }
             Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
+            Expr::IfElse { cond, then, else_ } => {
+                self.expr(f, cond);
+                let ty = self.reprs.value_type(then.rep());
+                f.if_(ty.map_or(BlockType::Empty, BlockType::Result));
+                self.expr(f, then);
+                f.else_();
+                self.expr(f, else_);
+                f.end();
+            }
             Expr::Compare(first, rest) => self.compare(f, first, rest),
             Expr::MinMax { op, args } => self.min_max(f, *op, args),
             Expr::Print { args, site } => self.print(f, args, *site),
