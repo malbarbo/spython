@@ -195,16 +195,16 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// the lowering lowers at the first call. `None` when
     /// `file` is not a module of the prelude, or has no such function.
     pub(super) fn prelude_func(&self, file: File, name: &str) -> Result<Option<FuncId>, Error> {
-        let key = (file, name.to_owned());
-        if let Some(func) = self.prelude_funcs.borrow().get(&key) {
-            return Ok(Some(*func));
-        }
         let Some(unit) = self.prelude.iter().find(|unit| unit.file == file) else {
             return Ok(None);
         };
-        let Some(def) = unit.defs.get(name).copied() else {
+        let Some((name, def)) = unit.defs.get_key_value(name) else {
             return Ok(None);
         };
+        let (key, def) = ((file, *name), *def);
+        if let Some(func) = self.prelude_funcs.borrow().get(&key) {
+            return Ok(Some(*func));
+        }
         let outer = self.unit.replace(unit);
         let signature = self.signature(def);
         self.unit.set(outer);

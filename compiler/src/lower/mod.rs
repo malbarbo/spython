@@ -194,7 +194,7 @@ struct Lowering<'a, 'db> {
     lowered: RefCell<HashMap<usize, Func>>,
     /// Each function of the prelude that a call reached, by its file and
     /// its name, so a later call skips its signature.
-    prelude_funcs: RefCell<HashMap<(File, String), FuncId>>,
+    prelude_funcs: RefCell<HashMap<(File, &'a str), FuncId>>,
     /// Whether the code of the function of the prelude that the lowering
     /// is in has an instruction that may raise.
     raises: Cell<bool>,
