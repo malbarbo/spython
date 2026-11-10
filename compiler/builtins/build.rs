@@ -25,7 +25,149 @@ fn main() {
     set(&mut code, "PRINTABLE", |cp| {
         cp == 0x20 || !matches!(category(&categories, cp).as_bytes(), [b'C' | b'Z', ..])
     });
+    let derived = read("DerivedCoreProperties.txt");
+    for (name, property) in [("CASED", "Cased"), ("CASE_IGNORABLE", "Case_Ignorable")] {
+        let members = property_members(&derived, property);
+        set(&mut code, name, |cp| {
+            members.get(cp as usize).copied().unwrap_or(false)
+        });
+    }
+    let cases = Cases::new(&read("UnicodeData.txt"), &read("SpecialCasing.txt"));
+    mapping(&mut code, "UPPER", &cases.upper);
+    mapping(&mut code, "LOWER", &cases.lower);
     std::fs::write(out.join("unicode.rs"), code).expect("the tables written");
+}
+
+/// A code point in hexadecimal.
+fn code_point(text: &str) -> u32 {
+    u32::from_str_radix(text.trim(), 16).expect("a code point in hexadecimal")
+}
+
+/// Whether each code point has `property` in `DerivedCoreProperties.txt`,
+/// whose lines are a code point or a range, `;`, and the property.
+fn property_members(data: &str, property: &str) -> Vec<bool> {
+    let mut members = vec![false; END as usize];
+    for line in data.lines() {
+        let line = line.split('#').next().unwrap_or_default();
+        let Some((range, name)) = line.split_once(';') else {
+            continue;
+        };
+        if name.trim() != property {
+            continue;
+        }
+        let (first, last) = match range.split_once("..") {
+            Some((first, last)) => (code_point(first), code_point(last)),
+            None => (code_point(range), code_point(range)),
+        };
+        for cp in first..=last {
+            *members.get_mut(cp as usize).expect("a code point") = true;
+        }
+    }
+    members
+}
+
+/// The code points that `str.upper` and `str.lower` of CPython give for
+/// each code point that they change.
+struct Cases {
+    upper: Vec<(u32, Vec<u32>)>,
+    lower: Vec<(u32, Vec<u32>)>,
+}
+
+impl Cases {
+    /// CPython takes the mapping of one code point from the fields 12 and
+    /// 13 of `UnicodeData.txt`, and the mapping of `SpecialCasing.txt` for
+    /// a code point that has one there without a condition.
+    fn new(data: &str, special: &str) -> Cases {
+        let mut upper = std::collections::BTreeMap::new();
+        let mut lower = std::collections::BTreeMap::new();
+        for line in data.lines() {
+            let fields: Vec<&str> = line.split(';').collect();
+            let cp = code_point(fields.first().expect("a code point"));
+            for (map, field) in [(&mut upper, 12), (&mut lower, 13)] {
+                match fields.get(field) {
+                    Some(mapped) if !mapped.is_empty() => {
+                        map.insert(cp, vec![code_point(mapped)]);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for line in special.lines() {
+            let line = line.split('#').next().unwrap_or_default();
+            let fields: Vec<&str> = line.split(';').map(str::trim).collect();
+            // A line with a condition has it in a fifth field.
+            let [cp, to_lower, _title, to_upper, ""] = fields.as_slice() else {
+                continue;
+            };
+            let cp = code_point(cp);
+            for (map, mapped) in [(&mut upper, to_upper), (&mut lower, to_lower)] {
+                map.insert(cp, mapped.split_whitespace().map(code_point).collect());
+            }
+        }
+        let changed = |map: std::collections::BTreeMap<u32, Vec<u32>>| {
+            map.into_iter()
+                .filter(|(cp, mapped)| mapped.as_slice() != [*cp])
+                .collect()
+        };
+        Cases {
+            upper: changed(upper),
+            lower: changed(lower),
+        }
+    }
+}
+
+/// Writes the statics `{name}_SIMPLE` and `{name}_SPECIAL` of a mapping of
+/// code points, as `mapped` of `src/unicode.rs` reads them.
+///
+/// `{name}_SIMPLE` has the code points that go to one code point, as
+/// ranges of `[first, last, delta]`, where each code point of the range
+/// goes to itself plus `delta`. A range whose `last` has the bit 31 has only
+/// every other code point from `first`. `{name}_SPECIAL` has the code
+/// points that go to two or three, as `[code point, a, b, c]`, with 0 for a
+/// `c` that is not there.
+fn mapping(code: &mut String, name: &str, map: &[(u32, Vec<u32>)]) {
+    // Each range as its first and last code points, the delta, and the step
+    // between its code points once it has two of them.
+    let mut ranges: Vec<(u32, u32, u32, Option<u32>)> = Vec::new();
+    let mut special = Vec::new();
+    for (cp, mapped) in map {
+        let &[to] = mapped.as_slice() else {
+            assert!(mapped.len() <= 3, "a mapping to more than 3 code points");
+            let mut entry = [*cp, 0, 0, 0];
+            for (slot, to) in entry.iter_mut().skip(1).zip(mapped) {
+                *slot = *to;
+            }
+            special.push(entry);
+            continue;
+        };
+        let delta = to.wrapping_sub(*cp);
+        match ranges.last_mut() {
+            Some((_, last, last_delta, step))
+                if *last_delta == delta
+                    && matches!(*cp - *last, 1 | 2)
+                    && step.is_none_or(|step| step == *cp - *last) =>
+            {
+                *step = Some(*cp - *last);
+                *last = *cp;
+            }
+            _ => ranges.push((*cp, *cp, delta, None)),
+        }
+    }
+    let simple: Vec<[u32; 3]> = ranges
+        .into_iter()
+        .map(|(first, last, delta, step)| {
+            let every_other = u32::from(step == Some(2)) << 31;
+            [first, last | every_other, delta]
+        })
+        .collect();
+    writeln!(
+        code,
+        "static {name}_SIMPLE: [[u32; 3]; {}] = {simple:?};\n\
+         static {name}_SPECIAL: [[u32; 4]; {}] = {special:?};",
+        simple.len(),
+        special.len(),
+    )
+    .expect("a write to a String");
 }
 
 /// The general category of `cp`, which is `Cn` when no file gives one.
