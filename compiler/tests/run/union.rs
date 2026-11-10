@@ -78,6 +78,55 @@ fn a_value_of_any_union_goes_through_variables_parameters_and_results() {
 }
 
 #[test]
+fn is_none_tests_a_value_and_narrows_a_union() {
+    same_as_cpython(
+        "is_none_tests_a_value_and_narrows_a_union",
+        indoc! {"
+            def describe(s: str | None) -> str:
+                if s is None:
+                    return 'nothing'
+                return s.upper()
+
+
+            def next_of(n: int | None) -> int:
+                if n is not None:
+                    return n + 1
+                return 0
+
+
+            def half(x: float | None) -> float:
+                if None is x:
+                    return 0.0
+                return x / 2
+
+
+            def flip(b: bool | None) -> bool:
+                if b is None:
+                    return False
+                return not b
+
+
+            def first(s: str | int | None) -> bool:
+                return s is None
+
+
+            print(describe('abc'), describe(None))
+            print(next_of(-1073741824), next_of(41), next_of(None))
+            print(half(5.0), half(None))
+            print(flip(True), flip(False), flip(None))
+            print(first(None), first(3), first('a'))
+            n = 1
+            t = 'a'
+            print(n is None, t is not None, None is None, None is not None)
+            g: str | None = None
+            if g is None:
+                g = 'x'
+            print(g.upper())
+        "},
+    );
+}
+
+#[test]
 fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
@@ -106,6 +155,22 @@ fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
                 print(x)
         "}),
         "print of a union"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            g: str | None = None
+
+
+            def f() -> None:
+                global g
+                g = None
+
+
+            if g is not None:
+                f()
+                print(g.upper())
+        "}),
+        "a read of a global of a union that a test narrows"
     );
     assert_eq!(
         unsupported(indoc! {"

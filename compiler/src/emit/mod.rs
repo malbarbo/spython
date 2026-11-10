@@ -668,6 +668,14 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.widen(&mut self.m, f, value.rep(), *rep);
             }
+            Expr::Narrow { value, rep } => {
+                self.expr(f, value);
+                self.reprs.narrow(&mut self.m, f, value.rep(), *rep);
+            }
+            Expr::IsNone(value) => {
+                self.expr(f, value);
+                self.reprs.is_none(f, value.rep());
+            }
             Expr::Load { place, rep, check } => self.load(f, *place, *rep, check.as_ref()),
             Expr::Call {
                 func,

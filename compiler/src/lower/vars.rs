@@ -2,11 +2,13 @@
 
 use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
-use ty_python_semantic::types::lowering::{is_definitely_bound, is_implicit_global};
+use ty_python_semantic::types::lowering::{
+    Shape, expr_shape, is_definitely_bound, is_implicit_global,
+};
 
 use super::{Lowering, coerce, unbound_local, unsupported};
 use crate::Error;
-use crate::ir::{Check, Expr, Place, Undefined};
+use crate::ir::{Check, Expr, Place, Rep, Undefined};
 
 impl<'a> Lowering<'a, '_> {
     /// The variable that `target` names, with `value` as a value of its
@@ -70,11 +72,12 @@ impl<'a> Lowering<'a, '_> {
                     error,
                 })
             };
-            return Ok(Expr::Load {
+            let load = Expr::Load {
                 place: Place::Local(var),
                 rep,
                 check,
-            });
+            };
+            return self.narrowed(name, load);
         }
         let global = self.vars.borrow().find(id);
         let Some((var, rep)) = global else {
@@ -90,10 +93,47 @@ impl<'a> Lowering<'a, '_> {
         if check.is_some() {
             self.vars.borrow_mut().get_mut(var).flagged = true;
         }
-        Ok(Expr::Load {
+        let load = Expr::Load {
             place: Place::Global(var),
             rep,
             check,
+        };
+        // A call between the test of the value and the read may assign a
+        // global that a function declares.
+        if self.assigned_globals.borrow().contains(id) {
+            let narrowed = self.narrowed(name, load)?;
+            if narrowed.rep() != rep {
+                return Err(unsupported(
+                    name,
+                    "a read of a global of a union that a test narrows",
+                ));
+            }
+            return Ok(narrowed);
+        }
+        self.narrowed(name, load)
+    }
+
+    /// `load`, the read `name` of a variable, as a value of the type that
+    /// the checker gives to the read. The type is narrower than the type
+    /// of a variable of a union after a test of the value.
+    fn narrowed(&self, name: &ast::ExprName, load: Expr) -> Result<Expr, Error> {
+        let rep = load.rep();
+        if !matches!(rep, Rep::StrOrNone | Rep::Uniform) {
+            return Ok(load);
+        }
+        let narrowed = match expr_shape(self.model(), &ast::Expr::Name(name.clone())) {
+            Some(Shape::None) => Rep::None,
+            shape => self
+                .rep_of(shape)
+                .ok_or_else(|| unsupported(name, "a variable of this type"))?,
+        };
+        Ok(if narrowed == rep {
+            load
+        } else {
+            Expr::Narrow {
+                value: Box::new(load),
+                rep: narrowed,
+            }
         })
     }
 

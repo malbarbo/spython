@@ -63,6 +63,7 @@ pub(crate) fn lower(
         vars: RefCell::new(vars),
         funcs: RefCell::new(Funcs::default()),
         imports: RefCell::new(Imports::default()),
+        assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
@@ -177,6 +178,9 @@ struct Lowering<'a, 'db> {
     vars: RefCell<Vars>,
     funcs: RefCell<Funcs<'a, 'db>>,
     imports: RefCell<Imports>,
+    /// The globals that a function declares with `global`, which a call may
+    /// assign between a test of the value and a read.
+    assigned_globals: RefCell<HashSet<String>>,
     /// The function whose body the lowering is in, and `None` in the code
     /// of the module.
     scope: RefCell<Option<Scope>>,
@@ -365,6 +369,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// code of the module may read it.
     fn declare_globals(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
         let bindings = Bindings::of(&def.body);
+        self.assigned_globals
+            .borrow_mut()
+            .extend(bindings.globals.iter().map(|name| (*name).to_owned()));
         self.declare_assigned(&bindings.assignments, |name| {
             bindings.globals.contains(name)
         })

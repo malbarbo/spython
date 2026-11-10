@@ -166,6 +166,46 @@ impl Reprs {
         }
     }
 
+    /// Pops a value of `from`, a union, and pushes it as a value of `to`,
+    /// one of the types of the union, which the checker knows the value to
+    /// have.
+    pub fn narrow(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
+        match (from, to) {
+            (Rep::StrOrNone | Rep::Uniform, Rep::None) => {
+                f.ins().drop();
+            }
+            (Rep::StrOrNone, Rep::Str) => {
+                f.ins().ref_as_non_null();
+            }
+            (Rep::Uniform, Rep::Str | Rep::StrOrNone) => {
+                f.ins()
+                    .ref_cast(self.str.type_index().heap_type(), to == Rep::StrOrNone);
+            }
+            (Rep::Uniform, Rep::Int) => {
+                self.uniform.unbox_int(f);
+                self.int.small_as_int(f);
+            }
+            (Rep::Uniform, Rep::Float) => self.uniform.unbox_float(m, f),
+            (Rep::Uniform, Rep::Bool) => self.uniform.unbox_bool(m, f),
+            _ => unreachable!("a narrowing of {from:?} to {to:?}"),
+        }
+    }
+
+    /// Pops a value of `rep` and pushes the `bool` of whether it is `None`.
+    pub fn is_none(&self, f: &mut FuncState, rep: Rep) {
+        match rep {
+            Rep::None => {
+                f.ins().i32_const(1);
+            }
+            Rep::StrOrNone | Rep::Uniform => {
+                f.ins().ref_is_null();
+            }
+            Rep::Int | Rep::Float | Rep::Bool | Rep::Str => {
+                f.ins().drop().i32_const(0);
+            }
+        }
+    }
+
     /// Raises the exception of `message`.
     pub fn raise(&mut self, m: &mut ModuleState, f: &mut FuncState, message: &Message) {
         self.exc.raise(m, &mut self.str, f, message);

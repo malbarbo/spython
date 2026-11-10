@@ -178,6 +178,14 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         rep: Rep,
     },
+    /// A value of a union that the checker narrows to `rep`, one of the
+    /// types of the union.
+    Narrow {
+        value: Box<Expr>,
+        rep: Rep,
+    },
+    /// Whether a value is `None`, as a `bool`.
+    IsNone(Box<Expr>),
     /// The value of a variable. Only a read with a check may come before
     /// the first assignment.
     Load {
@@ -875,13 +883,17 @@ impl Expr {
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_)
+            | Expr::IsNone(_)
             | Expr::CodePointIs { .. }
             | Expr::IsClose { .. }
             | Expr::Truth(_)
             | Expr::Not(_)
             | Expr::Compare(..) => Rep::Bool,
             Expr::None => Rep::None,
-            Expr::Load { rep, .. } | Expr::Call { rep, .. } | Expr::Widen { rep, .. } => *rep,
+            Expr::Load { rep, .. }
+            | Expr::Call { rep, .. }
+            | Expr::Widen { rep, .. }
+            | Expr::Narrow { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
             Expr::AfterImport { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),

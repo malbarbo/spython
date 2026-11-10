@@ -579,6 +579,16 @@ impl<'a> Ins<'a> {
         self
     }
 
+    /// Casts a reference to `ty`, and null too when `nullable`.
+    pub fn ref_cast(&mut self, ty: HeapType, nullable: bool) -> &mut Self {
+        if nullable {
+            self.0.ref_cast_nullable(ty);
+        } else {
+            self.0.ref_cast_non_null(ty);
+        }
+        self
+    }
+
     pub fn struct_get(&mut self, ty: TypeIdx, field: u32) -> &mut Self {
         self.0.struct_get(ty.0, field);
         self
@@ -632,6 +642,7 @@ impl<'a> Ins<'a> {
         ref_eq();
         ref_is_null();
         ref_i31();
+        i31_get_s();
         ref_null(ty: HeapType);
         return_();
         select();

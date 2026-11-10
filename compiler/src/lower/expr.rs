@@ -233,6 +233,19 @@ impl<'a> Lowering<'a, '_> {
     /// operand is a number. When one operand is a `float`, every operand
     /// becomes a `float`, which is exact for an `int`.
     fn compare(&self, c: &ast::ExprCompare) -> Result<Expr, Error> {
+        if let ([op @ (ast::CmpOp::Is | ast::CmpOp::IsNot)], [left, right]) =
+            (&*c.ops, &*c.operands)
+        {
+            let value = match (left, right) {
+                (ast::Expr::NoneLiteral(_), value) | (value, ast::Expr::NoneLiteral(_)) => value,
+                _ => return Err(unsupported(c, "is between values that are not None")),
+            };
+            let is_none = Expr::IsNone(Box::new(self.expr(value)?));
+            return Ok(match op {
+                ast::CmpOp::Is => is_none,
+                _ => Expr::Not(Box::new(is_none)),
+            });
+        }
         let ops = c
             .ops
             .iter()
