@@ -82,6 +82,81 @@ pub struct DoctestSnippet {
     /// is not when the docstring has an escape, a tab, or a second string,
     /// and then every range is the whole docstring.
     pub exact: bool,
+    /// The examples, in order. Their lines, one after the other, are the
+    /// lines of `code`.
+    pub examples: Vec<Example>,
+}
+
+/// One example of a docstring, as `_parse` of the runner gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Example {
+    /// How many lines of [`DoctestSnippet::code`] the example has.
+    pub lines: usize,
+    /// The code, which ends in a `\n`.
+    pub source: String,
+    /// The output that the example expects, which is empty or ends in a
+    /// `\n`.
+    pub want: String,
+    /// The last lines of the traceback that the example expects, when
+    /// `want` starts with the header of a traceback.
+    pub exc_msg: Option<String>,
+}
+
+impl Example {
+    fn new(parsed: &ParsedExample) -> Example {
+        let mut source = parsed
+            .code
+            .iter()
+            .map(|(_, code)| code.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !source.ends_with('\n') {
+            source.push('\n');
+        }
+        let mut exc_msg = exc_msg(&parsed.want);
+        if let Some(exc_msg) = &mut exc_msg
+            && !exc_msg.ends_with('\n')
+        {
+            exc_msg.push('\n');
+        }
+        let mut want = parsed.want.clone();
+        if !want.is_empty() && !want.ends_with('\n') {
+            want.push('\n');
+        }
+        Example {
+            lines: parsed.code.len(),
+            source,
+            want,
+            exc_msg,
+        }
+    }
+}
+
+/// The exception that `want` expects, as `_exc_msg` of the runner reads it.
+/// It is everything from the first line that starts with a letter, a digit
+/// or `_` after the header of a traceback, and `None` for a `want` without
+/// the header.
+fn exc_msg(want: &str) -> Option<String> {
+    const HEADERS: [&str; 2] = [
+        "Traceback (most recent call last):",
+        "Traceback (innermost last):",
+    ];
+    let lines: Vec<&str> = want.split('\n').collect();
+    let first = lines.first()?;
+    // The runner tries every header, and the last one that fits decides.
+    let rest = HEADERS
+        .iter()
+        .filter_map(|header| first.strip_prefix(header))
+        .next_back()?;
+    if !rest.chars().all(is_py_space) {
+        return None;
+    }
+    let at = lines.iter().skip(1).position(|line| {
+        line.chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })?;
+    Some(lines.get(at + 1..)?.join("\n"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -383,7 +458,11 @@ fn scan_docstring(
         });
     }
 
-    let code_lines: Vec<&(usize, String)> = parsed.examples.iter().flatten().collect();
+    let code_lines: Vec<&(usize, String)> = parsed
+        .examples
+        .iter()
+        .flat_map(|example| &example.code)
+        .collect();
     for (line, code) in &code_lines {
         if has_directive(code) {
             out.malformed.push(Malformed {
@@ -393,7 +472,7 @@ fn scan_docstring(
         }
     }
     for example in &parsed.examples {
-        if let Some(line) = second_statement_line(example) {
+        if let Some(line) = second_statement_line(&example.code) {
             out.malformed.push(Malformed {
                 range: range_of(line),
                 kind: MalformedKind::SecondStatement,
@@ -425,6 +504,7 @@ fn scan_docstring(
         anchor_range,
         line_ranges,
         exact: lines.is_some(),
+        examples: parsed.examples.iter().map(Example::new).collect(),
     });
 }
 
@@ -548,12 +628,22 @@ fn expand_tabs(input: &str, tab_stop: usize) -> String {
     expanded
 }
 
-/// The examples of a docstring, each a list of (line, code) pairs, and the
-/// lines that make the docstring malformed, both by the index of the line.
+/// The examples of a docstring, and the lines that make the docstring
+/// malformed, by the index of the line.
 #[derive(Debug, Default)]
 struct ParsedDoc {
-    examples: Vec<Vec<(usize, String)>>,
+    examples: Vec<ParsedExample>,
     malformed: Vec<(usize, MalformedKind)>,
+}
+
+#[derive(Debug)]
+struct ParsedExample {
+    /// Each line of the code without its prompt, with the index of the
+    /// line in the docstring.
+    code: Vec<(usize, String)>,
+    /// The lines of the output without the indentation of the example,
+    /// joined by `\n`.
+    want: String,
 }
 
 /// Read the examples of `doc`, a docstring as [`clean_doc`] leaves it, with
@@ -645,7 +735,14 @@ fn parse_doc(doc: &str) -> ParsedDoc {
                 parsed.malformed.push((start, MalformedKind::EmptyPrompt));
             }
         } else {
-            parsed.examples.push(code);
+            let want = lines
+                .get(source_end..i)
+                .unwrap_or_default()
+                .iter()
+                .map(|line| skip_chars(line, indent))
+                .collect::<Vec<_>>()
+                .join("\n");
+            parsed.examples.push(ParsedExample { code, want });
         }
     }
     parsed
@@ -1307,8 +1404,8 @@ mod tests {
     }
 
     /// The docstring of `f` in `src`, as [`scan_docstring`] reads it: the
-    /// examples, each with the newline the runner gives its source, or
-    /// `ERR` when the runner would refuse the docstring.
+    /// source, the output and the exception of each example, as the runner
+    /// gives them, or `ERR` when the runner would refuse the docstring.
     fn read_as_the_checker(src: &str) -> String {
         let parsed = parse_module(src).expect("the test source parses");
         let module = parsed.into_syntax();
@@ -1333,15 +1430,13 @@ mod tests {
             .examples
             .iter()
             .map(|example| {
-                let mut source = example
-                    .iter()
-                    .map(|(_, code)| code.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !source.ends_with('\n') {
-                    source.push('\n');
-                }
-                source
+                let example = Example::new(example);
+                [
+                    example.source,
+                    example.want,
+                    example.exc_msg.unwrap_or_else(|| "\u{3}".to_owned()),
+                ]
+                .join("\u{2}")
             })
             .collect::<Vec<_>>()
             .join("\u{1}")
@@ -1458,7 +1553,9 @@ mod tests {
              \x20   _doc = dict(_docstrings(_src)).get('f')\n\
              \x20   assert _doc == _ns['f'].__doc__, (_src, _doc)\n\
              \x20   try:\n\
-             \x20       _runner = '\\x01'.join(s for s, _, _ in _parse(_doc, 'f'))\n\
+             \x20       _runner = '\\x01'.join(\n\
+             \x20           '\\x02'.join([s, w, '\\x03' if e is None else e])\n\
+             \x20           for s, w, e in _parse(_doc, 'f'))\n\
              \x20   except ValueError:\n\
              \x20       _runner = 'ERR'\n\
              \x20   assert _runner == _checker, (_src, _runner, _checker)\n"
