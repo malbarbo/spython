@@ -30,6 +30,7 @@ fn the_corpus_runs_as_in_cpython() {
         .map(|(file, _)| file)
         .collect();
     assert!(differ.is_empty(), "differ from CPython: {differ:#?}");
+    assert_covered(&outcomes);
 }
 
 /// The files of the corpus, which is `cli/tests/inputs` and the
@@ -121,6 +122,24 @@ fn the_doctests_of_the_corpus_run_as_in_the_runner() {
         .map(|(file, _)| file)
         .collect();
     assert!(differ.is_empty(), "differ from the runner: {differ:#?}");
+    assert_covered(&outcomes);
+}
+
+/// The highest level whose programs the compiler covers.
+const COVERED: Level = Level::Selection;
+
+/// Asserts that the compiler covers each file of `outcomes` that the
+/// checker accepts at a level up to [`COVERED`].
+fn assert_covered(outcomes: &[(&PathBuf, Outcome)]) {
+    let unsupported: Vec<_> = outcomes
+        .iter()
+        .filter(|(file, outcome)| *outcome == Outcome::Unsupported && level(file) <= COVERED)
+        .map(|(file, _)| file)
+        .collect();
+    assert!(
+        unsupported.is_empty(),
+        "unsupported at a covered level: {unsupported:#?}"
+    );
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
