@@ -506,7 +506,7 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The operand of an operator of `int`, which may be a `bool`.
-    fn int_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
+    pub(super) fn int_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
         self.int_value(self.expr(operand)?, operand)
     }
 

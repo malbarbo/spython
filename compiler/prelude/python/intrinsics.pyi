@@ -78,3 +78,6 @@ def is_xid_continue(code_point: int) -> bool:
 def stop(text: str) -> NoReturn:
     """Stops the program with the error of spython of `text`, for what CPython does and spython
     cannot."""
+
+def decimal_value(code_point: int) -> int:
+    """The value of the code point as a decimal digit, or -1 when `str.isdecimal` does not accept it."""

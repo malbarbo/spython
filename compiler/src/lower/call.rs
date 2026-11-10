@@ -328,13 +328,40 @@ impl<'a> Lowering<'a, '_> {
                         operand: Box::new(lowered),
                         site: self.site(call.range()),
                     }),
-                    Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => {
+                    Rep::Str => {
+                        self.prelude_call(call, "int", "int_of_str", vec![lowered, Expr::Int(10)])
+                    }
+                    Rep::None | Rep::StrOrNone | Rep::Uniform => {
                         Err(unsupported(arg, "int of this type"))
                     }
                 }
             }
+            ([arg, base], []) => self.int_with_base(call, arg, base),
+            ([arg], [keyword])
+                if keyword
+                    .arg
+                    .as_ref()
+                    .is_some_and(|name| name.as_str() == "base") =>
+            {
+                self.int_with_base(call, arg, &keyword.value)
+            }
             _ => Err(unsupported(call, "this call of int")),
         }
+    }
+
+    /// `int(arg, base)` of a `str`, which the prelude defines.
+    fn int_with_base(
+        &self,
+        call: &ast::ExprCall,
+        arg: &ast::Expr,
+        base: &ast::Expr,
+    ) -> Result<Expr, Error> {
+        let lowered = self.expr(arg)?;
+        if lowered.rep() != Rep::Str {
+            return Err(unsupported(arg, "int with a base of this type"));
+        }
+        let base = self.int_operand(base)?;
+        self.prelude_call(call, "int", "int_of_str", vec![lowered, base])
     }
 
     /// `ord` of a `str`, which the prelude defines.

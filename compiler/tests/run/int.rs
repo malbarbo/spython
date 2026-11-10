@@ -272,3 +272,90 @@ fn a_power_outside_31_bits_stops_the_program() {
         "of **",
     );
 }
+
+#[test]
+fn int_of_a_str_reads_it_as_cpython_does() {
+    same_as_cpython(
+        "int_of_a_str_reads_it_as_cpython_does",
+        indoc! {"
+            def read(s: str, base: int) -> None:
+                print(repr(s), base, int(s, base))
+
+
+            print(int('42'), int('  -17  '), int('+0'), int('1_000'), int('٣_4'), int('\\u3000 12\\u2003\\x85'))
+            print(int('-1073741824'), int('1073741823'), int('00'), int('0' * 5000 + '7'), int('ff', base=16))
+            read('0x1f', 16)
+            read('0X1F', 0)
+            read('0o17', 0)
+            read('0b101', 0)
+            read('0b_1', 0)
+            read('0x_f', 16)
+            read('z', 36)
+            read('Z', 36)
+            read('0_0', 0)
+            read('000', 0)
+            read('11', 2)
+            read('0x', 36)
+            read('1e3', 16)
+            read('٠١٢', 3)
+            read(' -0b1_1 ', 2)
+            read('7', True + 7)
+        "},
+    );
+    for (i, source) in [
+        "int('')",
+        "int(' ')",
+        "int('1_')",
+        "int('_1')",
+        "int('1__0')",
+        "int('-')",
+        "int('0x1f')",
+        "int('12abc')",
+        "int('012', 0)",
+        "int('1' * 4301)",
+        "int('5', 1)",
+        "int('5', 37)",
+        "int('5', -1)",
+        "int('é')",
+        "int('1\\x1c')",
+        "int('1\\x00')",
+        "int('x' * 300)",
+        "int('0x', 16)",
+        "int('0b2', 0)",
+        "int('1 2')",
+        "int('٣٤x', 0)",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        same_as_cpython(
+            &format!("int_of_an_invalid_str_raises_valueerror_{i}"),
+            &format!("print({source})\n"),
+        );
+    }
+}
+
+#[test]
+fn int_of_a_str_outside_31_bits_stops_the_program() {
+    for (i, source) in [
+        "int('1073741824')",
+        "int('-1073741825')",
+        "int('9' * 40)",
+        "int('7fffffff', 16)",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("int_of_a_str_outside_31_bits_stops_the_program_{i}");
+        let output = super::run(&name, &format!("print({source})\n"));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).lines().last(),
+            Some(
+                "spython: the result of int does not fit in an int, which goes from \
+                 -1073741824 to 1073741823"
+            ),
+            "{source}"
+        );
+        assert_eq!(output.status.code(), Some(1));
+    }
+}

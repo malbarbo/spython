@@ -443,6 +443,9 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         index: Box<Expr>,
     },
+    /// The value of a code point as a decimal digit, as an `int`, or -1
+    /// when the code point is not a decimal digit.
+    DecimalValue(Box<Expr>),
     /// Whether a code point is in `set`, as a `bool`.
     CodePointIs {
         set: CodePointSet,
@@ -903,6 +906,7 @@ impl Expr {
             | Expr::FloatAsInt { .. }
             | Expr::CodePoint { .. }
             | Expr::CaseAt { .. }
+            | Expr::DecimalValue(_)
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)

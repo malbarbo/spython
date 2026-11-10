@@ -565,6 +565,15 @@ impl Reprs {
         self.int.small_as_int(f);
     }
 
+    /// Pops an `int`, a code point, and pushes the `int` of its value as a
+    /// decimal digit, or -1.
+    pub fn decimal_value(&self, m: &mut ModuleState, f: &mut FuncState) {
+        self.int.as_i32(f);
+        let builtin = m.builtin("str_decimal_value");
+        f.ins().call(builtin);
+        self.int.small_as_int(f);
+    }
+
     /// Pops an `int`, a code point, and pushes the `bool` of whether it is
     /// in `set`.
     pub fn code_point_is(&self, m: &mut ModuleState, f: &mut FuncState, set: CodePointSet) {

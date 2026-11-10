@@ -952,6 +952,10 @@ impl Emitter<'_> {
                 self.expr(f, index);
                 self.reprs.case_at(&mut self.m, f, *case);
             }
+            Expr::DecimalValue(operand) => {
+                self.expr(f, operand);
+                self.reprs.decimal_value(&mut self.m, f);
+            }
             Expr::CodePointIs { set, operand } => {
                 self.expr(f, operand);
                 self.reprs.code_point_is(&mut self.m, f, *set);
