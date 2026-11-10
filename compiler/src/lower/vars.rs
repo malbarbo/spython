@@ -4,14 +4,14 @@ use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
 use ty_python_semantic::types::lowering::{is_definitely_bound, is_implicit_global};
 
-use super::{Lowering, unbound_local, unsupported};
+use super::{Lowering, coerce, unbound_local, unsupported};
 use crate::Error;
 use crate::ir::{Check, Expr, Place, Undefined};
 
 impl<'a> Lowering<'a, '_> {
-    /// The variable that `target` names, which has to hold the rep of
-    /// `value`.
-    pub(super) fn target(&self, target: &ast::Expr, value: &Expr) -> Result<Place, Error> {
+    /// The variable that `target` names, with `value` as a value of its
+    /// rep.
+    pub(super) fn target(&self, target: &ast::Expr, value: Expr) -> Result<(Place, Expr), Error> {
         let ast::Expr::Name(name) = target else {
             return Err(unsupported(target, "this target"));
         };
@@ -28,8 +28,10 @@ impl<'a> Lowering<'a, '_> {
                 .map(|(id, rep)| (Place::Global(id), rep)),
         };
         match found {
-            Some((place, rep)) if rep == value.rep() => Ok(place),
-            Some(_) => Err(unsupported(target, "a variable with values of two types")),
+            Some((place, rep)) => match coerce(value, rep) {
+                Some(value) => Ok((place, value)),
+                None => Err(unsupported(target, "a variable with values of two types")),
+            },
             // The checker gives the value a type that no rep holds.
             None => Err(unsupported(target, "a variable of this type")),
         }

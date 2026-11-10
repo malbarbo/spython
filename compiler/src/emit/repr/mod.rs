@@ -92,7 +92,7 @@ impl Reprs {
             Rep::Float => Some(self.float.val_type()),
             // `False` and `True` are the `i32` 0 and 1.
             Rep::Bool => Some(ValType::I32),
-            Rep::Str => Some(self.str.val_type(true)),
+            Rep::Str | Rep::StrOrNone => Some(self.str.val_type(true)),
             Rep::None => None,
         }
     }
@@ -122,7 +122,7 @@ impl Reprs {
             Rep::Int => self.int.global_init(),
             Rep::Float => self.float.global_init(),
             Rep::Bool => ConstExpr::i32_const(0),
-            Rep::Str => ConstExpr::ref_null(self.str.type_index().heap_type()),
+            Rep::Str | Rep::StrOrNone => ConstExpr::ref_null(self.str.type_index().heap_type()),
             Rep::None => unreachable!("a variable of rep None"),
         };
         m.global(ty, &init)
@@ -133,6 +133,18 @@ impl Reprs {
         f.ins().global_get(global);
         if rep == Rep::Str {
             f.ins().ref_as_non_null();
+        }
+    }
+
+    /// Pops a value of `from` and pushes it as a value of `to`, a rep that
+    /// holds the values of `from`.
+    pub fn widen(&self, f: &mut FuncState, from: Rep, to: Rep) {
+        match (from, to) {
+            (Rep::Str, Rep::StrOrNone) => {}
+            (Rep::None, Rep::StrOrNone) => {
+                f.ins().ref_null(self.str.type_index().heap_type());
+            }
+            _ => unreachable!("a widening of {from:?} to {to:?}"),
         }
     }
 
@@ -176,7 +188,7 @@ impl Reprs {
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
             Rep::Float => self.float.truth(f),
-            Rep::None => unreachable!("None has no value"),
+            Rep::None | Rep::StrOrNone => unreachable!("the truth of {rep:?}"),
         }
     }
 
@@ -193,7 +205,7 @@ impl Reprs {
                 self.str.literal(m, f, "False");
                 f.end();
             }
-            Rep::Str | Rep::None => unreachable!("the str of a str or of None"),
+            Rep::Str | Rep::None | Rep::StrOrNone => unreachable!("the str of {rep:?}"),
         }
     }
 
@@ -567,7 +579,7 @@ impl Reprs {
                     CmpOp::Ge => ins.i32_ge_u(),
                 };
             }
-            Rep::None => unreachable!("a comparison of None"),
+            Rep::None | Rep::StrOrNone => unreachable!("a comparison of {rep:?}"),
         }
     }
 
@@ -587,7 +599,7 @@ impl Reprs {
                 f.end();
             }
             Rep::Str => self.str.write(f),
-            Rep::None => panic!("a value of rep None to write"),
+            Rep::None | Rep::StrOrNone => panic!("a value of rep {rep:?} to write"),
         }
     }
 }

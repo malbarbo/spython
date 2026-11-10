@@ -72,6 +72,7 @@ impl<'a> Lowering<'a, '_> {
                 _ => Err(unsupported(expr, "this number")),
             },
             ast::Expr::BooleanLiteral(b) => Ok(Expr::Bool(b.value)),
+            ast::Expr::NoneLiteral(_) => Ok(Expr::None),
             ast::Expr::Name(_) | ast::Expr::Attribute(_) => match self.math_member(expr) {
                 Some((imported, member)) => self.math_constant(expr, imported, &member),
                 None => match expr {
@@ -224,6 +225,7 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(range),
             }),
             Rep::None => Err(unsupported(node, "str of None")),
+            Rep::StrOrNone => Err(unsupported(node, "str of a str or None")),
         }
     }
 
@@ -396,7 +398,8 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(operand)?;
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
-            _ => Ok(lowered),
+            Rep::StrOrNone => Err(unsupported(operand, "the truth of a str or None")),
+            Rep::Int | Rep::Float | Rep::Bool | Rep::Str => Ok(lowered),
         }
     }
 
@@ -410,7 +413,7 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int => Ok(lowered),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(lowered))),
-            Rep::Float | Rep::Str | Rep::None => Err(unsupported(
+            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -426,7 +429,7 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         Rep::Bool => Ok(Expr::IntAsFloat(Box::new(Expr::BoolAsInt(Box::new(
             lowered,
         ))))),
-        Rep::Str | Rep::None => Err(unsupported(
+        Rep::Str | Rep::None | Rep::StrOrNone => Err(unsupported(
             operand,
             "an operator on a value that is not a number",
         )),
@@ -450,6 +453,7 @@ pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
         Rep::Bool => Ok(lowered),
         Rep::Int | Rep::Float | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
         Rep::None => Err(unsupported(node, "the truth of None")),
+        Rep::StrOrNone => Err(unsupported(node, "the truth of a str or None")),
     }
 }
 

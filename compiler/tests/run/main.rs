@@ -27,6 +27,7 @@ mod raise;
 mod recursion;
 mod repr;
 mod str;
+mod union;
 mod vars;
 
 /// The module of `source`, which has to pass the checker at the last level.

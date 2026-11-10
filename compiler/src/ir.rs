@@ -171,6 +171,13 @@ pub(crate) enum Expr {
     Int(i32),
     Float(f64),
     Bool(bool),
+    None,
+    /// A value of a rep that a value of `rep` also holds, as a `str` is a
+    /// `str` or `None`.
+    Widen {
+        value: Box<Expr>,
+        rep: Rep,
+    },
     /// The value of a variable. Only a read with a check may come before
     /// the first assignment.
     Load {
@@ -816,6 +823,8 @@ pub(crate) enum Rep {
     Bool,
     Str,
     None,
+    /// A `str` or `None`.
+    StrOrNone,
 }
 
 impl Expr {
@@ -869,7 +878,8 @@ impl Expr {
             | Expr::Truth(_)
             | Expr::Not(_)
             | Expr::Compare(..) => Rep::Bool,
-            Expr::Load { rep, .. } | Expr::Call { rep, .. } => *rep,
+            Expr::None => Rep::None,
+            Expr::Load { rep, .. } | Expr::Call { rep, .. } | Expr::Widen { rep, .. } => *rep,
             Expr::Logic { left, .. } => left.rep(),
             Expr::AfterImport { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),

@@ -6,7 +6,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::call::is_builtins;
 use super::flow::imported_name;
-use super::{Lowering, params_of, unsupported};
+use super::{Lowering, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
 use crate::ir::{Expr, Place, Rep, Stmt};
@@ -34,10 +34,9 @@ impl<'a> Lowering<'a, '_> {
             .zip(&sig.defaults)
             .filter_map(|(param, var)| Some((param.default.as_deref()?, (*var)?)))
             .map(|(default, var)| {
-                let value = self.expr(default)?;
-                if value.rep() != self.vars.borrow().get(var).rep {
-                    return Err(unsupported(default, "a default of this type"));
-                }
+                let rep = self.vars.borrow().get(var).rep;
+                let value = coerce(self.expr(default)?, rep)
+                    .ok_or_else(|| unsupported(default, "a default of this type"))?;
                 Ok(Stmt::Assign {
                     targets: vec![Place::Global(var)],
                     value,
@@ -77,12 +76,13 @@ impl<'a> Lowering<'a, '_> {
                 }))
             }
             ast::Stmt::Assign(a) => {
-                let value = self.expr(&a.value)?;
-                let targets = a
-                    .targets
-                    .iter()
-                    .map(|target| self.target(target, &value))
-                    .collect::<Result<_, _>>()?;
+                let mut value = self.expr(&a.value)?;
+                let mut targets = Vec::new();
+                for target in &a.targets {
+                    let (place, coerced) = self.target(target, value)?;
+                    targets.push(place);
+                    value = coerced;
+                }
                 Ok(Some(Stmt::Assign { targets, value }))
             }
             // An annotation alone binds nothing.
@@ -92,8 +92,7 @@ impl<'a> Lowering<'a, '_> {
                 value: Some(value),
                 ..
             }) => {
-                let value = self.expr(value)?;
-                let target = self.target(target, &value)?;
+                let (target, value) = self.target(target, self.expr(value)?)?;
                 Ok(Some(Stmt::Assign {
                     targets: vec![target],
                     value,
@@ -106,7 +105,7 @@ impl<'a> Lowering<'a, '_> {
                 let left = self.load(name)?;
                 let right = self.expr(&a.value)?;
                 let value = self.binary(a, a.op, (left, name), (right, &*a.value))?;
-                let target = self.target(&a.target, &value)?;
+                let (target, value) = self.target(&a.target, value)?;
                 Ok(Some(Stmt::Assign {
                     targets: vec![target],
                     value,
@@ -271,14 +270,12 @@ impl<'a> Lowering<'a, '_> {
         };
         match r.value.as_deref() {
             None | Some(ast::Expr::NoneLiteral(_)) if ret == Rep::None => Ok(Stmt::Return(None)),
-            None | Some(ast::Expr::NoneLiteral(_)) => Err(unsupported(r, "a return of None")),
-            Some(value) => {
-                let lowered = self.expr(value)?;
-                if lowered.rep() != ret {
-                    return Err(unsupported(value, "a return of this type"));
-                }
-                Ok(Stmt::Return(Some(lowered)))
-            }
+            None => coerce(Expr::None, ret)
+                .map(|value| Stmt::Return(Some(value)))
+                .ok_or_else(|| unsupported(r, "a return of None")),
+            Some(value) => coerce(self.expr(value)?, ret)
+                .map(|value| Stmt::Return(Some(value)))
+                .ok_or_else(|| unsupported(value, "a return of this type")),
         }
     }
 }

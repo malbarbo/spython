@@ -663,6 +663,11 @@ impl Emitter<'_> {
             Expr::Int(value) => self.reprs.int_literal(f, *value),
             Expr::Float(value) => self.reprs.float_literal(f, *value),
             Expr::Bool(value) => self.reprs.bool_literal(f, *value),
+            Expr::None => {}
+            Expr::Widen { value, rep } => {
+                self.expr(f, value);
+                self.reprs.widen(f, value.rep(), *rep);
+            }
             Expr::Load { place, rep, check } => self.load(f, *place, *rep, check.as_ref()),
             Expr::Call {
                 func,

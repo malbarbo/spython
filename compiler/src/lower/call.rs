@@ -10,7 +10,7 @@ use ty_python_semantic::types::lowering::{
 };
 
 use super::expr::float_value;
-use super::{Lowering, Sig, params_of, unsupported};
+use super::{Lowering, Sig, coerce, params_of, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Place, Rep};
 
@@ -104,10 +104,8 @@ impl<'a> Lowering<'a, '_> {
             let Some((slot, rep)) = slot else {
                 return Err(unsupported(call, "a call with these arguments"));
             };
-            let lowered = self.expr(arg.value())?;
-            if lowered.rep() != *rep {
-                return Err(unsupported(arg.value(), "an argument of this type"));
-            }
+            let lowered = coerce(self.expr(arg.value())?, *rep)
+                .ok_or_else(|| unsupported(arg.value(), "an argument of this type"))?;
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
             args.push(lowered);
         }
@@ -142,7 +140,8 @@ impl<'a> Lowering<'a, '_> {
                 let lowered = self.expr(arg)?;
                 match lowered.rep() {
                     Rep::None => Err(unsupported(arg, "print of None")),
-                    _ => Ok(lowered),
+                    Rep::StrOrNone => Err(unsupported(arg, "print of a str or None")),
+                    Rep::Int | Rep::Float | Rep::Bool | Rep::Str => Ok(lowered),
                 }
             })
             .collect::<Result<_, _>>()?;
@@ -177,7 +176,7 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(self.int_value(operand, arg)?),
                 site: self.site(call.range()),
             }),
-            Rep::Str | Rep::None => Err(unsupported(arg, "abs of this type")),
+            Rep::Str | Rep::None | Rep::StrOrNone => Err(unsupported(arg, "abs of this type")),
         }
     }
 
@@ -195,7 +194,7 @@ impl<'a> Lowering<'a, '_> {
         }
         let first = self.expr(first)?;
         let rep = first.rep();
-        if rep == Rep::None {
+        if matches!(rep, Rep::None | Rep::StrOrNone) {
             return Err(unsupported(call, "min or max of None"));
         }
         let mut args = vec![first];
@@ -246,7 +245,9 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(Expr::FloatRound(Box::new(operand))),
                 site,
             }),
-            (Rep::Str | Rep::None, _) => Err(unsupported(arg, "round of this type")),
+            (Rep::Str | Rep::None | Rep::StrOrNone, _) => {
+                Err(unsupported(arg, "round of this type"))
+            }
         }
     }
 
@@ -255,7 +256,7 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(digits)?;
         match lowered.rep() {
             Rep::Int | Rep::Bool => self.int_value(lowered, digits),
-            Rep::Float | Rep::Str | Rep::None => {
+            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone => {
                 Err(unsupported(digits, "round to this number of digits"))
             }
         }
@@ -278,7 +279,9 @@ impl<'a> Lowering<'a, '_> {
                 let lowered = self.expr(arg)?;
                 match lowered.rep() {
                     Rep::Int | Rep::Bool | Rep::Float => float_value(lowered, arg),
-                    Rep::Str | Rep::None => Err(unsupported(arg, "float of this type")),
+                    Rep::Str | Rep::None | Rep::StrOrNone => {
+                        Err(unsupported(arg, "float of this type"))
+                    }
                 }
             }
             _ => Err(unsupported(call, "this call of float")),
@@ -312,7 +315,7 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
             Rep::Str => self.prelude_call(&range, "str", "repr_of", vec![lowered]),
-            Rep::None => Err(unsupported(node, "repr of this type")),
+            Rep::None | Rep::StrOrNone => Err(unsupported(node, "repr of this type")),
         }
     }
 
@@ -328,7 +331,9 @@ impl<'a> Lowering<'a, '_> {
                         operand: Box::new(lowered),
                         site: self.site(call.range()),
                     }),
-                    Rep::Str | Rep::None => Err(unsupported(arg, "int of this type")),
+                    Rep::Str | Rep::None | Rep::StrOrNone => {
+                        Err(unsupported(arg, "int of this type"))
+                    }
                 }
             }
             _ => Err(unsupported(call, "this call of int")),

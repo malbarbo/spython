@@ -18,11 +18,13 @@ use ruff_db::parsed::{ParsedModuleRef, parsed_module};
 use ruff_db::source::{SourceText, source_text};
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
-use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_info};
+use ty_python_semantic::types::lowering::{
+    DefId, Shape, declared_shape, expr_shape, function_info, slot_shape,
+};
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
-use crate::ir::{Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Var, VarId};
+use crate::ir::{Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Var, VarId};
 use crate::{Docstring, Error};
 use doctest::{DoctestScope, Tests};
 use flow::{Assigned, Bindings, always_returns};
@@ -375,14 +377,19 @@ impl<'a, 'db> Lowering<'a, 'db> {
         assigned: &[Assigned<'a>],
         keep: impl Fn(&str) -> bool,
     ) -> Result<(), Error> {
-        for (targets, value) in assigned {
-            // The lowering of the assignment rejects a value without a rep.
-            let Some(rep) = self.rep_of(expr_shape(self.model(), value)) else {
-                continue;
-            };
+        for (targets, value, annotated) in assigned {
             for target in *targets {
+                // An annotation declares the rep of the variable, and the
+                // value gives it otherwise. The lowering of the assignment
+                // rejects a value without a rep.
+                let declared = match annotated {
+                    Some(annotated) => declared_shape(self.model(), annotated),
+                    None => slot_shape(self.model(), target),
+                };
+                let shape = declared.or_else(|| expr_shape(self.model(), value));
                 if let ast::Expr::Name(name) = target
                     && keep(name.id.as_str())
+                    && let Some(rep) = self.rep_of(shape)
                 {
                     self.declare_var(name.id.as_str(), rep, value)?;
                 }
@@ -392,6 +399,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     fn declare_var(&self, name: &str, rep: Rep, value: &ast::Expr) -> Result<(), Error> {
+        check_self(name, rep, value)?;
         let mut scope = self.scope.borrow_mut();
         let mut module = self.vars.borrow_mut();
         let vars = match scope.as_mut() {
@@ -407,7 +415,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
         };
         match vars.find(name) {
-            Some((_, declared)) if declared != rep => {
+            Some((_, declared)) if !holds(declared, rep) => {
                 Err(unsupported(value, "a variable with values of two types"))
             }
             Some(_) => Ok(()),
@@ -477,8 +485,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let params = params_of(def)
             .zip(&info.params)
             .map(|(param, info)| {
-                self.rep_of(Some(info.shape.clone()))
-                    .ok_or_else(|| unsupported(param, "a parameter of this type"))
+                let rep = self
+                    .rep_of(Some(info.shape.clone()))
+                    .ok_or_else(|| unsupported(param, "a parameter of this type"))?;
+                check_self(param.name(), rep, param)?;
+                Ok(rep)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let ret = match info.ret {
@@ -596,6 +607,20 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 Some(Rep::Str)
             }
+            Shape::Union(shapes) => {
+                let mut none = false;
+                for shape in shapes {
+                    match shape {
+                        Shape::None => none = true,
+                        shape => {
+                            if self.rep_of(Some(shape)) != Some(Rep::Str) {
+                                return None;
+                            }
+                        }
+                    }
+                }
+                none.then_some(Rep::StrOrNone)
+            }
             _ => None,
         }
     }
@@ -648,6 +673,37 @@ fn params_of(def: &ast::StmtFunctionDef) -> impl Iterator<Item = &ast::Parameter
 
 /// The most parameters that a wasm engine accepts in a function.
 const MAX_PARAMS: usize = 1000;
+
+/// Returns `true` if a variable of `rep` holds the values of `value`,
+/// `false` otherwise.
+fn holds(rep: Rep, value: Rep) -> bool {
+    rep == value || (rep == Rep::StrOrNone && matches!(value, Rep::Str | Rep::None))
+}
+
+/// `value` as a value of `rep`, and `None` when a variable of `rep` does
+/// not hold it.
+fn coerce(value: Expr, rep: Rep) -> Option<Expr> {
+    if value.rep() == rep {
+        Some(value)
+    } else if holds(rep, value.rep()) {
+        Some(Expr::Widen {
+            value: Box::new(value),
+            rep,
+        })
+    } else {
+        None
+    }
+}
+
+/// Refuses a variable `self` of a union. The suggestion of a `NameError`
+/// looks for an attribute in the value of `self`, and the compiler knows
+/// the attributes of each rep but not which one a union holds.
+fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
+    if name == "self" && rep == Rep::StrOrNone {
+        return Err(unsupported(node, "a variable self of a union"));
+    }
+    Ok(())
+}
 
 fn unsupported(node: &impl Ranged, what: &str) -> Error {
     Error::Unsupported {

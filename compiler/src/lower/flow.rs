@@ -17,8 +17,13 @@ pub(super) fn imported_name(alias: &ast::Alias, from: bool) -> &str {
     }
 }
 
-/// The targets of an assignment, with the value.
-pub(super) type Assigned<'a> = (&'a [ast::Expr], &'a ast::Expr);
+/// The targets of an assignment, with the value, and the statement of an
+/// assignment with an annotation.
+pub(super) type Assigned<'a> = (
+    &'a [ast::Expr],
+    &'a ast::Expr,
+    Option<&'a ast::StmtAnnAssign>,
+);
 
 /// What a body binds, out of its `if`s and its `while`s too.
 #[derive(Default)]
@@ -57,7 +62,7 @@ impl<'a> Bindings<'a> {
                         self.visit(target);
                         self.assign(target);
                     }
-                    self.assignments.push((&a.targets, &a.value));
+                    self.assignments.push((&a.targets, &a.value, None));
                 }
                 ast::Stmt::AnnAssign(a) => {
                     // CPython makes no code for a declaration without a value.
@@ -65,7 +70,7 @@ impl<'a> Bindings<'a> {
                         self.visit(value);
                         self.visit(&a.target);
                         self.assignments
-                            .push((std::slice::from_ref(&a.target), value));
+                            .push((std::slice::from_ref(&a.target), value, Some(a)));
                     }
                     self.assign(&a.target);
                 }

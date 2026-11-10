@@ -268,7 +268,9 @@ impl<'a> Lowering<'a, '_> {
         let operand = self.expr(arg)?;
         match operand.rep() {
             Rep::Int | Rep::Bool | Rep::Float => Ok(operand),
-            Rep::Str | Rep::None => Err(unsupported(arg, "a function of math of this type")),
+            Rep::Str | Rep::None | Rep::StrOrNone => {
+                Err(unsupported(arg, "a function of math of this type"))
+            }
         }
     }
 
@@ -278,7 +280,7 @@ impl<'a> Lowering<'a, '_> {
         match operand.rep() {
             Rep::Int => Ok(operand),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(operand))),
-            Rep::Float | Rep::Str | Rep::None => {
+            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone => {
                 Err(unsupported(arg, "a function of math of this type"))
             }
         }
