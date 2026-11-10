@@ -3,7 +3,7 @@
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 
-use super::{Lowering, unsupported};
+use super::{Lowering, coerce, unsupported};
 use crate::Error;
 use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, LogicOp, MinMaxOp, Rep};
 
@@ -263,6 +263,21 @@ impl<'a> Lowering<'a, '_> {
             .chain(c.comparators())
             .map(|operand| Ok((self.expr(operand)?, operand)))
             .collect::<Result<Vec<_>, Error>>()?;
+        // A union compares by the types of its values, which the module
+        // tests when it runs.
+        let union = |(lowered, _): &(Expr, _)| {
+            matches!(lowered.rep(), Rep::None | Rep::StrOrNone | Rep::Uniform)
+        };
+        if operands.iter().any(union) {
+            let mut operands = operands.into_iter().map(|(lowered, _)| {
+                coerce(lowered, Rep::Uniform).expect("a uniform value holds any value")
+            });
+            let first = operands.next().expect("a comparison has a first operand");
+            return Ok(Expr::Compare(
+                Box::new(first),
+                ops.into_iter().zip(operands).collect(),
+            ));
+        }
         let is_str = |(lowered, _): &(Expr, _)| lowered.rep() == Rep::Str;
         let is_float = |(lowered, _): &(Expr, _)| lowered.rep() == Rep::Float;
         let mut operands = if operands.iter().any(is_float) && !operands.iter().any(is_str) {

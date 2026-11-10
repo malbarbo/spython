@@ -1008,7 +1008,7 @@ impl Emitter<'_> {
                 MinMaxOp::Min => CmpOp::Lt,
                 MinMaxOp::Max => CmpOp::Gt,
             };
-            self.reprs.compare(f, rep, cmp);
+            self.reprs.compare(&mut self.m, f, rep, cmp);
             f.if_(BlockType::Empty);
             f.ins().local_get(value).local_set(result);
             f.end();
@@ -1065,7 +1065,7 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 f.ins().local_set(right);
                 self.reprs.load(f, rep, right);
-                self.reprs.compare(f, rep, *op);
+                self.reprs.compare(&mut self.m, f, rep, *op);
                 f.ins().i32_eqz();
                 f.if_(BlockType::Empty);
                 self.reprs.bool_literal(f, false);
@@ -1076,7 +1076,7 @@ impl Emitter<'_> {
             f.free(right);
         }
         self.expr(f, last);
-        self.reprs.compare(f, rep, *last_op);
+        self.reprs.compare(&mut self.m, f, rep, *last_op);
         f.end();
     }
 

@@ -161,6 +161,58 @@ fn print_writes_a_value_of_a_union_as_its_type_says() {
 }
 
 #[test]
+fn a_value_of_a_union_compares_as_its_type_does() {
+    same_as_cpython(
+        "a_value_of_a_union_compares_as_its_type_does",
+        indoc! {"
+            def same(a: int | float | bool | str | None, b: int | float | bool | str | None) -> None:
+                print(a == b, a != b)
+
+
+            def order(a: int | float | bool, b: int | float | bool) -> None:
+                print(a < b, a <= b, a > b, a >= b)
+
+
+            def words(a: str | None, b: str) -> None:
+                if a is not None:
+                    print(a < b, a <= b, a > b, a >= b)
+                print(a == b, a != b, b == a)
+
+
+            nan = 1e999 - 1e999
+            same(None, None)
+            same(None, 0)
+            same(0, None)
+            same('a', None)
+            same(1, 1.0)
+            same(1, True)
+            same(0, False)
+            same(2, 2.5)
+            same('1', 1)
+            same(1, '1')
+            same('ab', 'ab')
+            same('ab', 'ac')
+            same(nan, nan)
+            same(0.0, -0.0)
+            order(1, 2)
+            order(2, 1)
+            order(2, 2.0)
+            order(True, 1)
+            order(False, 0.5)
+            order(-1073741824, 1073741823)
+            order(nan, 1)
+            order(1, nan)
+            words('a', 'b')
+            words('b', 'a')
+            words('a', 'a')
+            words(None, 'a')
+            x: int | None = 3
+            print(1 < x < 5, 1 < x < 2, x == 3 == x)
+        "},
+    );
+}
+
+#[test]
 fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"

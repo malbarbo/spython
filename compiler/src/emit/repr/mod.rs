@@ -28,6 +28,10 @@ pub(crate) struct Reprs {
     /// `(func (param (ref null eq)))`, which writes a value of a union. A
     /// module that writes none goes without it.
     write_uniform: Option<FuncIdx>,
+    /// `(func (param (ref null eq) (ref null eq)) (result i32))`, which
+    /// compares two values of a union, as [`Self::add_compare_uniform`]
+    /// says.
+    compare_uniform: Option<FuncIdx>,
     exc: Exceptions,
 }
 
@@ -45,6 +49,7 @@ impl Reprs {
             str,
             uniform: UniformRepr::new(),
             write_uniform: None,
+            compare_uniform: None,
             exc,
         }
     }
@@ -621,8 +626,29 @@ impl Reprs {
     }
 
     /// Pops two values of `rep` and pushes the `bool` of `op`.
-    pub fn compare(&self, f: &mut FuncState, rep: Rep, op: CmpOp) {
+    pub fn compare(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep, op: CmpOp) {
         match rep {
+            Rep::Uniform => {
+                let compare = match self.compare_uniform {
+                    Some(compare) => compare,
+                    None => {
+                        let compare = self.add_compare_uniform(m);
+                        self.compare_uniform = Some(compare);
+                        compare
+                    }
+                };
+                f.ins().call(compare);
+                // -1, 0 and 1 are the order, and 2 is no order.
+                let mut ins = f.ins();
+                match op {
+                    CmpOp::Eq => ins.i32_eqz(),
+                    CmpOp::Ne => ins.i32_const(0).i32_ne(),
+                    CmpOp::Lt => ins.i32_const(-1).i32_eq(),
+                    CmpOp::Gt => ins.i32_const(1).i32_eq(),
+                    CmpOp::Le => ins.i32_const(1).i32_add().i32_const(1).i32_le_u(),
+                    CmpOp::Ge => ins.i32_const(1).i32_le_u(),
+                };
+            }
             Rep::Int => self.int.compare(f, op),
             // `a op b` is `compare(a, b) op 0`.
             Rep::Str => {
@@ -643,7 +669,7 @@ impl Reprs {
                     CmpOp::Ge => ins.i32_ge_u(),
                 };
             }
-            Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("a comparison of {rep:?}"),
+            Rep::None | Rep::StrOrNone => unreachable!("a comparison of {rep:?}"),
         }
     }
 
@@ -690,6 +716,107 @@ impl Reprs {
                 self.str.literal(m, f, "None");
                 self.str.write(f);
             }
+        }
+    }
+
+    /// Defines the function that compares two values of a union. It gives
+    /// -1, 0 or 1 as the first value comes before, with or after the
+    /// second, and 2 when they have no order. Two numbers compare as
+    /// `float`s, which is exact for an `int` of 31 bits, and a NaN has no
+    /// order. Two `str`s compare by their code points. `None` is equal to
+    /// `None` alone, and a number and a `str` have no order. The checker
+    /// rejects an order between values without one, so only `==` and `!=`
+    /// see a 2 that is not a NaN.
+    fn add_compare_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        let uniform = self.uniform.val_type();
+        let ty = m.func_type(&[uniform, uniform], &[ValType::I32]);
+        let mut f = FuncState::new(2);
+        let (a, b) = (f.param(0), f.param(1));
+        let unordered = 2;
+        f.ins()
+            .local_get(a)
+            .ref_is_null()
+            .local_get(b)
+            .ref_is_null()
+            .i32_or();
+        f.if_(BlockType::Empty);
+        f.ins()
+            .local_get(a)
+            .ref_is_null()
+            .local_get(b)
+            .ref_is_null()
+            .i32_and()
+            .i32_eqz()
+            .i32_const(unordered)
+            .i32_mul()
+            .return_();
+        f.end();
+        let str = self.str.type_index().heap_type();
+        f.ins().local_get(a).ref_test(str);
+        f.ins().local_get(b).ref_test(str);
+        f.ins().i32_add();
+        let strs = f.temp(ValType::I32);
+        f.ins().local_tee(strs).i32_const(1).i32_eq();
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(unordered).return_();
+        f.end();
+        f.ins().local_get(strs).i32_const(2).i32_eq();
+        f.if_(BlockType::Empty);
+        f.ins().local_get(a);
+        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
+        f.ins().local_get(b);
+        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
+        self.str.compare(&mut f);
+        f.ins().return_();
+        f.end();
+        f.free(strs);
+        let (x, y) = (f.temp(ValType::F64), f.temp(ValType::F64));
+        for (value, number) in [(a, x), (b, y)] {
+            self.uniform_as_f64(m, &mut f, value);
+            f.ins().local_set(number);
+        }
+        f.ins().local_get(x).local_get(y).f64_lt();
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(-1).return_();
+        f.end();
+        f.ins().local_get(x).local_get(y).f64_gt();
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(1).return_();
+        f.end();
+        f.ins()
+            .local_get(x)
+            .local_get(y)
+            .f64_eq()
+            .i32_eqz()
+            .i32_const(unordered)
+            .i32_mul();
+        m.add_func(ty, f.finish())
+    }
+
+    /// Pushes the number in `value`, a boxed `int`, `float` or `bool`, as
+    /// an `f64`.
+    fn uniform_as_f64(&mut self, m: &mut ModuleState, f: &mut FuncState, value: LocalIdx) {
+        let mut ends = 0;
+        for (rep, box_type) in self.uniform.boxes(m) {
+            if rep == Rep::Float {
+                continue;
+            }
+            f.ins().local_get(value).ref_test(box_type);
+            f.if_(BlockType::Result(ValType::F64));
+            f.ins().local_get(value);
+            self.narrow(m, f, Rep::Uniform, rep);
+            if rep == Rep::Int {
+                self.int.as_i32(f);
+            }
+            // `False` and `True` are the `i32` 0 and 1.
+            f.ins().f64_convert_i32_s();
+            f.else_();
+            ends += 1;
+        }
+        f.ins().local_get(value);
+        self.narrow(m, f, Rep::Uniform, Rep::Float);
+        for _ in 0..ends {
+            f.end();
         }
     }
 
