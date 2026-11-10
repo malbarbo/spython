@@ -533,7 +533,7 @@ impl Emitter<'_> {
         f: &mut FuncState,
         func: FuncId,
         (args, order): (&[Expr], &[u32]),
-        site: Site,
+        site: Option<Site>,
         check: Option<&Check>,
     ) {
         let index = self.func_slots(func).index;
@@ -563,6 +563,10 @@ impl Emitter<'_> {
                 f.free(local);
             }
         }
+        let Some(site) = site else {
+            f.ins().call(index);
+            return;
+        };
         let frame = self.program_func(func).frame;
         self.at(f, site, |e, f| {
             // A function without a frame does not count against the limit

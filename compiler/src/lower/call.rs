@@ -66,7 +66,7 @@ impl<'a> Lowering<'a, '_> {
             args,
             order,
             rep: sig.ret,
-            site: self.site(call.range()),
+            site: self.call_site(func, call),
             check,
         })
     }

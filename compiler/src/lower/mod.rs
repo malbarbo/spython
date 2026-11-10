@@ -43,6 +43,8 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
         imports: RefCell::new(Imports::default()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
+        lowered: RefCell::new(HashMap::new()),
+        raises: Cell::new(false),
     };
     let suite = main.module.suite().as_slice();
     lowering.declare_vars(&Bindings::of(suite))?;
@@ -51,7 +53,12 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     // end of the queue.
     let mut funcs: Vec<Func> = Vec::new();
     while funcs.len() < lowering.funcs.borrow().sigs.len() {
-        funcs.push(lowering.func(FuncId::new(funcs.len()))?);
+        let id = FuncId::new(funcs.len());
+        let lowered = lowering.lowered.borrow_mut().remove(&id.index());
+        funcs.push(match lowered {
+            Some(func) => func,
+            None => lowering.func(id)?,
+        });
     }
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
@@ -144,6 +151,12 @@ struct Lowering<'a, 'db> {
     /// The line of the frame of each line of each function, and of the
     /// module, by the name of the function and the number of the line.
     lines: RefCell<HashMap<(String, usize), u32>>,
+    /// The functions of the prelude, which the lowering lowers at their
+    /// first call, by the index of their id.
+    lowered: RefCell<HashMap<usize, Func>>,
+    /// Whether the code of the function of the prelude that the lowering
+    /// is in has an instruction that may raise.
+    raises: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -205,6 +218,8 @@ struct Funcs<'a, 'db> {
     /// Whether the program asks which globals got a value first, by the id
     /// of the function.
     ordered: Vec<bool>,
+    /// Whether a call of the function may raise, by the id of the function.
+    raises: Vec<bool>,
 }
 
 impl<'a, 'db> Funcs<'a, 'db> {
@@ -218,6 +233,7 @@ impl<'a, 'db> Funcs<'a, 'db> {
         self.ids.insert(def, id);
         self.sigs.push(sig);
         self.ordered.push(false);
+        self.raises.push(true);
         id
     }
 }
@@ -520,6 +536,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// lowering is in.
     fn site(&self, range: TextRange) -> Site {
         if self.in_prelude() {
+            self.raises.set(true);
             return Site::NONE;
         }
         let name = self

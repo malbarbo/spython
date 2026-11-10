@@ -9,7 +9,7 @@ use ty_python_semantic::types::lowering::DefId;
 
 use super::{Loaded, Lowering, Sig, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FuncId};
+use crate::ir::{Expr, FuncId, Site};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -53,13 +53,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .collect(),
             args,
             rep: sig.ret,
-            site: self.site(node.range()),
+            site: self.call_site(func, node),
             check: None,
         })
     }
 
     /// The function `name` of the module of the prelude in `file`, which
-    /// goes to the queue of the lowering at the first call. `None` when
+    /// the lowering lowers at the first call. `None` when
     /// `file` is not a module of the prelude, or has no such function.
     pub(super) fn prelude_func(&self, file: File, name: &str) -> Result<Option<FuncId>, Error> {
         let Some(unit) = self.prelude.iter().find(|unit| unit.file == file) else {
@@ -82,7 +82,26 @@ impl<'a, 'db> Lowering<'a, 'db> {
             params,
             ret,
         };
-        Ok(Some(self.funcs.borrow_mut().add(id, sig)))
+        let func = self.funcs.borrow_mut().add(id, sig);
+        // The body comes now, so the call knows whether the function may
+        // raise. A call of the function in its own body takes that it may.
+        let scope = self.scope.take();
+        let raises = self.raises.replace(false);
+        let lowered = self.func(func);
+        let raises = self.raises.replace(raises);
+        *self.scope.borrow_mut() = scope;
+        if let Some(flag) = self.funcs.borrow_mut().raises.get_mut(func.index()) {
+            *flag = raises;
+        }
+        self.lowered.borrow_mut().insert(func.index(), lowered?);
+        Ok(Some(func))
+    }
+
+    /// The site of the call of `func` at `node`, and `None` when the call
+    /// raises nothing.
+    pub(super) fn call_site(&self, func: FuncId, node: &impl Ranged) -> Option<Site> {
+        let raises = self.funcs.borrow().raises.get(func.index()).copied();
+        raises.unwrap_or(true).then(|| self.site(node.range()))
     }
 
     /// The function of the prelude that `def` names, as [`Self::prelude_func`]
