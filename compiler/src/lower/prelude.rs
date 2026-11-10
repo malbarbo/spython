@@ -10,47 +10,8 @@ use ty_python_semantic::types::lowering::DefId;
 
 use super::{Loaded, Lowering, Sig, coerce, unsupported};
 use crate::Error;
+use crate::cpython::names;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
-
-/// The methods of `str` that the module `str` of the prelude defines.
-const STR_METHODS: &[&str] = &[
-    "capitalize",
-    "casefold",
-    "center",
-    "count",
-    "endswith",
-    "expandtabs",
-    "find",
-    "index",
-    "isalnum",
-    "isalpha",
-    "isascii",
-    "isdecimal",
-    "isdigit",
-    "isidentifier",
-    "islower",
-    "isnumeric",
-    "isprintable",
-    "isspace",
-    "istitle",
-    "isupper",
-    "ljust",
-    "lower",
-    "lstrip",
-    "removeprefix",
-    "removesuffix",
-    "replace",
-    "rfind",
-    "rindex",
-    "rjust",
-    "rstrip",
-    "startswith",
-    "strip",
-    "swapcase",
-    "title",
-    "upper",
-    "zfill",
-];
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -116,8 +77,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
     ) -> Result<Expr, Error> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
-        let module = match (receiver.rep(), name) {
-            (Rep::Str, name) if STR_METHODS.contains(&name) => "str",
+        // The module `str` of the prelude defines each method of `str`
+        // that it has under the name of the method, among other functions.
+        let module = match receiver.rep() {
+            Rep::Str if !name.starts_with('_') && names::STR_ATTRIBUTES.contains(&name) => "str",
             _ => return Err(unsupported(call, "a call of this method")),
         };
         if !call.arguments.keywords.is_empty() {
@@ -128,7 +91,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let func = self
             .prelude_named(module, name)?
-            .ok_or_else(|| unsupported(call, "a builtin that the prelude lacks"))?;
+            .ok_or_else(|| unsupported(call, "a call of this method"))?;
         let params = self.funcs.borrow().get(func).params.clone();
         let mut given = vec![receiver];
         for arg in &call.arguments.args {
