@@ -9,9 +9,9 @@ use engine::Level;
 use super::doctests::{docstrings, runner};
 use super::{deno, python, wasmtime};
 
-/// Each program of the corpus that the checker accepts and the compiler
-/// covers prints what CPython prints, and exits as CPython exits, in
-/// wasmtime and in deno.
+/// Each program of the corpus that the checker accepts at the level of its
+/// chapter and the compiler covers prints what CPython prints, and exits as
+/// CPython exits, in wasmtime and in deno.
 #[test]
 fn the_corpus_runs_as_in_cpython() {
     let files = corpus();
@@ -37,13 +37,40 @@ fn the_corpus_runs_as_in_cpython() {
 fn corpus() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let mut files = python_files(&root.join("cli/tests/inputs"));
-    let book = root.join("../na-programacao");
+    let book = book();
     if book.is_dir() {
         files.extend(python_files(&book));
     } else {
         eprintln!("{} is missing, so the corpus leaves it out", book.display());
     }
     files
+}
+
+/// The `na-programacao` beside this repository.
+fn book() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../na-programacao")
+}
+
+/// The level of each chapter of `na-programacao` that the compiler covers.
+const CHAPTERS: &[(&str, Level)] = &[
+    ("01-algoritmos-e-linguagens", Level::Functions),
+    ("02-conceitos-basicos", Level::Functions),
+    ("03-projeto-de-funcoes", Level::Functions),
+    ("04-selecao", Level::Selection),
+];
+
+/// The level of the chapter of `file`, and the full level for a file
+/// outside those chapters.
+fn level(file: &Path) -> Level {
+    let chapter = file
+        .strip_prefix(book())
+        .ok()
+        .and_then(|path| path.components().next())
+        .map(|chapter| chapter.as_os_str());
+    CHAPTERS
+        .iter()
+        .find(|(name, _)| chapter == Some(name.as_ref()))
+        .map_or(Level::Full, |(_, level)| *level)
 }
 
 /// The outcome of `run` for each of `files`, in the order of the files.
@@ -109,7 +136,7 @@ enum Outcome {
 /// Checks `file`, compiles its doctests and runs them, and runs them with
 /// the runner of spython too.
 fn tests_from_corpus(file: &Path) -> Outcome {
-    let Ok(checked) = engine::check::check_file_keeping_db(file, Level::Full) else {
+    let Ok(checked) = engine::check::check_file_keeping_db(file, level(file)) else {
         return Outcome::Rejected;
     };
     let path = file.to_str().expect("a path in utf-8");
@@ -150,7 +177,7 @@ fn tests_from_corpus(file: &Path) -> Outcome {
 
 /// Checks, compiles and runs `file`, and runs it in CPython too.
 fn run_from_corpus(file: &Path) -> Outcome {
-    let Ok(checked) = engine::check::check_file_keeping_db(file, Level::Full) else {
+    let Ok(checked) = engine::check::check_file_keeping_db(file, level(file)) else {
         return Outcome::Rejected;
     };
     let path = file.to_str().expect("a path in utf-8");
