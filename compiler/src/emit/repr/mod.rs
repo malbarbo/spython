@@ -7,13 +7,13 @@ mod uniform;
 
 use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
-use super::module::{FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState, TypeIdx};
+use super::module::{FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TypeIdx};
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
-    ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc,
-    MathFunc2, Rep, SiteFrame, UserClass,
+    ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, Expr, FloatFunc2, FloatOp,
+    MathFunc, MathFunc2, Rep, SiteFrame, UserClass,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -36,6 +36,8 @@ pub(crate) struct Reprs {
     /// The struct of an object of each class of the program, by its
     /// [`ClassId`].
     classes: Vec<TypeIdx>,
+    /// The global of each member of each class, which `_start` fills.
+    members: Vec<Vec<GlobalIdx>>,
 }
 
 impl Reprs {
@@ -55,6 +57,7 @@ impl Reprs {
             compare_uniform: None,
             exc,
             classes: Vec::new(),
+            members: Vec::new(),
         };
         // A field of a class may hold an object of any class, its own too,
         // so the structs refer to each other by the indices that they will
@@ -76,7 +79,53 @@ impl Reprs {
             .collect();
         let group = m.rec_group(&structs);
         debug_assert_eq!(group, reprs.classes, "the classes in their rec group");
+        reprs.members = classes
+            .iter()
+            .zip(group)
+            .map(|(class, ty)| {
+                class
+                    .members
+                    .iter()
+                    .map(|fields| reprs.member_global(m, ty, fields))
+                    .collect()
+            })
+            .collect();
         reprs
+    }
+
+    /// The global of an object of the struct `ty` with the literals of
+    /// `fields`, which `_start` makes. A `str` is not a constant
+    /// expression, so the global is mutable and starts as null.
+    fn member_global(&mut self, m: &mut ModuleState, ty: TypeIdx, fields: &[Expr]) -> GlobalIdx {
+        let global = m.global(ty.ref_to(true), &ConstExpr::ref_null(ty.heap_type()));
+        let texts: Vec<Option<GlobalIdx>> = fields
+            .iter()
+            .map(|field| match field {
+                Expr::Str(text) => Some(self.str.literal_global(m, text)),
+                _ => None,
+            })
+            .collect();
+        for (field, text) in fields.iter().zip(texts) {
+            match (field, text) {
+                (Expr::Int(value), _) => self.int.init_literal(m, *value),
+                (_, Some(text)) => {
+                    Ins::new(&mut m.init).global_get(text).ref_as_non_null();
+                }
+                _ => unreachable!("a field of a member that is not a literal"),
+            }
+        }
+        Ins::new(&mut m.init).struct_new(ty).global_set(global);
+        global
+    }
+
+    /// Pushes the member at `member` of `class`.
+    pub fn member(&self, f: &mut FuncState, class: ClassId, member: u32) {
+        let global = self
+            .members
+            .get(class.index())
+            .and_then(|members| members.get(member as usize))
+            .expect("a member of the class");
+        f.ins().global_get(*global).ref_as_non_null();
     }
 
     /// Opens the code of the module or of a function, where the handler

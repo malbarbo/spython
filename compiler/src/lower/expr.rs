@@ -78,6 +78,12 @@ impl<'a> Lowering<'a, '_> {
                 Some((imported, member)) => self.math_constant(expr, imported, &member),
                 None => match expr {
                     ast::Expr::Name(name) => self.load(name),
+                    ast::Expr::Attribute(attr) => match &*attr.value {
+                        ast::Expr::Name(name) if let Some(class) = self.class_named(name) => {
+                            self.class_attribute(attr, name, class)
+                        }
+                        _ => Err(unsupported(expr, "this expression")),
+                    },
                     _ => Err(unsupported(expr, "this expression")),
                 },
             },

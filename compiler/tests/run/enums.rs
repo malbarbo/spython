@@ -97,6 +97,53 @@ fn a_def_raises_name_error_for_a_class_in_an_annotation() {
     }
 }
 
+/// Each member is one object, which `_start` makes before the program runs.
+#[test]
+fn a_member_is_a_global_of_the_module() {
+    same_as_cpython(
+        "a_member_is_a_global_of_the_module",
+        indoc! {"
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+                B = 2
+
+            class Nome(Enum):
+                X = 'x'
+
+            def f(c: Cor) -> Cor | None:
+                if c:
+                    return c
+                return None
+
+            x = Cor.A
+            y: Nome | None = None
+            print(f(x) is None, y is None, f(Cor.B) is not None, Nome.X is None)
+        "},
+    );
+}
+
+/// A read of a member reads the class, which raises `NameError` before the
+/// `class` statement.
+#[test]
+fn a_member_before_its_class_raises_name_error() {
+    same_as_cpython(
+        "a_member_before_its_class_raises_name_error",
+        indoc! {"
+            from enum import Enum
+
+            def f() -> 'Cor':
+                return Cor.A
+
+            print(f() is None)
+
+            class Cor(Enum):
+                A = 1
+        "},
+    );
+}
+
 /// The name of a class is a global, which a `NameError` suggests once the
 /// `class` statement has run.
 #[test]
@@ -202,6 +249,28 @@ fn an_enum_outside_the_accepted_form_has_its_own_message() {
                     A = 1073741824
             "},
             "an int that does not fit in 31 bits",
+        ),
+        (
+            indoc! {"
+                from enum import Enum
+
+                class Cor(Enum):
+                    A = 1
+
+                x = Cor.__name__
+            "},
+            "this attribute of a class",
+        ),
+        (
+            indoc! {"
+                from enum import Enum
+
+                class Cor(Enum):
+                    A = 1
+
+                x = Cor
+            "},
+            "a class as a value",
         ),
         (
             indoc! {"

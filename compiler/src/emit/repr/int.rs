@@ -9,7 +9,7 @@ use crate::cpython::{
     Class, DIVISION_BY_ZERO, INFINITY_TO_INT, MODULO_BY_ZERO, Message, NAN_TO_INT, NEGATIVE_K,
     NEGATIVE_N,
 };
-use crate::emit::module::{FuncIdx, FuncState, ModuleState};
+use crate::emit::module::{FuncIdx, FuncState, Ins, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
 use crate::ir::{ArithOp, Choice, CmpOp};
 
@@ -92,6 +92,15 @@ impl IntRepr {
     pub fn global_init(&self) -> ConstExpr {
         match self {
             IntRepr::I31 { .. } => ConstExpr::i32_const(0),
+        }
+    }
+
+    /// Adds to the code that `_start` runs first the push of `value`.
+    pub fn init_literal(&self, m: &mut ModuleState, value: i32) {
+        match self {
+            IntRepr::I31 { .. } => {
+                Ins::new(&mut m.init).i32_const(value);
+            }
         }
     }
 

@@ -45,6 +45,11 @@ impl<'a> Classes<'a> {
                 ordered: class.ordered,
                 fields: class.fields,
                 mutable: false,
+                members: class
+                    .members
+                    .into_iter()
+                    .map(|member| vec![Expr::Str(member.name), member.value])
+                    .collect(),
             })
             .collect()
     }
@@ -58,6 +63,7 @@ pub(super) struct Declared<'a> {
     /// The rep of each field of an object of the class. A member of an
     /// `Enum` has its name and its value.
     pub fields: Vec<Rep>,
+    pub members: Vec<Member>,
 }
 
 /// A member of an `Enum`, with its value.
@@ -87,6 +93,7 @@ impl<'a> Lowering<'a, '_> {
             def,
             ordered: false,
             fields: vec![Rep::Str, value],
+            members,
         });
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);
@@ -106,6 +113,51 @@ impl<'a> Lowering<'a, '_> {
             .copied()
             .filter(|id| std::ptr::eq(classes.get(*id).def, def))
             .ok_or_else(|| unsupported(def, "a class in an if or a while"))
+    }
+
+    /// The value of `attr`, an attribute of a class, which has to be a
+    /// member of an `Enum`.
+    pub(super) fn class_attribute(
+        &self,
+        attr: &ast::ExprAttribute,
+        name: &ast::ExprName,
+        class: ClassId,
+    ) -> Result<Expr, Error> {
+        let member = self
+            .classes
+            .borrow()
+            .get(class)
+            .members
+            .iter()
+            .position(|member| member.name == attr.attr.as_str())
+            .ok_or_else(|| unsupported(attr, "this attribute of a class"))?;
+        let member = Expr::Member {
+            class,
+            member: u32::try_from(member).expect("fewer than 2^32 members"),
+        };
+        Ok(match self.global_check(name)? {
+            Some(check) => Expr::After {
+                binding: Binding::Class(class),
+                check,
+                value: Box::new(member),
+            },
+            None => member,
+        })
+    }
+
+    /// The class that `name` reads, and `None` when it reads no class of
+    /// the module.
+    pub(super) fn class_named(&self, name: &ast::ExprName) -> Option<ClassId> {
+        let id = name.id.as_str();
+        if self
+            .scope
+            .borrow()
+            .as_ref()
+            .is_some_and(|scope| scope.is_local(id))
+        {
+            return None;
+        }
+        self.classes.borrow().names.get(id).copied()
     }
 
     /// The checks that raise `NameError` for each class that an annotation

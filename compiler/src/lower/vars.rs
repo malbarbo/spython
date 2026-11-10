@@ -95,6 +95,9 @@ impl<'a> Lowering<'a, '_> {
             if self.funcs.borrow().names.contains_key(id) {
                 return Err(unsupported(name, "a function as a value"));
             }
+            if self.classes.borrow().names.contains_key(id) {
+                return Err(unsupported(name, "a class as a value"));
+            }
             return Err(unsupported(name, "a name that the module does not assign"));
         };
         let check = self.global_check(name)?;

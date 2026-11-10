@@ -110,6 +110,9 @@ pub(crate) struct UserClass {
     pub fields: Vec<Rep>,
     /// `true` when the program assigns the fields of an object.
     pub mutable: bool,
+    /// The objects that the class has from the start, as the members of an
+    /// `Enum` are, with a literal for each field.
+    pub members: Vec<Vec<Expr>>,
 }
 
 pub(crate) struct Func {
@@ -277,6 +280,11 @@ pub(crate) enum Expr {
     /// A `float` rounded to the nearest whole value, with a tie going to
     /// the even one, as `round` does.
     FloatRound(Box<Expr>),
+    /// The object at `member` among the members of `class`.
+    Member {
+        class: ClassId,
+        member: u32,
+    },
     /// `value`, once the name of `binding` has a value. A read of the name
     /// before raises the error of `check`, as a read of a name of an
     /// import before the import does.
@@ -1025,6 +1033,7 @@ impl Expr {
             | Expr::Call { rep, .. }
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. } => *rep,
+            Expr::Member { class, .. } => Rep::Object(*class),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
             Expr::After { value, .. } => value.rep(),
