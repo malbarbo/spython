@@ -129,7 +129,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let func = self
             .prelude_named(module, name)?
             .ok_or_else(|| unsupported(call, "a builtin that the prelude lacks"))?;
-        let sig = self.funcs.borrow().get(func).clone();
+        let params = self.funcs.borrow().get(func).params.clone();
         let mut given = vec![receiver];
         for arg in &call.arguments.args {
             let lowered = self.expr(arg)?;
@@ -139,15 +139,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 _ => lowered,
             });
         }
-        if given.len() > sig.params.len() {
+        if given.len() > params.len() {
             return Err(unsupported(
                 call,
                 "a call of this method with these arguments",
             ));
         }
         let mut given = given.into_iter();
-        let args = sig
-            .params
+        let args = params
             .iter()
             .map(|rep| {
                 coerce(given.next().unwrap_or(Expr::None), *rep)
@@ -173,7 +172,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// The call of `func`, a function of the prelude, with one argument for
     /// each parameter.
     fn prelude_call_of(&self, func: FuncId, args: Vec<Expr>, site: Option<Site>) -> Expr {
-        let sig = self.funcs.borrow().get(func).clone();
+        let funcs = self.funcs.borrow();
+        let sig = funcs.get(func);
         debug_assert!(
             args.iter().map(Expr::rep).eq(sig.params.iter().copied()),
             "the arguments of {}",
