@@ -16,3 +16,8 @@ def isfinite(x: float) -> bool:
 def degrees(x: float) -> float:
     # 180 / pi, the factor of CPython.
     return x * 57.29577951308232
+
+
+def radians(x: float) -> float:
+    # pi / 180, the factor of CPython.
+    return x * 0.017453292519943295

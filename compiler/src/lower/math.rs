@@ -6,9 +6,7 @@ use ruff_text_size::Ranged;
 use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{
-    Choice, Expr, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance,
-};
+use crate::ir::{Choice, Expr, FloatFunc2, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance};
 
 impl<'a> Lowering<'a, '_> {
     /// The name of the import in `expr` and the name in `math` that `expr`
@@ -225,7 +223,10 @@ impl<'a> Lowering<'a, '_> {
         member: &str,
         arg: &ast::Expr,
     ) -> Result<Option<Expr>, Error> {
-        if matches!(member, "isnan" | "isinf" | "isfinite" | "degrees") {
+        if matches!(
+            member,
+            "isnan" | "isinf" | "isfinite" | "degrees" | "radians"
+        ) {
             let args = vec![self.math_float(arg)?];
             return self.prelude_call(call, "math", member, args).map(Some);
         }
@@ -234,17 +235,6 @@ impl<'a> Lowering<'a, '_> {
                 func,
                 operand: Box::new(self.math_float(arg)?),
                 site: self.site(call.range()),
-            }));
-        }
-        let factor = match member {
-            "radians" => Some(std::f64::consts::PI / 180.0),
-            _ => None,
-        };
-        if let Some(factor) = factor {
-            return Ok(Some(Expr::FloatArith {
-                op: FloatOp::Mul,
-                left: Box::new(self.math_float(arg)?),
-                right: Box::new(Expr::Float(factor)),
             }));
         }
         if member == "fabs" {
