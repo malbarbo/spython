@@ -1,4 +1,4 @@
-//! The import of `math`.
+//! The imports of `math`, `enum` and `dataclasses`.
 
 use indoc::{formatdoc, indoc};
 
@@ -12,6 +12,21 @@ fn an_import_of_math_runs() {
             import math
             import math as m
             from math import floor, ceil as c
+
+            print(1)
+        "},
+    );
+}
+
+#[test]
+fn an_import_of_enum_and_of_dataclasses_runs() {
+    same_as_cpython(
+        "an_import_of_enum_and_of_dataclasses_runs",
+        indoc! {"
+            import enum
+            import dataclasses as dc
+            from enum import Enum, auto as a
+            from dataclasses import dataclass
 
             print(1)
         "},
@@ -67,6 +82,34 @@ fn an_import_outside_what_the_compiler_covers_has_its_own_message() {
             from math import *
         "}),
         "an import of every name"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            from enum import IntEnum
+        "}),
+        "an import of this name"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            from dataclasses import field
+        "}),
+        "an import of this name"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            from enum import auto
+
+            print(auto)
+        "}),
+        "a name of an import as a value"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            import enum
+
+            print(enum.auto)
+        "}),
+        "this expression"
     );
     assert_eq!(
         unsupported(indoc! {"

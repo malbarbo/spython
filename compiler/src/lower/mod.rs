@@ -285,9 +285,16 @@ impl<'a, 'db> Funcs<'a, 'db> {
 struct Imports {
     ids: HashMap<String, ImportId>,
     list: Vec<Import>,
-    /// The name in `math` that each name stands for, and `None` for the
-    /// module.
-    members: HashMap<String, Option<String>>,
+    /// What each name stands for.
+    imported: HashMap<String, Imported>,
+}
+
+/// A module, or a name in a module, that an import binds.
+#[derive(Clone, PartialEq, Eq)]
+struct Imported {
+    module: String,
+    /// The name in the module, and `None` for the module itself.
+    member: Option<String>,
 }
 
 impl Imports {
@@ -526,22 +533,36 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok((info.id, params, ret))
     }
 
-    /// Declares `name`, which `alias` imports in the module, in a `from`
-    /// import or not. The suggestion of a `NameError` would need the
-    /// attributes of a `self` that an import binds.
-    fn declare_import(&self, name: &str, alias: &ast::Alias, from: bool) -> Result<(), Error> {
+    /// Declares `name`, which `alias` imports in the module, from the
+    /// module `from` in a `from` import. The suggestion of a `NameError`
+    /// would need the attributes of a `self` that an import binds.
+    fn declare_import(
+        &self,
+        name: &str,
+        alias: &ast::Alias,
+        from: Option<&str>,
+    ) -> Result<(), Error> {
         if name == "self" {
             return Err(unsupported(alias, "an import that binds self"));
         }
-        let member = from.then(|| alias.name.to_string());
+        let imported = match from {
+            Some(module) => Imported {
+                module: module.to_owned(),
+                member: Some(alias.name.to_string()),
+            },
+            None => Imported {
+                module: alias.name.to_string(),
+                member: None,
+            },
+        };
         let mut imports = self.imports.borrow_mut();
-        match imports.members.get(name) {
-            Some(declared) if *declared != member => {
+        match imports.imported.get(name) {
+            Some(declared) if *declared != imported => {
                 return Err(unsupported(alias, "a name of two imports"));
             }
             Some(_) => {}
             None => {
-                imports.members.insert(name.to_owned(), member);
+                imports.imported.insert(name.to_owned(), imported);
             }
         }
         if !imports.ids.contains_key(name) {

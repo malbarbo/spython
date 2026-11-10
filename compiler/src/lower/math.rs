@@ -34,7 +34,14 @@ impl<'a> Lowering<'a, '_> {
         {
             return None;
         }
-        let member = self.imports.borrow().members.get(name)?.clone();
+        let member = {
+            let imports = self.imports.borrow();
+            let imported = imports.imported.get(name)?;
+            if imported.module != "math" {
+                return None;
+            }
+            imported.member.clone()
+        };
         match (member, attr) {
             (Some(member), None) => Some((imported, member)),
             (None, Some(attr)) => Some((imported, attr.to_owned())),

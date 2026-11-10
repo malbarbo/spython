@@ -11,6 +11,10 @@ use crate::Error;
 use crate::cpython::Class;
 use crate::ir::{Expr, Place, Rep, Stmt};
 
+/// The modules that a program may import. No import runs code in the
+/// compiled program.
+const MODULES: [&str; 3] = ["math", "enum", "dataclasses"];
+
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
@@ -186,21 +190,33 @@ impl<'a> Lowering<'a, '_> {
                 }))
             }
             ast::Stmt::Import(i) => {
-                if let Some(alias) = i.names.iter().find(|alias| alias.name.as_str() != "math") {
+                if let Some(alias) = i
+                    .names
+                    .iter()
+                    .find(|alias| !MODULES.contains(&alias.name.as_str()))
+                {
                     return Err(unsupported(alias, "an import of this module"));
                 }
                 self.import(stmt, &i.names, false)
             }
             ast::Stmt::ImportFrom(i) => {
-                if i.level != 0
-                    || i.module
-                        .as_ref()
-                        .is_none_or(|module| module.as_str() != "math")
-                {
+                let module = i.module.as_ref().map(|module| module.as_str());
+                let Some(module) = module.filter(|module| i.level == 0 && MODULES.contains(module))
+                else {
                     return Err(unsupported(stmt, "an import from this module"));
-                }
+                };
                 if let Some(alias) = i.names.iter().find(|alias| alias.name.as_str() == "*") {
                     return Err(unsupported(alias, "an import of every name"));
+                }
+                // The compiler reads `Enum`, `auto` and `dataclass` in the
+                // form of a class alone, and every name of `math` at its use.
+                let known = |name: &str| match module {
+                    "enum" => ["Enum", "auto"].contains(&name),
+                    "dataclasses" => name == "dataclass",
+                    _ => true,
+                };
+                if let Some(alias) = i.names.iter().find(|alias| !known(alias.name.as_str())) {
+                    return Err(unsupported(alias, "an import of this name"));
                 }
                 self.import(stmt, &i.names, true)
             }
