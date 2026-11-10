@@ -300,6 +300,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 operand,
             }),
             "write_err" => arg().map(Expr::WriteErr),
+            "stop" => arg().map(|text| Expr::Stop {
+                text,
+                site: self.site(call.range()),
+            }),
             "captured_output" => Some(Expr::Captured),
             "captured_exception" => Some(Expr::CapturedException),
             _ => None,

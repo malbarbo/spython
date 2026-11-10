@@ -922,6 +922,12 @@ impl Emitter<'_> {
             }
             Expr::Captured => self.reprs.captured(f),
             Expr::CapturedException => self.reprs.captured_exception(f),
+            Expr::Stop { text, site } => {
+                self.expr(f, text);
+                self.at(f, *site, |e, f| {
+                    e.reprs.raise_text(&mut e.m, f, Class::Limit)
+                });
+            }
             Expr::WriteErr(text) => {
                 self.expr(f, text);
                 f.ins().call(self.host.to_stderr);

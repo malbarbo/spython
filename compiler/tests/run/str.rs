@@ -2,7 +2,7 @@
 
 use indoc::{formatdoc, indoc};
 
-use super::{same_as_cpython, unsupported};
+use super::{path, run, same_as_cpython, unsupported};
 
 #[test]
 fn the_product_of_a_str_and_an_int_repeats_the_str() {
@@ -633,4 +633,55 @@ fn ord_gives_the_code_point_of_a_str_of_one() {
             print(ord(''))
         "},
     );
+}
+
+#[test]
+fn chr_gives_the_str_of_a_code_point() {
+    same_as_cpython(
+        "chr_gives_the_str_of_a_code_point",
+        indoc! {"
+            def char(i: int) -> str:
+                return chr(i)
+
+
+            print(chr(97), chr(233), chr(128512), repr(chr(0)), char(1114111) == '\\U0010ffff', chr(True))
+            print(char(55295), char(57344))
+            print(char(1114112))
+        "},
+    );
+    same_as_cpython(
+        "chr_of_a_negative_int_raises_valueerror",
+        indoc! {"
+            print(chr(-1))
+        "},
+    );
+}
+
+#[test]
+fn chr_of_a_surrogate_stops_the_program() {
+    let name = "chr_of_a_surrogate_stops_the_program";
+    let output = run(
+        name,
+        indoc! {"
+            def char(i: int) -> str:
+                return chr(i)
+
+
+            print(char(55296))
+        "},
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        formatdoc! {"
+            Traceback (most recent call last):
+              File \"{file}\", line 5, in <module>
+                print(char(55296))
+                      ~~~~^^^^^^^
+              File \"{file}\", line 2, in char
+                return chr(i)
+            spython: chr(55296) gives a surrogate, which a str of spython does not hold
+        ", file = path(name, "py").display()}
+    );
+    assert_eq!(output.status.code(), Some(1));
 }

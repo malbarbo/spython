@@ -451,7 +451,7 @@ fn each_call_outside_what_the_compiler_covers_has_its_own_message() {
     );
     assert_eq!(
         unsupported(indoc! {"
-            print(chr(65))
+            print(hex(65))
         "}),
         "a call of a function that the module does not define"
     );

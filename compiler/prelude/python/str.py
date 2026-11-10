@@ -18,6 +18,7 @@ from __spython_prelude__.intrinsics import (
     is_xid_continue,
     is_xid_start,
     lower_at,
+    stop,
     title_at,
     upper_at,
 )
@@ -623,6 +624,21 @@ def ord_of(c: str) -> int:
             "ord() expected a character, but string of length " + str(n) + " found"
         )
     return code_point(c, 0)
+
+
+def chr_of(i: int) -> str:
+    """`chr(i)`."""
+    if i < 0 or i > 0x10FFFF:
+        raise ValueError("chr() arg not in range(0x110000)")
+    if 0xD800 <= i <= 0xDFFF:
+        stop(
+            "chr("
+            + str(i)
+            + ") gives a surrogate, which a str of spython does not hold"
+        )
+    b = builder_new(1)
+    b[0] = i
+    return builder_done(b)
 
 
 def is_in(sub: str, s: str) -> bool:

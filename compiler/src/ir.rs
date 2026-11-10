@@ -418,6 +418,12 @@ pub(crate) enum Expr {
     CapturedException,
     /// Writes a `str` to the standard error, and flushes it.
     WriteErr(Box<Expr>),
+    /// Stops the program at the site with the error of spython of a `str`,
+    /// for what CPython does and spython cannot.
+    Stop {
+        text: Box<Expr>,
+        site: Site,
+    },
     /// A new `str` of `len` code points, each of them 0, which the prelude
     /// builds with [`Stmt::StrSet`]. The site is where the program runs out
     /// of memory for it.
@@ -933,7 +939,7 @@ impl Expr {
             Expr::Logic { left, .. } => left.rep(),
             Expr::AfterImport { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
-            Expr::Print { .. } | Expr::WriteErr(_) => Rep::None,
+            Expr::Print { .. } | Expr::WriteErr(_) | Expr::Stop { .. } => Rep::None,
         }
     }
 }

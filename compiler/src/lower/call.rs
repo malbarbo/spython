@@ -349,6 +349,18 @@ impl<'a> Lowering<'a, '_> {
         self.prelude_call(call, "str", "ord_of", vec![lowered])
     }
 
+    /// `chr` of an `int`, which the prelude defines.
+    pub(super) fn chr(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let arg = one_arg(call, "this call of chr")?;
+        let lowered = self.expr(arg)?;
+        let lowered = match lowered.rep() {
+            Rep::Int => lowered,
+            Rep::Bool => Expr::BoolAsInt(Box::new(lowered)),
+            _ => return Err(unsupported(arg, "chr of this type")),
+        };
+        self.prelude_call(call, "str", "chr_of", vec![lowered])
+    }
+
     pub(super) fn builtin_name(&self, func: &ast::Expr) -> Option<String> {
         let (name, file) = match expr_shape(self.model(), func)? {
             Shape::Function(def) => (def.name, def.file),

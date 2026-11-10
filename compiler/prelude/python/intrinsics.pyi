@@ -1,5 +1,7 @@
 """What the prelude asks of the compiler. Each function is an instruction of the module."""
 
+from typing import NoReturn
+
 class StrBuilder:
     """A `str` that the prelude still writes, one code point at a time."""
 
@@ -72,3 +74,7 @@ def is_xid_start(code_point: int) -> bool:
 
 def is_xid_continue(code_point: int) -> bool:
     """Whether the code point has the property `XID_Continue` of Unicode."""
+
+def stop(text: str) -> NoReturn:
+    """Stops the program with the error of spython of `text`, for what CPython does and spython
+    cannot."""
