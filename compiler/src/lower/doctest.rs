@@ -107,20 +107,15 @@ impl<'a> Lowering<'a, '_> {
         ];
         let site = self.hidden_site();
         let report = self.prelude_call_at("doctest", "example", args, site)?;
-        let load = |var| Expr::Load {
-            place: Place::Global(var),
-            rep: Rep::Int,
-            check: None,
-        };
         // 1 is the outcome of an example that fails, and 2 of one that
         // raises.
         let count = |counter, counted| Stmt::Assign {
             targets: vec![Place::Global(counter)],
             value: Expr::Arith {
                 op: ArithOp::Add,
-                left: Box::new(load(counter)),
+                left: Box::new(load_int(counter)),
                 right: Box::new(Expr::BoolAsInt(Box::new(Expr::Compare(
-                    Box::new(load(outcome)),
+                    Box::new(load_int(outcome)),
                     vec![(CmpOp::Eq, Expr::Int(counted))],
                 )))),
                 site,
@@ -153,11 +148,6 @@ impl<'a> Lowering<'a, '_> {
             targets: vec![Place::Global(var)],
             value: Expr::Int(0),
         };
-        let load = |var| Expr::Load {
-            place: Place::Global(var),
-            rep: Rep::Int,
-            check: None,
-        };
         let mut stmts = vec![
             zero(tests.failed),
             zero(tests.errors),
@@ -185,7 +175,7 @@ impl<'a> Lowering<'a, '_> {
             }));
         }
         let total = Expr::Int(i32::try_from(total).expect("fewer than 2^31 examples"));
-        let args = vec![total, load(tests.failed), load(tests.errors)];
+        let args = vec![total, load_int(tests.failed), load_int(tests.errors)];
         let failures = self.prelude_call_at("doctest", "summary", args, site)?;
         stmts.push(Stmt::Exit(failures));
         Ok(stmts)
@@ -195,6 +185,15 @@ impl<'a> Lowering<'a, '_> {
     /// the lowering adds to run the doctests.
     fn hidden_site(&self) -> Site {
         self.add_site(String::new(), 0, String::new())
+    }
+}
+
+/// The value of `var`, a global `int` of the doctests that always has one.
+fn load_int(var: VarId) -> Expr {
+    Expr::Load {
+        place: Place::Global(var),
+        rep: Rep::Int,
+        check: None,
     }
 }
 
