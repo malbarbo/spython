@@ -10,7 +10,7 @@ use ty_python_semantic::types::lowering::{
 };
 
 use super::expr::float_value;
-use super::{Lowering, Sig, unsupported};
+use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Rep};
 
@@ -79,10 +79,7 @@ impl<'a> Lowering<'a, '_> {
                 (None, ast::ArgOrKeyword::Arg(_)) => Some(i),
                 (None, ast::ArgOrKeyword::Keyword(keyword)) => {
                     keyword.arg.as_ref().and_then(|name| {
-                        let params = &sig.def.parameters.args;
-                        params
-                            .iter()
-                            .position(|param| param.name().as_str() == name.as_str())
+                        params_of(sig.def).position(|param| param.name().as_str() == name.as_str())
                     })
                 }
             };

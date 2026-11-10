@@ -344,6 +344,30 @@ fn a_call_evaluates_its_keyword_arguments_in_the_order_of_the_call() {
 }
 
 #[test]
+fn a_call_gives_a_keyword_only_parameter_by_its_name() {
+    same_as_cpython(
+        "a_call_gives_a_keyword_only_parameter_by_its_name",
+        indoc! {"
+            def trace(n: int) -> int:
+                print('eval', n)
+                return n
+
+
+            def show(a: int, *, sep: str, times: int) -> None:
+                print(str(a) + sep * times)
+
+
+            def only(*, a: int, b: int) -> int:
+                return a - b
+
+
+            print(only(b=trace(1), a=trace(2)))
+            show(trace(3), times=trace(2), sep='-')
+        "},
+    );
+}
+
+#[test]
 fn a_call_with_a_keyword_argument_before_the_def_raises_name_error() {
     same_as_cpython(
         "a_call_with_a_keyword_argument_before_the_def_raises_name_error",

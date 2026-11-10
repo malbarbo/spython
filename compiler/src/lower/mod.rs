@@ -303,21 +303,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let parameters = &def.parameters;
         if !parameters.posonlyargs.is_empty()
             || parameters.vararg.is_some()
-            || !parameters.kwonlyargs.is_empty()
             || parameters.kwarg.is_some()
         {
             return Err(unsupported(&**parameters, "these parameters"));
         }
-        if let Some(param) = parameters.args.iter().find(|p| p.default.is_some()) {
+        if let Some(param) = params_of(def).find(|p| p.default.is_some()) {
             return Err(unsupported(param, "a parameter with a default"));
         }
-        if let Some(param) = parameters.args.get(MAX_PARAMS) {
+        if let Some(param) = params_of(def).nth(MAX_PARAMS) {
             return Err(unsupported(param, "a def with more than 1000 parameters"));
         }
         let info = function_info(self.model(), def).ok_or_else(|| unsupported(def, "this def"))?;
-        let params = parameters
-            .args
-            .iter()
+        let params = params_of(def)
             .zip(&info.params)
             .map(|(param, info)| {
                 shape_rep(Some(info.shape.clone()))
@@ -383,7 +380,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let mut vars = Vars::default();
         let mut locals = HashSet::new();
         let mut order = Vec::new();
-        for (param, rep) in def.parameters.args.iter().zip(&sig.params) {
+        for (param, rep) in params_of(def).zip(&sig.params) {
             let name = param.parameter.name.as_str();
             vars.add(name, *rep);
             locals.insert(name.to_owned());
@@ -443,6 +440,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
         sites.push(SiteFrame { text, line });
         Site::new(sites.len() - 1)
     }
+}
+
+/// The parameters of `def` in the order of the arguments of a call of the
+/// function, which is the order of the checker and of a frame of CPython.
+/// A keyword-only parameter comes after the others.
+fn params_of(def: &ast::StmtFunctionDef) -> impl Iterator<Item = &ast::ParameterWithDefault> {
+    let parameters = &def.parameters;
+    parameters.args.iter().chain(&parameters.kwonlyargs)
 }
 
 /// The most parameters that a wasm engine accepts in a function.
