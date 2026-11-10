@@ -5,10 +5,12 @@ use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::Db;
-use ty_python_semantic::types::lowering::{CallTarget, Shape, call_target, expr_shape};
+use ty_python_semantic::types::lowering::{
+    CallTarget, Shape, call_bindings, call_target, expr_shape,
+};
 
 use super::expr::float_value;
-use super::{Lowering, unsupported};
+use super::{Lowering, Sig, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Rep};
 
@@ -48,23 +50,8 @@ impl<'a> Lowering<'a, '_> {
         if !call.arguments.keywords.is_empty() {
             return Err(unsupported(call, "a call with keyword arguments"));
         }
-        if call.arguments.args.len() != sig.params.len() {
-            return Err(unsupported(call, "a call with this number of arguments"));
-        }
         let check = self.global_check(name)?;
-        let args = call
-            .arguments
-            .args
-            .iter()
-            .zip(&sig.params)
-            .map(|(arg, rep)| {
-                let lowered = self.expr(arg)?;
-                if lowered.rep() != *rep {
-                    return Err(unsupported(arg, "an argument of this type"));
-                }
-                Ok(lowered)
-            })
-            .collect::<Result<_, _>>()?;
+        let args = self.arguments(call, &sig)?;
         Ok(Expr::Call {
             func,
             args,
@@ -72,6 +59,36 @@ impl<'a> Lowering<'a, '_> {
             site: self.site(call.range()),
             check,
         })
+    }
+
+    /// The arguments of `call` in the order of the parameters of `sig`,
+    /// one for each parameter.
+    fn arguments(&self, call: &ast::ExprCall, sig: &Sig<'a>) -> Result<Vec<Expr>, Error> {
+        let bindings = call_bindings(self.model(), call);
+        let mut slots: Vec<Option<Expr>> = sig.params.iter().map(|_| None).collect();
+        for (i, arg) in call.arguments.args.iter().enumerate() {
+            let param = match &bindings {
+                Some(bindings) => bindings.get(i).and_then(|binding| binding.parameter),
+                // The checker binds nothing in a call of a name that the
+                // `def` has yet to bind.
+                None => Some(i),
+            };
+            let slot = param
+                .and_then(|param| Some((slots.get_mut(param)?, sig.params.get(param)?)))
+                .filter(|(slot, _)| slot.is_none());
+            let Some((slot, rep)) = slot else {
+                return Err(unsupported(call, "a call with this number of arguments"));
+            };
+            let lowered = self.expr(arg)?;
+            if lowered.rep() != *rep {
+                return Err(unsupported(arg, "an argument of this type"));
+            }
+            *slot = Some(lowered);
+        }
+        slots
+            .into_iter()
+            .collect::<Option<_>>()
+            .ok_or_else(|| unsupported(call, "a call with this number of arguments"))
     }
 
     pub(super) fn print(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
