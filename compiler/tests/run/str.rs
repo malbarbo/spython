@@ -381,3 +381,18 @@ fn count_gives_the_occurrences_that_do_not_overlap() {
         "},
     );
 }
+
+#[test]
+fn startswith_and_endswith_test_the_ends_of_a_slice() {
+    same_as_cpython(
+        "startswith_and_endswith_test_the_ends_of_a_slice",
+        indoc! {"
+            s = 'abcé😀'
+            print(s.startswith('ab'), s.startswith('b'), s.startswith(''), s.startswith(s + 'x'))
+            print(s.endswith('é😀'), s.endswith('é'), s.endswith(''), s.endswith(s))
+            print(s.startswith('b', 1), s.startswith('c', -3), s.startswith('bc', 1, 2))
+            print(s.endswith('b', 0, 2), s.endswith('c', 0, -2), s.endswith('', 5), s.endswith('', 6))
+            print(s.startswith('', 5), s.startswith('', 6), ''.startswith(''), ''.endswith('a'))
+        "},
+    );
+}

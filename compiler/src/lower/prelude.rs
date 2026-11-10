@@ -12,6 +12,19 @@ use super::{Loaded, Lowering, Sig, coerce, unsupported};
 use crate::Error;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
 
+/// The methods of `str` that the module `str` of the prelude defines.
+const STR_METHODS: &[&str] = &[
+    "count",
+    "endswith",
+    "find",
+    "index",
+    "lower",
+    "rfind",
+    "rindex",
+    "startswith",
+    "upper",
+];
+
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
     let importing = ImportingFile::ResolverFile(db.program_file(file).resolver_file(db));
@@ -77,9 +90,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
         let module = match (receiver.rep(), name) {
-            (Rep::Str, "upper" | "lower" | "find" | "rfind" | "index" | "rindex" | "count") => {
-                "str"
-            }
+            (Rep::Str, name) if STR_METHODS.contains(&name) => "str",
             _ => return Err(unsupported(call, "a call of this method")),
         };
         if !call.arguments.keywords.is_empty() {

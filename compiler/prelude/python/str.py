@@ -180,6 +180,28 @@ def count(s: str, sub: str, start: int | None = None, end: int | None = None) ->
     return total
 
 
+def startswith(
+    s: str, prefix: str, start: int | None = None, end: int | None = None
+) -> bool:
+    n = len(s)
+    first = slice_start(start, n)
+    last = slice_end(end, n) - len(prefix)
+    if last < first:
+        return False
+    return found_at(s, prefix, first)
+
+
+def endswith(
+    s: str, suffix: str, start: int | None = None, end: int | None = None
+) -> bool:
+    n = len(s)
+    first = slice_start(start, n)
+    last = slice_end(end, n) - len(suffix)
+    if last < first:
+        return False
+    return found_at(s, suffix, last)
+
+
 def found_at(s: str, sub: str, i: int) -> bool:
     """Whether `sub` is in `s` from `i` on, with `i + len(sub) <= len(s)`."""
     m = len(sub)
