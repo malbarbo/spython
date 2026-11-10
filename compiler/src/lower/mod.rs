@@ -67,6 +67,7 @@ pub(crate) fn lower(
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
+        prelude_funcs: RefCell::new(HashMap::new()),
         raises: Cell::new(false),
     };
     let suite = main.module.suite().as_slice();
@@ -191,6 +192,9 @@ struct Lowering<'a, 'db> {
     /// The functions of the prelude, which the lowering lowers at their
     /// first call, by the index of their id.
     lowered: RefCell<HashMap<usize, Func>>,
+    /// Each function of the prelude that a call reached, by its file and
+    /// its name, so a later call skips its signature.
+    prelude_funcs: RefCell<HashMap<(File, String), FuncId>>,
     /// Whether the code of the function of the prelude that the lowering
     /// is in has an instruction that may raise.
     raises: Cell<bool>,

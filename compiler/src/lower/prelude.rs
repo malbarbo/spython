@@ -195,6 +195,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// the lowering lowers at the first call. `None` when
     /// `file` is not a module of the prelude, or has no such function.
     pub(super) fn prelude_func(&self, file: File, name: &str) -> Result<Option<FuncId>, Error> {
+        let key = (file, name.to_owned());
+        if let Some(func) = self.prelude_funcs.borrow().get(&key) {
+            return Ok(Some(*func));
+        }
         let Some(unit) = self.prelude.iter().find(|unit| unit.file == file) else {
             return Ok(None);
         };
@@ -205,9 +209,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let signature = self.signature(def);
         self.unit.set(outer);
         let (id, params, ret) = signature?;
-        if let Some(func) = self.funcs.borrow().ids.get(&id) {
-            return Ok(Some(*func));
-        }
         let sig = Sig {
             unit,
             def,
@@ -217,6 +218,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             ret,
         };
         let func = self.funcs.borrow_mut().add(id, sig);
+        self.prelude_funcs.borrow_mut().insert(key, func);
         // The body comes now, so the call knows whether the function may
         // raise. A call of the function in its own body takes that it may.
         let scope = self.scope.take();
