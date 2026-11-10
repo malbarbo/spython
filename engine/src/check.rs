@@ -498,15 +498,20 @@ pub fn doctest_program(db: &ProjectDatabase, file: File) -> DoctestProgram {
         .unwrap_or(SystemPath::new(SOURCE_DIR))
         .to_path_buf();
     let (scratch, syn_file, _, map) = synthetic_project(db, file, &root, &snippets);
+    // The line, from 1, where the code of each snippet starts.
+    let mut firsts = vec![0; snippets.len()];
+    for (number, line) in map.lines.iter().enumerate() {
+        if let doctests::SyntheticLine::SyntheticBody(index, 0) = *line
+            && let Some(first) = firsts.get_mut(index)
+        {
+            *first = number + 1;
+        }
+    }
     let docstrings = snippets
         .iter()
+        .zip(firsts)
         .enumerate()
-        .map(|(index, snippet)| {
-            let first = map
-                .lines
-                .iter()
-                .position(|line| *line == doctests::SyntheticLine::SyntheticBody(index, 0))
-                .map_or(0, |line| line + 1);
+        .map(|(index, (snippet, first))| {
             let mut line = first;
             let examples = snippet
                 .examples
