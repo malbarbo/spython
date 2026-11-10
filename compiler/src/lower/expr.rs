@@ -270,7 +270,10 @@ impl<'a> Lowering<'a, '_> {
             Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
                 Err(unsupported(node, "str of a union"))
             }
-            Rep::Object(_) => Err(unsupported(node, "str of an object")),
+            Rep::Object(class) => {
+                let func = self.class_str(class);
+                Ok(self.class_call(func, lowered, range))
+            }
         }
     }
 

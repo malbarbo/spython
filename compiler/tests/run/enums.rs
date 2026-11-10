@@ -181,6 +181,36 @@ fn a_member_is_equal_to_itself_alone() {
     );
 }
 
+/// `str` writes the class and the name of a member, and `repr` writes the
+/// `repr` of the value too.
+#[test]
+fn a_member_has_a_str_and_a_repr() {
+    same_as_cpython(
+        "a_member_has_a_str_and_a_repr",
+        indoc! {r#"
+            from enum import Enum, auto
+
+            class Cor(Enum):
+                VERDE = auto()
+                AMARELO = -3
+
+            class Nome(Enum):
+                X = "it's"
+                Y = 'a\nb'
+
+            def mostra(n: Nome | None) -> None:
+                print(n)
+
+            c = Cor.VERDE
+            print(c, Cor.AMARELO, Nome.X)
+            print(str(c), repr(c), repr(Cor.AMARELO), repr(Nome.X), repr(Nome.Y))
+            print(f'{c} {c!r} {Nome.Y!r}')
+            mostra(None)
+            mostra(Nome.Y)
+        "#},
+    );
+}
+
 /// A read of a member reads the class, which raises `NameError` before the
 /// `class` statement.
 #[test]

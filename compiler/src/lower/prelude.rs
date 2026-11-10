@@ -140,7 +140,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
         debug_assert!(
             args.iter().map(Expr::rep).eq(sig.params.iter().copied()),
             "the arguments of {}",
-            sig.def.name
+            sig.def
+                .map_or("a function of the compiler", |def| def.name.as_str())
         );
         Expr::Call {
             func,
@@ -172,7 +173,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let (id, params, ret) = signature?;
         let sig = Sig {
             unit,
-            def,
+            def: Some(def),
             defaults: params.iter().map(|_| None).collect(),
             doctest: None,
             params,

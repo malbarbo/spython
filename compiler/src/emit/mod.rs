@@ -19,7 +19,7 @@ use runtime::host::Host;
 pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m, program.tests.is_some());
-    let reprs = Reprs::new(&mut m, &host, program.tests.is_some(), &program.classes);
+    let mut reprs = Reprs::new(&mut m, &host, program.tests.is_some(), &program.classes);
     let vars = program
         .vars
         .iter()
@@ -30,7 +30,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
                 .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
         })
         .collect();
-    let funcs = program
+    let funcs: Vec<FuncSlots> = program
         .funcs
         .iter()
         .map(|func| {
@@ -51,6 +51,20 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             }
         })
         .collect();
+    reprs.set_class_strs(
+        program
+            .classes
+            .iter()
+            .map(|class| {
+                class.str.map(|func| {
+                    funcs
+                        .get(func.index())
+                        .expect("a function of the program")
+                        .index
+                })
+            })
+            .collect(),
+    );
     // The flag of each name that an import binds, as the flag of a `def`.
     let imports = program
         .imports

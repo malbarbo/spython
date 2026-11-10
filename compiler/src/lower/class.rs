@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use ruff_python_ast as ast;
 use ruff_python_ast::visitor::{Visitor, walk_expr};
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::KnownClass;
 use ty_python_semantic::types::lowering::{ClassId as CheckerClass, Shape, class_info, expr_shape};
 
@@ -14,7 +14,7 @@ use super::expr::int_literal;
 use super::flow::imported_name;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Binding, ClassId, Expr, Rep, Stmt, UserClass};
+use crate::ir::{Binding, ClassId, Expr, FuncId, Place, Rep, Site, Stmt, UserClass, VarId};
 
 /// The classes of the module.
 #[derive(Default)]
@@ -50,6 +50,7 @@ impl<'a> Classes<'a> {
                     .into_iter()
                     .map(|member| vec![Expr::Str(member.name), member.value])
                     .collect(),
+                str: class.str,
             })
             .collect()
     }
@@ -64,6 +65,12 @@ pub(super) struct Declared<'a> {
     /// `Enum` has its name and its value.
     pub fields: Vec<Rep>,
     pub members: Vec<Member>,
+    /// The function that gives the `str` of an object, once a conversion
+    /// needs it.
+    pub str: Option<FuncId>,
+    /// The function that gives the `repr` of an object, once a conversion
+    /// needs it.
+    pub repr: Option<FuncId>,
 }
 
 /// A member of an `Enum`, with its value.
@@ -94,6 +101,8 @@ impl<'a> Lowering<'a, '_> {
             ordered: false,
             fields: vec![Rep::Str, value],
             members,
+            str: None,
+            repr: None,
         });
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);
@@ -171,6 +180,89 @@ impl<'a> Lowering<'a, '_> {
             field: u32::try_from(field).expect("fewer than 2^32 fields"),
             rep,
         })
+    }
+
+    /// The function that gives the `str` of an object of `class`, which a
+    /// member of an `Enum` writes as `Cor.VERDE`.
+    pub(super) fn class_str(&self, class: ClassId) -> FuncId {
+        if let Some(func) = self.classes.borrow().get(class).str {
+            return func;
+        }
+        let name = self.classes.borrow().get(class).def.name.to_string();
+        let body = vec![Stmt::Return(Some(Expr::Concat {
+            left: Box::new(Expr::Str(format!("{name}."))),
+            right: Box::new(self.own_field(class, 0)),
+            site: Site::NONE,
+        }))];
+        let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
+        self.classes.borrow_mut().get_mut(class).str = Some(func);
+        func
+    }
+
+    /// The function that gives the `repr` of an object of `class`, which a
+    /// member of an `Enum` writes as `<Cor.VERDE: 1>`, with the `repr` of
+    /// its value.
+    pub(super) fn class_repr(&self, class: ClassId) -> Result<FuncId, Error> {
+        if let Some(func) = self.classes.borrow().get(class).repr {
+            return Ok(func);
+        }
+        let name = self.classes.borrow().get(class).def.name.to_string();
+        let value = self.own_field(class, 1);
+        let value = match value.rep() {
+            Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], Site::NONE)?,
+            _ => Expr::StrOf {
+                operand: Box::new(value),
+                site: Site::NONE,
+            },
+        };
+        let body = vec![Stmt::Return(Some(Expr::Join {
+            parts: vec![
+                Expr::Str(format!("<{name}.")),
+                self.own_field(class, 0),
+                Expr::Str(": ".to_owned()),
+                value,
+                Expr::Str(">".to_owned()),
+            ],
+            site: Site::NONE,
+        }))];
+        let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
+        self.classes.borrow_mut().get_mut(class).repr = Some(func);
+        Ok(func)
+    }
+
+    /// The call of `func`, a function of the compiler that converts the
+    /// object `object` to a `str`, for the conversion at `range`.
+    pub(super) fn class_call(&self, func: FuncId, object: Expr, range: TextRange) -> Expr {
+        Expr::Call {
+            func,
+            args: vec![object],
+            order: None,
+            rep: Rep::Str,
+            site: Some(self.site(range)),
+            check: None,
+        }
+    }
+
+    /// The field at `field` of the object of `class` that the first
+    /// parameter of a function of the compiler holds.
+    fn own_field(&self, class: ClassId, field: u32) -> Expr {
+        let rep = *self
+            .classes
+            .borrow()
+            .get(class)
+            .fields
+            .get(field as usize)
+            .expect("a field of the class");
+        Expr::Field {
+            object: Box::new(Expr::Load {
+                place: Place::Local(VarId::new(0)),
+                rep: Rep::Object(class),
+                check: None,
+            }),
+            class,
+            field,
+            rep,
+        }
     }
 
     /// The class that `name` reads, and `None` when it reads no class of

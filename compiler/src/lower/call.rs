@@ -95,7 +95,8 @@ impl<'a> Lowering<'a, '_> {
                 (None, ast::ArgOrKeyword::Arg(_)) => Some(i),
                 (None, ast::ArgOrKeyword::Keyword(keyword)) => {
                     keyword.arg.as_ref().and_then(|name| {
-                        params_of(sig.def).position(|param| param.name().as_str() == name.as_str())
+                        params_of(sig.def.expect("a call of a function with a def"))
+                            .position(|param| param.name().as_str() == name.as_str())
                     })
                 }
             };
@@ -140,12 +141,11 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .map(|arg| {
                 let lowered = self.expr(arg)?;
-                match lowered.rep() {
-                    Rep::Object(_) | Rep::ObjectOrNone(_) => {
-                        Err(unsupported(arg, "print of an object"))
-                    }
-                    _ => Ok(lowered),
+                // The module writes an object with the `str` of its class.
+                if let Rep::Object(class) | Rep::ObjectOrNone(class) = lowered.rep() {
+                    self.class_str(class);
                 }
+                Ok(lowered)
             })
             .collect::<Result<_, _>>()?;
         Ok(Expr::Print {
@@ -339,7 +339,11 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
             Rep::Str => self.prelude_call(&range, "str", "repr_of", vec![lowered]),
-            Rep::None | Rep::StrOrNone | Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_) => {
+            Rep::Object(class) => {
+                let func = self.class_repr(class)?;
+                Ok(self.class_call(func, lowered, range))
+            }
+            Rep::None | Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
                 Err(unsupported(node, "repr of this type"))
             }
         }

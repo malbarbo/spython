@@ -38,6 +38,9 @@ pub(crate) struct Reprs {
     classes: Vec<TypeIdx>,
     /// The global of each member of each class, which `_start` fills.
     members: Vec<Vec<GlobalIdx>>,
+    /// The function that gives the `str` of an object of each class, when
+    /// the program writes one.
+    class_strs: Vec<Option<FuncIdx>>,
 }
 
 impl Reprs {
@@ -58,6 +61,7 @@ impl Reprs {
             exc,
             classes: Vec::new(),
             members: Vec::new(),
+            class_strs: Vec::new(),
         };
         // A field of a class may hold an object of any class, its own too,
         // so the structs refer to each other by the indices that they will
@@ -116,6 +120,12 @@ impl Reprs {
         }
         Ins::new(&mut m.init).struct_new(ty).global_set(global);
         global
+    }
+
+    /// Takes the function that gives the `str` of an object of each class,
+    /// for the classes whose objects the program writes.
+    pub fn set_class_strs(&mut self, strs: Vec<Option<FuncIdx>>) {
+        self.class_strs = strs;
     }
 
     /// Pops an object of `class` and pushes its field at `field`, a value
@@ -865,7 +875,27 @@ impl Reprs {
                 self.str.literal(m, f, "None");
                 self.str.write(f);
             }
-            Rep::Object(_) | Rep::ObjectOrNone(_) => unreachable!("a write of {rep:?}"),
+            Rep::Object(class) => {
+                let str = self
+                    .class_strs
+                    .get(class.index())
+                    .copied()
+                    .flatten()
+                    .expect("the str of a class whose objects the program writes");
+                f.ins().call(str);
+                self.str.write(f);
+            }
+            Rep::ObjectOrNone(class) => {
+                let value = f.temp(self.class(class).ref_to(true));
+                f.ins().local_tee(value).ref_is_null();
+                f.if_(BlockType::Empty);
+                self.write(m, f, Rep::None);
+                f.else_();
+                self.load(f, Rep::Object(class), value);
+                self.write(m, f, Rep::Object(class));
+                f.end();
+                f.free(value);
+            }
         }
     }
 

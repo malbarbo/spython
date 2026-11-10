@@ -25,7 +25,9 @@ use ty_python_semantic::types::lowering::{
 use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
-use crate::ir::{Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Var, VarId};
+use crate::ir::{
+    Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
+};
 use crate::{Docstring, Error};
 use class::Classes;
 use doctest::{DoctestScope, Tests};
@@ -279,8 +281,14 @@ impl<'a, 'db> Funcs<'a, 'db> {
 
     /// Adds the function of `def` to the end of the queue of the lowering.
     fn add(&mut self, def: DefId, sig: Sig<'a, 'db>) -> FuncId {
-        let id = FuncId::new(self.sigs.len());
+        let id = self.add_generated(sig);
         self.ids.insert(def, id);
+        id
+    }
+
+    /// Adds a function that no `def` of the program names.
+    fn add_generated(&mut self, sig: Sig<'a, 'db>) -> FuncId {
+        let id = FuncId::new(self.sigs.len());
         self.sigs.push(sig);
         self.ordered.push(false);
         self.raises.push(true);
@@ -318,7 +326,9 @@ impl Imports {
 struct Sig<'a, 'db> {
     /// The file of the function.
     unit: &'a Unit<'a, 'db>,
-    def: &'a ast::StmtFunctionDef,
+    /// The `def` of the function, and `None` for a function that the
+    /// compiler writes, which the lowering has as a [`Func`] from the start.
+    def: Option<&'a ast::StmtFunctionDef>,
     params: Vec<Rep>,
     /// The variable of the module that holds the default of each parameter
     /// that has one. The `def` gives the variable its value.
@@ -502,7 +512,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             id,
             Sig {
                 unit: self.unit.get(),
-                def,
+                def: Some(def),
                 params,
                 defaults,
                 doctest,
@@ -600,7 +610,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     fn func_of(&self, id: FuncId, sig: &Sig<'a, 'db>) -> Result<Func, Error> {
-        let def = sig.def;
+        let def = sig.def.expect("a function with a def");
         let mut vars = Vars::default();
         let mut locals = HashSet::new();
         let mut order = Vec::new();
@@ -652,6 +662,39 @@ impl<'a, 'db> Lowering<'a, 'db> {
             ret: sig.ret,
             body,
         })
+    }
+
+    /// A function that the compiler writes, without a frame in a
+    /// traceback, with a parameter of each rep of `params` and the code of
+    /// `body`, which reads the parameters as the first locals.
+    fn generated(&self, params: Vec<Rep>, ret: Rep, body: Vec<Stmt>) -> FuncId {
+        let vars = params
+            .iter()
+            .map(|rep| Var {
+                rep: *rep,
+                flagged: false,
+                ordered: false,
+            })
+            .collect();
+        let func = Func {
+            ordered: false,
+            frame: false,
+            params: u32::try_from(params.len()).expect("fewer than 2^32 parameters"),
+            vars,
+            ret,
+            body,
+        };
+        let sig = Sig {
+            unit: self.unit.get(),
+            def: None,
+            defaults: params.iter().map(|_| None).collect(),
+            doctest: None,
+            params,
+            ret,
+        };
+        let id = self.funcs.borrow_mut().add_generated(sig);
+        self.lowered.borrow_mut().insert(id.index(), func);
+        id
     }
 
     /// The rep of the values of `shape`, and `None` when the compiler has no

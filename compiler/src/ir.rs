@@ -113,6 +113,9 @@ pub(crate) struct UserClass {
     /// The objects that the class has from the start, as the members of an
     /// `Enum` are, with a literal for each field.
     pub members: Vec<Vec<Expr>>,
+    /// The function that gives the `str` of an object, when the program
+    /// writes one.
+    pub str: Option<FuncId>,
 }
 
 pub(crate) struct Func {

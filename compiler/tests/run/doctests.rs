@@ -313,6 +313,36 @@ fn an_example_that_raises_is_an_error_unless_it_expects_the_exception() {
     );
 }
 
+/// An example writes the `repr` of a member, and compares members.
+#[test]
+fn an_example_writes_the_repr_of_a_member_of_an_enum() {
+    same_as_the_runner(
+        "an_example_writes_the_repr_of_a_member_of_an_enum",
+        indoc! {r#"
+            from enum import Enum, auto
+
+            class Cor(Enum):
+                VERDE = auto()
+                AZUL = auto()
+
+            def troca(c: Cor) -> Cor:
+                """
+                >>> troca(Cor.VERDE)
+                <Cor.AZUL: 2>
+                >>> troca(Cor.AZUL).name
+                'VERDE'
+                >>> troca(Cor.AZUL) == Cor.VERDE
+                True
+                >>> troca(Cor.AZUL)
+                <Cor.AZUL: 2>
+                """
+                if c == Cor.VERDE:
+                    return Cor.AZUL
+                return Cor.VERDE
+        "#},
+    );
+}
+
 #[test]
 fn the_output_of_an_example_may_have_blank_lines_and_code_points_beyond_ascii() {
     same_as_the_runner(
