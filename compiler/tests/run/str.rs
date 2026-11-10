@@ -209,6 +209,49 @@ fn str_of_a_number_follows_python() {
 }
 
 #[test]
+fn an_f_string_joins_the_str_of_each_field() {
+    same_as_cpython(
+        "an_f_string_joins_the_str_of_each_field",
+        indoc! {r#"
+            n = 7
+            x = 0.1
+            s = 'é'
+            print(f"{n}", f"{x}", f"{s}", f"{n > 3}", len(f"{x}{n}"))
+            print(f"n={n}, x={ x + 0.2 }, s={s!s}, b={not n}{{}}")
+            print('a' f"{n}" "b" f"c{s}", f'{f"{n}{x}"}!', f"{'q'}{1}{2.0}")
+            print(f"{n}" + f"{n}" * 2, f"{s}" == s, f"""{n}
+            {x}""")
+        "#},
+    );
+}
+
+#[test]
+fn an_f_string_evaluates_every_field_from_left_to_right() {
+    same_as_cpython(
+        "an_f_string_evaluates_every_field_from_left_to_right",
+        indoc! {r#"
+            def f(n: int) -> int:
+                print('f', n)
+                return n
+
+
+            print(f"{f(1)} and {f(2)}{f(3) // f(0)}")
+        "#},
+    );
+}
+
+#[test]
+fn a_field_with_a_conversion_or_a_format_is_unsupported() {
+    for field in ["{x!r}", "{x!a}", "{x:.2f}", "{x:}", "{x=}"] {
+        assert_eq!(
+            unsupported(&format!("x = 2.5\nprint(f\"{field}\")\n")),
+            "a replacement field with a conversion or a format",
+            "{field}"
+        );
+    }
+}
+
+#[test]
 fn str_of_none_is_unsupported() {
     let source = indoc! {"
         def f() -> None:
@@ -218,4 +261,8 @@ fn str_of_none_is_unsupported() {
         print(str(f()))
     "};
     assert_eq!(unsupported(source), "str of None");
+    assert_eq!(
+        unsupported(&source.replace("str(f())", "f'{f()}'")),
+        "str of None"
+    );
 }

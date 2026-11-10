@@ -796,6 +796,16 @@ impl Emitter<'_> {
                 let rep = operand.rep();
                 self.at(f, *site, |e, f| e.reprs.str_of(&mut e.m, f, rep));
             }
+            Expr::Join { parts, site } => {
+                for part in parts {
+                    self.expr(f, part);
+                }
+                self.at(f, *site, |e, f| {
+                    for _ in 1..parts.len() {
+                        e.reprs.str_concat(f);
+                    }
+                });
+            }
             Expr::Repeat { left, right, site } => {
                 self.expr(f, left);
                 self.expr(f, right);

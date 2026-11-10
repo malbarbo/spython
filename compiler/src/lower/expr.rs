@@ -62,20 +62,10 @@ impl<'a> Lowering<'a, '_> {
         match expr {
             ast::Expr::StringLiteral(s) => {
                 let value = s.value.to_str();
-                // The parser reads the escape of a lone surrogate, as in
-                // "\ud800", as U+FFFD. Python keeps the surrogate, and printing
-                // it raises UnicodeEncodeError.
-                let source = self
-                    .source
-                    .get(std::ops::Range::<usize>::from(expr.range()));
-                if value.contains('\u{fffd}') && source.is_none_or(|text| text.contains('\\')) {
-                    return Err(unsupported(
-                        expr,
-                        "a str with an escape that may be a surrogate",
-                    ));
-                }
+                self.check_surrogate(expr, value)?;
                 Ok(Expr::Str(value.to_owned()))
             }
+            ast::Expr::FString(f) => self.fstring(f),
             ast::Expr::NumberLiteral(n) => match &n.value {
                 ast::Number::Int(i) => int_literal(expr, i.as_i64()),
                 ast::Number::Float(x) => Ok(Expr::Float(*x)),
@@ -131,6 +121,78 @@ impl<'a> Lowering<'a, '_> {
             },
             _ => Err(unsupported(expr, "this expression")),
         }
+    }
+
+    /// Refuses the text `value` of the literal `node` when it may hold a
+    /// surrogate. The parser reads the escape of a lone surrogate, as in
+    /// "\ud800", as U+FFFD. Python keeps the surrogate, and printing it
+    /// raises UnicodeEncodeError.
+    fn check_surrogate(&self, node: &impl Ranged, value: &str) -> Result<(), Error> {
+        let source = self
+            .source
+            .get(std::ops::Range::<usize>::from(node.range()));
+        if value.contains('\u{fffd}') && source.is_none_or(|text| text.contains('\\')) {
+            return Err(unsupported(
+                node,
+                "a str with an escape that may be a surrogate",
+            ));
+        }
+        Ok(())
+    }
+
+    /// An f-string where no replacement field has a conversion to `repr`,
+    /// a format or an `=`.
+    fn fstring(&self, node: &ast::ExprFString) -> Result<Expr, Error> {
+        let mut parts: Vec<Expr> = Vec::new();
+        // Python joins the literals that come one after the other.
+        let literal = |parts: &mut Vec<Expr>, text: &str| match parts.last_mut() {
+            Some(Expr::Str(last)) => last.push_str(text),
+            _ => parts.push(Expr::Str(text.to_owned())),
+        };
+        for part in &node.value {
+            match part {
+                ast::FStringPartRef::Literal(s) => {
+                    self.check_surrogate(node, &s.value)?;
+                    literal(&mut parts, &s.value);
+                }
+                ast::FStringPartRef::FString(f) => {
+                    for element in &f.elements {
+                        match element {
+                            ast::InterpolatedStringElement::Literal(l) => {
+                                self.check_surrogate(node, &l.value)?;
+                                literal(&mut parts, &l.value);
+                            }
+                            ast::InterpolatedStringElement::Interpolation(field) => {
+                                let plain = field.debug_text.is_none()
+                                    && field.format_spec.is_none()
+                                    && matches!(
+                                        field.conversion,
+                                        ast::ConversionFlag::None | ast::ConversionFlag::Str
+                                    );
+                                if !plain {
+                                    return Err(unsupported(
+                                        field,
+                                        "a replacement field with a conversion or a format",
+                                    ));
+                                }
+                                let value = self.expr(&field.expression)?;
+                                match self.str_of(value, &*field.expression, field.range())? {
+                                    Expr::Str(text) => literal(&mut parts, &text),
+                                    value => parts.push(value),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if parts.len() > 1 {
+            return Ok(Expr::Join {
+                parts,
+                site: self.site(node.range()),
+            });
+        }
+        Ok(parts.pop().unwrap_or_else(|| Expr::Str(String::new())))
     }
 
     /// The `str` of `lowered`, the value of `node`. The conversion covers

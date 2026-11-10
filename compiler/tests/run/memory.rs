@@ -63,6 +63,26 @@ fn a_memory_error_has_the_frames_of_the_calls() {
 }
 
 #[test]
+fn a_memory_error_in_an_f_string_points_to_the_f_string() {
+    runs_out_of_memory(
+        "a_memory_error_in_an_f_string_points_to_the_f_string",
+        indoc! {r#"
+            def double(s: str) -> str:
+                return f"{s}{s}"
+
+
+            s = 'a' * 2_000_000
+            t = double(s)
+            print(len(t))
+            u = double(t)
+            print(len(u))
+        "#},
+        "  File \"{file}\", line 8, in <module>\n    u = double(t)\n  \
+         File \"{file}\", line 2, in double\n    return f\"{s}{s}\"\n           ^^^^^^^^^\n",
+    );
+}
+
+#[test]
 fn a_memory_error_in_a_recursion_writes_how_many_frames_it_leaves_out() {
     let frame = "  File \"{file}\", line 2, in grow\n    return grow(s + s)\n";
     runs_out_of_memory(

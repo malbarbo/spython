@@ -346,6 +346,13 @@ pub(crate) enum Expr {
         operand: Box<Expr>,
         site: Site,
     },
+    /// The `str`s of an f-string, one after the other. The program
+    /// evaluates every part before it joins them, and the site is where it
+    /// runs out of memory for the result.
+    Join {
+        parts: Vec<Expr>,
+        site: Site,
+    },
     /// A `str` repeated an `int` number of times, where either operand may
     /// come first. The result raises `MemoryError` at the site when it is
     /// too long.
@@ -719,6 +726,7 @@ impl Expr {
             Expr::Str(_)
             | Expr::Concat { .. }
             | Expr::StrOf { .. }
+            | Expr::Join { .. }
             | Expr::Repeat { .. }
             | Expr::Index { .. } => Rep::Str,
             Expr::Int(_)
