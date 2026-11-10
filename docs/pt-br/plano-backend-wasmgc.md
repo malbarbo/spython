@@ -544,7 +544,17 @@ corpus.
   corpus, 33 arquivos dão a mesma saída que o CPython e o mesmo relatório
   de doctests que o runner. Quase todos os 70 que o compilador recusa têm
   um parâmetro ou um resultado de `list` ou de uma classe.
-- **2. Níveis 0 e 1**, com o diferencial do corpus verde.
+- **2. Níveis 0 e 1**, com o diferencial do corpus verde. Feita em
+  10/nov/2026. O teste do corpus verifica cada capítulo do `na-programacao`
+  no nível dele, com os capítulos 01 a 03 no nível 0 e o 04 no nível 1, e
+  falha quando o compilador recusa um arquivo desses níveis. Dos 28
+  arquivos, 26 dão a saída do CPython e o relatório do runner. O checker
+  recusa os outros 2, um por importar `sys` e outro por usar `7874` como
+  `float`. A fatia acrescentou a expressão condicional, que nenhum arquivo
+  do corpus usa. O nível 1 aceita builtins que o compilador ainda recusa e
+  que o livro não usa, e eles entram na fatia do primeiro uso. São eles
+  `print` com `sep` ou `end`, `type`, `isinstance`, `id` e `ascii`, além de
+  `divmod` com as tuplas e `str.split` com as listas.
 - **3. Nível 2.** Classes sem herança, Enum, dataclass e `match` com
   todos os padrões.
 - **4. REPL na CLI.**
