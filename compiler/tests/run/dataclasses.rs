@@ -310,6 +310,69 @@ fn a_program_reads_and_assigns_the_fields() {
 }
 
 #[test]
+fn the_repr_of_a_dataclass_has_the_repr_of_each_field() {
+    same_as_cpython(
+        "the_repr_of_a_dataclass_has_the_repr_of_each_field",
+        indoc! {r#"
+            from dataclasses import dataclass
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+
+            @dataclass
+            class Vazia:
+                pass
+
+            @dataclass
+            class No:
+                v: int
+                parte: float
+                ok: bool
+                nome: str
+                apelido: str | None
+                cor: Cor
+                talvez: Cor | None
+                vazia: Vazia
+                prox: 'No | None' = None
+
+            a = No(1, 0.5, True, "d'água", None, Cor.A, None, Vazia())
+            b = No(-2, 1e300, False, 'b', 'x', Cor.A, Cor.A, Vazia(), a)
+            print(a)
+            print(repr(b))
+            print(str(b) == repr(b), f'<{a}>')
+            print(Vazia())
+        "#},
+    );
+}
+
+/// Each level of the `repr` has two frames, which CPython does not join,
+/// and the recursion reaches the limit at half the depth of a function.
+#[test]
+fn a_deep_repr_raises_recursion_error() {
+    same_as_cpython(
+        "a_deep_repr_raises_recursion_error",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class No:
+                v: int
+                prox: 'No | None'
+
+            def lista(n: int) -> No | None:
+                if n == 0:
+                    return None
+                return No(n, lista(n - 1))
+
+            print(repr(lista(400))[:30])
+            print(str(lista(0)), f'{lista(1)}')
+            print(lista(600))
+        "},
+    );
+}
+
+#[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [
         (
@@ -452,6 +515,18 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 f().x += 1
             "},
             "this target",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    x: int | str
+
+                print(P(1))
+            "},
+            "the repr of a field of a union",
         ),
         (
             indoc! {"

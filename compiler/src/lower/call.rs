@@ -148,11 +148,12 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .map(|arg| {
                 let lowered = self.expr(arg)?;
-                // The module writes an object with the `str` of its class,
-                // and a uniform value may hold an object of any class.
+                // The call of the `str` of an object has the frame of the
+                // call of `print`. A uniform value may hold an object of any
+                // class, which the module writes with the `str` of its class.
                 match lowered.rep() {
-                    Rep::Object(class) | Rep::ObjectOrNone(class) => {
-                        self.class_str(class)?;
+                    Rep::Object(_) | Rep::ObjectOrNone(_) => {
+                        return self.str_of(lowered, arg, call.range());
                     }
                     Rep::Uniform => self.every_class_str()?,
                     _ => {}
@@ -355,7 +356,11 @@ impl<'a> Lowering<'a, '_> {
                 let func = self.class_repr(class)?;
                 Ok(self.class_call(func, lowered, range))
             }
-            Rep::None | Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
+            Rep::ObjectOrNone(class) => {
+                let func = self.or_none_conversion(class, true)?;
+                Ok(self.class_call(func, lowered, range))
+            }
+            Rep::None | Rep::StrOrNone | Rep::Uniform => {
                 Err(unsupported(node, "repr of this type"))
             }
         }

@@ -265,9 +265,11 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(range),
             }),
             Rep::None => Err(unsupported(node, "str of None")),
-            Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) => {
-                Err(unsupported(node, "str of a union"))
+            Rep::ObjectOrNone(class) => {
+                let func = self.or_none_conversion(class, false)?;
+                Ok(self.class_call(func, lowered, range))
             }
+            Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
             Rep::Object(class) => {
                 let func = self.class_str(class)?;
                 Ok(self.class_call(func, lowered, range))

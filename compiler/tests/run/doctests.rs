@@ -343,6 +343,33 @@ fn an_example_writes_the_repr_of_a_member_of_an_enum() {
     );
 }
 
+/// An example writes the `repr` of an object of a dataclass.
+#[test]
+fn an_example_writes_the_repr_of_a_dataclass() {
+    same_as_the_runner(
+        "an_example_writes_the_repr_of_a_dataclass",
+        indoc! {r#"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Tempo:
+                horas: int
+                minutos: int
+
+            def tempo(minutos: int) -> Tempo:
+                """
+                >>> tempo(130)
+                Tempo(horas=2, minutos=10)
+                >>> tempo(10)
+                Tempo(horas=0, minutos=1)
+                >>> tempo(10).minutos
+                10
+                """
+                return Tempo(minutos // 60, minutos % 60)
+        "#},
+    );
+}
+
 #[test]
 fn the_output_of_an_example_may_have_blank_lines_and_code_points_beyond_ascii() {
     same_as_the_runner(

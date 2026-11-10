@@ -897,16 +897,8 @@ impl Reprs {
                 f.ins().call(str);
                 self.str.write(f);
             }
-            Rep::ObjectOrNone(class) => {
-                let value = f.temp(self.class(class).ref_to(true));
-                f.ins().local_tee(value).ref_is_null();
-                f.if_(BlockType::Empty);
-                self.write(m, f, Rep::None);
-                f.else_();
-                self.load(f, Rep::Object(class), value);
-                self.write(m, f, Rep::Object(class));
-                f.end();
-                f.free(value);
+            Rep::ObjectOrNone(_) => {
+                unreachable!("print converts an object or None to a str")
             }
         }
     }

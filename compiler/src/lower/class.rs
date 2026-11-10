@@ -17,7 +17,7 @@ use ty_python_semantic::types::lowering::{
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::imported_name;
-use super::{Func, HashSet, Lowering, Scope, Sig, Vars, coerce, unsupported};
+use super::{HashSet, Lowering, Scope, Vars, coerce, unsupported};
 use crate::Error;
 use crate::cpython::Class;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
@@ -82,6 +82,9 @@ pub(super) struct Declared<'a> {
     /// The function that makes an object of a dataclass from a value for
     /// each field, once a call needs it.
     pub init: Option<FuncId>,
+    /// The functions that give the `str` and the `repr` of an object of the
+    /// class or `None`, once a conversion needs them.
+    pub or_none: [Option<FuncId>; 2],
     /// The variable of the module that holds the default of each field of
     /// a dataclass that has one. The `class` statement gives it its value.
     pub defaults: Vec<Option<VarId>>,
@@ -140,6 +143,7 @@ impl<'a> Lowering<'a, '_> {
             str: None,
             repr: None,
             init: None,
+            or_none: [None; 2],
             defaults: Vec::new(),
         });
         classes.names.insert(name.to_owned(), id);
@@ -229,14 +233,7 @@ impl<'a> Lowering<'a, '_> {
         ) {
             namespace.push("__doc__".to_owned());
         }
-        let func = self.funcs.borrow_mut().add_generated(Sig {
-            unit: self.unit.get(),
-            def: None,
-            params: Vec::new(),
-            defaults: Vec::new(),
-            doctest: None,
-            ret: Rep::None,
-        });
+        let func = self.reserve(Vec::new(), Rep::None);
         *self.scope.borrow_mut() = Some(Scope {
             func,
             doctest: None,
@@ -271,17 +268,9 @@ impl<'a> Lowering<'a, '_> {
                 check: None,
             }));
         }
-        self.lowered.borrow_mut().insert(
-            func.index(),
-            Func {
-                ordered: false,
-                frame: true,
-                params: 0,
-                vars: scope.vars.list,
-                ret: Rep::None,
-                body,
-            },
-        );
+        // The body of a class reads no variable of its own.
+        debug_assert!(scope.vars.list.is_empty(), "a variable in a class");
+        self.define(func, true, body);
         stmts.extend(mutable);
         Ok(stmts)
     }
@@ -477,8 +466,11 @@ impl<'a> Lowering<'a, '_> {
             let classes = self.classes.borrow();
             (classes.get(class).def, classes.get(class).kind)
         };
+        // The `str` of an object of a dataclass is its `repr`.
         if kind == Kind::Dataclass {
-            return Err(unsupported(def, "the str of a dataclass"));
+            let func = self.class_repr(class)?;
+            self.classes.borrow_mut().get_mut(class).str = Some(func);
+            return Ok(func);
         }
         let name = def.name.to_string();
         let body = vec![Stmt::Return(Some(Expr::Concat {
@@ -512,7 +504,7 @@ impl<'a> Lowering<'a, '_> {
             (classes.get(class).def, classes.get(class).kind)
         };
         if kind == Kind::Dataclass {
-            return Err(unsupported(def, "the repr of a dataclass"));
+            return self.dataclass_repr(class);
         }
         let name = def.name.to_string();
         let value = self.own_field(class, 1);
@@ -536,6 +528,141 @@ impl<'a> Lowering<'a, '_> {
         let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
         self.classes.borrow_mut().get_mut(class).repr = Some(func);
         Ok(func)
+    }
+
+    /// The function that gives the `repr` of an object of `class`, a
+    /// dataclass, which writes `Tempo(horas=1, minutos=0)` with the `repr`
+    /// of each field. As in CPython, the function `wrapper` of `reprlib`
+    /// calls the function `__repr__` that the module `dataclasses` writes,
+    /// and each one has a frame in a traceback.
+    fn dataclass_repr(&self, class: ClassId) -> Result<FuncId, Error> {
+        let (def, fields) = {
+            let classes = self.classes.borrow();
+            let declared = classes.get(class);
+            (declared.def, declared.fields.clone())
+        };
+        let params = vec![Rep::Object(class)];
+        let wrapper = self.reserve(params.clone(), Rep::Str);
+        let repr = self.reserve(params, Rep::Str);
+        // A field may hold an object of the class itself.
+        self.classes.borrow_mut().get_mut(class).repr = Some(wrapper);
+        let (wrapper_site, repr_site) = self.repr_sites(fields.len());
+        self.define(
+            wrapper,
+            true,
+            vec![Stmt::Return(Some(Expr::Call {
+                func: repr,
+                args: vec![own(class)],
+                order: None,
+                rep: Rep::Str,
+                site: Some(wrapper_site),
+                check: None,
+            }))],
+        );
+        let mut parts = vec![Expr::Str(format!("{}(", def.name))];
+        for (i, ((name, rep), node)) in fields.iter().zip(dataclass_fields(def)).enumerate() {
+            if i > 0 {
+                parts.push(Expr::Str(", ".to_owned()));
+            }
+            parts.push(Expr::Str(format!("{name}=")));
+            let field = u32::try_from(i).expect("fewer than 2^32 fields");
+            parts.push(self.field_repr(class, field, *rep, repr_site, node)?);
+        }
+        parts.push(Expr::Str(")".to_owned()));
+        self.define(
+            repr,
+            true,
+            vec![Stmt::Return(Some(Expr::Join {
+                parts,
+                site: repr_site,
+            }))],
+        );
+        Ok(wrapper)
+    }
+
+    /// The site of the call in the function `wrapper` of `reprlib`, and the
+    /// site of the code of the `__repr__` of a dataclass with `fields`
+    /// fields. The module `dataclasses` writes the `__init__` and then the
+    /// `__repr__` in the same text, which puts the code of the `__repr__`
+    /// on the line 5 plus the number of lines of the code of `__init__`.
+    fn repr_sites(&self, fields: usize) -> (Site, Site) {
+        let wrapper = self.add_site(
+            format!("{REPRLIB}\nwrapper"),
+            21,
+            format!(
+                "  File \"{REPRLIB}\", line 21, in wrapper\n    result = user_function(self)\n"
+            ),
+        );
+        let line = 5 + fields.max(1);
+        let repr = self.add_site(
+            "<string>\n__repr__".to_owned(),
+            line,
+            format!("  File \"<string>\", line {line}, in __repr__\n"),
+        );
+        (wrapper, repr)
+    }
+
+    /// The `repr` of the field at `field` of the object of `class` in the
+    /// first parameter, a value of `rep`, which the code at `site` gives.
+    /// `node` is the field in the class.
+    fn field_repr(
+        &self,
+        class: ClassId,
+        field: u32,
+        rep: Rep,
+        site: Site,
+        node: &ast::StmtAnnAssign,
+    ) -> Result<Expr, Error> {
+        let value = self.own_field(class, field);
+        Ok(match rep {
+            Rep::Int | Rep::Float | Rep::Bool => Expr::StrOf {
+                operand: Box::new(value),
+                site,
+            },
+            Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], site)?,
+            Rep::Object(other) => Expr::Call {
+                func: self.class_repr(other)?,
+                args: vec![value],
+                order: None,
+                rep: Rep::Str,
+                site: Some(site),
+                check: None,
+            },
+            Rep::StrOrNone | Rep::ObjectOrNone(_) => {
+                let narrowed = match rep {
+                    Rep::ObjectOrNone(other) => Rep::Object(other),
+                    _ => Rep::Str,
+                };
+                let some = Expr::Narrow {
+                    value: Box::new(self.own_field(class, field)),
+                    rep: narrowed,
+                };
+                Expr::IfElse {
+                    cond: Box::new(Expr::IsNone(Box::new(value))),
+                    then: Box::new(Expr::Str("None".to_owned())),
+                    else_: Box::new(self.field_repr_of(some, site)?),
+                }
+            }
+            Rep::Uniform | Rep::None => {
+                return Err(unsupported(node, "the repr of a field of a union"));
+            }
+        })
+    }
+
+    /// The `repr` of `value`, a `str` or an object, which the code at
+    /// `site` gives.
+    fn field_repr_of(&self, value: Expr, site: Site) -> Result<Expr, Error> {
+        Ok(match value.rep() {
+            Rep::Object(class) => Expr::Call {
+                func: self.class_repr(class)?,
+                args: vec![value],
+                order: None,
+                rep: Rep::Str,
+                site: Some(site),
+                check: None,
+            },
+            _ => self.prelude_call_at("str", "repr_of", vec![value], site)?,
+        })
     }
 
     /// The object of `class`, a dataclass, that `call` makes. The checker
@@ -629,6 +756,60 @@ impl<'a> Lowering<'a, '_> {
         func
     }
 
+    /// The function that gives the `str`, or the `repr` when `repr` is
+    /// `true`, of an object of `class` or `None`. The function has no
+    /// frame, and the conversion of the object has the frame of the call.
+    pub(super) fn or_none_conversion(&self, class: ClassId, repr: bool) -> Result<FuncId, Error> {
+        let index = usize::from(repr);
+        let cached = self
+            .classes
+            .borrow()
+            .get(class)
+            .or_none
+            .get(index)
+            .copied()
+            .flatten();
+        if let Some(func) = cached {
+            return Ok(func);
+        }
+        let convert = if repr {
+            self.class_repr(class)?
+        } else {
+            self.class_str(class)?
+        };
+        let param = || Expr::Load {
+            place: Place::Local(VarId::new(0)),
+            rep: Rep::ObjectOrNone(class),
+            check: None,
+        };
+        let body = vec![Stmt::Return(Some(Expr::IfElse {
+            cond: Box::new(Expr::IsNone(Box::new(param()))),
+            then: Box::new(Expr::Str("None".to_owned())),
+            else_: Box::new(Expr::Call {
+                func: convert,
+                args: vec![Expr::Narrow {
+                    value: Box::new(param()),
+                    rep: Rep::Object(class),
+                }],
+                order: None,
+                rep: Rep::Str,
+                site: Some(Site::NONE),
+                check: None,
+            }),
+        }))];
+        let func = self.generated(vec![Rep::ObjectOrNone(class)], Rep::Str, body);
+        if let Some(slot) = self
+            .classes
+            .borrow_mut()
+            .get_mut(class)
+            .or_none
+            .get_mut(index)
+        {
+            *slot = Some(func);
+        }
+        Ok(func)
+    }
+
     /// The call of `func`, a function of the compiler that converts the
     /// object `object` to a `str`, for the conversion at `range`.
     pub(super) fn class_call(&self, func: FuncId, object: Expr, range: TextRange) -> Expr {
@@ -654,11 +835,7 @@ impl<'a> Lowering<'a, '_> {
             .expect("a field of the class")
             .1;
         Expr::Field {
-            object: Box::new(Expr::Load {
-                place: Place::Local(VarId::new(0)),
-                rep: Rep::Object(class),
-                check: None,
-            }),
+            object: Box::new(own(class)),
             class,
             field,
             rep,
@@ -1022,6 +1199,19 @@ fn same_value(a: &Expr, b: &Expr) -> bool {
         _ => false,
     }
 }
+
+/// The object in the first parameter of a function of the compiler for an
+/// object of `class`.
+fn own(class: ClassId) -> Expr {
+    Expr::Load {
+        place: Place::Local(VarId::new(0)),
+        rep: Rep::Object(class),
+        check: None,
+    }
+}
+
+/// The path of the module `reprlib` of CPython 3.13 on Linux.
+const REPRLIB: &str = "/usr/lib/python3.13/reprlib.py";
 
 /// The node of each field of `def`, a dataclass of the accepted form, in
 /// order.

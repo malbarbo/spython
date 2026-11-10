@@ -676,7 +676,32 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// traceback, with a parameter of each rep of `params` and the code of
     /// `body`, which reads the parameters as the first locals.
     fn generated(&self, params: Vec<Rep>, ret: Rep, body: Vec<Stmt>) -> FuncId {
-        let vars = params
+        let id = self.reserve(params, ret);
+        self.define(id, false, body);
+        id
+    }
+
+    /// A function that the compiler writes, with a parameter of each rep of
+    /// `params`, whose code [`Self::define`] gives later. The code may call
+    /// the function.
+    fn reserve(&self, params: Vec<Rep>, ret: Rep) -> FuncId {
+        self.funcs.borrow_mut().add_generated(Sig {
+            unit: self.unit.get(),
+            def: None,
+            defaults: params.iter().map(|_| None).collect(),
+            doctest: None,
+            params,
+            ret,
+        })
+    }
+
+    /// Gives `id`, a function of [`Self::reserve`], the code of `body`,
+    /// which reads the parameters as the first locals. A function with a
+    /// `frame` has a frame in a traceback, from the sites of its code.
+    fn define(&self, id: FuncId, frame: bool, body: Vec<Stmt>) {
+        let sig = self.funcs.borrow().get(id).clone();
+        let vars = sig
+            .params
             .iter()
             .map(|rep| Var {
                 rep: *rep,
@@ -686,23 +711,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .collect();
         let func = Func {
             ordered: false,
-            frame: false,
-            params: u32::try_from(params.len()).expect("fewer than 2^32 parameters"),
+            frame,
+            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
             vars,
-            ret,
+            ret: sig.ret,
             body,
         };
-        let sig = Sig {
-            unit: self.unit.get(),
-            def: None,
-            defaults: params.iter().map(|_| None).collect(),
-            doctest: None,
-            params,
-            ret,
-        };
-        let id = self.funcs.borrow_mut().add_generated(sig);
         self.lowered.borrow_mut().insert(id.index(), func);
-        id
     }
 
     /// The rep of the values of `shape`, and `None` when the compiler has no
