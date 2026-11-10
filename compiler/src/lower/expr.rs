@@ -268,7 +268,7 @@ impl<'a> Lowering<'a, '_> {
                 Err(unsupported(node, "str of a union"))
             }
             Rep::Object(class) => {
-                let func = self.class_str(class);
+                let func = self.class_str(class)?;
                 Ok(self.class_call(func, lowered, range))
             }
         }
@@ -346,6 +346,12 @@ impl<'a> Lowering<'a, '_> {
         if operands.iter().any(|(lowered, _)| is_object(lowered.rep())) {
             if ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne)) {
                 return Err(unsupported(c, "an order of objects"));
+            }
+            if operands
+                .iter()
+                .any(|(lowered, _)| self.is_dataclass(lowered.rep()))
+            {
+                return Err(unsupported(c, "== of a dataclass"));
             }
             // The tests of the type of a uniform value compare an object
             // with a value of another class or type.

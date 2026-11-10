@@ -385,6 +385,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             for class in &bindings.classes {
                 self.declare_class(class)?;
             }
+            self.declare_fields()?;
             for def in &bindings.defs {
                 self.declare_func(def)?;
                 self.declare_globals(def)?;

@@ -13,6 +13,7 @@ use engine::check::check_source;
 
 mod control;
 mod corpus;
+mod dataclasses;
 mod doctests;
 mod enums;
 mod float;

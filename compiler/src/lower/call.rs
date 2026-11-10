@@ -145,9 +145,9 @@ impl<'a> Lowering<'a, '_> {
                 // and a uniform value may hold an object of any class.
                 match lowered.rep() {
                     Rep::Object(class) | Rep::ObjectOrNone(class) => {
-                        self.class_str(class);
+                        self.class_str(class)?;
                     }
-                    Rep::Uniform => self.every_class_str(),
+                    Rep::Uniform => self.every_class_str()?,
                     _ => {}
                 }
                 Ok(lowered)
@@ -443,6 +443,11 @@ fn one_arg<'c>(call: &'c ast::ExprCall, what: &str) -> Result<&'c ast::Expr, Err
 
 /// Returns `true` if `file` is the `builtins` module, `false` otherwise.
 pub(super) fn is_builtins(db: &dyn Db, file: File) -> bool {
+    is_module(db, file, KnownModule::Builtins)
+}
+
+/// Returns `true` if `file` is the module `known`, `false` otherwise.
+pub(super) fn is_module(db: &dyn Db, file: File, known: KnownModule) -> bool {
     let resolver_file = db.program_file(file).resolver_file(db);
-    file_to_module(db, resolver_file).is_some_and(|m| m.is_known(db, KnownModule::Builtins))
+    file_to_module(db, resolver_file).is_some_and(|m| m.is_known(db, known))
 }

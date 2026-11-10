@@ -309,7 +309,7 @@ fn an_enum_outside_the_accepted_form_has_its_own_message() {
                 class P:
                     x: int = 1
             "},
-            "a class other than an Enum",
+            "a class other than a dataclass or an Enum",
         ),
         (
             indoc! {"

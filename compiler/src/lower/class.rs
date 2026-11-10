@@ -1,15 +1,20 @@
-//! The classes of the module. The compiler reads a fixed form of an `Enum`
-//! in the text and asks the checker for the names and the types. The
-//! compiled program runs no code of the base nor of the body of the class.
+//! The classes of the module. The compiler reads a fixed form of a
+//! dataclass and of an `Enum` in the text and asks the checker for the
+//! names and the types. The compiled program runs no code of the
+//! decorator, of the base nor of the annotations.
 
 use std::collections::HashMap;
 
 use ruff_python_ast as ast;
 use ruff_python_ast::visitor::{Visitor, walk_expr};
 use ruff_text_size::{Ranged, TextRange};
+use ty_module_resolver::KnownModule;
 use ty_python_semantic::types::KnownClass;
-use ty_python_semantic::types::lowering::{ClassId as CheckerClass, Shape, class_info, expr_shape};
+use ty_python_semantic::types::lowering::{
+    ClassId as CheckerClass, ClassInfo, Shape, class_info, expr_shape,
+};
 
+use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::imported_name;
 use super::{Lowering, unsupported};
@@ -43,8 +48,8 @@ impl<'a> Classes<'a> {
             .into_iter()
             .map(|class| UserClass {
                 ordered: class.ordered,
-                fields: class.fields,
-                mutable: false,
+                fields: class.fields.into_iter().map(|(_, rep)| rep).collect(),
+                mutable: matches!(class.kind, Kind::Dataclass),
                 members: class
                     .members
                     .into_iter()
@@ -61,9 +66,10 @@ pub(super) struct Declared<'a> {
     pub def: &'a ast::StmtClassDef,
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
-    /// The rep of each field of an object of the class. A member of an
-    /// `Enum` has its name and its value.
-    pub fields: Vec<Rep>,
+    pub kind: Kind,
+    /// The name and the rep of each field of an object of the class. A
+    /// member of an `Enum` has `name` and `value`.
+    pub fields: Vec<(String, Rep)>,
     pub members: Vec<Member>,
     /// The function that gives the `str` of an object, once a conversion
     /// needs it.
@@ -73,6 +79,13 @@ pub(super) struct Declared<'a> {
     pub repr: Option<FuncId>,
 }
 
+/// The forms of a class that the compiler takes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kind {
+    Enum,
+    Dataclass,
+}
+
 /// A member of an `Enum`, with its value.
 pub(super) struct Member {
     pub name: String,
@@ -80,7 +93,9 @@ pub(super) struct Member {
 }
 
 impl<'a> Lowering<'a, '_> {
-    /// Declares the class of `def`, a `class` statement of the module.
+    /// Declares the class of `def`, a `class` statement of the module. The
+    /// fields of a dataclass wait for [`Self::declare_fields`], since they
+    /// may hold an object of a class that comes later.
     pub(super) fn declare_class(&self, def: &'a ast::StmtClassDef) -> Result<(), Error> {
         let name = def.name.as_str();
         if self.imports.borrow().ids.contains_key(name) {
@@ -89,23 +104,68 @@ impl<'a> Lowering<'a, '_> {
         if self.classes.borrow().names.contains_key(name) {
             return Err(unsupported(&def.name, "two classes of the same name"));
         }
+        // A decorator other than `dataclass` may make the class something
+        // else, which the checker does not describe.
+        if !def.decorator_list.is_empty() {
+            self.dataclass_decorator(def)?;
+        }
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
-        let value = members
-            .first()
-            .map_or(Rep::Int, |member| member.value.rep());
+        let (kind, fields, members) = if def.decorator_list.is_empty() {
+            let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
+            let value = members
+                .first()
+                .map_or(Rep::Int, |member| member.value.rep());
+            let fields = vec![("name".to_owned(), Rep::Str), ("value".to_owned(), value)];
+            (Kind::Enum, fields, members)
+        } else {
+            self.dataclass_form(def, &info)?;
+            (Kind::Dataclass, Vec::new(), Vec::new())
+        };
         let mut classes = self.classes.borrow_mut();
         let id = ClassId::new(classes.list.len());
         classes.list.push(Declared {
             def,
             ordered: false,
-            fields: vec![Rep::Str, value],
+            kind,
+            fields,
             members,
             str: None,
             repr: None,
         });
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);
+        Ok(())
+    }
+
+    /// Gives each field of each dataclass of the module the rep of its
+    /// values, once every class of the module has an id.
+    pub(super) fn declare_fields(&self) -> Result<(), Error> {
+        let count = self.classes.borrow().list.len();
+        for class in (0..count).map(ClassId::new) {
+            let (def, kind) = {
+                let classes = self.classes.borrow();
+                let declared = classes.get(class);
+                (declared.def, declared.kind)
+            };
+            if kind != Kind::Dataclass {
+                continue;
+            }
+            let info = class_info(self.model(), def).expect("a class that the checker knows");
+            let fields = info
+                .dataclass_fields
+                .expect("a dataclass that the checker knows")
+                .into_iter()
+                .zip(dataclass_fields(def))
+                .map(|(field, node)| {
+                    let rep = self
+                        .rep_of(Some(field.shape))
+                        .filter(|rep| *rep != Rep::None)
+                        .ok_or_else(|| unsupported(node, "a field of this type"))?;
+                    Ok((field.name, rep))
+                })
+                .collect::<Result<_, Error>>()?;
+            self.classes.borrow_mut().get_mut(class).fields = fields;
+        }
         Ok(())
     }
 
@@ -167,13 +227,14 @@ impl<'a> Lowering<'a, '_> {
             "value" => 1,
             _ => return Err(unsupported(attr, "this attribute of an object")),
         };
-        let rep = *self
+        let rep = self
             .classes
             .borrow()
             .get(class)
             .fields
             .get(field)
-            .expect("a field of the class");
+            .expect("a field of the class")
+            .1;
         Ok(Expr::Field {
             object: Box::new(object),
             class,
@@ -184,11 +245,18 @@ impl<'a> Lowering<'a, '_> {
 
     /// The function that gives the `str` of an object of `class`, which a
     /// member of an `Enum` writes as `Cor.VERDE`.
-    pub(super) fn class_str(&self, class: ClassId) -> FuncId {
+    pub(super) fn class_str(&self, class: ClassId) -> Result<FuncId, Error> {
         if let Some(func) = self.classes.borrow().get(class).str {
-            return func;
+            return Ok(func);
         }
-        let name = self.classes.borrow().get(class).def.name.to_string();
+        let (def, kind) = {
+            let classes = self.classes.borrow();
+            (classes.get(class).def, classes.get(class).kind)
+        };
+        if kind == Kind::Dataclass {
+            return Err(unsupported(def, "the str of a dataclass"));
+        }
+        let name = def.name.to_string();
         let body = vec![Stmt::Return(Some(Expr::Concat {
             left: Box::new(Expr::Str(format!("{name}."))),
             right: Box::new(self.own_field(class, 0)),
@@ -196,15 +264,16 @@ impl<'a> Lowering<'a, '_> {
         }))];
         let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
         self.classes.borrow_mut().get_mut(class).str = Some(func);
-        func
+        Ok(func)
     }
 
     /// Makes the function of the `str` of every class of the module.
-    pub(super) fn every_class_str(&self) {
+    pub(super) fn every_class_str(&self) -> Result<(), Error> {
         let count = self.classes.borrow().list.len();
         for class in 0..count {
-            self.class_str(ClassId::new(class));
+            self.class_str(ClassId::new(class))?;
         }
+        Ok(())
     }
 
     /// The function that gives the `repr` of an object of `class`, which a
@@ -214,7 +283,14 @@ impl<'a> Lowering<'a, '_> {
         if let Some(func) = self.classes.borrow().get(class).repr {
             return Ok(func);
         }
-        let name = self.classes.borrow().get(class).def.name.to_string();
+        let (def, kind) = {
+            let classes = self.classes.borrow();
+            (classes.get(class).def, classes.get(class).kind)
+        };
+        if kind == Kind::Dataclass {
+            return Err(unsupported(def, "the repr of a dataclass"));
+        }
+        let name = def.name.to_string();
         let value = self.own_field(class, 1);
         let value = match value.rep() {
             Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], Site::NONE)?,
@@ -254,13 +330,14 @@ impl<'a> Lowering<'a, '_> {
     /// The field at `field` of the object of `class` that the first
     /// parameter of a function of the compiler holds.
     fn own_field(&self, class: ClassId, field: u32) -> Expr {
-        let rep = *self
+        let rep = self
             .classes
             .borrow()
             .get(class)
             .fields
             .get(field as usize)
-            .expect("a field of the class");
+            .expect("a field of the class")
+            .1;
         Expr::Field {
             object: Box::new(Expr::Load {
                 place: Place::Local(VarId::new(0)),
@@ -270,6 +347,17 @@ impl<'a> Lowering<'a, '_> {
             class,
             field,
             rep,
+        }
+    }
+
+    /// Returns `true` if a value of `rep` is an object of a dataclass, or
+    /// `None`, `false` otherwise.
+    pub(super) fn is_dataclass(&self, rep: Rep) -> bool {
+        match rep {
+            Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                self.classes.borrow().get(class).kind == Kind::Dataclass
+            }
+            _ => false,
         }
     }
 
@@ -347,7 +435,10 @@ impl<'a> Lowering<'a, '_> {
                 }
             });
         if !is_enum {
-            return Err(unsupported(def, "a class other than an Enum"));
+            return Err(unsupported(
+                def,
+                "a class other than a dataclass or an Enum",
+            ));
         }
         let mut members: Vec<Member> = Vec::new();
         // CPython gives `auto()` the greatest value before it, plus 1.
@@ -456,6 +547,105 @@ impl<'a> Lowering<'a, '_> {
                 Some(Shape::Class(class)) if class.known == Some(known)
             )
     }
+
+    /// Checks that the one decorator of `def` is `dataclass`, which the
+    /// compiler takes without arguments.
+    fn dataclass_decorator(&self, def: &ast::StmtClassDef) -> Result<(), Error> {
+        let decorator = match &*def.decorator_list {
+            [decorator] => &decorator.expression,
+            _ => return Err(unsupported(def, "a class with these decorators")),
+        };
+        let func = match decorator {
+            ast::Expr::Call(call) if call.arguments.is_empty() => &*call.func,
+            ast::Expr::Call(_) => {
+                return Err(unsupported(decorator, "a dataclass with these arguments"));
+            }
+            func => func,
+        };
+        if !self.names_dataclass(def, func) {
+            return Err(unsupported(decorator, "this decorator of a class"));
+        }
+        Ok(())
+    }
+
+    /// Checks that `def`, a class with a decorator, has the form of a
+    /// dataclass that the compiler takes. `info` is what the checker gives
+    /// for the class.
+    fn dataclass_form(&self, def: &ast::StmtClassDef, info: &ClassInfo) -> Result<(), Error> {
+        if def
+            .arguments
+            .as_deref()
+            .is_some_and(|arguments| !arguments.is_empty())
+            || def.type_params.is_some()
+            || info.mro.len() != 2
+        {
+            return Err(unsupported(def, "a dataclass with a base"));
+        }
+        let Some(checked) = &info.dataclass_fields else {
+            return Err(unsupported(def, "this class"));
+        };
+        let mut fields = Vec::new();
+        for (i, stmt) in def.body.iter().enumerate() {
+            match stmt {
+                ast::Stmt::Pass(_) => {}
+                ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => {}
+                ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
+                ast::Stmt::AnnAssign(ast::StmtAnnAssign {
+                    target,
+                    value,
+                    simple: true,
+                    ..
+                }) => {
+                    let ast::Expr::Name(name) = &**target else {
+                        return Err(unsupported(stmt, "this statement in a dataclass"));
+                    };
+                    // The `__init__` of CPython takes `self` and the fields.
+                    if name.id.as_str() == "self" {
+                        return Err(unsupported(stmt, "a field named self"));
+                    }
+                    if let Some(value) = value {
+                        return Err(unsupported(&**value, "a field with a default"));
+                    }
+                    fields.push((name.id.as_str(), value.is_some()));
+                }
+                _ => return Err(unsupported(stmt, "this statement in a dataclass")),
+            }
+        }
+        // The checker leaves out of the fields an annotation such as
+        // `ClassVar`, which the text alone does not tell apart.
+        let agrees = checked.len() == fields.len()
+            && checked.iter().zip(&fields).all(|(field, (name, default))| {
+                field.name == *name && field.has_default == *default
+            });
+        if !agrees {
+            return Err(unsupported(
+                def,
+                "a dataclass whose fields the checker computes otherwise",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns `true` if `expr` reads the function `dataclass` of the
+    /// standard library through a name that an import binds before `def`,
+    /// as `dataclass` or `dataclasses.dataclass` does, `false` otherwise.
+    fn names_dataclass(&self, def: &ast::StmtClassDef, expr: &ast::Expr) -> bool {
+        let name = match expr {
+            ast::Expr::Name(name) => name,
+            ast::Expr::Attribute(ast::ExprAttribute { value, .. }) => match &**value {
+                ast::Expr::Name(name) => name,
+                _ => return false,
+            },
+            _ => return false,
+        };
+        self.imported_before(name, def)
+            && matches!(
+                expr_shape(self.model(), expr),
+                Some(Shape::Function(func))
+                    if func.name == "dataclass"
+                        && is_module(self.model().db(), func.file, KnownModule::Dataclasses)
+            )
+    }
 }
 
 impl Lowering<'_, '_> {
@@ -492,4 +682,13 @@ fn same_value(a: &Expr, b: &Expr) -> bool {
         (Expr::Str(a), Expr::Str(b)) => a == b,
         _ => false,
     }
+}
+
+/// The node of each field of `def`, a dataclass of the accepted form, in
+/// order.
+fn dataclass_fields(def: &ast::StmtClassDef) -> impl Iterator<Item = &ast::StmtAnnAssign> {
+    def.body.iter().filter_map(|stmt| match stmt {
+        ast::Stmt::AnnAssign(field) => Some(field),
+        _ => None,
+    })
 }
