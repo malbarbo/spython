@@ -123,6 +123,72 @@ def lower(s: str) -> str:
     return builder_done(b)
 
 
+def find(s: str, sub: str, start: int | None = None, end: int | None = None) -> int:
+    n = len(s)
+    first = slice_start(start, n)
+    last = slice_end(end, n) - len(sub)
+    i = first
+    while i <= last:
+        if found_at(s, sub, i):
+            return i
+        i += 1
+    return -1
+
+
+def rfind(s: str, sub: str, start: int | None = None, end: int | None = None) -> int:
+    n = len(s)
+    first = slice_start(start, n)
+    i = slice_end(end, n) - len(sub)
+    while i >= first:
+        if found_at(s, sub, i):
+            return i
+        i -= 1
+    return -1
+
+
+def index(s: str, sub: str, start: int | None = None, end: int | None = None) -> int:
+    i = find(s, sub, start, end)
+    if i < 0:
+        raise ValueError("substring not found")
+    return i
+
+
+def rindex(s: str, sub: str, start: int | None = None, end: int | None = None) -> int:
+    i = rfind(s, sub, start, end)
+    if i < 0:
+        raise ValueError("substring not found")
+    return i
+
+
+def found_at(s: str, sub: str, i: int) -> bool:
+    """Whether `sub` is in `s` from `i` on, with `i + len(sub) <= len(s)`."""
+    m = len(sub)
+    j = 0
+    while j < m:
+        if code_point(s, i + j) != code_point(sub, j):
+            return False
+        j += 1
+    return True
+
+
+def slice_start(start: int | None, n: int) -> int:
+    """The first index of a slice of a `str` of length `n`, as CPython adjusts it."""
+    if start is None:
+        return 0
+    if start < 0:
+        return max(start + n, 0)
+    return start
+
+
+def slice_end(end: int | None, n: int) -> int:
+    """The index after the last of a slice of a `str` of length `n`, as CPython adjusts it."""
+    if end is None or end > n:
+        return n
+    if end < 0:
+        return max(end + n, 0)
+    return end
+
+
 def sigma(s: str, i: int) -> int:
     """The small sigma of the capital one at `i` of `s`. The final sigma comes after a cased code
     point and before none, with case ignorable code points between them."""

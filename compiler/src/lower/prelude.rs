@@ -8,7 +8,7 @@ use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::DefId;
 
-use super::{Loaded, Lowering, Sig, unsupported};
+use super::{Loaded, Lowering, Sig, coerce, unsupported};
 use crate::Error;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
 
@@ -66,7 +66,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// A call of a method of a builtin type, which the prelude defines with
-    /// the receiver as the first parameter.
+    /// the receiver as the first parameter. A parameter that holds `None`
+    /// stands for a parameter of the stub with a default, and a call
+    /// without the argument passes `None`.
     pub(super) fn method_call(
         &self,
         call: &ast::ExprCall,
@@ -75,13 +77,45 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
         let module = match (receiver.rep(), name) {
-            (Rep::Str, "upper" | "lower") => "str",
+            (Rep::Str, "upper" | "lower" | "find" | "rfind" | "index" | "rindex") => "str",
             _ => return Err(unsupported(call, "a call of this method")),
         };
-        if !call.arguments.is_empty() {
-            return Err(unsupported(call, "a call of this method with arguments"));
+        if !call.arguments.keywords.is_empty() {
+            return Err(unsupported(
+                call,
+                "a call of a method with keyword arguments",
+            ));
         }
-        self.prelude_call(call, module, name, vec![receiver])
+        let func = self
+            .prelude_named(module, name)?
+            .ok_or_else(|| unsupported(call, "a builtin that the prelude lacks"))?;
+        let sig = self.funcs.borrow().get(func).clone();
+        let mut given = vec![receiver];
+        for arg in &call.arguments.args {
+            let lowered = self.expr(arg)?;
+            // A method of a builtin takes a `bool` as the `int` it is.
+            given.push(match lowered.rep() {
+                Rep::Bool => Expr::BoolAsInt(Box::new(lowered)),
+                _ => lowered,
+            });
+        }
+        if given.len() > sig.params.len() {
+            return Err(unsupported(
+                call,
+                "a call of this method with these arguments",
+            ));
+        }
+        let mut given = given.into_iter();
+        let args = sig
+            .params
+            .iter()
+            .map(|rep| {
+                coerce(given.next().unwrap_or(Expr::None), *rep)
+                    .ok_or_else(|| unsupported(call, "an argument of this type"))
+            })
+            .collect::<Result<_, _>>()?;
+        let site = self.call_site(func, call);
+        Ok(self.prelude_call_of(func, args, site))
     }
 
     /// The function `name` of the module `module` of the prelude.

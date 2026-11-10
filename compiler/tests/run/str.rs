@@ -339,3 +339,32 @@ fn a_method_of_a_str_that_the_prelude_lacks_is_unsupported() {
         "a call of this method"
     );
 }
+
+#[test]
+fn find_and_index_look_for_a_str_in_a_slice() {
+    same_as_cpython(
+        "find_and_index_look_for_a_str_in_a_slice",
+        indoc! {"
+            s = 'abcabcé😀'
+            print(s.find('a'), s.find('bc'), s.find('é😀'), s.find(''), s.find('x'))
+            print(s.rfind('a'), s.rfind('bc'), s.rfind('é😀'), s.rfind(''), s.rfind('x'))
+            print(s.find('a', 1), s.find('a', -5), s.find('a', 1, 3), s.find('a', 1, 4))
+            print(s.rfind('a', 0, 3), s.rfind('a', -100), s.rfind('c', 0, -3), s.rfind('a', 4, 100))
+            print(s.find('', 8), s.find('', 9), s.rfind('', 2, 5), s.find('a', None, 1))
+            print(s.find('b', True), s.index('c'), s.rindex('c'), s.index('a', 2), s.rindex('b', 0, 4))
+            print(''.find(''), ''.find('a'), ''.rfind(''), 'a'.find('aa'))
+            print(s.index('z'))
+        "},
+    );
+    same_as_cpython(
+        "rindex_raises_valueerror",
+        indoc! {"
+            def last(s: str, sub: str) -> int:
+                return s.rindex(sub)
+
+
+            print(last('abc', 'c'))
+            print(last('abc', 'd'))
+        "},
+    );
+}
