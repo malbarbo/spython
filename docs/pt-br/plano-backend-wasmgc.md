@@ -533,12 +533,17 @@ corpus.
   cada módulo no deno também, com o mesmo resultado do wasmtime.
 - **0c. `float`.** Os literais, o `print`, os operadores e as
   comparações, com os builtins numéricos em Rust.
-- **1. Prelude.** Arrays, classes sem herança, a `$Class` e os métodos
-  especiais. Depois o prelude de `str` e de `int`, e os doctests.
+- **1. Prelude.** As chamadas com argumentos nomeados e defaults, `raise`
+  e `assert`, o mecanismo do prelude, os doctests, a forma uniforme e o
+  prelude de `str` e de `int`. O [plano da fatia
+  1](plano-fatia-1-prelude.md) lista os commits. As classes foram para a
+  fatia 3, e os arrays e os métodos especiais para a 5, onde alguém os usa.
 - **2. Níveis 0 e 1**, com o diferencial do corpus verde.
-- **3. Nível 2.** Enum, dataclass e `match` com todos os padrões.
+- **3. Nível 2.** Classes sem herança, Enum, dataclass e `match` com
+  todos os padrões.
 - **4. REPL na CLI.**
-- **5. Nível 3.** `list`, `for`, `range`, fatias e `+=`.
+- **5. Nível 3.** Arrays, os métodos especiais, `list`, `for`, `range`,
+  fatias e `+=`.
 - **6. Nível 4.** Classes com herança, `dict`,
   `set`, compreensões, lambda e closures. É a fatia de maior risco.
 - **7. Imagens e programas interativos.**
