@@ -112,6 +112,7 @@ impl<'a> Lowering<'a, '_> {
                 Some("float") => self.float(call),
                 Some("int") => self.int(call),
                 Some("str") => self.str(call),
+                Some("repr") => self.repr(call),
                 Some("min") => self.min_max(call, MinMaxOp::Min),
                 Some("max") => self.min_max(call, MinMaxOp::Max),
                 _ => match self.math_member(&call.func) {

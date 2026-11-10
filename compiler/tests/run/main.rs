@@ -24,6 +24,7 @@ mod numeric;
 mod print;
 mod raise;
 mod recursion;
+mod repr;
 mod str;
 mod vars;
 

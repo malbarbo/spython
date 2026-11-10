@@ -2,7 +2,7 @@
 
 use ruff_db::files::File;
 use ruff_python_ast as ast;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::{
@@ -285,6 +285,27 @@ impl<'a> Lowering<'a, '_> {
             ([], []) => Ok(Expr::Str(String::new())),
             ([arg], []) => self.str_of(self.expr(arg)?, arg, call.range()),
             _ => Err(unsupported(call, "this call of str")),
+        }
+    }
+
+    /// `repr(x)` of a number, which is `str(x)`.
+    pub(super) fn repr(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let arg = one_arg(call, "this call of repr")?;
+        let lowered = self.expr(arg)?;
+        self.repr_of(lowered, arg, call.range())
+    }
+
+    /// The `repr` of `lowered`, the value of `node`. The conversion covers
+    /// `range`.
+    pub(super) fn repr_of(
+        &self,
+        lowered: Expr,
+        node: &impl Ranged,
+        range: TextRange,
+    ) -> Result<Expr, Error> {
+        match lowered.rep() {
+            Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
+            Rep::Str | Rep::None => Err(unsupported(node, "repr of this type")),
         }
     }
 
