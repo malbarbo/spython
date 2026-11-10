@@ -6,7 +6,7 @@ use ruff_text_size::Ranged;
 use ty_module_resolver::{KnownModule, file_to_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::{
-    CallTarget, Shape, call_bindings, call_target, expr_shape,
+    ArgBinding, CallTarget, Shape, call_bindings, call_target, expr_shape,
 };
 
 use super::expr::float_value;
@@ -32,11 +32,14 @@ impl<'a> Lowering<'a, '_> {
         {
             return Err(unsupported(call, "a call of a local variable"));
         }
-        let func = match call_target(self.model(), call) {
-            Some(CallTarget::Function(def)) => self.funcs.borrow().ids.get(&def).copied(),
-            // The checker sees no function in a name that the `def` has yet
-            // to bind.
-            _ => self.funcs.borrow().names.get(callee).copied(),
+        // The checker sees no function, and binds no argument, in a name
+        // that the `def` has yet to bind.
+        let (func, bindings) = match call_target(self.model(), call) {
+            Some(CallTarget::Function(def)) => (
+                self.funcs.borrow().ids.get(&def).copied(),
+                call_bindings(self.model(), call),
+            ),
+            _ => (self.funcs.borrow().names.get(callee).copied(), None),
         };
         let Some(func) = func else {
             return Err(unsupported(
@@ -47,48 +50,60 @@ impl<'a> Lowering<'a, '_> {
         // The `def` is the one binding of the name in the module, so the call
         // finds the function, or raises `NameError` before the `def` runs.
         let sig = self.funcs.borrow().get(func).clone();
-        if !call.arguments.keywords.is_empty() {
-            return Err(unsupported(call, "a call with keyword arguments"));
-        }
         let check = self.global_check(name)?;
-        let args = self.arguments(call, &sig)?;
+        let (args, order) = self.arguments(call, &sig, bindings.as_deref())?;
         Ok(Expr::Call {
             func,
             args,
+            order,
             rep: sig.ret,
             site: self.site(call.range()),
             check,
         })
     }
 
-    /// The arguments of `call` in the order of the parameters of `sig`,
-    /// one for each parameter.
-    fn arguments(&self, call: &ast::ExprCall, sig: &Sig<'a>) -> Result<Vec<Expr>, Error> {
-        let bindings = call_bindings(self.model(), call);
-        let mut slots: Vec<Option<Expr>> = sig.params.iter().map(|_| None).collect();
-        for (i, arg) in call.arguments.args.iter().enumerate() {
-            let param = match &bindings {
-                Some(bindings) => bindings.get(i).and_then(|binding| binding.parameter),
-                // The checker binds nothing in a call of a name that the
-                // `def` has yet to bind.
-                None => Some(i),
+    /// The arguments of `call` in the order of the call, and the argument
+    /// of each parameter of `sig`. Without the `bindings` of the checker, a
+    /// keyword argument goes to the parameter of its name.
+    fn arguments(
+        &self,
+        call: &ast::ExprCall,
+        sig: &Sig<'a>,
+        bindings: Option<&[ArgBinding]>,
+    ) -> Result<(Vec<Expr>, Vec<u32>), Error> {
+        let mut order: Vec<Option<u32>> = sig.params.iter().map(|_| None).collect();
+        let mut args = Vec::new();
+        for (i, arg) in call.arguments.iter_source_order().enumerate() {
+            let param = match (bindings, arg) {
+                (Some(bindings), _) => bindings.get(i).and_then(|binding| binding.parameter),
+                (None, ast::ArgOrKeyword::Arg(_)) => Some(i),
+                (None, ast::ArgOrKeyword::Keyword(keyword)) => {
+                    keyword.arg.as_ref().and_then(|name| {
+                        let params = &sig.def.parameters.args;
+                        params
+                            .iter()
+                            .position(|param| param.name().as_str() == name.as_str())
+                    })
+                }
             };
             let slot = param
-                .and_then(|param| Some((slots.get_mut(param)?, sig.params.get(param)?)))
+                .and_then(|param| Some((order.get_mut(param)?, sig.params.get(param)?)))
                 .filter(|(slot, _)| slot.is_none());
             let Some((slot, rep)) = slot else {
-                return Err(unsupported(call, "a call with this number of arguments"));
+                return Err(unsupported(call, "a call with these arguments"));
             };
-            let lowered = self.expr(arg)?;
+            let lowered = self.expr(arg.value())?;
             if lowered.rep() != *rep {
-                return Err(unsupported(arg, "an argument of this type"));
+                return Err(unsupported(arg.value(), "an argument of this type"));
             }
-            *slot = Some(lowered);
+            *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
+            args.push(lowered);
         }
-        slots
+        let order = order
             .into_iter()
             .collect::<Option<_>>()
-            .ok_or_else(|| unsupported(call, "a call with this number of arguments"))
+            .ok_or_else(|| unsupported(call, "a call with these arguments"))?;
+        Ok((args, order))
     }
 
     pub(super) fn print(&self, call: &ast::ExprCall) -> Result<Expr, Error> {

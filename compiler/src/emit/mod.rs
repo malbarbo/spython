@@ -500,7 +500,7 @@ impl Emitter<'_> {
         &mut self,
         f: &mut FuncState,
         func: FuncId,
-        args: &[Expr],
+        (args, order): (&[Expr], &[u32]),
         site: Site,
         check: Option<&Check>,
     ) {
@@ -509,8 +509,27 @@ impl Emitter<'_> {
             self.bound(f, Binding::Func(func));
             self.raise_if_undefined(f, check);
         }
-        for arg in args {
-            self.expr(f, arg);
+        if order.iter().map(|arg| *arg as usize).eq(0..args.len()) {
+            for arg in args {
+                self.expr(f, arg);
+            }
+        } else {
+            // The program evaluates the arguments in the order of the call.
+            let mut values = Vec::new();
+            for arg in args {
+                self.expr(f, arg);
+                let rep = arg.rep();
+                let local = f.temp(self.reprs.local_type(rep).expect("an argument has a value"));
+                f.ins().local_set(local);
+                values.push((rep, local));
+            }
+            for arg in order {
+                let (rep, local) = *values.get(*arg as usize).expect("an argument of the call");
+                self.reprs.load(f, rep, local);
+            }
+            for (_, local) in values {
+                f.free(local);
+            }
         }
         self.at(f, site, |e, f| {
             e.reprs.call_fits(f);
@@ -574,10 +593,11 @@ impl Emitter<'_> {
             Expr::Call {
                 func,
                 args,
+                order,
                 site,
                 check,
                 ..
-            } => self.call(f, *func, args, *site, check.as_ref()),
+            } => self.call(f, *func, (args, order), *site, check.as_ref()),
             Expr::BoolAsInt(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);

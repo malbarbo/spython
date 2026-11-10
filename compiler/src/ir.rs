@@ -139,11 +139,14 @@ pub(crate) enum Expr {
         rep: Rep,
         check: Option<Check>,
     },
-    /// A call with one argument for each parameter, of the same rep. Only a
-    /// call with a check may come before the `def`.
+    /// A call with one argument for each parameter, of the same rep. The
+    /// arguments come in the order of the call, and `order` has the
+    /// argument of each parameter. Only a call with a check may come before
+    /// the `def`.
     Call {
         func: FuncId,
         args: Vec<Expr>,
+        order: Vec<u32>,
         rep: Rep,
         site: Site,
         check: Option<Check>,

@@ -312,7 +312,53 @@ fn a_def_outside_what_the_compiler_covers_is_unsupported() {
 
                 print(f(n=1))  # ty: ignore[unknown-argument]
             "}),
-        "a call with keyword arguments"
+        "a call with these arguments"
+    );
+}
+
+#[test]
+fn a_call_evaluates_its_keyword_arguments_in_the_order_of_the_call() {
+    same_as_cpython(
+        "a_call_evaluates_its_keyword_arguments_in_the_order_of_the_call",
+        indoc! {"
+            def show(a: int, b: str, c: float) -> None:
+                print(a, b, c)
+
+
+            def trace(n: int) -> int:
+                print('eval', n)
+                return n
+
+
+            def inner() -> None:
+                show(c=1.5, a=trace(4), b='w' * trace(2))
+
+
+            show(1, c=2.5, b='x')
+            show(c=float(trace(1)), b='y', a=trace(2))
+            show(b='z', a=trace(3), c=0.5)
+            show(trace(5), 'v', c=float(trace(6)))
+            inner()
+        "},
+    );
+}
+
+#[test]
+fn a_call_with_a_keyword_argument_before_the_def_raises_name_error() {
+    same_as_cpython(
+        "a_call_with_a_keyword_argument_before_the_def_raises_name_error",
+        indoc! {"
+            def trace(n: int) -> int:
+                print('eval', n)
+                return n
+
+
+            show(b=trace(1), a=trace(2))  # ty: ignore[unresolved-reference]
+
+
+            def show(a: int, b: int) -> None:
+                print(a, b)
+        "},
     );
 }
 
