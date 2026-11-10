@@ -268,7 +268,7 @@ fn an_f_string_evaluates_every_field_from_left_to_right() {
 
 #[test]
 fn a_field_with_a_conversion_or_a_format_is_unsupported() {
-    for field in ["{x!r}", "{x!a}", "{x:.2f}", "{x:}", "{x=}"] {
+    for field in ["{x!a}", "{x:.2f}", "{x:}", "{x=}"] {
         assert_eq!(
             unsupported(&format!("x = 2.5\nprint(f\"{field}\")\n")),
             "a replacement field with a conversion or a format",
@@ -684,4 +684,16 @@ fn chr_of_a_surrogate_stops_the_program() {
         ", file = path(name, "py").display()}
     );
     assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn a_field_with_the_conversion_r_writes_the_repr() {
+    same_as_cpython(
+        "a_field_with_the_conversion_r_writes_the_repr",
+        indoc! {"
+            s = \"it's\"
+            x = 2.5
+            print(f'<{s!r}> <{s!s}> <{x!r}> <{True!r}> <{7!r}> <{\"a\"!r}>')
+        "},
+    );
 }

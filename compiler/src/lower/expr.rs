@@ -167,8 +167,8 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
-    /// An f-string where no replacement field has a conversion to `repr`,
-    /// a format or an `=`.
+    /// An f-string where no replacement field has the conversion `!a`, a
+    /// format or an `=`.
     fn fstring(&self, node: &ast::ExprFString) -> Result<Expr, Error> {
         let mut parts: Vec<Expr> = Vec::new();
         // Python joins the literals that come one after the other.
@@ -192,10 +192,7 @@ impl<'a> Lowering<'a, '_> {
                             ast::InterpolatedStringElement::Interpolation(field) => {
                                 let plain = field.debug_text.is_none()
                                     && field.format_spec.is_none()
-                                    && matches!(
-                                        field.conversion,
-                                        ast::ConversionFlag::None | ast::ConversionFlag::Str
-                                    );
+                                    && field.conversion != ast::ConversionFlag::Ascii;
                                 if !plain {
                                     return Err(unsupported(
                                         field,
@@ -203,7 +200,12 @@ impl<'a> Lowering<'a, '_> {
                                     ));
                                 }
                                 let value = self.expr(&field.expression)?;
-                                match self.str_of(value, &*field.expression, field.range())? {
+                                let text = if field.conversion == ast::ConversionFlag::Repr {
+                                    self.repr_of(value, &*field.expression, field.range())?
+                                } else {
+                                    self.str_of(value, &*field.expression, field.range())?
+                                };
+                                match text {
                                     Expr::Str(text) => literal(&mut parts, &text),
                                     value => parts.push(value),
                                 }
