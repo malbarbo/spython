@@ -143,6 +143,12 @@ impl Reprs {
         f.ins().struct_new(self.class(class));
     }
 
+    /// Pops an object of `class` and a value of the field at `field`, and
+    /// sets the field to the value.
+    pub fn set_field(&self, f: &mut FuncState, class: ClassId, field: u32) {
+        f.ins().struct_set(self.class(class), field);
+    }
+
     /// Pushes the member at `member` of `class`.
     pub fn member(&self, f: &mut FuncState, class: ClassId, member: u32) {
         let global = self

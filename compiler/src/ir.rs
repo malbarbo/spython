@@ -181,6 +181,15 @@ pub(crate) enum Stmt {
     /// Ends the program, with the exit code 0 when the `int` is 0, and 1
     /// otherwise.
     Exit(Expr),
+    /// Sets the field at `field` of an object of `class` to the value,
+    /// which has the rep of the field. The value runs before the object, as
+    /// in CPython.
+    SetField {
+        object: Expr,
+        class: ClassId,
+        field: u32,
+        value: Expr,
+    },
     /// Sets the code point at the index of a `str` that the prelude still
     /// builds. The index is in range.
     StrSet {

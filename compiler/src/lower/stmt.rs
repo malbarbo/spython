@@ -105,6 +105,9 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Stmt::Assign(a) => {
                 let value = self.expr(&a.value)?;
+                if let [ast::Expr::Attribute(attr)] = &*a.targets {
+                    return self.assign_field(attr, value).map(Some);
+                }
                 let targets = a
                     .targets
                     .iter()
@@ -124,6 +127,18 @@ impl<'a> Lowering<'a, '_> {
                     targets: vec![target],
                     value,
                 }))
+            }
+            // The object of an attribute is a name, which the read and the
+            // assignment of the field both read.
+            ast::Stmt::AugAssign(ast::StmtAugAssign {
+                target, op, value, ..
+            }) if let ast::Expr::Attribute(attr) = &**target
+                && attr.value.is_name_expr() =>
+            {
+                let left = self.expr(target)?;
+                let right = self.expr(value)?;
+                let value = self.binary(stmt, *op, (left, &**target), (right, &**value))?;
+                self.assign_field(attr, value).map(Some)
             }
             ast::Stmt::AugAssign(a) => {
                 let ast::Expr::Name(name) = &*a.target else {

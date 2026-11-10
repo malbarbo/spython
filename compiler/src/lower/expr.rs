@@ -85,7 +85,8 @@ impl<'a> Lowering<'a, '_> {
                         value => match self.rep_of(expr_shape(self.model(), value)) {
                             Some(Rep::Object(class)) => {
                                 let object = self.expr(value)?;
-                                self.object_attribute(attr, object, class)
+                                let field = self.object_attribute(attr, object, class)?;
+                                self.narrowed(expr, field)
                             }
                             _ => Err(unsupported(expr, "this expression")),
                         },

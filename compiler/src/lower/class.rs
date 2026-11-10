@@ -410,32 +410,61 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The value of `attr`, an attribute of an object of `class`, which
-    /// `object` gives. A member of an `Enum` has `name` and `value`.
+    /// `object` gives. A member of an `Enum` has `name` and `value`, and an
+    /// object of a dataclass has its fields.
     pub(super) fn object_attribute(
         &self,
         attr: &ast::ExprAttribute,
         object: Expr,
         class: ClassId,
     ) -> Result<Expr, Error> {
-        let field = match attr.attr.as_str() {
-            "name" => 0,
-            "value" => 1,
-            _ => return Err(unsupported(attr, "this attribute of an object")),
-        };
-        let rep = self
-            .classes
-            .borrow()
-            .get(class)
-            .fields
-            .get(field)
-            .expect("a field of the class")
-            .1;
+        let (field, rep) = self.field_of(attr, class)?;
         Ok(Expr::Field {
             object: Box::new(object),
             class,
-            field: u32::try_from(field).expect("fewer than 2^32 fields"),
+            field,
             rep,
         })
+    }
+
+    /// The assignment of `value` to `attr`, a field of an object of a
+    /// dataclass.
+    pub(super) fn assign_field(
+        &self,
+        attr: &ast::ExprAttribute,
+        value: Expr,
+    ) -> Result<Stmt, Error> {
+        let class = match self.rep_of(expr_shape(self.model(), &attr.value)) {
+            Some(Rep::Object(class))
+                if self.classes.borrow().get(class).kind == Kind::Dataclass =>
+            {
+                class
+            }
+            _ => return Err(unsupported(attr, "this target")),
+        };
+        let object = self.expr(&attr.value)?;
+        let (field, rep) = self.field_of(attr, class)?;
+        let value = coerce(value, rep)
+            .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
+        Ok(Stmt::SetField {
+            object,
+            class,
+            field,
+            value,
+        })
+    }
+
+    /// The index and the rep of the field of `class` that `attr` names.
+    fn field_of(&self, attr: &ast::ExprAttribute, class: ClassId) -> Result<(u32, Rep), Error> {
+        let classes = self.classes.borrow();
+        let (field, (_, rep)) = classes
+            .get(class)
+            .fields
+            .iter()
+            .enumerate()
+            .find(|(_, (name, _))| *name == attr.attr.as_str())
+            .ok_or_else(|| unsupported(attr, "this attribute of an object"))?;
+        Ok((u32::try_from(field).expect("fewer than 2^32 fields"), *rep))
     }
 
     /// The function that gives the `str` of an object of `class`, which a

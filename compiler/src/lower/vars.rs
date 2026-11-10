@@ -86,7 +86,7 @@ impl<'a> Lowering<'a, '_> {
                 rep,
                 check,
             };
-            return self.narrowed(name, load);
+            return self.narrowed(&ast::Expr::Name(name.clone()), load);
         }
         let global = self.vars.borrow().find(id);
         let Some((var, rep)) = global else {
@@ -113,7 +113,7 @@ impl<'a> Lowering<'a, '_> {
         // A call between the test of the value and the read may assign a
         // global that a function declares.
         if self.assigned_globals.borrow().contains(id) {
-            let narrowed = self.narrowed(name, load)?;
+            let narrowed = self.narrowed(&ast::Expr::Name(name.clone()), load)?;
             if narrowed.rep() != rep {
                 return Err(unsupported(
                     name,
@@ -122,22 +122,22 @@ impl<'a> Lowering<'a, '_> {
             }
             return Ok(narrowed);
         }
-        self.narrowed(name, load)
+        self.narrowed(&ast::Expr::Name(name.clone()), load)
     }
 
-    /// `load`, the read `name` of a variable, as a value of the type that
-    /// the checker gives to the read. The type is narrower than the type
-    /// of a variable of a union after a test of the value.
-    fn narrowed(&self, name: &ast::ExprName, load: Expr) -> Result<Expr, Error> {
+    /// `load`, the read `node` of a variable or of a field, as a value of
+    /// the type that the checker gives to the read. The type is narrower
+    /// than the type of a variable of a union after a test of the value.
+    pub(super) fn narrowed(&self, node: &ast::Expr, load: Expr) -> Result<Expr, Error> {
         let rep = load.rep();
         if !matches!(rep, Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_)) {
             return Ok(load);
         }
-        let narrowed = match expr_shape(self.model(), &ast::Expr::Name(name.clone())) {
+        let narrowed = match expr_shape(self.model(), node) {
             Some(Shape::None) => Rep::None,
             shape => self
                 .rep_of(shape)
-                .ok_or_else(|| unsupported(name, "a variable of this type"))?,
+                .ok_or_else(|| unsupported(node, "a variable of this type"))?,
         };
         Ok(if narrowed == rep {
             load

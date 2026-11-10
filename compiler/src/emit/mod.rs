@@ -336,6 +336,24 @@ impl Emitter<'_> {
                 self.expr(f, code);
                 self.reprs.exit(f);
             }
+            Stmt::SetField {
+                object,
+                class,
+                field,
+                value,
+            } => {
+                self.expr(f, value);
+                let ty = self
+                    .reprs
+                    .local_type(value.rep())
+                    .expect("a field has a value");
+                let temp = f.temp(ty);
+                f.ins().local_set(temp);
+                self.expr(f, object);
+                f.ins().local_get(temp);
+                f.free(temp);
+                self.reprs.set_field(f, *class, *field);
+            }
             Stmt::StrSet {
                 builder,
                 index,

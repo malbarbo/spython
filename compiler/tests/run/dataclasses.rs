@@ -256,6 +256,60 @@ fn an_annotation_raises_name_error_for_a_class_without_a_value() {
 }
 
 #[test]
+fn a_program_reads_and_assigns_the_fields() {
+    same_as_cpython(
+        "a_program_reads_and_assigns_the_fields",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+                B = 2
+
+            @dataclass
+            class No:
+                v: int
+                cor: Cor
+                nome: str | None
+                parte: float = 0.5
+                prox: 'No | None' = None
+
+            def soma(n: No | None) -> int:
+                total = 0
+                while n is not None:
+                    total += n.v
+                    n = n.prox
+                return total
+
+            def obj(n: No) -> No:
+                print('objeto')
+                return n
+
+            def val(x: int) -> int:
+                print('valor')
+                return x
+
+            a = No(1, Cor.A, None)
+            b = No(2, Cor.B, 'b', prox=a)
+            print(b.v, b.prox is a, b.cor == Cor.B, b.cor.name, b.nome, b.parte)
+            b.v = 10
+            b.v += 5
+            b.parte *= 3
+            b.nome = None
+            print(b.v, b.nome is None, b.parte)
+            if b.prox is not None:
+                print(b.prox.v, b.prox.cor.value)
+            print(soma(b))
+            a.prox = b
+            print(a.prox is b, a.prox.prox is a)
+            obj(a).v = val(7)
+            print(a.v)
+        "},
+    );
+}
+
+#[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [
         (
@@ -383,6 +437,21 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 print(Cor(1) is Cor.A)
             "},
             "a call of this class",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    x: int
+
+                def f() -> P:
+                    return P(1)
+
+                f().x += 1
+            "},
+            "this target",
         ),
         (
             indoc! {"
