@@ -6,9 +6,15 @@
 
 use libm::{fabs, fma, ldexp, sqrt};
 
+/// `math.hypot` of the `len` coordinates at `coordinates`, which it
+/// overwrites.
+///
+/// # Safety
+///
+/// `coordinates` has to point to `len` writable `f64`s.
 #[unsafe(no_mangle)]
-pub extern "C" fn f64_hypot(x: f64, y: f64) -> f64 {
-    hypot(&mut [x, y])
+pub unsafe extern "C" fn f64_hypot(coordinates: *mut f64, len: usize) -> f64 {
+    hypot(unsafe { core::slice::from_raw_parts_mut(coordinates, len) })
 }
 
 /// `math.hypot` of `coordinates`, which it overwrites.
@@ -107,13 +113,13 @@ mod tests {
 
     #[test]
     fn hypot_follows_python() {
-        assert_eq!(f64_hypot(3.0, 4.0), 5.0);
-        assert_eq!(f64_hypot(-5.0, 12.0), 13.0);
-        assert_eq!(f64_hypot(0.0, -0.0), 0.0);
-        assert_eq!(f64_hypot(1e308, 1e308), 1.4142135623730951e308);
-        assert_eq!(f64_hypot(5e-324, 5e-324), 5e-324);
-        assert_eq!(f64_hypot(f64::NAN, f64::NEG_INFINITY), f64::INFINITY);
-        assert!(f64_hypot(f64::NAN, 1.0).is_nan());
+        assert_eq!(hypot(&mut [3.0, 4.0]), 5.0);
+        assert_eq!(hypot(&mut [-5.0, 12.0]), 13.0);
+        assert_eq!(hypot(&mut [0.0, -0.0]), 0.0);
+        assert_eq!(hypot(&mut [1e308, 1e308]), 1.4142135623730951e308);
+        assert_eq!(hypot(&mut [5e-324, 5e-324]), 5e-324);
+        assert_eq!(hypot(&mut [f64::NAN, f64::NEG_INFINITY]), f64::INFINITY);
+        assert!(hypot(&mut [f64::NAN, 1.0]).is_nan());
         assert_eq!(hypot(&mut [3.0, 4.0, 12.0]), 13.0);
         assert_eq!(hypot(&mut [-2.5]), 2.5);
         assert_eq!(hypot(&mut []), 0.0);

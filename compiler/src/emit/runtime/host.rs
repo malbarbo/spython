@@ -22,10 +22,10 @@ const NWRITTEN: i32 = 8;
 const FDSTAT: i32 = 16;
 /// The buffer of the `BufferedWriter`, which holds at most a block.
 const BUFFERED: i32 = 64;
-/// Bytes that the host never touches, where a builtin writes its result,
-/// between the end of `BUFFERED` and `PENDING`.
+/// Bytes that the host never touches, where the module and a builtin pass
+/// values to each other, between the end of `BUFFERED` and `PENDING`.
 const SCRATCH: i32 = BUFFERED + BLOCK;
-const _: () = assert!(SCRATCH + 64 <= PENDING);
+pub(crate) const SCRATCH_SIZE: usize = (PENDING - SCRATCH) as usize;
 /// The text of the `TextIOWrapper` that waits for `buffer.write`, followed
 /// by the text of the write that is going on. Before a write it holds less
 /// than `CHUNK` bytes, and a write with `CHUNK` bytes goes on without it.
@@ -61,7 +61,8 @@ pub(crate) struct Host {
     /// `(func (param i32))`, which adds a code point to the write that is
     /// going on.
     pub write_char: FuncIdx,
-    /// The address of 64 bytes where a builtin may write its result.
+    /// The address of [`SCRATCH_SIZE`] bytes where the module and a builtin
+    /// pass values to each other.
     pub scratch: i32,
     /// `(func)`, which ends a write, as one call of `write` in CPython.
     pub end_write: FuncIdx,

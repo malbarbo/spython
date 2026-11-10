@@ -7,7 +7,7 @@ use super::expr::float_value;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{
-    Choice, Expr, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep, Tolerance,
+    Choice, Expr, FloatClass, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2, Rep, Tolerance,
 };
 
 impl<'a> Lowering<'a, '_> {
@@ -108,6 +108,7 @@ impl<'a> Lowering<'a, '_> {
                 | "degrees"
                 | "radians"
                 | "ldexp"
+                | "hypot"
                 | "fma"
                 | "isclose"
                 | "isqrt"
@@ -163,6 +164,11 @@ impl<'a> Lowering<'a, '_> {
                 z: Box::new(self.math_float(z)?),
                 site: self.site(call.range()),
             },
+            ("hypot", args, []) if args.len() <= HYPOT_MAX => Expr::Hypot(
+                args.iter()
+                    .map(|arg| self.math_float(arg))
+                    .collect::<Result<_, _>>()?,
+            ),
             (_, [x, y], []) if let Some(func) = FloatFunc2::of(member) => Expr::Float2Call {
                 func,
                 x: Box::new(self.math_float(x)?),

@@ -697,6 +697,7 @@ impl<'a> Ins<'a> {
         f64_mul();
         f64_neg();
         f64_sqrt();
+        f64_store(arg: MemArg);
         f64_sub();
     }
 }

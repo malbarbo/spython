@@ -317,6 +317,10 @@ impl Reprs {
         self.float.float2_call(m, f, func);
     }
 
+    pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState, count: usize) {
+        self.float.hypot(m, f, count);
+    }
+
     pub fn float_round(&self, f: &mut FuncState) {
         self.float.round(f);
     }

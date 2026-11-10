@@ -12,8 +12,8 @@ use crate::cpython::{
 };
 use crate::emit::module::{FuncIdx, FuncState, LocalIdx, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
-use crate::emit::runtime::host::Host;
-use crate::ir::{CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, MathFunc, MathFunc2};
+use crate::emit::runtime::host::{Host, SCRATCH_SIZE};
+use crate::ir::{CmpOp, DivOp, FloatClass, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2};
 
 pub(super) enum FloatRepr {
     /// An `f64`.
@@ -291,6 +291,35 @@ impl FloatRepr {
             FloatRepr::F64 { .. } => {
                 let builtin = m.builtin(&format!("f64_{}", func.name()));
                 f.ins().call(builtin);
+            }
+        }
+    }
+
+    /// Pops `count` coordinates and pushes `math.hypot` of them, which never
+    /// raises. The builtin reads them from the scratch area.
+    pub fn hypot(&self, m: &mut ModuleState, f: &mut FuncState, count: usize) {
+        const { assert!(8 * HYPOT_MAX <= SCRATCH_SIZE) };
+        match self {
+            FloatRepr::F64 { scratch, .. } => {
+                let x = f.local(ValType::F64);
+                for i in (0..count).rev() {
+                    let offset = *scratch as usize + 8 * i;
+                    f.ins()
+                        .local_set(x)
+                        .i32_const(0)
+                        .local_get(x)
+                        .f64_store(MemArg {
+                            offset: u64::try_from(offset).expect("a positive address"),
+                            align: 3,
+                            target: MemArgTarget::Memory(0),
+                            ordering: None,
+                        });
+                }
+                let hypot = m.builtin("f64_hypot");
+                f.ins()
+                    .i32_const(*scratch)
+                    .i32_const(i32::try_from(count).expect("at most HYPOT_MAX"))
+                    .call(hypot);
             }
         }
     }

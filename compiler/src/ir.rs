@@ -229,6 +229,9 @@ pub(crate) enum Expr {
         x: Box<Expr>,
         y: Box<Expr>,
     },
+    /// `math.hypot` of `float`s, at most [`HYPOT_MAX`] of them. It never
+    /// raises.
+    Hypot(Vec<Expr>),
     /// `math.ldexp(x, i)` of a `float` and an `int`. A result too large
     /// for a `float` raises `OverflowError` at the site.
     Ldexp {
@@ -574,19 +577,21 @@ impl MathFunc2 {
     }
 }
 
+/// The most arguments of a `math.hypot` that the compiler takes. The module
+/// passes them to the builtin in the scratch area of the host.
+pub(crate) const HYPOT_MAX: usize = 504;
+
 /// A function of `math` of two `float`s that never raises.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FloatFunc2 {
     Atan2,
-    Hypot,
     Nextafter,
     Copysign,
 }
 
 impl FloatFunc2 {
-    const ALL: [(FloatFunc2, &'static str); 4] = [
+    const ALL: [(FloatFunc2, &'static str); 3] = [
         (FloatFunc2::Atan2, "atan2"),
-        (FloatFunc2::Hypot, "hypot"),
         (FloatFunc2::Nextafter, "nextafter"),
         (FloatFunc2::Copysign, "copysign"),
     ];
@@ -730,6 +735,7 @@ impl Expr {
             | Expr::FloatSqrt { .. }
             | Expr::MathCall { .. }
             | Expr::Float2Call { .. }
+            | Expr::Hypot(_)
             | Expr::Math2Call { .. }
             | Expr::Fma { .. }
             | Expr::Ldexp { .. }

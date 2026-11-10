@@ -672,6 +672,12 @@ impl Emitter<'_> {
                 self.expr(f, y);
                 self.reprs.float2_call(&mut self.m, f, *func);
             }
+            Expr::Hypot(args) => {
+                for arg in args {
+                    self.expr(f, arg);
+                }
+                self.reprs.hypot(&mut self.m, f, args.len());
+            }
             Expr::Ldexp { x, i, site } => {
                 self.expr(f, x);
                 self.expr(f, i);

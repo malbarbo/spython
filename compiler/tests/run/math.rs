@@ -138,12 +138,12 @@ fn math_outside_what_the_compiler_covers_has_its_own_message() {
         "}),
         "this function of math"
     );
+    // The scratch area of the module holds 504 coordinates.
+    let coordinates = "1.0, ".repeat(505);
     assert_eq!(
-        unsupported(indoc! {"
-            import math
-
-            print(math.hypot(1.0, 2.0, 3.0))
-        "}),
+        unsupported(&format!(
+            "import math\n\nprint(math.hypot({coordinates}))\n"
+        )),
         "this call of a function of math"
     );
     assert_eq!(
@@ -541,7 +541,20 @@ fn hypot_follows_python() {
             print(hypot(1.5, 2.25), hypot(0.1, 0.2), hypot(1e308, 1e308), hypot(1e308, 1e308 * 2))
             print(hypot(5e-324, 5e-324), hypot(3e-310, 4e-310), hypot(1e-200, 1e200))
             print(math.hypot(inf - inf, -inf), math.hypot(inf - inf, 1), math.hypot(2, -inf))
+            print(hypot(), hypot(-2.5), hypot(-0.0), hypot(inf - inf), hypot(3, 4, 12.0))
+            print(hypot(0.1, 0.2, 0.3), hypot(1e308, 1e308, 1e308), hypot(1, inf - inf, -inf))
+            print(hypot(1, hypot(2, 3, 4), hypot(5, 6, 7, 8), 9, True))
         "},
+    );
+}
+
+/// The scratch area of the module holds 504 coordinates.
+#[test]
+fn hypot_takes_504_coordinates() {
+    let coordinates = "0.1, ".repeat(504);
+    same_as_cpython(
+        "hypot_takes_504_coordinates",
+        &format!("import math\n\nprint(math.hypot({coordinates}))\n"),
     );
 }
 
