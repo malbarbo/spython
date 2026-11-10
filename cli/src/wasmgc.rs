@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use engine::check::{check_file_keeping_db, doctest_program};
+use engine::check::check_file_keeping_db;
 use engine::{Level, SpythonError, read_file};
 
 /// Checks `file` at `level`, compiles it, and runs the module.
@@ -31,7 +31,7 @@ pub fn test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Spytho
         .map(|file| check_file_keeping_db(file, level))
         .collect::<Result<Vec<_>, _>>()?;
     let mut passed = true;
-    for (file, checked) in files.iter().zip(&checked) {
+    for (file, checked) in files.iter().zip(checked) {
         let name = file.to_string_lossy();
         if files.len() > 1 {
             let mut stdout = std::io::stdout();
@@ -39,7 +39,7 @@ pub fn test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Spytho
                 .and_then(|()| stdout.flush())
                 .map_err(|err| other(format!("cannot write the name of the file: {err}")))?;
         }
-        let program = doctest_program(&checked.db, checked.file);
+        let program = checked.into_doctests();
         let docstrings: Vec<compiler::Docstring> = program
             .docstrings
             .into_iter()

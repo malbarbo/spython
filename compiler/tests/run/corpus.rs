@@ -113,7 +113,7 @@ fn tests_from_corpus(file: &Path) -> Outcome {
         return Outcome::Rejected;
     };
     let path = file.to_str().expect("a path in utf-8");
-    let program = engine::check::doctest_program(&checked.db, checked.file);
+    let program = checked.into_doctests();
     let docstrings = docstrings(program.docstrings);
     let module = match compiler::compile_tests(
         &program.db,

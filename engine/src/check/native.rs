@@ -12,8 +12,8 @@ use crate::error::color_stderr;
 use crate::{Level, SpythonError, checker};
 
 use super::{
-    TypeErrors, annotation_check, check_file_doctests, collect_import_files, modules_beside,
-    print_type_errors, project_database, type_check, user_files,
+    DoctestProgram, TypeErrors, annotation_check, check_file_doctests, collect_import_files,
+    modules_beside, print_type_errors, project_database, type_check, user_files,
 };
 
 /// The spython lib, served from memory to a checker that looks on disk for it.
@@ -27,6 +27,16 @@ pub struct CheckedFile {
     /// The first-party files it imports, each a path relative to its own
     /// directory and its text.
     pub modules: Vec<(String, String)>,
+    /// The doctests of the file, when it has an example.
+    pub doctests: Option<DoctestProgram>,
+}
+
+impl CheckedFile {
+    /// The doctests of the file as a program, which has no docstring when
+    /// the file has no example.
+    pub fn into_doctests(self) -> DoctestProgram {
+        DoctestProgram::or_empty(self.doctests, self.db, self.file)
+    }
 }
 
 /// Type-check a Python file: validates the path, builds the ty database,
@@ -79,8 +89,13 @@ pub fn check_file_keeping_db(file: &Path, level: Level) -> Result<CheckedFile, S
     diagnostics.extend(type_check(&db));
     // Validate and type-check doctests inside each user file's docstrings.
     let user_files = user_files(&db, files.iter().copied());
+    let mut doctests = None;
     for f in &user_files {
-        diagnostics.extend(check_file_doctests(&db, *f, &root, level));
+        let (found, program) = check_file_doctests(&db, *f, &root, level);
+        diagnostics.extend(found);
+        if *f == main_file {
+            doctests = program;
+        }
     }
     checker::drop_dynamic_types_beside_errors(&mut diagnostics);
     // An error stops the file; a warning is printed and the file goes on, as in
@@ -102,6 +117,7 @@ pub fn check_file_keeping_db(file: &Path, level: Level) -> Result<CheckedFile, S
         db,
         file: main_file,
         modules,
+        doctests,
     })
 }
 

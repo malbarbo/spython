@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use engine::Level;
-use engine::check::{check_source, doctest_program};
+use engine::check::check_source;
 use indoc::indoc;
 
 use super::{deno, output_within_limit, path, python_program, wasmtime};
@@ -25,7 +25,7 @@ pub(super) fn compile_tests(
         Ok(checked) => checked,
         Err(errors) => panic!("the checker rejects the program: {:?}", errors.diagnostics),
     };
-    let program = doctest_program(&checked.db, checked.file);
+    let program = checked.into_doctests();
     let docstrings = docstrings(program.docstrings);
     let path = path.to_str().expect("a path in utf-8");
     compiler::compile_tests(

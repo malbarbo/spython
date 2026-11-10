@@ -66,9 +66,17 @@ pub struct Warnings {
     /// The file that holds the checked source.
     pub file: File,
     pub diagnostics: Vec<Diagnostic>,
+    /// The doctests of the file, when it has an example.
+    pub doctests: Option<DoctestProgram>,
 }
 
 impl Warnings {
+    /// The doctests of the file as a program, which has no docstring when
+    /// the file has no example.
+    pub fn into_doctests(self) -> DoctestProgram {
+        DoctestProgram::or_empty(self.doctests, self.db, self.file)
+    }
+
     /// Print what the check found, and nothing when it found nothing.
     pub fn show(&self, use_color: bool) {
         print_type_errors(&self.db, &self.diagnostics, use_color);
@@ -261,7 +269,7 @@ fn check_in_memory(
     modules: &[(String, String)],
 ) -> Result<Warnings, Box<TypeErrors>> {
     let (db, user_file) = in_memory_project(source, modules);
-    let diagnostics = check_project(&db, user_file, level, repl_input);
+    let (diagnostics, doctests) = check_project(&db, user_file, level, repl_input);
     let has_errors = diagnostics
         .iter()
         .any(|d| d.severity() == ruff_db::diagnostic::Severity::Error);
@@ -272,33 +280,33 @@ fn check_in_memory(
             db,
             file: user_file,
             diagnostics,
+            doctests,
         })
     }
 }
-/// What the checks find in `db`, whose user file is `user_file`.
-/// `repl_input` is where the REPL input starts in that file, and `None` for a
-/// file.
+/// What the checks find in `db`, whose user file is `user_file`, and the
+/// doctests of that file. `repl_input` is where the REPL input starts in
+/// that file, and `None` for a file.
 fn check_project(
     db: &ProjectDatabase,
     user_file: File,
     level: Level,
     repl_input: Option<TextSize>,
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, Option<DoctestProgram>) {
     let mut diagnostics = annotation_check(db, level, repl_input);
     diagnostics.extend(type_check(db));
     // Doctests are code too, so validate the prompts and type-check the
     // snippets.
     // Skip in REPL context, where incremental input doesn't have docstrings.
+    let mut doctests = None;
     if repl_input.is_none() {
-        diagnostics.extend(check_file_doctests(
-            db,
-            user_file,
-            SystemPath::new(SOURCE_DIR),
-            level,
-        ));
+        let (found, program) =
+            check_file_doctests(db, user_file, SystemPath::new(SOURCE_DIR), level);
+        diagnostics.extend(found);
+        doctests = program;
     }
     checker::drop_dynamic_types_beside_errors(&mut diagnostics);
-    diagnostics
+    (diagnostics, doctests)
 }
 /// What ty finds in `db`, with the notes spython adds to its errors.
 pub(crate) fn type_check(db: &ProjectDatabase) -> Vec<Diagnostic> {
@@ -373,7 +381,8 @@ fn relative_path(db: &ProjectDatabase, file: File, root: &SystemPath) -> Option<
 ///   doctest snippets, remapped to the original docstring locations.
 ///
 /// Doctest diagnostics complement the ordinary file-level check; callers
-/// should append this to their existing diagnostic list.
+/// should append this to their existing diagnostic list. The check returns
+/// too the doctests as a program, when the file has an example.
 ///
 /// `root` is the directory of the main file, which the imports of every file
 /// resolve from.
@@ -382,7 +391,7 @@ pub fn check_file_doctests(
     file: File,
     root: &SystemPath,
     level: Level,
-) -> Vec<Diagnostic> {
+) -> (Vec<Diagnostic>, Option<DoctestProgram>) {
     let parsed = parsed_module(db, db.program_file(file).python_file(db));
     let module = parsed.load(db);
     let source = ruff_db::source::source_text(db, file);
@@ -399,7 +408,7 @@ pub fn check_file_doctests(
     ));
 
     if extraction.snippets.is_empty() {
-        return diagnostics;
+        return (diagnostics, None);
     }
 
     let (scratch, syn_file, syn_source, syn_map) =
@@ -417,7 +426,8 @@ pub fn check_file_doctests(
         &syn_source,
     );
     diagnostics.extend(remapped);
-    diagnostics
+    let program = doctest_program(scratch, syn_file, &extraction.snippets, syn_map);
+    (diagnostics, Some(program))
 }
 /// The project of the synthetic source of `file`, which has the examples of
 /// each of `snippets` as the body of a function, as
@@ -475,6 +485,18 @@ pub struct DoctestProgram {
     pub copies: Vec<String>,
 }
 
+impl DoctestProgram {
+    /// `program`, or a program of `file` in `db` without docstrings.
+    fn or_empty(program: Option<Self>, db: ProjectDatabase, file: File) -> Self {
+        program.unwrap_or_else(|| DoctestProgram {
+            db,
+            file,
+            docstrings: Vec::new(),
+            copies: Vec::new(),
+        })
+    }
+}
+
 /// The function of the synthetic source that has the examples of a
 /// docstring.
 pub struct DoctestFunction {
@@ -487,20 +509,15 @@ pub struct DoctestFunction {
     pub examples: Vec<(usize, doctests::Example)>,
 }
 
-/// The [`DoctestProgram`] of `file`, which the checker has accepted.
-pub fn doctest_program(db: &ProjectDatabase, file: File) -> DoctestProgram {
-    let parsed = parsed_module(db, db.program_file(file).python_file(db));
-    let module = parsed.load(db);
-    let source = ruff_db::source::source_text(db, file);
-    let snippets = doctests::extract_doctests(module.syntax(), source.as_str()).snippets;
-    // The imports of a file resolve from its directory.
-    let root = file
-        .path(db)
-        .as_system_path()
-        .and_then(SystemPath::parent)
-        .unwrap_or(SystemPath::new(SOURCE_DIR))
-        .to_path_buf();
-    let (scratch, syn_file, _, map) = synthetic_project(db, file, &root, &snippets);
+/// The [`DoctestProgram`] of the synthetic source in `file` of `db`, which
+/// has the examples of `snippets` as [`doctests::build_synthetic_source`]
+/// writes them, with `map` as its map.
+fn doctest_program(
+    db: ProjectDatabase,
+    file: File,
+    snippets: &[doctests::DoctestSnippet],
+    map: doctests::SyntheticMap,
+) -> DoctestProgram {
     // The line, from 1, where the code of each snippet starts.
     let mut firsts = vec![0; snippets.len()];
     for (number, line) in map.lines.iter().enumerate() {
@@ -533,8 +550,8 @@ pub fn doctest_program(db: &ProjectDatabase, file: File) -> DoctestProgram {
         })
         .collect();
     DoctestProgram {
-        db: scratch,
-        file: syn_file,
+        db,
+        file,
         docstrings,
         copies: map.copies,
     }
@@ -687,7 +704,7 @@ pub(crate) fn type_check_repl_input(
     let input_start = TextSize::try_from(input_offset).unwrap_or(TextSize::new(u32::MAX));
 
     project.write(USER_FILE, &combined);
-    let diagnostics = check_project(&project.db, project.user_file, level, Some(input_start));
+    let (diagnostics, _) = check_project(&project.db, project.user_file, level, Some(input_start));
     // Warnings don't block execution.
     if !diagnostics
         .iter()
