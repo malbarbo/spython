@@ -19,8 +19,15 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
         for stmt in body {
-            if let ast::Stmt::FunctionDef(def) = stmt {
+            // The `def` evaluates the defaults, then the annotations.
+            if let ast::Stmt::FunctionDef(def) = stmt
+                && self.scope.borrow().is_none()
+            {
                 lowered.extend(self.defaults(def)?);
+                let annotations = params_of(def)
+                    .filter_map(|param| param.annotation())
+                    .chain(def.returns.as_deref());
+                lowered.extend(self.annotation_checks(annotations)?);
             }
             lowered.extend(self.stmt(stmt)?);
         }

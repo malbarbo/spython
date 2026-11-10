@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use ruff_python_ast as ast;
+use ruff_python_ast::visitor::{Visitor, walk_expr};
 use ruff_text_size::Ranged;
 use ty_python_semantic::types::KnownClass;
 use ty_python_semantic::types::lowering::{ClassId as CheckerClass, Shape, class_info, expr_shape};
@@ -13,7 +14,7 @@ use super::expr::int_literal;
 use super::flow::imported_name;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ClassId, Expr, Rep, UserClass};
+use crate::ir::{Binding, ClassId, Expr, Rep, Stmt, UserClass};
 
 /// The classes of the module.
 #[derive(Default)]
@@ -105,6 +106,43 @@ impl<'a> Lowering<'a, '_> {
             .copied()
             .filter(|id| std::ptr::eq(classes.get(*id).def, def))
             .ok_or_else(|| unsupported(def, "a class in an if or a while"))
+    }
+
+    /// The checks that raise `NameError` for each class that an annotation
+    /// of `annotations` reads before its `class` statement, in the order of
+    /// CPython, which evaluates an annotation without quotes when the
+    /// statement that has it runs.
+    pub(super) fn annotation_checks<'e>(
+        &self,
+        annotations: impl Iterator<Item = &'e ast::Expr>,
+    ) -> Result<Vec<Stmt>, Error> {
+        struct Names<'e>(Vec<&'e ast::ExprName>);
+        impl<'e> Visitor<'e> for Names<'e> {
+            fn visit_expr(&mut self, expr: &'e ast::Expr) {
+                if let ast::Expr::Name(name) = expr {
+                    self.0.push(name);
+                }
+                walk_expr(self, expr);
+            }
+        }
+        let mut names = Names(Vec::new());
+        for annotation in annotations {
+            names.visit_expr(annotation);
+        }
+        let mut checks = Vec::new();
+        for name in names.0 {
+            let class = self.classes.borrow().names.get(name.id.as_str()).copied();
+            if let Some(class) = class
+                && let Some(check) = self.global_check(name)?
+            {
+                checks.push(Stmt::Expr(Expr::After {
+                    binding: Binding::Class(class),
+                    check,
+                    value: Box::new(Expr::None),
+                }));
+            }
+        }
+        Ok(checks)
     }
 
     /// The members of `def` in the order of the class, when `def` has the

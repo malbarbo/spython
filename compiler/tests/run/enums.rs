@@ -59,6 +59,44 @@ fn a_function_takes_and_gives_members() {
     );
 }
 
+/// CPython evaluates the annotations of a `def` when the `def` runs, after
+/// the defaults, and an annotation in quotes stays a `str`.
+#[test]
+fn a_def_raises_name_error_for_a_class_in_an_annotation() {
+    for (name, def) in [
+        (
+            "a_def_raises_name_error_for_a_class_in_an_annotation",
+            "def f(c: int | Cor = 1, d: 'Cor | None' = g()) -> 'Cor | None':",
+        ),
+        (
+            "a_def_raises_name_error_for_a_class_in_its_result",
+            "def f(c: 'Cor | None' = g()) -> Cor | None:",
+        ),
+        (
+            "a_def_runs_with_a_class_in_quotes",
+            "def f(c: 'Cor | None' = g()) -> 'Cor | None':",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                from enum import Enum
+
+                def g() -> None:
+                    print('g')
+
+                {def}
+                    return None
+
+                print(f() is None)
+
+                class Cor(Enum):
+                    A = 1
+            "},
+        );
+    }
+}
+
 /// The name of a class is a global, which a `NameError` suggests once the
 /// `class` statement has run.
 #[test]
