@@ -1054,6 +1054,15 @@ impl Emitter<'_> {
                 self.reprs.bool_not(f);
             }
             Expr::Member { class, member } => self.reprs.member(f, *class, *member),
+            Expr::Field {
+                object,
+                class,
+                field,
+                rep,
+            } => {
+                self.expr(f, object);
+                self.reprs.field(f, *class, *field, *rep);
+            }
             Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
             Expr::IfElse { cond, then, else_ } => {
                 self.expr(f, cond);

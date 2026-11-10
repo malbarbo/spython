@@ -280,6 +280,13 @@ pub(crate) enum Expr {
     /// A `float` rounded to the nearest whole value, with a tie going to
     /// the even one, as `round` does.
     FloatRound(Box<Expr>),
+    /// The field at `field` of an object of `class`, which has `rep`.
+    Field {
+        object: Box<Expr>,
+        class: ClassId,
+        field: u32,
+        rep: Rep,
+    },
     /// The object at `member` among the members of `class`.
     Member {
         class: ClassId,
@@ -1032,7 +1039,8 @@ impl Expr {
             Expr::Load { rep, .. }
             | Expr::Call { rep, .. }
             | Expr::Widen { rep, .. }
-            | Expr::Narrow { rep, .. } => *rep,
+            | Expr::Narrow { rep, .. }
+            | Expr::Field { rep, .. } => *rep,
             Expr::Member { class, .. } => Rep::Object(*class),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),

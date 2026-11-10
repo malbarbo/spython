@@ -124,6 +124,30 @@ fn a_member_is_a_global_of_the_module() {
     );
 }
 
+#[test]
+fn a_member_has_a_name_and_a_value() {
+    same_as_cpython(
+        "a_member_has_a_name_and_a_value",
+        indoc! {"
+            from enum import Enum, auto
+
+            class Cor(Enum):
+                VERDE = auto()
+                AMARELO = 5
+
+            class Nome(Enum):
+                X = 'xis'
+
+            def nome(c: Cor) -> str:
+                return c.name
+
+            c = Cor.AMARELO
+            print(nome(Cor.VERDE), Cor.VERDE.value, c.name, c.value + 1)
+            print(Nome.X.value.upper(), Nome.X.name)
+        "},
+    );
+}
+
 /// A read of a member reads the class, which raises `NameError` before the
 /// `class` statement.
 #[test]
@@ -271,6 +295,17 @@ fn an_enum_outside_the_accepted_form_has_its_own_message() {
                 x = Cor
             "},
             "a class as a value",
+        ),
+        (
+            indoc! {"
+                from enum import Enum
+
+                class Cor(Enum):
+                    A = 1
+
+                x = Cor.A._name_
+            "},
+            "this attribute of an object",
         ),
         (
             indoc! {"

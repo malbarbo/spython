@@ -82,7 +82,13 @@ impl<'a> Lowering<'a, '_> {
                         ast::Expr::Name(name) if let Some(class) = self.class_named(name) => {
                             self.class_attribute(attr, name, class)
                         }
-                        _ => Err(unsupported(expr, "this expression")),
+                        value => match self.rep_of(expr_shape(self.model(), value)) {
+                            Some(Rep::Object(class)) => {
+                                let object = self.expr(value)?;
+                                self.object_attribute(attr, object, class)
+                            }
+                            _ => Err(unsupported(expr, "this expression")),
+                        },
                     },
                     _ => Err(unsupported(expr, "this expression")),
                 },

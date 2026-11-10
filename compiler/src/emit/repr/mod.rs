@@ -118,6 +118,15 @@ impl Reprs {
         global
     }
 
+    /// Pops an object of `class` and pushes its field at `field`, a value
+    /// of `rep`. A field has the type of a local.
+    pub fn field(&self, f: &mut FuncState, class: ClassId, field: u32, rep: Rep) {
+        f.ins().struct_get(self.class(class), field);
+        if matches!(rep, Rep::Str | Rep::Object(_)) {
+            f.ins().ref_as_non_null();
+        }
+    }
+
     /// Pushes the member at `member` of `class`.
     pub fn member(&self, f: &mut FuncState, class: ClassId, member: u32) {
         let global = self

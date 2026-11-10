@@ -145,6 +145,34 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
+    /// The value of `attr`, an attribute of an object of `class`, which
+    /// `object` gives. A member of an `Enum` has `name` and `value`.
+    pub(super) fn object_attribute(
+        &self,
+        attr: &ast::ExprAttribute,
+        object: Expr,
+        class: ClassId,
+    ) -> Result<Expr, Error> {
+        let field = match attr.attr.as_str() {
+            "name" => 0,
+            "value" => 1,
+            _ => return Err(unsupported(attr, "this attribute of an object")),
+        };
+        let rep = *self
+            .classes
+            .borrow()
+            .get(class)
+            .fields
+            .get(field)
+            .expect("a field of the class");
+        Ok(Expr::Field {
+            object: Box::new(object),
+            class,
+            field: u32::try_from(field).expect("fewer than 2^32 fields"),
+            rep,
+        })
+    }
+
     /// The class that `name` reads, and `None` when it reads no class of
     /// the module.
     pub(super) fn class_named(&self, name: &ast::ExprName) -> Option<ClassId> {
