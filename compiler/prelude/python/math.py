@@ -11,3 +11,8 @@ def isinf(x: float) -> bool:
 
 def isfinite(x: float) -> bool:
     return abs(x) < 1e999
+
+
+def degrees(x: float) -> float:
+    # 180 / pi, the factor of CPython.
+    return x * 57.29577951308232

@@ -225,7 +225,7 @@ impl<'a> Lowering<'a, '_> {
         member: &str,
         arg: &ast::Expr,
     ) -> Result<Option<Expr>, Error> {
-        if matches!(member, "isnan" | "isinf" | "isfinite") {
+        if matches!(member, "isnan" | "isinf" | "isfinite" | "degrees") {
             let args = vec![self.math_float(arg)?];
             return self.prelude_call(call, "math", member, args).map(Some);
         }
@@ -237,7 +237,6 @@ impl<'a> Lowering<'a, '_> {
             }));
         }
         let factor = match member {
-            "degrees" => Some(180.0 / std::f64::consts::PI),
             "radians" => Some(std::f64::consts::PI / 180.0),
             _ => None,
         };
