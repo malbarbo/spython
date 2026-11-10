@@ -385,6 +385,75 @@ def isspace(s: str) -> bool:
     return n > 0
 
 
+def islower(s: str) -> bool:
+    n = len(s)
+    cased = False
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        if is_uppercase(c) or is_titlecase(c):
+            return False
+        if is_lowercase(c):
+            cased = True
+        i += 1
+    return cased
+
+
+def isupper(s: str) -> bool:
+    n = len(s)
+    cased = False
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        if is_lowercase(c) or is_titlecase(c):
+            return False
+        if is_uppercase(c):
+            cased = True
+        i += 1
+    return cased
+
+
+def istitle(s: str) -> bool:
+    """Whether each cased word of `s` starts with an upper or title case
+    code point, and goes on in lower case, with at least one word."""
+    n = len(s)
+    cased = False
+    previous_is_cased = False
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        if is_uppercase(c) or is_titlecase(c):
+            if previous_is_cased:
+                return False
+            previous_is_cased = True
+            cased = True
+        elif is_lowercase(c):
+            if not previous_is_cased:
+                return False
+            previous_is_cased = True
+            cased = True
+        else:
+            previous_is_cased = False
+        i += 1
+    return cased
+
+
+def is_titlecase(c: int) -> bool:
+    """Whether `c` is in the category `Lt`."""
+    if c < 0x1C5 or c > 0x1FFC:
+        return False
+    if c < 0x1F88:
+        return c == 0x1C5 or c == 0x1C8 or c == 0x1CB or c == 0x1F2
+    return (
+        c <= 0x1F8F
+        or 0x1F98 <= c <= 0x1F9F
+        or 0x1FA8 <= c <= 0x1FAF
+        or c == 0x1FBC
+        or c == 0x1FCC
+        or c == 0x1FFC
+    )
+
+
 def is_space(c: int) -> bool:
     """Whether `str.isspace` accepts `c`."""
     if c < 128:

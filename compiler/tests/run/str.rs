@@ -553,3 +553,36 @@ fn the_predicates_of_a_str_test_every_code_point() {
         "},
     );
 }
+
+#[test]
+fn isupper_islower_and_istitle_look_at_the_cased_code_points() {
+    same_as_cpython(
+        "isupper_islower_and_istitle_look_at_the_cased_code_points",
+        indoc! {"
+            def show(s: str) -> None:
+                print(repr(s), s.isupper(), s.islower(), s.istitle())
+
+
+            show('')
+            show('ABC')
+            show('abc')
+            show('Abc')
+            show('ABC1 !')
+            show('abc1 !')
+            show('123')
+            show('Hello World')
+            show('Hello world')
+            show('HEllo')
+            show('ǅungla')
+            show('ǅ')
+            show('Ǆ')
+            show('ᾈ ᾐ')
+            show('ß')
+            show('Ⓐⓐ')
+            show('ⓐ')
+            show(\"They'Re\")
+            show('A1B')
+            show('𐐀𐐨')
+        "},
+    );
+}
