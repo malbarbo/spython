@@ -394,6 +394,34 @@ fn the_examples_of_a_docstring_share_their_names_and_copy_the_names_of_the_modul
 }
 
 #[test]
+fn an_example_that_assigns_a_name_of_the_module_without_a_value_starts_without_it() {
+    same_as_the_runner(
+        "an_example_that_assigns_a_name_of_the_module_without_a_value_starts_without_it",
+        indoc! {r#"
+            def zero() -> int:
+                return 0
+
+
+            if zero() > 0:
+                x = 1
+                s = 'a'
+
+
+            def f() -> None:
+                """
+                >>> x = 2
+                >>> x
+                2
+                >>> print(s)
+                >>> s = 'b'
+                >>> s
+                'b'
+                """
+        "#},
+    );
+}
+
+#[test]
 fn a_file_without_an_example_writes_nothing_of_the_tests() {
     same_as_the_runner(
         "a_file_without_an_example_writes_nothing_of_the_tests",

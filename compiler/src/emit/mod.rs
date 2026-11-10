@@ -239,6 +239,17 @@ impl Emitter<'_> {
                     f.free(temp);
                 }
             }
+            Stmt::Copy { from, to } => {
+                let (from_rep, to_rep) = (self.var(Place::Global(*from)).rep, self.var(*to).rep);
+                self.bound(f, Binding::Global(*from));
+                f.if_(BlockType::Empty);
+                self.load(f, Place::Global(*from), from_rep, None);
+                if to_rep != from_rep {
+                    self.reprs.widen(&mut self.m, f, from_rep, to_rep);
+                }
+                self.store(f, *to);
+                f.end();
+            }
             Stmt::Def(func) => {
                 let defined = self.defined(*func);
                 let ordered = self.program_func(*func).ordered;

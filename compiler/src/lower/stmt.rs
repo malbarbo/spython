@@ -11,6 +11,10 @@ use crate::Error;
 use crate::cpython::Class;
 use crate::ir::{Expr, Place, Rep, Stmt};
 
+/// The prefix of the copy of a name of the module, which the engine writes
+/// for the examples of the docstrings.
+const MODULE_COPY_PREFIX: &str = "__spython_module_";
+
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
@@ -74,6 +78,18 @@ impl<'a> Lowering<'a, '_> {
                     index: self.expr(&target.slice)?,
                     value: self.expr(&a.value)?,
                 }))
+            }
+            ast::Stmt::Assign(a) if self.module_copy(a).is_some() => {
+                let (target, from) = self.module_copy(a).expect("a copy of a name of the module");
+                let (from, rep) = self
+                    .vars
+                    .borrow()
+                    .find(from)
+                    .ok_or_else(|| unsupported(&*a.value, "a variable of this type"))?;
+                // The copy asks whether `from` has a value.
+                self.vars.borrow_mut().get_mut(from).flagged = true;
+                let (to, _) = self.place(target, rep)?;
+                Ok(Some(Stmt::Copy { from, to }))
             }
             ast::Stmt::Assign(a) => {
                 let value = self.expr(&a.value)?;
@@ -197,6 +213,19 @@ impl<'a> Lowering<'a, '_> {
             }
             _ => Err(unsupported(stmt, "this statement")),
         }
+    }
+
+    /// The target and the name of the global of `a`, when `a` is a copy
+    /// of a name of the module that the examples of the docstrings assign.
+    /// The runner gives the examples a copy of the globals of the module,
+    /// and a name without a value stays without one in the copy.
+    fn module_copy<'s>(&self, a: &'s ast::StmtAssign) -> Option<(&'s ast::Expr, &'s str)> {
+        let ([target @ ast::Expr::Name(to)], ast::Expr::Name(from)) = (&*a.targets, &*a.value)
+        else {
+            return None;
+        };
+        let copy = |name: &ast::ExprName| name.id.starts_with(MODULE_COPY_PREFIX);
+        (self.tests.is_some() && (copy(to) || copy(from))).then_some((target, from.id.as_str()))
     }
 
     /// The import of the names of `aliases`, which the module declares.

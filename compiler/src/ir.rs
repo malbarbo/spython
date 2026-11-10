@@ -120,6 +120,12 @@ pub(crate) enum Stmt {
         targets: Vec<Place>,
         value: Expr,
     },
+    /// The value of the global `from` goes to `to`, which holds the values
+    /// of its rep, when `from` has one. Without it, `to` stays as it was.
+    Copy {
+        from: VarId,
+        to: Place,
+    },
     /// The `def` of the function, from which on a call finds it.
     Def(FuncId),
     /// The import of each name, from which on a read finds it.
