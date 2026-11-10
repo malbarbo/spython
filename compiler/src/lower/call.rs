@@ -141,9 +141,14 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .map(|arg| {
                 let lowered = self.expr(arg)?;
-                // The module writes an object with the `str` of its class.
-                if let Rep::Object(class) | Rep::ObjectOrNone(class) = lowered.rep() {
-                    self.class_str(class);
+                // The module writes an object with the `str` of its class,
+                // and a uniform value may hold an object of any class.
+                match lowered.rep() {
+                    Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                        self.class_str(class);
+                    }
+                    Rep::Uniform => self.every_class_str(),
+                    _ => {}
                 }
                 Ok(lowered)
             })

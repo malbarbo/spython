@@ -105,15 +105,12 @@ impl<'a> Lowering<'a, '_> {
                 let then = self.expr(&i.body)?;
                 let else_ = self.expr(&i.orelse)?;
                 let rep = join(then.rep(), else_.rep());
-                let widen = |value| {
-                    coerce(value, rep)
-                        .map(Box::new)
-                        .ok_or_else(|| unsupported(i, "a conditional expression of these types"))
-                };
+                let widen =
+                    |value| Box::new(coerce(value, rep).expect("the join holds both values"));
                 Ok(Expr::IfElse {
                     cond: Box::new(cond),
-                    then: widen(then)?,
-                    else_: widen(else_)?,
+                    then: widen(then),
+                    else_: widen(else_),
                 })
             }
             ast::Expr::Compare(c) => self.compare(c),
@@ -350,17 +347,13 @@ impl<'a> Lowering<'a, '_> {
             if ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne)) {
                 return Err(unsupported(c, "an order of objects"));
             }
+            // The tests of the type of a uniform value compare an object
+            // with a value of another class or type.
             let rep = operands
                 .iter()
                 .map(|(lowered, _)| lowered.rep())
                 .reduce(join)
                 .expect("a comparison has a first operand");
-            if !is_object(rep) {
-                return Err(unsupported(
-                    c,
-                    "a comparison of an object with a value of another type",
-                ));
-            }
             let mut operands = operands
                 .into_iter()
                 .map(|(lowered, _)| coerce(lowered, rep).expect("the join holds every operand"));

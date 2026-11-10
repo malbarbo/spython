@@ -789,15 +789,14 @@ fn params_of(def: &ast::StmtFunctionDef) -> impl Iterator<Item = &ast::Parameter
 const MAX_PARAMS: usize = 1000;
 
 /// Returns `true` if a variable of `rep` holds the values of `value`,
-/// `false` otherwise. A uniform value holds no object yet, because the
-/// tests of the type of a uniform value know no class.
+/// `false` otherwise.
 fn holds(rep: Rep, value: Rep) -> bool {
     match rep {
         Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
         Rep::ObjectOrNone(class) => {
             matches!(value, Rep::None) || value == Rep::Object(class) || value == rep
         }
-        Rep::Uniform => !matches!(value, Rep::Object(_) | Rep::ObjectOrNone(_)),
+        Rep::Uniform => true,
         _ => rep == value,
     }
 }

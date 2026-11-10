@@ -211,6 +211,44 @@ fn a_member_has_a_str_and_a_repr() {
     );
 }
 
+/// A uniform value holds an object, and the tests of its type find the
+/// class. An object is equal to itself alone, so a member is not equal to
+/// its value.
+#[test]
+fn a_uniform_value_holds_a_member() {
+    same_as_cpython(
+        "a_uniform_value_holds_a_member",
+        indoc! {"
+            from enum import Enum, auto
+
+            class Cor(Enum):
+                A = auto()
+                B = auto()
+
+            class Nome(Enum):
+                X = 'x'
+
+            def valor(n: int) -> int | Cor:
+                if n > 0:
+                    return n
+                return Cor.B
+
+            def nome(n: int) -> Nome | Cor | None:
+                if n > 1:
+                    return Nome.X
+                if n > 0:
+                    return Cor.A
+                return None
+
+            v = valor(0)
+            print(v, valor(3), nome(2), nome(1), nome(0))
+            print(v == Cor.B, v == 2, Cor.A == 1, Cor.A != 1, valor(1) == 1)
+            print(Cor.A == Nome.X, nome(2) == Nome.X, nome(1) != Nome.X)
+            print(Cor.A if v == Cor.B else 0, 1 if v == 0 else Nome.X)
+        "},
+    );
+}
+
 /// A read of a member reads the class, which raises `NameError` before the
 /// `class` statement.
 #[test]

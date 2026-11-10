@@ -199,6 +199,14 @@ impl<'a> Lowering<'a, '_> {
         func
     }
 
+    /// Makes the function of the `str` of every class of the module.
+    pub(super) fn every_class_str(&self) {
+        let count = self.classes.borrow().list.len();
+        for class in 0..count {
+            self.class_str(ClassId::new(class));
+        }
+    }
+
     /// The function that gives the `repr` of an object of `class`, which a
     /// member of an `Enum` writes as `<Cor.VERDE: 1>`, with the `repr` of
     /// its value.

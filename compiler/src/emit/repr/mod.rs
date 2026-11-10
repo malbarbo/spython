@@ -901,7 +901,8 @@ impl Reprs {
 
     /// Defines the function that compares two values of a union. It gives
     /// -1, 0 or 1 as the first value comes before, with or after the
-    /// second, and 2 when they have no order. Two numbers compare as
+    /// second, and 2 when they have no order. An object is equal to itself
+    /// alone, and has no order with any value. Two numbers compare as
     /// `float`s, which is exact for an `int` of 31 bits, and a NaN has no
     /// order. Two `str`s compare by their code points. `None` is equal to
     /// `None` alone, and a number and a `str` have no order. The checker
@@ -931,6 +932,24 @@ impl Reprs {
             .i32_mul()
             .return_();
         f.end();
+        for class in self.classes.clone() {
+            f.ins()
+                .local_get(a)
+                .ref_test(class.heap_type())
+                .local_get(b)
+                .ref_test(class.heap_type())
+                .i32_or();
+            f.if_(BlockType::Empty);
+            f.ins()
+                .local_get(a)
+                .local_get(b)
+                .ref_eq()
+                .i32_eqz()
+                .i32_const(unordered)
+                .i32_mul()
+                .return_();
+            f.end();
+        }
         let str = self.str.type_index().heap_type();
         f.ins().local_get(a).ref_test(str);
         f.ins().local_get(b).ref_test(str);
@@ -1017,6 +1036,18 @@ impl Reprs {
             f.ins().local_get(value);
             self.narrow(m, &mut f, Rep::Uniform, rep);
             self.write(m, &mut f, rep);
+            f.ins().return_();
+            f.end();
+        }
+        for i in 0..self.classes.len() {
+            let class = ClassId::new(i);
+            f.ins()
+                .local_get(value)
+                .ref_test(self.class(class).heap_type());
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value);
+            self.narrow(m, &mut f, Rep::Uniform, Rep::Object(class));
+            self.write(m, &mut f, Rep::Object(class));
             f.ins().return_();
             f.end();
         }
