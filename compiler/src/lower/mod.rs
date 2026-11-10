@@ -673,7 +673,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
             Some(scope) => (unit.path.to_owned(), scope.name.clone(), number),
         };
         let text = traceback::frame(&path, &name, number, &unit.lines, range);
-        let name = format!("{path}\n{name}");
+        self.add_site(format!("{path}\n{name}"), number, text)
+    }
+
+    /// A new site with the frame `text`, at the line `number` of the file
+    /// and the function that `name` gives.
+    fn add_site(&self, name: String, number: usize, text: String) -> Site {
         let mut lines = self.lines.borrow_mut();
         let count = u32::try_from(lines.len()).expect("fewer than 2^32 lines");
         let line = *lines.entry((name, number)).or_insert(count);

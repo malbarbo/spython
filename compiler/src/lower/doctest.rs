@@ -7,7 +7,7 @@ use ruff_text_size::Ranged;
 
 use super::Lowering;
 use crate::cpython::traceback;
-use crate::ir::{ArithOp, CmpOp, Expr, Place, Rep, Site, SiteFrame, Stmt, VarId};
+use crate::ir::{ArithOp, CmpOp, Expr, Place, Rep, Site, Stmt, VarId};
 use crate::{Docstring, Error, Example};
 
 /// What the lowering keeps for a program that tests its file.
@@ -194,15 +194,7 @@ impl<'a> Lowering<'a, '_> {
     /// A new site whose frame a traceback does not show, for the code that
     /// the lowering adds to run the doctests.
     fn hidden_site(&self) -> Site {
-        let mut sites = self.sites.borrow_mut();
-        let mut lines = self.lines.borrow_mut();
-        let count = u32::try_from(lines.len()).expect("fewer than 2^32 lines");
-        let line = *lines.entry((String::new(), 0)).or_insert(count);
-        sites.push(SiteFrame {
-            text: String::new(),
-            line,
-        });
-        Site::new(sites.len() - 1)
+        self.add_site(String::new(), 0, String::new())
     }
 }
 
