@@ -825,6 +825,8 @@ pub(crate) enum Rep {
     None,
     /// A `str` or `None`.
     StrOrNone,
+    /// A value of any of the other reps, as a union of types holds.
+    Uniform,
 }
 
 impl Expr {

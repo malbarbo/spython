@@ -666,7 +666,7 @@ impl Emitter<'_> {
             Expr::None => {}
             Expr::Widen { value, rep } => {
                 self.expr(f, value);
-                self.reprs.widen(f, value.rep(), *rep);
+                self.reprs.widen(&mut self.m, f, value.rep(), *rep);
             }
             Expr::Load { place, rep, check } => self.load(f, *place, *rep, check.as_ref()),
             Expr::Call {

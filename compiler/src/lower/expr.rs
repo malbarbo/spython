@@ -225,7 +225,7 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(range),
             }),
             Rep::None => Err(unsupported(node, "str of None")),
-            Rep::StrOrNone => Err(unsupported(node, "str of a str or None")),
+            Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
         }
     }
 
@@ -398,7 +398,7 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(operand)?;
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
-            Rep::StrOrNone => Err(unsupported(operand, "the truth of a str or None")),
+            Rep::StrOrNone | Rep::Uniform => Err(unsupported(operand, "the truth of a union")),
             Rep::Int | Rep::Float | Rep::Bool | Rep::Str => Ok(lowered),
         }
     }
@@ -413,7 +413,7 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::Int => Ok(lowered),
             Rep::Bool => Ok(Expr::BoolAsInt(Box::new(lowered))),
-            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone => Err(unsupported(
+            Rep::Float | Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -429,7 +429,7 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         Rep::Bool => Ok(Expr::IntAsFloat(Box::new(Expr::BoolAsInt(Box::new(
             lowered,
         ))))),
-        Rep::Str | Rep::None | Rep::StrOrNone => Err(unsupported(
+        Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => Err(unsupported(
             operand,
             "an operator on a value that is not a number",
         )),
@@ -453,7 +453,7 @@ pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
         Rep::Bool => Ok(lowered),
         Rep::Int | Rep::Float | Rep::Str => Ok(Expr::Truth(Box::new(lowered))),
         Rep::None => Err(unsupported(node, "the truth of None")),
-        Rep::StrOrNone => Err(unsupported(node, "the truth of a str or None")),
+        Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "the truth of a union")),
     }
 }
 

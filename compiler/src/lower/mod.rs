@@ -607,19 +607,24 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 Some(Rep::Str)
             }
+            // A union of `str` and `None` needs no box, and any other union
+            // of values with a rep is uniform.
             Shape::Union(shapes) => {
-                let mut none = false;
+                let mut reps = Vec::new();
                 for shape in shapes {
                     match shape {
-                        Shape::None => none = true,
-                        shape => {
-                            if self.rep_of(Some(shape)) != Some(Rep::Str) {
-                                return None;
-                            }
-                        }
+                        Shape::None => reps.push(Rep::None),
+                        shape => reps.push(self.rep_of(Some(shape))?),
                     }
                 }
-                none.then_some(Rep::StrOrNone)
+                let first = *reps.first()?;
+                if first != Rep::None && reps.iter().all(|rep| *rep == first) {
+                    Some(first)
+                } else if reps.iter().all(|rep| matches!(rep, Rep::Str | Rep::None)) {
+                    Some(Rep::StrOrNone)
+                } else {
+                    Some(Rep::Uniform)
+                }
             }
             _ => None,
         }
@@ -677,7 +682,11 @@ const MAX_PARAMS: usize = 1000;
 /// Returns `true` if a variable of `rep` holds the values of `value`,
 /// `false` otherwise.
 fn holds(rep: Rep, value: Rep) -> bool {
-    rep == value || (rep == Rep::StrOrNone && matches!(value, Rep::Str | Rep::None))
+    match rep {
+        Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
+        Rep::Uniform => true,
+        _ => rep == value,
+    }
 }
 
 /// `value` as a value of `rep`, and `None` when a variable of `rep` does
@@ -699,7 +708,7 @@ fn coerce(value: Expr, rep: Rep) -> Option<Expr> {
 /// looks for an attribute in the value of `self`, and the compiler knows
 /// the attributes of each rep but not which one a union holds.
 fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
-    if name == "self" && rep == Rep::StrOrNone {
+    if name == "self" && matches!(rep, Rep::StrOrNone | Rep::Uniform) {
         return Err(unsupported(node, "a variable self of a union"));
     }
     Ok(())

@@ -1,0 +1,88 @@
+//! The uniform representation, which holds a value of any rep in a
+//! `(ref null eq)`. An `int` is an `i31ref`, a `float` is a `$Float`, a
+//! `bool` is one of the two `$Bool`, a `str` is its `$Str`, and `None` is
+//! null.
+
+use wasm_encoder::{AbstractHeapType, BlockType, HeapType, RefType, StorageType, ValType};
+
+use super::super::module::{FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
+
+const EQ: HeapType = HeapType::Abstract {
+    shared: false,
+    ty: AbstractHeapType::Eq,
+};
+
+pub(super) struct UniformRepr {
+    float: Option<TypeIdx>,
+    bool: Option<Bools>,
+}
+
+/// `False` and `True`, which the module makes once.
+struct Bools {
+    false_: GlobalIdx,
+    true_: GlobalIdx,
+}
+
+impl UniformRepr {
+    pub fn new() -> Self {
+        UniformRepr {
+            float: None,
+            bool: None,
+        }
+    }
+
+    pub fn val_type(&self) -> ValType {
+        ValType::Ref(RefType {
+            nullable: true,
+            heap_type: EQ,
+        })
+    }
+
+    /// Pushes `None`.
+    pub fn none(&self, f: &mut FuncState) {
+        f.ins().ref_null(EQ);
+    }
+
+    /// Pops an `int` and pushes it boxed.
+    pub fn box_int(&self, f: &mut FuncState) {
+        f.ins().ref_i31();
+    }
+
+    /// Pops an `f64` and pushes it boxed.
+    pub fn box_float(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let float = *self
+            .float
+            .get_or_insert_with(|| m.struct_type(&[(StorageType::Val(ValType::F64), false)]));
+        f.ins().struct_new(float);
+    }
+
+    /// Pops a `bool` and pushes it boxed.
+    pub fn box_bool(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let bools = self.bool.get_or_insert_with(|| {
+            // The field tells the two apart from a `$Float` and from each
+            // other.
+            let ty = m.struct_type(&[(StorageType::Val(ValType::I32), false)]);
+            let mut global = |value| {
+                let global = m.global(
+                    ty.ref_to(true),
+                    &wasm_encoder::ConstExpr::ref_null(ty.heap_type()),
+                );
+                Ins::new(&mut m.init)
+                    .i32_const(value)
+                    .struct_new(ty)
+                    .global_set(global);
+                global
+            };
+            Bools {
+                false_: global(0),
+                true_: global(1),
+            }
+        });
+        let (false_, true_) = (bools.false_, bools.true_);
+        f.if_(BlockType::Result(self.val_type()));
+        f.ins().global_get(true_);
+        f.else_();
+        f.ins().global_get(false_);
+        f.end();
+    }
+}

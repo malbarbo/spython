@@ -631,6 +631,7 @@ impl<'a> Ins<'a> {
         ref_as_non_null();
         ref_eq();
         ref_is_null();
+        ref_i31();
         ref_null(ty: HeapType);
         return_();
         select();

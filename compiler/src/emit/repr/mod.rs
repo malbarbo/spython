@@ -3,6 +3,7 @@
 mod float;
 mod int;
 pub(super) mod str;
+mod uniform;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
@@ -17,11 +18,13 @@ use crate::ir::{
 use float::FloatRepr;
 use int::IntRepr;
 use str::StrRepr;
+use uniform::UniformRepr;
 
 pub(crate) struct Reprs {
     int: IntRepr,
     float: FloatRepr,
     str: StrRepr,
+    uniform: UniformRepr,
     exc: Exceptions,
 }
 
@@ -37,6 +40,7 @@ impl Reprs {
             int,
             float,
             str,
+            uniform: UniformRepr::new(),
             exc,
         }
     }
@@ -93,6 +97,7 @@ impl Reprs {
             // `False` and `True` are the `i32` 0 and 1.
             Rep::Bool => Some(ValType::I32),
             Rep::Str | Rep::StrOrNone => Some(self.str.val_type(true)),
+            Rep::Uniform => Some(self.uniform.val_type()),
             Rep::None => None,
         }
     }
@@ -123,6 +128,10 @@ impl Reprs {
             Rep::Float => self.float.global_init(),
             Rep::Bool => ConstExpr::i32_const(0),
             Rep::Str | Rep::StrOrNone => ConstExpr::ref_null(self.str.type_index().heap_type()),
+            Rep::Uniform => ConstExpr::ref_null(wasm_encoder::HeapType::Abstract {
+                shared: false,
+                ty: wasm_encoder::AbstractHeapType::Eq,
+            }),
             Rep::None => unreachable!("a variable of rep None"),
         };
         m.global(ty, &init)
@@ -138,8 +147,17 @@ impl Reprs {
 
     /// Pops a value of `from` and pushes it as a value of `to`, a rep that
     /// holds the values of `from`.
-    pub fn widen(&self, f: &mut FuncState, from: Rep, to: Rep) {
+    pub fn widen(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
         match (from, to) {
+            (Rep::Int, Rep::Uniform) => {
+                self.int.as_i32(f);
+                self.uniform.box_int(f);
+            }
+            (Rep::Float, Rep::Uniform) => self.uniform.box_float(m, f),
+            (Rep::Bool, Rep::Uniform) => self.uniform.box_bool(m, f),
+            (Rep::None, Rep::Uniform) => self.uniform.none(f),
+            // A `$Str` is an `eq`, and null is `None` in both.
+            (Rep::Str | Rep::StrOrNone, Rep::Uniform) => {}
             (Rep::Str, Rep::StrOrNone) => {}
             (Rep::None, Rep::StrOrNone) => {
                 f.ins().ref_null(self.str.type_index().heap_type());
@@ -188,7 +206,7 @@ impl Reprs {
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
             Rep::Float => self.float.truth(f),
-            Rep::None | Rep::StrOrNone => unreachable!("the truth of {rep:?}"),
+            Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("the truth of {rep:?}"),
         }
     }
 
@@ -205,7 +223,9 @@ impl Reprs {
                 self.str.literal(m, f, "False");
                 f.end();
             }
-            Rep::Str | Rep::None | Rep::StrOrNone => unreachable!("the str of {rep:?}"),
+            Rep::Str | Rep::None | Rep::StrOrNone | Rep::Uniform => {
+                unreachable!("the str of {rep:?}")
+            }
         }
     }
 
@@ -579,7 +599,7 @@ impl Reprs {
                     CmpOp::Ge => ins.i32_ge_u(),
                 };
             }
-            Rep::None | Rep::StrOrNone => unreachable!("a comparison of {rep:?}"),
+            Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("a comparison of {rep:?}"),
         }
     }
 
@@ -599,7 +619,7 @@ impl Reprs {
                 f.end();
             }
             Rep::Str => self.str.write(f),
-            Rep::None | Rep::StrOrNone => panic!("a value of rep {rep:?} to write"),
+            Rep::None | Rep::StrOrNone | Rep::Uniform => panic!("a value of rep {rep:?} to write"),
         }
     }
 }
