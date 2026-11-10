@@ -8,7 +8,7 @@ from __spython_prelude__.intrinsics import (
     code_point,
     write_err,
 )
-from __spython_prelude__.str import is_space, put, put_hex_escape
+from __spython_prelude__.str import find, is_space, put, put_hex_escape
 
 
 def start() -> None:
@@ -142,10 +142,10 @@ def ascii_len(c: int) -> int:
 
 def line_end(s: str, start: int) -> int:
     """The index of the first line feed of `s` from `start`, or the length of `s`."""
-    n = len(s)
-    while start < n and code_point(s, start) != 10:
-        start += 1
-    return start
+    end = find(s, "\n", start, len(s))
+    if end < 0:
+        return len(s)
+    return end
 
 
 def only(s: str, start: int, end: int, spaces: bool) -> bool:
