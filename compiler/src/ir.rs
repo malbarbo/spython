@@ -750,6 +750,10 @@ pub(crate) enum CodePointSet {
     Cased,
     /// The code points with the property `Case_Ignorable`.
     CaseIgnorable,
+    /// The code points with the property `Uppercase`.
+    Uppercase,
+    /// The code points with the property `Lowercase`.
+    Lowercase,
 }
 
 impl CodePointSet {
@@ -758,6 +762,8 @@ impl CodePointSet {
             CodePointSet::Printable => "str_is_printable",
             CodePointSet::Cased => "str_is_cased",
             CodePointSet::CaseIgnorable => "str_is_case_ignorable",
+            CodePointSet::Uppercase => "str_is_uppercase",
+            CodePointSet::Lowercase => "str_is_lowercase",
         }
     }
 }
@@ -768,6 +774,7 @@ impl CodePointSet {
 pub(crate) enum Case {
     Upper,
     Lower,
+    Title,
 }
 
 impl Case {
@@ -775,6 +782,7 @@ impl Case {
         match self {
             Case::Upper => "str_upper_at",
             Case::Lower => "str_lower_at",
+            Case::Title => "str_title_at",
         }
     }
 }

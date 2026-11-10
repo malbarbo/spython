@@ -324,7 +324,7 @@ fn lower_gives_the_final_sigma_at_the_end_of_a_word() {
 fn a_method_of_a_str_that_the_prelude_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-            print('a'.title())
+            print('a b'.split())
         "}),
         "a call of this method"
     );
@@ -499,6 +499,22 @@ fn a_slice_with_a_step_takes_every_kth_code_point() {
             print(repr(''[::-1]), s[::-1073741824], s[6:0:-2], s[-1:-8:-1], s[-1:-9:-1])
             print(every(s, 3))
             print(every(s, 0))
+        "},
+    );
+}
+
+#[test]
+fn capitalize_title_and_swapcase_use_the_title_case_and_the_final_sigma() {
+    same_as_cpython(
+        "capitalize_title_and_swapcase_use_the_title_case_and_the_final_sigma",
+        indoc! {"
+            print('hello wORLD'.capitalize(), 'hello wORLD'.title(), 'hello wORLD'.swapcase())
+            print('ǆemal ǅ'.capitalize(), 'ǆemal ǅ'.title(), 'ǆemal ǅ'.swapcase())
+            print('ßtraße'.capitalize(), 'ßtraße'.title(), 'ßtraße'.swapcase())
+            print('ﬁsh ﬂy'.capitalize(), 'ﬁsh ﬂy'.title(), 'ﬁsh ﬂy'.swapcase())
+            print('ΣΑΣ σας'.capitalize(), 'ΣΑΣ σας'.title(), 'ΣΑΣ σας'.swapcase(), 'σΑΣ'.swapcase())
+            print(\"they're o'neil\".title(), 'a1b2 3c'.title(), repr(''.title()), 'ŉ x'.capitalize())
+            print('İstanbul'.swapcase(), 'ǰ'.title(), '𐐨𐐀'.swapcase(), 'Ⅻ ⓐ'.swapcase())
         "},
     );
 }

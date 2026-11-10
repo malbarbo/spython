@@ -42,3 +42,12 @@ def is_case_ignorable(code_point: int) -> bool:
 
 def natural_power(base: int, exp: int) -> int:
     """`base ** exp` for an `exp` that is not negative. A power outside 31 bits stops the program."""
+
+def title_at(code_point: int, index: int) -> int:
+    """The code point at `index` of the title case of the code point, or -1 past its end."""
+
+def is_uppercase(code_point: int) -> bool:
+    """Whether the code point has the property `Uppercase` of Unicode."""
+
+def is_lowercase(code_point: int) -> bool:
+    """Whether the code point has the property `Lowercase` of Unicode."""

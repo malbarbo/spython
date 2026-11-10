@@ -7,8 +7,11 @@ from __spython_prelude__.intrinsics import (
     code_point,
     is_case_ignorable,
     is_cased,
+    is_lowercase,
     is_printable,
+    is_uppercase,
     lower_at,
+    title_at,
     upper_at,
 )
 
@@ -514,6 +517,86 @@ def slice_end(end: int | None, n: int) -> int:
     if end < 0:
         return max(end + n, 0)
     return end
+
+
+def capitalize(s: str) -> str:
+    return recase(s, 0)
+
+
+def title(s: str) -> str:
+    return recase(s, 1)
+
+
+def swapcase(s: str) -> str:
+    return recase(s, 2)
+
+
+def recase(s: str, method: int) -> str:
+    """`s` after `capitalize` when `method` is 0, `title` when it is 1, and
+    `swapcase` when it is 2."""
+    n = len(s)
+    size = 0
+    i = 0
+    while i < n:
+        kind = case_kind(s, i, method)
+        k = 1
+        while case_mapped(s, i, kind, k) >= 0:
+            k += 1
+        size += k
+        i += 1
+    b = builder_new(size)
+    at = 0
+    i = 0
+    while i < n:
+        kind = case_kind(s, i, method)
+        k = 0
+        m = case_mapped(s, i, kind, 0)
+        while m >= 0:
+            b[at] = m
+            at += 1
+            k += 1
+            m = case_mapped(s, i, kind, k)
+        i += 1
+    return builder_done(b)
+
+
+def case_kind(s: str, i: int, method: int) -> int:
+    """The case that `method` of `recase` gives to the code point at `i` of
+    `s`: 0 for the same code point, 1 for upper, 2 for lower and 3 for
+    title."""
+    if method == 0:
+        if i == 0:
+            return 3
+        return 2
+    if method == 1:
+        if i > 0 and is_cased(code_point(s, i - 1)):
+            return 2
+        return 3
+    c = code_point(s, i)
+    if is_uppercase(c):
+        return 2
+    if is_lowercase(c):
+        return 1
+    return 0
+
+
+def case_mapped(s: str, i: int, kind: int, k: int) -> int:
+    """The code point `k` of the case `kind` of the code point at `i` of
+    `s`, or -1 past its end."""
+    c = code_point(s, i)
+    if kind == 0:
+        if k == 0:
+            return c
+        return -1
+    if kind == 1:
+        return upper_at(c, k)
+    if kind == 3:
+        return title_at(c, k)
+    if c == 931:
+        if k == 0:
+            return sigma(s, i)
+        return -1
+    return lower_at(c, k)
 
 
 def sigma(s: str, i: int) -> int:

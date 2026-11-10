@@ -14,6 +14,7 @@ use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
 
 /// The methods of `str` that the module `str` of the prelude defines.
 const STR_METHODS: &[&str] = &[
+    "capitalize",
     "center",
     "count",
     "endswith",
@@ -32,6 +33,8 @@ const STR_METHODS: &[&str] = &[
     "rstrip",
     "startswith",
     "strip",
+    "swapcase",
+    "title",
     "upper",
     "zfill",
 ];
@@ -253,21 +256,25 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "code_point" => arg()
                 .zip(arg())
                 .map(|(value, index)| Expr::CodePoint { value, index }),
-            "upper_at" | "lower_at" => arg().zip(arg()).map(|(operand, index)| Expr::CaseAt {
-                case: if name == "upper_at" {
-                    Case::Upper
-                } else {
-                    Case::Lower
-                },
-                operand,
-                index,
-            }),
-            "is_printable" | "is_cased" | "is_case_ignorable" => {
+            "upper_at" | "lower_at" | "title_at" => {
+                arg().zip(arg()).map(|(operand, index)| Expr::CaseAt {
+                    case: match name {
+                        "upper_at" => Case::Upper,
+                        "lower_at" => Case::Lower,
+                        _ => Case::Title,
+                    },
+                    operand,
+                    index,
+                })
+            }
+            "is_printable" | "is_cased" | "is_case_ignorable" | "is_uppercase" | "is_lowercase" => {
                 arg().map(|operand| Expr::CodePointIs {
                     set: match name {
                         "is_printable" => CodePointSet::Printable,
                         "is_cased" => CodePointSet::Cased,
-                        _ => CodePointSet::CaseIgnorable,
+                        "is_case_ignorable" => CodePointSet::CaseIgnorable,
+                        "is_uppercase" => CodePointSet::Uppercase,
+                        _ => CodePointSet::Lowercase,
                     },
                     operand,
                 })
