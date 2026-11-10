@@ -586,9 +586,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
     fn rep_of(&self, shape: Option<Shape>) -> Option<Rep> {
         match shape? {
             Shape::Int | Shape::IntLit(_) => Some(Rep::Int),
-            // With `strict_numbers`, ty gives `int | float` only for a
-            // parameter of a stub and for `**`, which the compiler does not
-            // take.
             Shape::Float => Some(Rep::Float),
             Shape::Bool | Shape::BoolLit(_) => Some(Rep::Bool),
             Shape::Str | Shape::StrLit(_) => Some(Rep::Str),
