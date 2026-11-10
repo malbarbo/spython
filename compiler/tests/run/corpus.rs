@@ -6,42 +6,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use engine::Level;
 
+use super::doctests::{docstrings, runner};
 use super::{deno, python, wasmtime};
 
 /// Each program of the corpus that the checker accepts and the compiler
 /// covers prints what CPython prints, and exits as CPython exits, in
-/// wasmtime and in deno. The
-/// corpus is `cli/tests/inputs` and the `na-programacao` beside this
-/// repository, when it is there.
+/// wasmtime and in deno.
 #[test]
 fn the_corpus_runs_as_in_cpython() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut files = python_files(&root.join("cli/tests/inputs"));
-    let book = root.join("../na-programacao");
-    if book.is_dir() {
-        files.extend(python_files(&book));
-    } else {
-        eprintln!("{} is missing, so the corpus leaves it out", book.display());
-    }
-
-    let next = AtomicUsize::new(0);
-    let outcomes = Mutex::new(Vec::new());
-    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| {
-                while let Some(file) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let outcome = run_from_corpus(file);
-                    outcomes
-                        .lock()
-                        .expect("no panic with the lock")
-                        .push((file, outcome));
-                }
-            });
-        }
-    });
-    let mut outcomes = outcomes.into_inner().expect("no panic with the lock");
-    outcomes.sort();
+    let files = corpus();
+    let outcomes = each_file(&files, run_from_corpus);
     let count = |wanted: Outcome| outcomes.iter().filter(|(_, o)| *o == wanted).count();
     eprintln!(
         "corpus: {} files, {} rejected by the checker, {} unsupported, {} same as CPython",
@@ -58,12 +32,114 @@ fn the_corpus_runs_as_in_cpython() {
     assert!(differ.is_empty(), "differ from CPython: {differ:#?}");
 }
 
+/// The files of the corpus, which is `cli/tests/inputs` and the
+/// `na-programacao` beside this repository, when it is there.
+fn corpus() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut files = python_files(&root.join("cli/tests/inputs"));
+    let book = root.join("../na-programacao");
+    if book.is_dir() {
+        files.extend(python_files(&book));
+    } else {
+        eprintln!("{} is missing, so the corpus leaves it out", book.display());
+    }
+    files
+}
+
+/// The outcome of `run` for each of `files`, in the order of the files.
+fn each_file(files: &[PathBuf], run: fn(&Path) -> Outcome) -> Vec<(&PathBuf, Outcome)> {
+    let next = AtomicUsize::new(0);
+    let outcomes = Mutex::new(Vec::new());
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                while let Some(file) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let outcome = run(file);
+                    outcomes
+                        .lock()
+                        .expect("no panic with the lock")
+                        .push((file, outcome));
+                }
+            });
+        }
+    });
+    let mut outcomes = outcomes.into_inner().expect("no panic with the lock");
+    outcomes.sort();
+    outcomes
+}
+
+/// The doctests of each file of the corpus that the checker accepts and the
+/// compiler covers write the report of the runner of spython, and exit as
+/// it exits, in wasmtime and in deno. A file where an example leaves the
+/// 31 bits of an `int` stops there, and the runner goes on, so the file is
+/// out of the comparison.
+#[test]
+fn the_doctests_of_the_corpus_run_as_in_the_runner() {
+    let files = corpus();
+    let outcomes = each_file(&files, tests_from_corpus);
+    let count = |wanted: Outcome| outcomes.iter().filter(|(_, o)| *o == wanted).count();
+    eprintln!(
+        "doctests of the corpus: {} files, {} rejected by the checker, {} unsupported, \
+         {} past the limit of an int, {} same as the runner",
+        files.len(),
+        count(Outcome::Rejected),
+        count(Outcome::Unsupported),
+        count(Outcome::PastLimit),
+        count(Outcome::Same),
+    );
+    let differ: Vec<_> = outcomes
+        .iter()
+        .filter(|(_, outcome)| *outcome == Outcome::Differs)
+        .map(|(file, _)| file)
+        .collect();
+    assert!(differ.is_empty(), "differ from the runner: {differ:#?}");
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Outcome {
     Rejected,
     Unsupported,
+    /// The program stopped at the limit of an `int`.
+    PastLimit,
     Same,
     Differs,
+}
+
+/// Checks `file`, compiles its doctests and runs them, and runs them with
+/// the runner of spython too.
+fn tests_from_corpus(file: &Path) -> Outcome {
+    let Ok(checked) = engine::check::check_file_keeping_db(file, Level::Full) else {
+        return Outcome::Rejected;
+    };
+    let path = file.to_str().expect("a path in utf-8");
+    let program = engine::check::doctest_program(&checked.db, checked.file);
+    let docstrings = docstrings(program.docstrings);
+    let module = match compiler::compile_tests(&program.db, program.file, path, &docstrings, false)
+    {
+        Ok(module) => module,
+        Err(compiler::Error::Unsupported { .. }) => return Outcome::Unsupported,
+        Err(err) => panic!("{path}: {err:?}"),
+    };
+    let name = format!("corpus_tests_{}", path.replace(['/', '.'], "_"));
+    let ours = wasmtime(&name, &module, None);
+    if String::from_utf8_lossy(&ours.stderr).contains("\nspython: the result ") {
+        return Outcome::PastLimit;
+    }
+    let source = std::fs::read_to_string(file).expect("a file of the corpus");
+    let theirs = runner(&name, file, &source, false);
+    if (&ours.stdout, &ours.stderr, ours.status.code())
+        == (
+            &theirs.stdout,
+            &theirs.stderr,
+            theirs.status.code().map(|code| code.min(1)),
+        )
+        && deno(&name) == ours
+    {
+        Outcome::Same
+    } else {
+        Outcome::Differs
+    }
 }
 
 /// Checks, compiles and runs `file`, and runs it in CPython too.

@@ -26,8 +26,14 @@ pub(super) fn compile_tests(
         Err(errors) => panic!("the checker rejects the program: {:?}", errors.diagnostics),
     };
     let program = doctest_program(&checked.db, checked.file);
-    let docstrings: Vec<compiler::Docstring> = program
-        .docstrings
+    let docstrings = docstrings(program.docstrings);
+    let path = path.to_str().expect("a path in utf-8");
+    compiler::compile_tests(&program.db, program.file, path, &docstrings, verbose)
+}
+
+/// The docstrings of the checker as the compiler takes them.
+pub(super) fn docstrings(found: Vec<engine::check::DoctestFunction>) -> Vec<compiler::Docstring> {
+    found
         .into_iter()
         .map(|docstring| compiler::Docstring {
             owner: docstring.owner,
@@ -43,9 +49,7 @@ pub(super) fn compile_tests(
                 })
                 .collect(),
         })
-        .collect();
-    let path = path.to_str().expect("a path in utf-8");
-    compiler::compile_tests(&program.db, program.file, path, &docstrings, verbose)
+        .collect()
 }
 
 /// `text` as a literal of Python, with an escape for each character that is
