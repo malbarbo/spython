@@ -366,6 +366,47 @@ def zfill(s: str, width: int) -> str:
     return builder_done(b)
 
 
+def expandtabs(s: str, tabsize: int | None = None) -> str:
+    size = 8
+    if tabsize is not None:
+        size = tabsize
+    total = expanded(s, size, None)
+    b = builder_new(total)
+    expanded(s, size, b)
+    return builder_done(b)
+
+
+def expanded(s: str, size: int, b: StrBuilder | None) -> int:
+    """The length of `s` with each tab expanded to the next column that is a
+    multiple of `size`, which also writes it to `b` when there is one. A
+    line feed and a carriage return start the column again."""
+    n = len(s)
+    at = 0
+    column = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        if c == 9:
+            if size > 0:
+                spaces = size - column % size
+                if b is not None:
+                    j = 0
+                    while j < spaces:
+                        b[at + j] = 32
+                        j += 1
+                at += spaces
+                column += spaces
+        else:
+            if b is not None:
+                b[at] = c
+            at += 1
+            column += 1
+            if c == 10 or c == 13:
+                column = 0
+        i += 1
+    return at
+
+
 def fill_code_point(fillchar: str | None) -> int:
     """The code point that pads, which is a space without `fillchar`."""
     if fillchar is None:

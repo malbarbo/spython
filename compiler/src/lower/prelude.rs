@@ -17,6 +17,7 @@ const STR_METHODS: &[&str] = &[
     "center",
     "count",
     "endswith",
+    "expandtabs",
     "find",
     "index",
     "ljust",

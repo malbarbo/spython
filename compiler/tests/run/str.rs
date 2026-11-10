@@ -481,3 +481,15 @@ fn zfill_pads_with_zeros_after_the_sign() {
         "},
     );
 }
+
+#[test]
+fn expandtabs_moves_each_tab_to_the_next_column() {
+    same_as_cpython(
+        "expandtabs_moves_each_tab_to_the_next_column",
+        indoc! {"
+            s = 'a\\tbc\\tdéf\\t😀\\n\\tx\\r12\\ty'
+            print(repr(s.expandtabs()), repr(s.expandtabs(4)), repr(s.expandtabs(1)))
+            print(repr(s.expandtabs(0)), repr(s.expandtabs(-3)), repr(''.expandtabs()), repr('\\t'.expandtabs()))
+        "},
+    );
+}
