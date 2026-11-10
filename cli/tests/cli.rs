@@ -323,14 +323,14 @@ fn the_wasmgc_backend_writes_the_traceback_of_a_memory_error() {
 fn the_wasmgc_backend_names_the_place_of_what_it_does_not_support() {
     let dir = new_dir_with(
         "wasmgc_unsupported",
-        &[("main.py", "s = 'a'\nprint('é' + s[0:])\n")],
+        &[("main.py", "s = 'a b'\nprint(s.split())\n")],
     );
     let (out, err, success) = run_spython_native(&["--backend=wasmgc", "main.py"], dir.path());
     assert!(!success);
     assert_eq!(out, "");
     assert_eq!(
         err,
-        "spython: main.py:2:15: the wasmgc backend does not support a slice\n"
+        "spython: main.py:2:7: the wasmgc backend does not support a call of this method\n"
     );
 }
 
