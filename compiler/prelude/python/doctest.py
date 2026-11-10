@@ -1,7 +1,6 @@
 """The report of the doctests of a file, as the runner of spython writes it."""
 
 from __spython_prelude__.intrinsics import (
-    StrBuilder,
     builder_done,
     builder_new,
     captured_exception,
@@ -9,7 +8,7 @@ from __spython_prelude__.intrinsics import (
     code_point,
     write_err,
 )
-from __spython_prelude__.str import hex_digit, is_space
+from __spython_prelude__.str import hex_digit, is_space, put
 
 
 def start() -> None:
@@ -191,22 +190,12 @@ def blank_spaces(s: str) -> str:
     while i <= n:
         end = line_end(s, i)
         if not only(s, i, end, True):
-            at = copy(b, at, s, i, end)
+            at = put(b, at, s[i:end])
         if end < n:
             b[at] = 10
             at += 1
         i = end + 1
     return builder_done(b)
-
-
-def copy(b: StrBuilder, at: int, s: str, start: int, end: int) -> int:
-    """Copies `s` from `start` to `end` into `b` at `at`, and returns the index after
-    the copy."""
-    while start < end:
-        b[at] = code_point(s, start)
-        at += 1
-        start += 1
-    return at
 
 
 def shown(output: str) -> str:
@@ -233,17 +222,14 @@ def shown(output: str) -> str:
     while i <= n:
         end = line_end(output, i)
         if end < n and only(output, i, end, False):
-            at = copy(b, at, mark, 0, len(mark))
+            at = put(b, at, mark)
         else:
-            at = copy(b, at, output, i, end)
+            at = put(b, at, output[i:end])
         if end + 1 < n:
-            at = copy(b, at, indent, 0, len(indent))
+            at = put(b, at, indent)
         i = end + 1
     return builder_done(b)
 
 
 def first_line(s: str) -> str:
-    end = line_end(s, 0)
-    b = builder_new(end)
-    copy(b, 0, s, 0, end)
-    return builder_done(b)
+    return s[: line_end(s, 0)]
