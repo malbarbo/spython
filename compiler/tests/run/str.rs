@@ -191,3 +191,31 @@ fn a_comparison_of_a_str_and_an_int_is_unsupported() {
         "a comparison of two types"
     );
 }
+
+#[test]
+fn str_of_a_number_follows_python() {
+    same_as_cpython(
+        "str_of_a_number_follows_python",
+        indoc! {"
+            n = -12
+            x = 2.5
+            inf = 1e308 * 10
+            print(str(), str(0), str(n), str(1073741823), str(True), str(n < 0 and x < 0))
+            print(str(x), str(1e16), str(-0.0), str(1 / 3), str(5e-324), str(inf), str(inf - inf))
+            print(str('ab'), str(n) + '!' + str(x), len(str(1.0)), len(str(n)), str(str(7)))
+            print(str(x) == '2.5', str(n) < str(x), str(2.50) * 2)
+        "},
+    );
+}
+
+#[test]
+fn str_of_none_is_unsupported() {
+    let source = indoc! {"
+        def f() -> None:
+            pass
+
+
+        print(str(f()))
+    "};
+    assert_eq!(unsupported(source), "str of None");
+}

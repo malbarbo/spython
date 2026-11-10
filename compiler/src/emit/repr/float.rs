@@ -447,6 +447,17 @@ impl FloatRepr {
         }
     }
 
+    /// Pops a `float` and pushes its `repr`, which is also its `str`.
+    pub fn repr(&self, m: &mut ModuleState, f: &mut FuncState, str: &mut StrRepr) {
+        match self {
+            FloatRepr::F64 { scratch, .. } => {
+                let repr = m.builtin("f64_repr");
+                f.ins().i32_const(*scratch).call(repr);
+                str.scratch_ascii(m, f);
+            }
+        }
+    }
+
     /// Pops a `float` and writes its `repr` to the standard output, as one
     /// write.
     pub fn write(&mut self, m: &mut ModuleState, f: &mut FuncState) {

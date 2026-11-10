@@ -340,6 +340,12 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// The `str` of an `int`, a `float` or a `bool`. The site is where the
+    /// program runs out of memory for the result.
+    StrOf {
+        operand: Box<Expr>,
+        site: Site,
+    },
     /// A `str` repeated an `int` number of times, where either operand may
     /// come first. The result raises `MemoryError` at the site when it is
     /// too long.
@@ -710,9 +716,11 @@ pub(crate) enum Rep {
 impl Expr {
     pub fn rep(&self) -> Rep {
         match self {
-            Expr::Str(_) | Expr::Concat { .. } | Expr::Repeat { .. } | Expr::Index { .. } => {
-                Rep::Str
-            }
+            Expr::Str(_)
+            | Expr::Concat { .. }
+            | Expr::StrOf { .. }
+            | Expr::Repeat { .. }
+            | Expr::Index { .. } => Rep::Str,
             Expr::Int(_)
             | Expr::BoolAsInt(_)
             | Expr::Arith { .. }

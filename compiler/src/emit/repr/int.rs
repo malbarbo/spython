@@ -331,16 +331,21 @@ impl IntRepr {
         }
     }
 
-    /// Pops an `int` and writes it to the standard output, as one call of
-    /// `write` in CPython.
-    pub fn write(&self, f: &mut FuncState, str: &StrRepr) {
+    /// Pops an `int` and pushes its `str`.
+    pub fn str(&self, f: &mut FuncState, str: &StrRepr) {
         match self {
             IntRepr::I31 { .. } => {
                 f.ins().i64_extend_i32_s();
                 str.decimal(f);
-                str.write(f);
             }
         }
+    }
+
+    /// Pops an `int` and writes it to the standard output, as one call of
+    /// `write` in CPython.
+    pub fn write(&self, f: &mut FuncState, str: &StrRepr) {
+        self.str(f, str);
+        str.write(f);
     }
 }
 

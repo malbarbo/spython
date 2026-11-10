@@ -791,6 +791,11 @@ impl Emitter<'_> {
                 self.expr(f, right);
                 self.at(f, *site, |e, f| e.reprs.str_concat(f));
             }
+            Expr::StrOf { operand, site } => {
+                self.expr(f, operand);
+                let rep = operand.rep();
+                self.at(f, *site, |e, f| e.reprs.str_of(&mut e.m, f, rep));
+            }
             Expr::Repeat { left, right, site } => {
                 self.expr(f, left);
                 self.expr(f, right);

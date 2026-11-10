@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, StorageType, ValType};
 
 use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
 use crate::emit::runtime::host::Host;
@@ -39,6 +39,12 @@ pub(in crate::emit) enum StrRepr {
         /// `(func (param (ref $Bytes)) (result (ref $Str)))`, the `str` of
         /// an ASCII text.
         ascii: FuncIdx,
+        /// `(func (param i32) (result (ref $Str)))`, the `str` of that many
+        /// ASCII bytes of the scratch area of the host, which the module
+        /// gets at the first use.
+        from_scratch: Option<FuncIdx>,
+        /// The address of the scratch area of the host.
+        scratch: i32,
         /// The global that holds each literal, by its text.
         literals: HashMap<String, GlobalIdx>,
     },
@@ -59,6 +65,8 @@ impl StrRepr {
             compare: add_compare(m, array),
             bytes,
             ascii: add_ascii(m, array, bytes),
+            from_scratch: None,
+            scratch: host.scratch,
             literals: HashMap::new(),
         }
     }
@@ -133,6 +141,23 @@ impl StrRepr {
         match self {
             StrRepr::Ucs4 { ascii, .. } => {
                 f.ins().call(*ascii);
+            }
+        }
+    }
+
+    /// Pops a length and pushes the `str` of that many ASCII bytes of the
+    /// scratch area of the host, where a builtin wrote them.
+    pub fn scratch_ascii(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 {
+                array,
+                from_scratch,
+                scratch,
+                ..
+            } => {
+                let from_scratch =
+                    *from_scratch.get_or_insert_with(|| add_from_scratch(m, *array, *scratch));
+                f.ins().call(from_scratch);
             }
         }
     }
@@ -220,6 +245,39 @@ impl StrRepr {
             }
         }
     }
+}
+
+fn add_from_scratch(m: &mut ModuleState, array: TypeIdx, scratch: i32) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32], &[array.ref_to(false)]);
+    let mut f = FuncState::new(1);
+    let len = f.param(0);
+    let i = f.local(ValType::I32);
+    let s = f.local(array.ref_to(true));
+    f.ins().local_get(len).array_new_default(array).local_set(s);
+    let exit = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(len).i32_ge_u();
+    f.br_if(exit);
+    f.ins()
+        .local_get(s)
+        .local_get(i)
+        .local_get(i)
+        .i32_load8_u(MemArg {
+            offset: u64::try_from(scratch).expect("a positive address"),
+            align: 0,
+            target: MemArgTarget::Memory(0),
+            ordering: None,
+        })
+        .array_set(array)
+        .local_get(i)
+        .i32_const(1)
+        .i32_add()
+        .local_set(i);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().local_get(s).ref_as_non_null();
+    m.add_func(ty, f.finish())
 }
 
 fn add_ascii(m: &mut ModuleState, array: TypeIdx, bytes: TypeIdx) -> FuncIdx {

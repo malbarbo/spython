@@ -181,6 +181,23 @@ impl Reprs {
         }
     }
 
+    /// Pops an `int`, a `float` or a `bool`, as `rep` says, and pushes its
+    /// `str`.
+    pub fn str_of(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {
+        match rep {
+            Rep::Int => self.int.str(f, &self.str),
+            Rep::Float => self.float.repr(m, f, &mut self.str),
+            Rep::Bool => {
+                f.if_(BlockType::Result(self.str.val_type(false)));
+                self.str.literal(m, f, "True");
+                f.else_();
+                self.str.literal(m, f, "False");
+                f.end();
+            }
+            Rep::Str | Rep::None => unreachable!("the str of a str or of None"),
+        }
+    }
+
     /// Pops two `str`s and pushes the second one after the first.
     pub fn str_concat(&self, f: &mut FuncState) {
         self.str.concat(f);

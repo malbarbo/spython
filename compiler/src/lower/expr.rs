@@ -1,7 +1,7 @@
 //! Expressions and their operators.
 
 use ruff_python_ast as ast;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 
 use super::{Lowering, unsupported};
 use crate::Error;
@@ -121,6 +121,7 @@ impl<'a> Lowering<'a, '_> {
                 Some("bool") => self.bool(call),
                 Some("float") => self.float(call),
                 Some("int") => self.int(call),
+                Some("str") => self.str(call),
                 Some("min") => self.min_max(call, MinMaxOp::Min),
                 Some("max") => self.min_max(call, MinMaxOp::Max),
                 _ => match self.math_member(&call.func) {
@@ -129,6 +130,24 @@ impl<'a> Lowering<'a, '_> {
                 },
             },
             _ => Err(unsupported(expr, "this expression")),
+        }
+    }
+
+    /// The `str` of `lowered`, the value of `node`. The conversion covers
+    /// `range`.
+    pub(super) fn str_of(
+        &self,
+        lowered: Expr,
+        node: &impl Ranged,
+        range: TextRange,
+    ) -> Result<Expr, Error> {
+        match lowered.rep() {
+            Rep::Str => Ok(lowered),
+            Rep::Int | Rep::Float | Rep::Bool => Ok(Expr::StrOf {
+                operand: Box::new(lowered),
+                site: self.site(range),
+            }),
+            Rep::None => Err(unsupported(node, "str of None")),
         }
     }
 

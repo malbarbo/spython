@@ -223,6 +223,15 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// `str()`, which is `''`, or `str(x)` of a number or of a `str`.
+    pub(super) fn str(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([], []) => Ok(Expr::Str(String::new())),
+            ([arg], []) => self.str_of(self.expr(arg)?, arg, call.range()),
+            _ => Err(unsupported(call, "this call of str")),
+        }
+    }
+
     /// `int()`, which is `0`, or `int(x)` of a number.
     pub(super) fn int(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         match (&*call.arguments.args, &*call.arguments.keywords) {
