@@ -9,7 +9,7 @@ use super::flow::imported_name;
 use super::{Lowering, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
-use crate::ir::{Expr, Place, Rep, Stmt};
+use crate::ir::{Expr, Place, PrintArg, Rep, Stmt};
 
 /// The modules that a program may import. No import runs code in the
 /// compiled program.
@@ -69,7 +69,10 @@ impl<'a> Lowering<'a, '_> {
                 if self.in_doctest() && value.rep() != Rep::None {
                     let text = self.repr_of(value, &*e.value, e.range())?;
                     return Ok(Some(Stmt::Expr(Expr::Print {
-                        args: vec![text],
+                        args: vec![PrintArg {
+                            value: text,
+                            str: None,
+                        }],
                         site: self.site(e.range()),
                     })));
                 }

@@ -372,6 +372,38 @@ fn a_deep_repr_raises_recursion_error() {
     );
 }
 
+/// `print` takes the `str` of each argument when it writes it, after it
+/// evaluates every argument, and an error in a `str` comes after the
+/// arguments before it are written.
+#[test]
+fn print_converts_each_argument_when_it_writes_it() {
+    same_as_cpython(
+        "print_converts_each_argument_when_it_writes_it",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class No:
+                v: int
+                prox: 'No | None'
+
+            def inc(n: No) -> int:
+                n.v += 1
+                return n.v
+
+            def lista(n: int) -> No | None:
+                if n == 0:
+                    return None
+                return No(n, lista(n - 1))
+
+            a = No(1, None)
+            b: No | None = a
+            print(a, b, inc(a))
+            print(1, lista(600))
+        "},
+    );
+}
+
 /// The `repr` of an object inside its own `repr` is `...`.
 #[test]
 fn the_repr_of_a_cycle_writes_three_dots() {

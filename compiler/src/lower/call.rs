@@ -12,7 +12,7 @@ use ty_python_semantic::types::lowering::{
 use super::expr::float_value;
 use super::{Lowering, Sig, coerce, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Expr, MinMaxOp, Place, Rep};
+use crate::ir::{Expr, MinMaxOp, Place, PrintArg, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -147,18 +147,14 @@ impl<'a> Lowering<'a, '_> {
             .args
             .iter()
             .map(|arg| {
-                let lowered = self.expr(arg)?;
-                // The call of the `str` of an object has the frame of the
-                // call of `print`. A uniform value may hold an object of any
-                // class, which the module writes with the `str` of its class.
-                match lowered.rep() {
-                    Rep::Object(_) | Rep::ObjectOrNone(_) => {
-                        return self.str_of(lowered, arg, call.range());
-                    }
-                    Rep::Uniform => self.every_class_str()?,
-                    _ => {}
+                let value = self.expr(arg)?;
+                // A uniform value may hold an object of any class, which the
+                // module writes with the `str` of its class.
+                if value.rep() == Rep::Uniform {
+                    self.every_class_str()?;
                 }
-                Ok(lowered)
+                let str = self.object_str(value.rep())?;
+                Ok(PrintArg { value, str })
             })
             .collect::<Result<_, _>>()?;
         Ok(Expr::Print {

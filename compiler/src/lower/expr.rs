@@ -6,7 +6,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::{Lowering, coerce, join, unsupported};
 use crate::Error;
-use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, LogicOp, MinMaxOp, Rep};
+use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -265,15 +265,23 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(range),
             }),
             Rep::None => Err(unsupported(node, "str of None")),
-            Rep::ObjectOrNone(class) => {
-                let func = self.or_none_conversion(class, false)?;
-                Ok(self.class_call(func, lowered, range))
-            }
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
-            Rep::Object(class) => {
-                let func = self.class_str(class)?;
+            Rep::Object(_) | Rep::ObjectOrNone(_) => {
+                let func = self
+                    .object_str(lowered.rep())?
+                    .expect("the str of an object");
                 Ok(self.class_call(func, lowered, range))
             }
+        }
+    }
+
+    /// The function that gives the `str` of a value of `rep`, for an object
+    /// or an object or `None`, and `None` for the other reps.
+    pub(super) fn object_str(&self, rep: Rep) -> Result<Option<FuncId>, Error> {
+        match rep {
+            Rep::Object(class) => self.class_str(class).map(Some),
+            Rep::ObjectOrNone(class) => self.or_none_conversion(class, false).map(Some),
+            _ => Ok(None),
         }
     }
 

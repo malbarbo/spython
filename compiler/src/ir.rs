@@ -589,9 +589,17 @@ pub(crate) enum Expr {
     /// `print` with the default `sep` and `end`. A write that fails raises
     /// `OSError` at the site.
     Print {
-        args: Vec<Expr>,
+        args: Vec<PrintArg>,
         site: Site,
     },
+}
+
+/// An argument of `print`. As in CPython, `str` converts the value when
+/// `print` writes it, after every argument has its value, and the call of
+/// `str` has the site of the `print`.
+pub(crate) struct PrintArg {
+    pub(crate) value: Expr,
+    pub(crate) str: Option<FuncId>,
 }
 
 /// What a read or a call raises at the site when the name has no value.

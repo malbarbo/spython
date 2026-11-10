@@ -9,7 +9,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 use crate::cpython::{Class, Message, RECURSION_ERROR};
 use crate::ir::{
     Binding, Check, ClassId, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError,
-    Place, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
+    Place, PrintArg, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
 };
 use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use repr::Reprs;
@@ -639,7 +639,6 @@ impl Emitter<'_> {
         site: Option<Site>,
         check: Option<&Check>,
     ) {
-        let index = self.func_slots(func).index;
         if let Some(check) = check {
             self.bound(f, Binding::Func(func));
             self.raise_if_undefined(f, check);
@@ -666,6 +665,12 @@ impl Emitter<'_> {
                 self.expr(f, arg);
             }
         }
+        self.invoke(f, func, site);
+    }
+
+    /// The call of `func` on the arguments that the stack holds.
+    fn invoke(&mut self, f: &mut FuncState, func: FuncId, site: Option<Site>) {
+        let index = self.func_slots(func).index;
         let Some(site) = site else {
             f.ins().call(index);
             return;
@@ -1224,19 +1229,19 @@ impl Emitter<'_> {
     }
 
     /// Python evaluates every argument before it writes the first one.
-    fn print(&mut self, f: &mut FuncState, args: &[Expr], site: Site) {
+    fn print(&mut self, f: &mut FuncState, args: &[PrintArg], site: Site) {
         let mut values = Vec::new();
         for arg in args {
-            self.expr(f, arg);
-            let rep = arg.rep();
+            self.expr(f, &arg.value);
+            let rep = arg.value.rep();
             // `None` has no value to keep.
             let local = self.reprs.local_type(rep).map(|ty| f.temp(ty));
             if let Some(local) = local {
                 f.ins().local_set(local);
             }
-            values.push((rep, local));
+            values.push((rep, local, arg.str));
         }
-        for (i, (rep, local)) in values.into_iter().enumerate() {
+        for (i, (rep, local, str)) in values.into_iter().enumerate() {
             if i > 0 {
                 f.ins()
                     .i32_const(' ' as i32)
@@ -1247,6 +1252,13 @@ impl Emitter<'_> {
                 self.reprs.load(f, rep, local);
                 f.free(local);
             }
+            let rep = match str {
+                Some(func) => {
+                    self.invoke(f, func, Some(site));
+                    Rep::Str
+                }
+                None => rep,
+            };
             self.reprs.write(&mut self.m, f, rep);
         }
         f.ins()
