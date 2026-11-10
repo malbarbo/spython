@@ -54,3 +54,15 @@ def is_lowercase(code_point: int) -> bool:
 
 def fold_at(code_point: int, index: int) -> int:
     """The code point at `index` of `str.casefold` of the code point, or -1 past its end."""
+
+def is_alpha(code_point: int) -> bool:
+    """Whether `str.isalpha` accepts the code point."""
+
+def is_decimal(code_point: int) -> bool:
+    """Whether `str.isdecimal` accepts the code point."""
+
+def is_digit(code_point: int) -> bool:
+    """Whether `str.isdigit` accepts the code point."""
+
+def is_numeric(code_point: int) -> bool:
+    """Whether `str.isnumeric` accepts the code point."""

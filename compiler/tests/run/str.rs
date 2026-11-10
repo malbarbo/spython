@@ -528,3 +528,28 @@ fn casefold_folds_each_code_point_without_the_final_sigma() {
         "},
     );
 }
+
+#[test]
+fn the_predicates_of_a_str_test_every_code_point() {
+    same_as_cpython(
+        "the_predicates_of_a_str_test_every_code_point",
+        indoc! {"
+            def show(s: str) -> None:
+                print(repr(s), s.isalpha(), s.isdecimal(), s.isdigit(), s.isnumeric(), s.isalnum(), s.isspace())
+
+
+            show('')
+            show('abcé')
+            show('ab1')
+            show('0123')
+            show('٣४')
+            show('²³')
+            show('½Ⅻ')
+            show('一二')
+            show(' \\t\\u3000')
+            show(' a')
+            show('ǅ𐐀')
+            show('𝟘𝟙')
+        "},
+    );
+}

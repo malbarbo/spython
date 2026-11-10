@@ -754,6 +754,14 @@ pub(crate) enum CodePointSet {
     Uppercase,
     /// The code points with the property `Lowercase`.
     Lowercase,
+    /// The code points that `str.isalpha` accepts.
+    Alpha,
+    /// The code points that `str.isdecimal` accepts.
+    Decimal,
+    /// The code points that `str.isdigit` accepts.
+    Digit,
+    /// The code points that `str.isnumeric` accepts.
+    Numeric,
 }
 
 impl CodePointSet {
@@ -764,6 +772,10 @@ impl CodePointSet {
             CodePointSet::CaseIgnorable => "str_is_case_ignorable",
             CodePointSet::Uppercase => "str_is_uppercase",
             CodePointSet::Lowercase => "str_is_lowercase",
+            CodePointSet::Alpha => "str_is_alpha",
+            CodePointSet::Decimal => "str_is_decimal",
+            CodePointSet::Digit => "str_is_digit",
+            CodePointSet::Numeric => "str_is_numeric",
         }
     }
 }

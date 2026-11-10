@@ -22,6 +22,12 @@ const STR_METHODS: &[&str] = &[
     "expandtabs",
     "find",
     "index",
+    "isalnum",
+    "isalpha",
+    "isdecimal",
+    "isdigit",
+    "isnumeric",
+    "isspace",
     "ljust",
     "lower",
     "lstrip",
@@ -269,14 +275,19 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     index,
                 })
             }
-            "is_printable" | "is_cased" | "is_case_ignorable" | "is_uppercase" | "is_lowercase" => {
+            "is_printable" | "is_cased" | "is_case_ignorable" | "is_uppercase" | "is_lowercase"
+            | "is_alpha" | "is_decimal" | "is_digit" | "is_numeric" => {
                 arg().map(|operand| Expr::CodePointIs {
                     set: match name {
                         "is_printable" => CodePointSet::Printable,
                         "is_cased" => CodePointSet::Cased,
                         "is_case_ignorable" => CodePointSet::CaseIgnorable,
                         "is_uppercase" => CodePointSet::Uppercase,
-                        _ => CodePointSet::Lowercase,
+                        "is_lowercase" => CodePointSet::Lowercase,
+                        "is_alpha" => CodePointSet::Alpha,
+                        "is_decimal" => CodePointSet::Decimal,
+                        "is_digit" => CodePointSet::Digit,
+                        _ => CodePointSet::Numeric,
                     },
                     operand,
                 })

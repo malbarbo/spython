@@ -6,9 +6,13 @@ from __spython_prelude__.intrinsics import (
     builder_new,
     code_point,
     fold_at,
+    is_alpha,
     is_case_ignorable,
     is_cased,
+    is_decimal,
+    is_digit,
     is_lowercase,
+    is_numeric,
     is_printable,
     is_uppercase,
     lower_at,
@@ -314,6 +318,71 @@ def stripped(c: int, chars: str | None) -> bool:
             return True
         i += 1
     return False
+
+
+# Each predicate has a loop of its own, so a program carries the table of the
+# predicates that it calls alone.
+
+
+def isalpha(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if not is_alpha(code_point(s, i)):
+            return False
+        i += 1
+    return n > 0
+
+
+def isdecimal(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if not is_decimal(code_point(s, i)):
+            return False
+        i += 1
+    return n > 0
+
+
+def isdigit(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if not is_digit(code_point(s, i)):
+            return False
+        i += 1
+    return n > 0
+
+
+def isnumeric(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if not is_numeric(code_point(s, i)):
+            return False
+        i += 1
+    return n > 0
+
+
+def isalnum(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        if not (is_alpha(c) or is_decimal(c) or is_digit(c) or is_numeric(c)):
+            return False
+        i += 1
+    return n > 0
+
+
+def isspace(s: str) -> bool:
+    n = len(s)
+    i = 0
+    while i < n:
+        if not is_space(code_point(s, i)):
+            return False
+        i += 1
+    return n > 0
 
 
 def is_space(c: int) -> bool:
