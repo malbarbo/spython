@@ -29,6 +29,9 @@ impl<'a> Lowering<'a, '_> {
                     .chain(def.returns.as_deref());
                 lowered.extend(self.annotation_checks(annotations)?);
             }
+            if let ast::Stmt::ClassDef(def) = stmt {
+                lowered.extend(self.class_body(def)?);
+            }
             lowered.extend(self.stmt(stmt)?);
         }
         Ok(lowered)

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use ruff_python_ast as ast;
 use ruff_python_ast::visitor::{Visitor, walk_expr};
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_module_resolver::KnownModule;
 use ty_python_semantic::types::KnownClass;
 use ty_python_semantic::types::lowering::{
@@ -17,8 +17,10 @@ use ty_python_semantic::types::lowering::{
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::imported_name;
-use super::{Lowering, unsupported};
+use super::{Func, HashSet, Lowering, Scope, Sig, Vars, coerce, unsupported};
 use crate::Error;
+use crate::cpython::Class;
+use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
 use crate::ir::{Binding, ClassId, Expr, FuncId, Place, Rep, Site, Stmt, UserClass, VarId};
 
 /// The classes of the module.
@@ -80,6 +82,9 @@ pub(super) struct Declared<'a> {
     /// The function that makes an object of a dataclass from a value for
     /// each field, once a call needs it.
     pub init: Option<FuncId>,
+    /// The variable of the module that holds the default of each field of
+    /// a dataclass that has one. The `class` statement gives it its value.
+    pub defaults: Vec<Option<VarId>>,
 }
 
 /// The forms of a class that the compiler takes.
@@ -135,6 +140,7 @@ impl<'a> Lowering<'a, '_> {
             str: None,
             repr: None,
             init: None,
+            defaults: Vec::new(),
         });
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);
@@ -165,10 +171,18 @@ impl<'a> Lowering<'a, '_> {
                         .rep_of(Some(field.shape))
                         .filter(|rep| *rep != Rep::None)
                         .ok_or_else(|| unsupported(node, "a field of this type"))?;
-                    Ok((field.name, rep))
+                    let default = node
+                        .value
+                        .as_ref()
+                        .map(|_| self.vars.borrow_mut().add_unnamed(rep));
+                    Ok(((field.name, rep), default))
                 })
-                .collect::<Result<_, Error>>()?;
-            self.classes.borrow_mut().get_mut(class).fields = fields;
+                .collect::<Result<Vec<_>, Error>>()?;
+            let (fields, defaults) = fields.into_iter().unzip();
+            let mut classes = self.classes.borrow_mut();
+            let declared = classes.get_mut(class);
+            declared.fields = fields;
+            declared.defaults = defaults;
         }
         Ok(())
     }
@@ -186,6 +200,165 @@ impl<'a> Lowering<'a, '_> {
             .copied()
             .filter(|id| std::ptr::eq(classes.get(*id).def, def))
             .ok_or_else(|| unsupported(def, "a class in an if or a while"))
+    }
+
+    /// The code that the `class` statement of `def` runs before it binds
+    /// the name. The body of a dataclass evaluates the defaults, in a frame
+    /// with the name of the class. The decorator then raises `ValueError`
+    /// for the first default that is an object of a dataclass.
+    pub(super) fn class_body(&self, def: &ast::StmtClassDef) -> Result<Vec<Stmt>, Error> {
+        let class = self.class_of(def)?;
+        let (kind, fields, defaults) = {
+            let classes = self.classes.borrow();
+            let declared = classes.get(class);
+            (
+                declared.kind,
+                declared.fields.clone(),
+                declared.defaults.clone(),
+            )
+        };
+        if kind != Kind::Dataclass {
+            return Ok(Vec::new());
+        }
+        let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
+        if def.body.iter().any(ast::Stmt::is_ann_assign_stmt) {
+            namespace.push("__annotations__".to_owned());
+        }
+        if def.body.first().is_some_and(
+            |stmt| matches!(stmt, ast::Stmt::Expr(e) if e.value.is_string_literal_expr()),
+        ) {
+            namespace.push("__doc__".to_owned());
+        }
+        let func = self.funcs.borrow_mut().add_generated(Sig {
+            unit: self.unit.get(),
+            def: None,
+            params: Vec::new(),
+            defaults: Vec::new(),
+            doctest: None,
+            ret: Rep::None,
+        });
+        *self.scope.borrow_mut() = Some(Scope {
+            func,
+            doctest: None,
+            name: def.name.to_string(),
+            ret: Rep::None,
+            locals: HashSet::new(),
+            order: Vec::new(),
+            vars: Vars::default(),
+            namespace,
+            class: Some(def.start()),
+        });
+        let body = self.class_defaults(def, &fields, &defaults);
+        let scope = self.scope.take().expect("the scope of the class");
+        let (body, mutable) = body?;
+        let mut stmts = Vec::new();
+        if !body.is_empty() {
+            // CPython shows the statement from the keyword on, without the
+            // decorator.
+            let start = self.source()[..usize::from(def.name.start())]
+                .rfind("class")
+                .expect("the keyword of a class");
+            let range = TextRange::new(
+                TextSize::try_from(start).expect("a file shorter than 4 GiB"),
+                def.end(),
+            );
+            stmts.push(Stmt::Expr(Expr::Call {
+                func,
+                args: Vec::new(),
+                order: None,
+                rep: Rep::None,
+                site: Some(self.site(range)),
+                check: None,
+            }));
+        }
+        self.lowered.borrow_mut().insert(
+            func.index(),
+            Func {
+                ordered: false,
+                frame: true,
+                params: 0,
+                vars: scope.vars.list,
+                ret: Rep::None,
+                body,
+            },
+        );
+        stmts.extend(mutable);
+        Ok(stmts)
+    }
+
+    /// The assignment of each default of `def`, a dataclass with `fields`
+    /// and `defaults`, in the scope of its body, and the raise of the
+    /// decorator for the first default that is an object of a dataclass.
+    fn class_defaults(
+        &self,
+        def: &ast::StmtClassDef,
+        fields: &[(String, Rep)],
+        defaults: &[Option<VarId>],
+    ) -> Result<(Vec<Stmt>, Option<Stmt>), Error> {
+        let mut body = Vec::new();
+        let mut mutable = None;
+        for ((node, (name, rep)), var) in dataclass_fields(def).zip(fields).zip(defaults) {
+            let (Some(value), Some(var)) = (node.value.as_deref(), var) else {
+                continue;
+            };
+            let lowered = self.expr(value)?;
+            match lowered.rep() {
+                Rep::Object(class)
+                    if mutable.is_none()
+                        && self.classes.borrow().get(class).kind == Kind::Dataclass =>
+                {
+                    let object = self.classes.borrow().get(class).def.name.to_string();
+                    let decorator = &def
+                        .decorator_list
+                        .first()
+                        .expect("the decorator of a dataclass")
+                        .expression;
+                    let frames = mutable_default_frames(decorator.is_call_expr());
+                    mutable = Some(Stmt::Raise {
+                        class: Class::ValueError,
+                        arg: Some(Expr::Str(mutable_default(&object, name))),
+                        site: self.site_with(decorator.range(), &frames),
+                    });
+                }
+                Rep::ObjectOrNone(_) | Rep::Uniform
+                    if self.may_be_dataclass(expr_shape(self.model(), value)) =>
+                {
+                    return Err(unsupported(
+                        value,
+                        "a default that may be an object of a dataclass",
+                    ));
+                }
+                _ => {}
+            }
+            let lowered = coerce(lowered, *rep)
+                .ok_or_else(|| unsupported(value, "a default of this type"))?;
+            body.push(Stmt::Assign {
+                targets: vec![Place::Global(*var)],
+                value: lowered,
+            });
+            if let Some(scope) = self.scope.borrow_mut().as_mut() {
+                scope.namespace.push(name.clone());
+            }
+        }
+        Ok((body, mutable))
+    }
+
+    /// Returns `true` if a value of `shape` may be an object of a dataclass
+    /// of the module, `false` otherwise.
+    fn may_be_dataclass(&self, shape: Option<Shape>) -> bool {
+        match shape {
+            Some(Shape::Instance(class, _)) => {
+                let classes = self.classes.borrow();
+                classes
+                    .ids
+                    .get(&class)
+                    .is_some_and(|id| classes.get(*id).kind == Kind::Dataclass)
+            }
+            Some(Shape::Union(shapes)) => shapes
+                .into_iter()
+                .any(|shape| self.may_be_dataclass(Some(shape))),
+            _ => false,
+        }
     }
 
     /// The value of `attr`, an attribute of a class, which has to be a
@@ -397,6 +570,10 @@ impl<'a> Lowering<'a, '_> {
             .collect();
         let body = vec![Stmt::Return(Some(Expr::New { class, fields }))];
         let func = self.generated(reps, Rep::Object(class), body);
+        let defaults = self.classes.borrow().get(class).defaults.clone();
+        if let Some(sig) = self.funcs.borrow_mut().sigs.get_mut(func.index()) {
+            sig.defaults = defaults;
+        }
         // The function makes the object and raises nothing.
         if let Some(raises) = self.funcs.borrow_mut().raises.get_mut(func.index()) {
             *raises = false;
@@ -694,9 +871,6 @@ impl<'a> Lowering<'a, '_> {
                     if name.id.as_str() == "self" {
                         return Err(unsupported(stmt, "a field named self"));
                     }
-                    if let Some(value) = value {
-                        return Err(unsupported(&**value, "a field with a default"));
-                    }
                     fields.push((name.id.as_str(), value.is_some()));
                 }
                 _ => return Err(unsupported(stmt, "this statement in a dataclass")),
@@ -746,23 +920,50 @@ impl Lowering<'_, '_> {
     /// `NameError` before the import. No other statement binds a name of
     /// an import.
     fn imported_before(&self, name: &ast::ExprName, def: &ast::StmtClassDef) -> bool {
-        let name = name.id.as_str();
+        self.module_before(def.start())
+            .any(|stmt| imports(stmt, name.id.as_str()))
+    }
+
+    /// Returns `true` if a statement of the code of the module, out of any
+    /// `if` or `while`, binds `name` before `start`, `false` otherwise. The
+    /// module runs each such statement before the code at `start`, and no
+    /// statement takes the value of a name away.
+    pub(super) fn bound_before(&self, name: &str, start: TextSize) -> bool {
+        let target =
+            |target: &ast::Expr| matches!(target, ast::Expr::Name(n) if n.id.as_str() == name);
+        self.module_before(start).any(|stmt| match stmt {
+            ast::Stmt::FunctionDef(def) => def.name.as_str() == name,
+            ast::Stmt::ClassDef(def) => def.name.as_str() == name,
+            ast::Stmt::Assign(a) => a.targets.iter().any(target),
+            ast::Stmt::AnnAssign(a) => a.value.is_some() && target(&a.target),
+            ast::Stmt::AugAssign(a) => target(&a.target),
+            stmt => imports(stmt, name),
+        })
+    }
+
+    /// The statements of the code of the module that end before `start`.
+    fn module_before(&self, start: TextSize) -> impl Iterator<Item = &ast::Stmt> {
         self.unit
             .get()
             .suite
             .iter()
-            .take_while(|stmt| stmt.range().end() <= def.range().start())
-            .any(|stmt| match stmt {
-                ast::Stmt::Import(i) => i
-                    .names
-                    .iter()
-                    .any(|alias| imported_name(alias, false) == name),
-                ast::Stmt::ImportFrom(i) => i
-                    .names
-                    .iter()
-                    .any(|alias| imported_name(alias, true) == name),
-                _ => false,
-            })
+            .take_while(move |stmt| stmt.end() <= start)
+    }
+}
+
+/// Returns `true` if `stmt` is an import that binds `name`, `false`
+/// otherwise.
+fn imports(stmt: &ast::Stmt, name: &str) -> bool {
+    match stmt {
+        ast::Stmt::Import(i) => i
+            .names
+            .iter()
+            .any(|alias| imported_name(alias, false) == name),
+        ast::Stmt::ImportFrom(i) => i
+            .names
+            .iter()
+            .any(|alias| imported_name(alias, true) == name),
+        _ => false,
     }
 }
 

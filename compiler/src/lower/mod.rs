@@ -18,7 +18,7 @@ use ruff_db::files::File;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
 use ruff_db::source::{SourceText, source_text};
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextRange};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_python_semantic::types::lowering::{
     DefId, Shape, declared_shape, expr_shape, function_info, slot_shape,
 };
@@ -352,6 +352,11 @@ struct Scope {
     /// The locals in the order of the frame of CPython.
     order: Vec<String>,
     vars: Vars,
+    /// The names that the namespace of the class has, in the body of a
+    /// class, where the scope has no variables.
+    namespace: Vec<String>,
+    /// Where the `class` statement starts, in the body of a class.
+    class: Option<TextSize>,
 }
 
 impl Scope {
@@ -642,6 +647,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
             locals,
             order,
             vars,
+            namespace: Vec::new(),
+            class: None,
         });
         self.declare_vars(&bindings)?;
         let body = match sig.doctest {
@@ -764,6 +771,17 @@ impl<'a, 'db> Lowering<'a, 'db> {
         };
         let text = traceback::frame(&path, &name, number, &unit.lines, range);
         self.add_site(format!("{path}\n{name}"), number, text)
+    }
+
+    /// A new site for the instruction at `range` in the code of the module,
+    /// whose frame comes with the frames `after`, as the frames of the
+    /// standard library that a traceback shows after the frame of the
+    /// module.
+    fn site_with(&self, range: TextRange, after: &str) -> Site {
+        let unit = self.unit.get();
+        let number = traceback::line(&unit.lines, range);
+        let text = traceback::frame(unit.path, "<module>", number, &unit.lines, range);
+        self.add_site(format!("{}\n<module>", unit.path), number, text + after)
     }
 
     /// A new site with the frame `text`, at the line `number` of the file

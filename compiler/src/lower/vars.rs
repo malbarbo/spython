@@ -6,6 +6,7 @@ use ty_python_semantic::types::lowering::{
     Shape, expr_shape, is_definitely_bound, is_implicit_global,
 };
 
+use super::name_error::may_suggest;
 use super::{Lowering, coerce, holds, unbound_local, unsupported};
 use crate::Error;
 use crate::ir::{Check, Expr, Place, Rep, Undefined};
@@ -155,9 +156,40 @@ impl<'a> Lowering<'a, '_> {
         if self.scope.borrow().is_none() && is_definitely_bound(self.model(), name) {
             return Ok(None);
         }
+        // A name of the namespace of a class hides the global of the name in
+        // the body of the class.
+        if self.scope.borrow().as_ref().is_some_and(|scope| {
+            scope
+                .namespace
+                .iter()
+                .any(|bound| *bound == name.id.as_str())
+        }) {
+            return Err(unsupported(
+                name,
+                "a read of a name of the class in its body",
+            ));
+        }
+        // The body of a class runs once, at the `class` statement, and the
+        // checker does not tell which names of the module have a value there.
+        let class = self.scope.borrow().as_ref().and_then(|scope| scope.class);
+        if let Some(start) = class
+            && self.bound_before(name.id.as_str(), start)
+        {
+            return Ok(None);
+        }
         if is_implicit_global(self.model(), name.id.as_str()) {
             // Without a value, the read takes the builtin of the name.
             return Err(unsupported(name, "a name that may be a builtin"));
+        }
+        // The `NameError` in the body of a class suggests a name of the
+        // namespace of the class, which the compiler does not keep.
+        if let Some(scope) = self.scope.borrow().as_ref()
+            && scope
+                .namespace
+                .iter()
+                .any(|bound| may_suggest(name.id.as_str(), bound))
+        {
+            return Err(unsupported(name, "a name near a name of the class"));
         }
         Ok(Some(Check {
             site: self.site(name.range()),

@@ -1,6 +1,6 @@
 //! The dataclasses.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::{same_as_cpython, unsupported};
 
@@ -94,6 +94,117 @@ fn a_call_before_the_class_raises_name_error() {
                 x: int
         "},
     );
+}
+
+/// The `class` statement evaluates each default once, in the order of the
+/// text, and a call without the argument takes the default.
+#[test]
+fn the_class_evaluates_the_defaults() {
+    same_as_cpython(
+        "the_class_evaluates_the_defaults",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+
+            def f(x: int) -> int:
+                print('default', x)
+                return x
+
+            print('antes')
+
+            @dataclass
+            class P:
+                \"\"\"Um ponto.\"\"\"
+
+                a: int
+                b: int = f(1)
+                c: float = f(2) / 2
+                d: str | None = None
+                e: Cor = Cor.A
+
+            @dataclass
+            class Q:
+                p: P | None = None
+
+            print('depois')
+            p = P(1)
+            q = P(1, c=0.5)
+            r = P(e=Cor.A, a=f(3))
+            print(p is q)
+        "},
+    );
+}
+
+#[test]
+fn a_default_raises_in_the_frame_of_the_class() {
+    for (name, default) in [
+        ("a_default_raises_in_the_frame_of_the_class", "f(0)"),
+        ("a_default_raises_name_error_for_its_class", "h()"),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                from dataclasses import dataclass
+
+                def f(x: int) -> int:
+                    return 1 // x
+
+                def h() -> int:
+                    return 1 if P(1) else 2
+
+                @dataclass
+                class P:
+                    \"\"\"Um ponto.
+
+                    Com duas linhas.
+                    \"\"\"
+
+                    a: int
+                    b: int = {default}
+                    c: int = 2
+            "},
+        );
+    }
+}
+
+/// The decorator rejects a default that is an object of a dataclass, after
+/// the body of the class runs.
+#[test]
+fn a_default_of_a_dataclass_raises_value_error() {
+    for (name, decorator) in [
+        ("a_default_of_a_dataclass_raises_value_error", "@dataclass"),
+        (
+            "a_default_of_a_dataclass_raises_value_error_after_a_call",
+            "@dataclass()",
+        ),
+        (
+            "a_default_of_a_dataclass_raises_value_error_after_a_module",
+            "@dataclasses.dataclass",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                import dataclasses
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    x: int
+
+                {decorator}
+                class Q:
+                    a: int = 1
+                    p: P = P(1)
+                    q: P = P(2)
+
+                print(1)
+            "},
+        );
+    }
 }
 
 #[test]
@@ -224,6 +335,36 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 print(Cor(1) is Cor.A)
             "},
             "a call of this class",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                x = 1
+
+                @dataclass
+                class P:
+                    x: int = 2
+                    y: int = x
+            "},
+            "a read of a name of the class in its body",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class P:
+                    x: int
+
+                def f() -> P | None:
+                    return None
+
+                @dataclass
+                class Q:
+                    p: P | None = f()
+            "},
+            "a default that may be an object of a dataclass",
         ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");

@@ -192,6 +192,23 @@ fn has_attribute(rep: Option<Rep>, name: &str) -> bool {
     attributes.binary_search(&name).is_ok()
 }
 
+/// Returns `true` if CPython may suggest `candidate` for `name`, `false`
+/// otherwise.
+pub(super) fn may_suggest(name: &str, candidate: &str) -> bool {
+    distance(name, candidate).is_some()
+}
+
+/// The distance from `name` to `candidate`, and `None` when CPython would
+/// not suggest `candidate` for `name`.
+fn distance(name: &str, candidate: &str) -> Option<usize> {
+    if candidate == name {
+        return None;
+    }
+    let max = suggest::max_distance(name, candidate);
+    let distance = suggest::distance(name, candidate, max);
+    (distance <= max).then_some(distance)
+}
+
 /// The group of the distance from `name` to `candidate`, and `None` when
 /// CPython would not suggest `candidate` for `name`.
 fn group_of<'m>(
@@ -199,12 +216,7 @@ fn group_of<'m>(
     name: &str,
     candidate: &str,
 ) -> Option<&'m mut Group> {
-    if candidate == name {
-        return None;
-    }
-    let max = suggest::max_distance(name, candidate);
-    let distance = suggest::distance(name, candidate, max);
-    (distance <= max).then(|| {
+    distance(name, candidate).map(|distance| {
         groups.entry(distance).or_insert_with(|| Group {
             locals: Vec::new(),
             globals: Vec::new(),
