@@ -62,9 +62,12 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
+      # CPython 3.13.15 and later take `__file__` and `__cached__` out of
+      # the module before the traceback, which changes the suggestion of a
+      # NameError in a module of many names.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.13.5"
 
       - uses: denoland/setup-deno@v2
         with:
