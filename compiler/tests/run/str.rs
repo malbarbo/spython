@@ -166,16 +166,6 @@ fn a_slice_evaluates_the_str_and_then_each_index() {
 }
 
 #[test]
-fn a_slice_with_a_step_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-        print('abc'[::2])
-    "}),
-        "a slice with a step"
-    );
-}
-
-#[test]
 fn the_comparisons_of_str_follow_the_order_of_the_code_points() {
     let strs = [
         "",
@@ -490,6 +480,25 @@ fn expandtabs_moves_each_tab_to_the_next_column() {
             s = 'a\\tbc\\tdéf\\t😀\\n\\tx\\r12\\ty'
             print(repr(s.expandtabs()), repr(s.expandtabs(4)), repr(s.expandtabs(1)))
             print(repr(s.expandtabs(0)), repr(s.expandtabs(-3)), repr(''.expandtabs()), repr('\\t'.expandtabs()))
+        "},
+    );
+}
+
+#[test]
+fn a_slice_with_a_step_takes_every_kth_code_point() {
+    same_as_cpython(
+        "a_slice_with_a_step_takes_every_kth_code_point",
+        indoc! {"
+            def every(s: str, k: int) -> str:
+                return s[::k]
+
+
+            s = 'abcdeé😀'
+            print(s[::2], s[::-1], s[1::3], s[::-2], s[5:1:-1], s[1:5:-1], s[-2::-3])
+            print(s[-100:100:2], s[100:-100:-2], s[:None:1], s[None:None:None], s[2:2:5], s[::1073741823])
+            print(repr(''[::-1]), s[::-1073741824], s[6:0:-2], s[-1:-8:-1], s[-1:-9:-1])
+            print(every(s, 3))
+            print(every(s, 0))
         "},
     );
 }

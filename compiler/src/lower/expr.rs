@@ -95,14 +95,23 @@ impl<'a> Lowering<'a, '_> {
                     return Err(unsupported(&*sub.value, "a subscript of this type"));
                 }
                 if let ast::Expr::Slice(slice) = &*sub.slice {
-                    if slice.step.is_some() {
-                        return Err(unsupported(slice, "a slice with a step"));
-                    }
                     // `None` stands for a bound that the slice leaves out.
                     let bound = |bound: &Option<Box<ast::Expr>>| match bound.as_deref() {
                         None | Some(ast::Expr::NoneLiteral(_)) => Ok(None),
                         Some(bound) => self.int_operand(bound).map(Box::new).map(Some),
                     };
+                    if slice.step.is_some() {
+                        let args = [&slice.lower, &slice.upper, &slice.step]
+                            .into_iter()
+                            .map(|part| {
+                                let part = bound(part)?.map_or(Expr::None, |part| *part);
+                                Ok(coerce(part, Rep::Uniform)
+                                    .expect("a uniform value holds any value"))
+                            })
+                            .collect::<Result<Vec<_>, Error>>()?;
+                        let args = std::iter::once(value).chain(args).collect();
+                        return self.prelude_call(sub, "str", "slice_step", args);
+                    }
                     return Ok(Expr::Slice {
                         value: Box::new(value),
                         start: bound(&slice.lower)?,
