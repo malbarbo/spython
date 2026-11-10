@@ -40,6 +40,62 @@ fn a_dataclass_of_the_accepted_form_runs() {
     );
 }
 
+/// The arguments run in the order of the call, and each one goes to the
+/// field of its name.
+#[test]
+fn a_call_constructs_an_object_by_position_and_by_name() {
+    same_as_cpython(
+        "a_call_constructs_an_object_by_position_and_by_name",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Tempo:
+                horas: int
+                minutos: int
+                rotulo: str | None
+                parte: float
+
+            def f(x: int) -> int:
+                print(x)
+                return x
+
+            t = Tempo(f(1), 2, 'a', 2.5)
+            u = Tempo(f(2), rotulo=None, minutos=f(3), parte=1.0)
+            v = Tempo(parte=0.5, rotulo='b', minutos=f(4), horas=f(5))
+            w = u
+            print(t is u, u is w, v is not None)
+            if t:
+                print('um objeto é verdadeiro')
+        "},
+    );
+}
+
+/// The call reads the name of the class, which has a value once the
+/// `class` statement runs.
+#[test]
+fn a_call_before_the_class_raises_name_error() {
+    same_as_cpython(
+        "a_call_before_the_class_raises_name_error",
+        indoc! {"
+            from dataclasses import dataclass
+
+            def f() -> None:
+                if P(1):
+                    print(1)
+
+            def g() -> None:
+                f()
+
+            g()
+
+            @dataclass
+            class P:
+                x: int
+        "},
+    );
+}
+
 #[test]
 fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
     for (source, what) in [
@@ -157,6 +213,17 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                     return a == b
             "},
             "== of a dataclass",
+        ),
+        (
+            indoc! {"
+                from enum import Enum
+
+                class Cor(Enum):
+                    A = 1
+
+                print(Cor(1) is Cor.A)
+            "},
+            "a call of this class",
         ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");

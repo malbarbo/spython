@@ -293,6 +293,11 @@ pub(crate) enum Expr {
         field: u32,
         rep: Rep,
     },
+    /// A new object of `class`, with a value of the rep of each field.
+    New {
+        class: ClassId,
+        fields: Vec<Expr>,
+    },
     /// The object at `member` among the members of `class`.
     Member {
         class: ClassId,
@@ -1048,7 +1053,7 @@ impl Expr {
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. }
             | Expr::Field { rep, .. } => *rep,
-            Expr::Member { class, .. } => Rep::Object(*class),
+            Expr::Member { class, .. } | Expr::New { class, .. } => Rep::Object(*class),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
             Expr::After { value, .. } => value.rep(),

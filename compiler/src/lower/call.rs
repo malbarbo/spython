@@ -37,7 +37,14 @@ impl<'a> Lowering<'a, '_> {
         }
         // The checker sees no function, and binds no argument, in a name
         // that the `def` has yet to bind.
-        let (func, bindings) = match call_target(self.model(), call) {
+        let target = call_target(self.model(), call);
+        if let Some(CallTarget::Constructor(class)) = &target {
+            let class = self.classes.borrow().ids.get(class).copied();
+            if let Some(class) = class {
+                return self.construct(call, name, class);
+            }
+        }
+        let (func, bindings) = match target {
             Some(CallTarget::Function(def)) if Some(def.file) == self.intrinsics => {
                 return self.intrinsic(call, &def.name);
             }
@@ -81,7 +88,7 @@ impl<'a> Lowering<'a, '_> {
     /// of each parameter of `sig`, or `None` when each parameter takes the
     /// argument in its place. Without the `bindings` of the checker, a
     /// keyword argument goes to the parameter of its name.
-    fn arguments(
+    pub(super) fn arguments(
         &self,
         call: &ast::ExprCall,
         sig: &Sig<'a, '_>,

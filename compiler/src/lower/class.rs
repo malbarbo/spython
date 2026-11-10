@@ -11,7 +11,7 @@ use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::KnownModule;
 use ty_python_semantic::types::KnownClass;
 use ty_python_semantic::types::lowering::{
-    ClassId as CheckerClass, ClassInfo, Shape, class_info, expr_shape,
+    ArgBinding, ClassId as CheckerClass, ClassInfo, Shape, call_bindings, class_info, expr_shape,
 };
 
 use super::call::is_module;
@@ -77,6 +77,9 @@ pub(super) struct Declared<'a> {
     /// The function that gives the `repr` of an object, once a conversion
     /// needs it.
     pub repr: Option<FuncId>,
+    /// The function that makes an object of a dataclass from a value for
+    /// each field, once a call needs it.
+    pub init: Option<FuncId>,
 }
 
 /// The forms of a class that the compiler takes.
@@ -131,6 +134,7 @@ impl<'a> Lowering<'a, '_> {
             members,
             str: None,
             repr: None,
+            init: None,
         });
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);
@@ -312,6 +316,93 @@ impl<'a> Lowering<'a, '_> {
         let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
         self.classes.borrow_mut().get_mut(class).repr = Some(func);
         Ok(func)
+    }
+
+    /// The object of `class`, a dataclass, that `call` makes. The checker
+    /// rejects a missing argument, an extra one and one that two names give.
+    pub(super) fn construct(
+        &self,
+        call: &ast::ExprCall,
+        name: &ast::ExprName,
+        class: ClassId,
+    ) -> Result<Expr, Error> {
+        if self.classes.borrow().get(class).kind != Kind::Dataclass {
+            return Err(unsupported(call, "a call of this class"));
+        }
+        let init = self.class_init(class);
+        let sig = self.funcs.borrow().get(init).clone();
+        let names: Vec<String> = self
+            .classes
+            .borrow()
+            .get(class)
+            .fields
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        // The index of a parameter of the checker may count `self`, and the
+        // name finds the field.
+        let bindings: Vec<ArgBinding> = call_bindings(self.model(), call)
+            .ok_or_else(|| unsupported(call, "a call with these arguments"))?
+            .into_iter()
+            .map(|binding| ArgBinding {
+                parameter: binding
+                    .parameter_name
+                    .as_deref()
+                    .and_then(|param| names.iter().position(|name| name == param)),
+                parameter_name: binding.parameter_name,
+                parameter_shape: None,
+            })
+            .collect();
+        let (args, order) = self.arguments(call, &sig, Some(&bindings))?;
+        let value = Expr::Call {
+            func: init,
+            args,
+            order,
+            rep: Rep::Object(class),
+            site: self.call_site(init, call),
+            check: None,
+        };
+        Ok(match self.global_check(name)? {
+            Some(check) => Expr::After {
+                binding: Binding::Class(class),
+                check,
+                value: Box::new(value),
+            },
+            None => value,
+        })
+    }
+
+    /// The function that makes an object of `class`, a dataclass, with the
+    /// value of each field in its parameters.
+    fn class_init(&self, class: ClassId) -> FuncId {
+        if let Some(func) = self.classes.borrow().get(class).init {
+            return func;
+        }
+        let reps: Vec<Rep> = self
+            .classes
+            .borrow()
+            .get(class)
+            .fields
+            .iter()
+            .map(|(_, rep)| *rep)
+            .collect();
+        let fields = reps
+            .iter()
+            .enumerate()
+            .map(|(i, rep)| Expr::Load {
+                place: Place::Local(VarId::new(i)),
+                rep: *rep,
+                check: None,
+            })
+            .collect();
+        let body = vec![Stmt::Return(Some(Expr::New { class, fields }))];
+        let func = self.generated(reps, Rep::Object(class), body);
+        // The function makes the object and raises nothing.
+        if let Some(raises) = self.funcs.borrow_mut().raises.get_mut(func.index()) {
+            *raises = false;
+        }
+        self.classes.borrow_mut().get_mut(class).init = Some(func);
+        func
     }
 
     /// The call of `func`, a function of the compiler that converts the

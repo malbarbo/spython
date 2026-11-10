@@ -137,6 +137,12 @@ impl Reprs {
         }
     }
 
+    /// Pops a value for each field of `class` and pushes a new object of
+    /// `class` with them. A value of each rep is a value of its field.
+    pub fn new_object(&self, f: &mut FuncState, class: ClassId) {
+        f.ins().struct_new(self.class(class));
+    }
+
     /// Pushes the member at `member` of `class`.
     pub fn member(&self, f: &mut FuncState, class: ClassId, member: u32) {
         let global = self
