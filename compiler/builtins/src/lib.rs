@@ -33,6 +33,20 @@ pub use pow::{exp, exp2, pow};
 pub use round::round;
 pub use tanh::tanh;
 
+/// The `float` of the `len` bytes of ASCII at `text`, which have the form of
+/// a float of Python without underscores: a sign, then digits with a point
+/// and an exponent, or `inf`, `infinity` or `nan` in any case. A text of
+/// another form gives a NaN.
+///
+/// # Safety
+///
+/// `text` has to point to `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn f64_parse(text: *const u8, len: usize) -> f64 {
+    let text = unsafe { core::slice::from_raw_parts(text, len) };
+    fast_float2::parse(text).unwrap_or(f64::NAN)
+}
+
 /// The longest `repr` of a float, `-2.2250738585072014e-308`.
 pub const REPR_MAX: usize = 24;
 
