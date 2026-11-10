@@ -1,7 +1,8 @@
 use std::process::Command;
 
 use builtins::unicode::{
-    str_is_case_ignorable, str_is_cased, str_is_printable, str_lower_at, str_upper_at,
+    str_is_case_ignorable, str_is_cased, str_is_lowercase, str_is_printable, str_is_uppercase,
+    str_lower_at, str_title_at, str_upper_at,
 };
 
 /// What `python` prints: for each code point, in order, `1` when
@@ -99,4 +100,15 @@ fn cased_and_case_ignorable_match_cpython() {
         cased_or_ignorable,
         "('a' + c + '\\u03a3').lower().endswith('\\u03c2')",
     );
+}
+
+#[test]
+fn title_matches_cpython() {
+    same_mapping_as_cpython(str_title_at, "title");
+}
+
+#[test]
+fn is_uppercase_and_is_lowercase_match_cpython() {
+    same_as_cpython(str_is_uppercase, "c.isupper()");
+    same_as_cpython(str_is_lowercase, "c.islower()");
 }

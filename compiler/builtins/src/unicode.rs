@@ -75,6 +75,25 @@ pub extern "C" fn str_lower_at(cp: u32, i: u32) -> i32 {
     mapped(&LOWER_SIMPLE, &LOWER_SPECIAL, cp, i)
 }
 
+/// The code point `i` of the title case of the code point `cp`, or -1 when
+/// the title case has `i` code points or fewer.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_title_at(cp: u32, i: u32) -> i32 {
+    mapped(&TITLE_SIMPLE, &TITLE_SPECIAL, cp, i)
+}
+
+/// Returns 1 if `cp` has the property `Uppercase`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_uppercase(cp: u32) -> u32 {
+    u32::from(contains(&UPPERCASE_BMP, &UPPERCASE_ASTRAL, cp))
+}
+
+/// Returns 1 if `cp` has the property `Lowercase`, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn str_is_lowercase(cp: u32) -> u32 {
+    u32::from(contains(&LOWERCASE_BMP, &LOWERCASE_ASTRAL, cp))
+}
+
 /// Returns 1 if `cp` has the property `Cased`, 0 otherwise.
 #[unsafe(no_mangle)]
 pub extern "C" fn str_is_cased(cp: u32) -> u32 {

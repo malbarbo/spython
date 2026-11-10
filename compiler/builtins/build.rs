@@ -26,7 +26,12 @@ fn main() {
         cp == 0x20 || !matches!(category(&categories, cp).as_bytes(), [b'C' | b'Z', ..])
     });
     let derived = read("DerivedCoreProperties.txt");
-    for (name, property) in [("CASED", "Cased"), ("CASE_IGNORABLE", "Case_Ignorable")] {
+    for (name, property) in [
+        ("CASED", "Cased"),
+        ("CASE_IGNORABLE", "Case_Ignorable"),
+        ("UPPERCASE", "Uppercase"),
+        ("LOWERCASE", "Lowercase"),
+    ] {
         let members = property_members(&derived, property);
         set(&mut code, name, |cp| {
             members.get(cp as usize).copied().unwrap_or(false)
@@ -35,6 +40,7 @@ fn main() {
     let cases = Cases::new(&read("UnicodeData.txt"), &read("SpecialCasing.txt"));
     mapping(&mut code, "UPPER", &cases.upper);
     mapping(&mut code, "LOWER", &cases.lower);
+    mapping(&mut code, "TITLE", &cases.title);
     std::fs::write(out.join("unicode.rs"), code).expect("the tables written");
 }
 
@@ -66,24 +72,27 @@ fn property_members(data: &str, property: &str) -> Vec<bool> {
     members
 }
 
-/// The code points that `str.upper` and `str.lower` of CPython give for
-/// each code point that they change.
+/// The code points that `str.upper`, `str.lower` and `str.title` of
+/// CPython give for each code point that they change.
 struct Cases {
     upper: Vec<(u32, Vec<u32>)>,
     lower: Vec<(u32, Vec<u32>)>,
+    title: Vec<(u32, Vec<u32>)>,
 }
 
 impl Cases {
-    /// CPython takes the mapping of one code point from the fields 12 and
-    /// 13 of `UnicodeData.txt`, and the mapping of `SpecialCasing.txt` for
-    /// a code point that has one there without a condition.
+    /// CPython takes the mapping of one code point from the fields 12, 13
+    /// and 14 of `UnicodeData.txt`, and the mapping of `SpecialCasing.txt`
+    /// for a code point that has one there without a condition. A code
+    /// point without a title case takes its upper case.
     fn new(data: &str, special: &str) -> Cases {
         let mut upper = std::collections::BTreeMap::new();
         let mut lower = std::collections::BTreeMap::new();
+        let mut title = std::collections::BTreeMap::new();
         for line in data.lines() {
             let fields: Vec<&str> = line.split(';').collect();
             let cp = code_point(fields.first().expect("a code point"));
-            for (map, field) in [(&mut upper, 12), (&mut lower, 13)] {
+            for (map, field) in [(&mut upper, 12), (&mut lower, 13), (&mut title, 14)] {
                 match fields.get(field) {
                     Some(mapped) if !mapped.is_empty() => {
                         map.insert(cp, vec![code_point(mapped)]);
@@ -91,16 +100,23 @@ impl Cases {
                     _ => {}
                 }
             }
+            if let (None, Some(mapped)) = (title.get(&cp), upper.get(&cp)) {
+                title.insert(cp, mapped.clone());
+            }
         }
         for line in special.lines() {
             let line = line.split('#').next().unwrap_or_default();
             let fields: Vec<&str> = line.split(';').map(str::trim).collect();
             // A line with a condition has it in a fifth field.
-            let [cp, to_lower, _title, to_upper, ""] = fields.as_slice() else {
+            let [cp, to_lower, to_title, to_upper, ""] = fields.as_slice() else {
                 continue;
             };
             let cp = code_point(cp);
-            for (map, mapped) in [(&mut upper, to_upper), (&mut lower, to_lower)] {
+            for (map, mapped) in [
+                (&mut upper, to_upper),
+                (&mut lower, to_lower),
+                (&mut title, to_title),
+            ] {
                 map.insert(cp, mapped.split_whitespace().map(code_point).collect());
             }
         }
@@ -112,6 +128,7 @@ impl Cases {
         Cases {
             upper: changed(upper),
             lower: changed(lower),
+            title: changed(title),
         }
     }
 }
