@@ -810,9 +810,16 @@ impl Reprs {
                     CmpOp::Ge => ins.i32_ge_u(),
                 };
             }
-            Rep::None | Rep::StrOrNone | Rep::Object(_) | Rep::ObjectOrNone(_) => {
-                unreachable!("a comparison of {rep:?}")
+            // A member of an `Enum` is equal to itself alone.
+            Rep::Object(_) | Rep::ObjectOrNone(_) => {
+                let mut ins = f.ins();
+                match op {
+                    CmpOp::Eq => ins.ref_eq(),
+                    CmpOp::Ne => ins.ref_eq().i32_eqz(),
+                    _ => unreachable!("an order of objects"),
+                };
             }
+            Rep::None | Rep::StrOrNone => unreachable!("a comparison of {rep:?}"),
         }
     }
 

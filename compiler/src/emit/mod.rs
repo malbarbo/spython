@@ -728,6 +728,11 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.is_none(f, value.rep());
             }
+            Expr::Is(left, right) => {
+                self.expr(f, left);
+                self.expr(f, right);
+                f.ins().ref_eq();
+            }
             Expr::Load { place, rep, check } => self.load(f, *place, *rep, check.as_ref()),
             Expr::Call {
                 func,

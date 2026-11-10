@@ -215,6 +215,9 @@ pub(crate) enum Expr {
     },
     /// Whether a value is `None`, as a `bool`.
     IsNone(Box<Expr>),
+    /// Whether two objects, each of a class or `None`, are the same object,
+    /// as a `bool`.
+    Is(Box<Expr>, Box<Expr>),
     /// The value of a variable. Only a read with a check may come before
     /// the first assignment.
     Load {
@@ -1030,6 +1033,7 @@ impl Expr {
             | Expr::ParseFloat(_) => Rep::Float,
             Expr::Bool(_)
             | Expr::IsNone(_)
+            | Expr::Is(..)
             | Expr::CodePointIs { .. }
             | Expr::IsClose { .. }
             | Expr::Truth(_)

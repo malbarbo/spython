@@ -281,14 +281,34 @@ impl<'a> Lowering<'a, '_> {
         if let ([op @ (ast::CmpOp::Is | ast::CmpOp::IsNot)], [left, right]) =
             (&*c.ops, &*c.operands)
         {
-            let value = match (left, right) {
-                (ast::Expr::NoneLiteral(_), value) | (value, ast::Expr::NoneLiteral(_)) => value,
-                _ => return Err(unsupported(c, "is between values that are not None")),
+            let is = match (left, right) {
+                (ast::Expr::NoneLiteral(_), value) | (value, ast::Expr::NoneLiteral(_)) => {
+                    Expr::IsNone(Box::new(self.expr(value)?))
+                }
+                _ => {
+                    let left = self.expr(left)?;
+                    let right = self.expr(right)?;
+                    // A value that the checker narrows to `None` has no
+                    // reference, and gets the null of the other class.
+                    let reference = |value: Expr, other: Rep| match (value.rep(), other) {
+                        (rep, _) if is_object(rep) => Some(value),
+                        (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
+                            coerce(value, Rep::ObjectOrNone(class))
+                        }
+                        _ => None,
+                    };
+                    let (left_rep, right_rep) = (left.rep(), right.rep());
+                    match (reference(left, right_rep), reference(right, left_rep)) {
+                        (Some(left), Some(right)) => Expr::Is(Box::new(left), Box::new(right)),
+                        _ => {
+                            return Err(unsupported(c, "is between values that are not objects"));
+                        }
+                    }
+                }
             };
-            let is_none = Expr::IsNone(Box::new(self.expr(value)?));
             return Ok(match op {
-                ast::CmpOp::Is => is_none,
-                _ => Expr::Not(Box::new(is_none)),
+                ast::CmpOp::Is => is,
+                _ => Expr::Not(Box::new(is)),
             });
         }
         if let ([op @ (ast::CmpOp::In | ast::CmpOp::NotIn)], [left, right]) =
@@ -322,11 +342,30 @@ impl<'a> Lowering<'a, '_> {
             .chain(c.comparators())
             .map(|operand| Ok((self.expr(operand)?, operand)))
             .collect::<Result<Vec<_>, Error>>()?;
-        if let Some((_, operand)) = operands
-            .iter()
-            .find(|(lowered, _)| matches!(lowered.rep(), Rep::Object(_) | Rep::ObjectOrNone(_)))
-        {
-            return Err(unsupported(*operand, "a comparison of an object"));
+        // A member of an `Enum` is equal to itself alone.
+        if operands.iter().any(|(lowered, _)| is_object(lowered.rep())) {
+            if ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne)) {
+                return Err(unsupported(c, "an order of objects"));
+            }
+            let rep = operands
+                .iter()
+                .map(|(lowered, _)| lowered.rep())
+                .reduce(join)
+                .expect("a comparison has a first operand");
+            if !is_object(rep) {
+                return Err(unsupported(
+                    c,
+                    "a comparison of an object with a value of another type",
+                ));
+            }
+            let mut operands = operands
+                .into_iter()
+                .map(|(lowered, _)| coerce(lowered, rep).expect("the join holds every operand"));
+            let first = operands.next().expect("a comparison has a first operand");
+            return Ok(Expr::Compare(
+                Box::new(first),
+                ops.into_iter().zip(operands).collect(),
+            ));
         }
         // A union compares by the types of its values, which the module
         // tests when it runs.
@@ -571,6 +610,12 @@ impl<'a> Lowering<'a, '_> {
             )),
         }
     }
+}
+
+/// Returns `true` if a value of `rep` is an object of a class, or `None`
+/// in the place of one, `false` otherwise.
+fn is_object(rep: Rep) -> bool {
+    matches!(rep, Rep::Object(_) | Rep::ObjectOrNone(_))
 }
 
 /// `lowered`, the value of `operand`, as a `float`.

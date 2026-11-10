@@ -148,6 +148,39 @@ fn a_member_has_a_name_and_a_value() {
     );
 }
 
+/// A member is equal to itself alone. The checker proves the chain of the
+/// `if` complete, so the variable has a value after it.
+#[test]
+fn a_member_is_equal_to_itself_alone() {
+    same_as_cpython(
+        "a_member_is_equal_to_itself_alone",
+        indoc! {"
+            from enum import Enum, auto
+
+            class Sinal(Enum):
+                VERDE = auto()
+                AMARELO = auto()
+                VERMELHO = auto()
+
+            def proximo(s: Sinal) -> Sinal:
+                if s == Sinal.VERDE:
+                    p = Sinal.AMARELO
+                elif s == Sinal.AMARELO:
+                    p = Sinal.VERMELHO
+                elif s == Sinal.VERMELHO:
+                    p = Sinal.VERDE
+                return p
+
+            s = Sinal.VERDE
+            print(proximo(s).name, proximo(proximo(s)).name, proximo(s) != s)
+            x: Sinal | None = None
+            print(x != Sinal.VERDE, s is Sinal.VERDE)
+            print(s is not proximo(s), x is s, x is not None)
+            print(Sinal.VERDE == Sinal.VERDE == s, s == s != proximo(s))
+        "},
+    );
+}
+
 /// A read of a member reads the class, which raises `NameError` before the
 /// `class` statement.
 #[test]
