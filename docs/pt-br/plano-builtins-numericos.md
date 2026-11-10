@@ -168,6 +168,18 @@ Commits:
    CPython no Linux. O macOS e o Windows têm outro `pow` e outro
    `strerror`.
 
+O `math.hypot` aceita qualquer número de argumentos. O módulo avalia
+todos, grava os `f64` na área de rascunho do host e chama o
+`f64_hypot(ptr, len)`, que é a porta do `vector_norm` do CPython. A área
+tem 4032 bytes, então o compilador recusa uma chamada com mais de 504
+argumentos.
+
+De `math`, faltam as funções que dependem de tipos de fatias futuras.
+`frexp` e `modf` devolvem uma tupla e esperam a fatia 1. `fsum`, `prod`,
+`sumprod` e `dist` recebem um iterável e esperam a fatia 5. O crate `libm`
+tem `frexp` e `modf`. `prod`, `sumprod` e `dist` são candidatas ao prelude
+em Python, e o `dist` usa a mesma norma do `hypot`.
+
 Fora da 0c: `int ** int` (o tipo é `int | float` quando o expoente não é
 literal), a caixa `$Float` e o despacho de `int | float`, `float(str)`,
 `math`, `round` e o hash.
