@@ -6,7 +6,7 @@ use ty_python_semantic::types::lowering::{
     Shape, expr_shape, is_definitely_bound, is_implicit_global,
 };
 
-use super::{Lowering, coerce, unbound_local, unsupported};
+use super::{Lowering, coerce, holds, unbound_local, unsupported};
 use crate::Error;
 use crate::ir::{Check, Expr, Place, Rep, Undefined};
 
@@ -14,6 +14,16 @@ impl<'a> Lowering<'a, '_> {
     /// The variable that `target` names, with `value` as a value of its
     /// rep.
     pub(super) fn target(&self, target: &ast::Expr, value: Expr) -> Result<(Place, Expr), Error> {
+        let (place, rep) = self.place(target, value.rep())?;
+        Ok((
+            place,
+            coerce(value, rep).expect("a variable that holds the value"),
+        ))
+    }
+
+    /// The variable that `target` names, which holds the values of `value`,
+    /// together with its rep.
+    pub(super) fn place(&self, target: &ast::Expr, value: Rep) -> Result<(Place, Rep), Error> {
         let ast::Expr::Name(name) = target else {
             return Err(unsupported(target, "this target"));
         };
@@ -30,10 +40,8 @@ impl<'a> Lowering<'a, '_> {
                 .map(|(id, rep)| (Place::Global(id), rep)),
         };
         match found {
-            Some((place, rep)) => match coerce(value, rep) {
-                Some(value) => Ok((place, value)),
-                None => Err(unsupported(target, "a variable with values of two types")),
-            },
+            Some((place, rep)) if rep == value || holds(rep, value) => Ok((place, rep)),
+            Some(_) => Err(unsupported(target, "a variable with values of two types")),
             // The checker gives the value a type that no rep holds.
             None => Err(unsupported(target, "a variable of this type")),
         }

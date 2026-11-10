@@ -76,13 +76,12 @@ impl<'a> Lowering<'a, '_> {
                 }))
             }
             ast::Stmt::Assign(a) => {
-                let mut value = self.expr(&a.value)?;
-                let mut targets = Vec::new();
-                for target in &a.targets {
-                    let (place, coerced) = self.target(target, value)?;
-                    targets.push(place);
-                    value = coerced;
-                }
+                let value = self.expr(&a.value)?;
+                let targets = a
+                    .targets
+                    .iter()
+                    .map(|target| Ok(self.place(target, value.rep())?.0))
+                    .collect::<Result<_, Error>>()?;
                 Ok(Some(Stmt::Assign { targets, value }))
             }
             // An annotation alone binds nothing.

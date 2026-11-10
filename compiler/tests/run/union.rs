@@ -37,6 +37,35 @@ fn a_str_or_none_goes_through_variables_parameters_and_results() {
 }
 
 #[test]
+fn an_assignment_gives_each_target_the_value_in_its_rep() {
+    same_as_cpython(
+        "an_assignment_gives_each_target_the_value_in_its_rep",
+        indoc! {"
+            def twice() -> None:
+                a: int | None = None
+                b: int = 0
+                c: str | None = None
+                d: str = ''
+                a = b = 7
+                c = d = 'x'
+                print(a, b, c, d)
+
+
+            x: int = 0
+            y: int | None = None
+            z: int | str = 0
+            x = y = z = 5
+            print(x, y, z)
+            u: str | None = 'u'
+            v: int | str | None = 0
+            u = v = None
+            print(u, v)
+            twice()
+        "},
+    );
+}
+
+#[test]
 fn a_value_of_any_union_goes_through_variables_parameters_and_results() {
     same_as_cpython(
         "a_value_of_any_union_goes_through_variables_parameters_and_results",

@@ -217,14 +217,26 @@ impl Emitter<'_> {
             }
             Stmt::Assign { targets, value } => {
                 self.expr(f, value);
-                let (first, rest) = targets.split_first().expect("an assignment has a target");
-                self.store(f, *first);
-                for place in rest {
-                    match *first {
-                        Place::Global(var) => f.ins().global_get(self.global_slots(var).value),
-                        Place::Local(var) => f.ins().local_get(self.local_slots(var).value),
-                    };
+                let from = value.rep();
+                let temp = match (targets.len(), self.reprs.local_type(from)) {
+                    (2.., Some(ty)) => Some(f.temp(ty)),
+                    _ => None,
+                };
+                if let Some(temp) = temp {
+                    f.ins().local_set(temp);
+                }
+                for place in targets {
+                    if let Some(temp) = temp {
+                        self.reprs.load(f, from, temp);
+                    }
+                    let to = self.var(*place).rep;
+                    if to != from {
+                        self.reprs.widen(&mut self.m, f, from, to);
+                    }
                     self.store(f, *place);
+                }
+                if let Some(temp) = temp {
+                    f.free(temp);
                 }
             }
             Stmt::Def(func) => {

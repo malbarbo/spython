@@ -113,7 +113,9 @@ pub(crate) struct Func {
 pub(crate) enum Stmt {
     /// An expression whose value the program drops.
     Expr(Expr),
-    /// The value goes to each variable, from the first one.
+    /// The value goes to each variable, from the first one. Each variable
+    /// holds the values of the rep of the value, and gets the value in its
+    /// own rep.
     Assign {
         targets: Vec<Place>,
         value: Expr,
