@@ -432,7 +432,7 @@ fn a_call_with_a_keyword_argument_before_the_def_raises_name_error() {
 fn each_call_outside_what_the_compiler_covers_has_its_own_message() {
     assert_eq!(
         unsupported(indoc! {"
-            print('a'.upper())
+            print((lambda: 1)())
         "}),
         "a call of an expression other than a name"
     );

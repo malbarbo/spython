@@ -11,8 +11,8 @@ use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
-    ArithOp, Choice, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep,
-    SiteFrame,
+    ArithOp, Case, Choice, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2,
+    Rep, SiteFrame,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -484,6 +484,21 @@ impl Reprs {
         self.int.as_i32(f);
         let builtin = m.builtin(set.builtin());
         f.ins().call(builtin);
+    }
+
+    /// Pops two `int`, a code point and an index, and pushes the `int` of
+    /// the code point at the index of the mapping `case` of the code point,
+    /// or -1 past its end.
+    pub fn case_at(&self, m: &mut ModuleState, f: &mut FuncState, case: Case) {
+        self.int.as_i32(f);
+        let index = f.temp(ValType::I32);
+        f.ins().local_set(index);
+        self.int.as_i32(f);
+        f.ins().local_get(index);
+        f.free(index);
+        let builtin = m.builtin(case.builtin());
+        f.ins().call(builtin);
+        self.int.small_as_int(f);
     }
 
     /// Pops an `int`, the `stop` of a slice, and pushes it as

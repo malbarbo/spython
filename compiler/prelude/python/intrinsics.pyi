@@ -26,3 +26,16 @@ def captured_output() -> str:
 def captured_exception() -> str:
     """The last line of the traceback of the exception that ended the last example of a
     docstring, with its line feed. An example that raised nothing gives an empty `str`."""
+
+def upper_at(code_point: int, index: int) -> int:
+    """The code point at `index` of `str.upper` of the code point, or -1 past its end."""
+
+def lower_at(code_point: int, index: int) -> int:
+    """The code point at `index` of `str.lower` of the code point, or -1 past its end. A capital
+    sigma gives the small sigma that is not the final one."""
+
+def is_cased(code_point: int) -> bool:
+    """Whether the code point has the property `Cased` of Unicode."""
+
+def is_case_ignorable(code_point: int) -> bool:
+    """Whether the code point has the property `Case_Ignorable` of Unicode."""

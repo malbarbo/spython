@@ -17,6 +17,9 @@ use crate::ir::{Expr, MinMaxOp, Place, Rep};
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
     pub(super) fn call(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        if let ast::Expr::Attribute(attr) = &*call.func {
+            return self.method_call(call, attr);
+        }
         let ast::Expr::Name(name) = &*call.func else {
             return Err(unsupported(
                 call,

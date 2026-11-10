@@ -919,6 +919,15 @@ impl Emitter<'_> {
                 self.expr(f, index);
                 self.reprs.code_point(f);
             }
+            Expr::CaseAt {
+                case,
+                operand,
+                index,
+            } => {
+                self.expr(f, operand);
+                self.expr(f, index);
+                self.reprs.case_at(&mut self.m, f, *case);
+            }
             Expr::CodePointIs { set, operand } => {
                 self.expr(f, operand);
                 self.reprs.code_point_is(&mut self.m, f, *set);

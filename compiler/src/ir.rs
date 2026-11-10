@@ -408,6 +408,13 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         index: Box<Expr>,
     },
+    /// The code point at an `int` index of the mapping `case` of a code
+    /// point, as an `int`, or -1 when the mapping has fewer code points.
+    CaseAt {
+        case: Case,
+        operand: Box<Expr>,
+        index: Box<Expr>,
+    },
     /// Whether a code point is in `set`, as a `bool`.
     CodePointIs {
         set: CodePointSet,
@@ -717,12 +724,35 @@ pub(crate) enum Tolerance {
 pub(crate) enum CodePointSet {
     /// The code points that `str.isprintable` accepts.
     Printable,
+    /// The code points with the property `Cased`.
+    Cased,
+    /// The code points with the property `Case_Ignorable`.
+    CaseIgnorable,
 }
 
 impl CodePointSet {
     pub fn builtin(self) -> &'static str {
         match self {
             CodePointSet::Printable => "str_is_printable",
+            CodePointSet::Cased => "str_is_cased",
+            CodePointSet::CaseIgnorable => "str_is_case_ignorable",
+        }
+    }
+}
+
+/// A mapping of the case of a code point to code points, as Unicode
+/// gives it with the special casings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Case {
+    Upper,
+    Lower,
+}
+
+impl Case {
+    pub fn builtin(self) -> &'static str {
+        match self {
+            Case::Upper => "str_upper_at",
+            Case::Lower => "str_lower_at",
         }
     }
 }
@@ -811,6 +841,7 @@ impl Expr {
             | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
             | Expr::CodePoint { .. }
+            | Expr::CaseAt { .. }
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)

@@ -302,3 +302,40 @@ fn str_of_none_is_unsupported() {
         "str of None"
     );
 }
+
+#[test]
+fn upper_and_lower_map_each_code_point_as_unicode_says() {
+    same_as_cpython(
+        "upper_and_lower_map_each_code_point_as_unicode_says",
+        indoc! {"
+            s = 'Olá, Mundo! ß ﬃ İ ŉ ǅ 𐐨𐐀 ΐ 123'
+            print(s.upper())
+            print(s.lower())
+            print(''.upper(), ''.lower(), 'abc'.upper().lower())
+            print(len('ß'.upper()), len('İ'.lower()), len('ΐ'.upper()))
+        "},
+    );
+}
+
+#[test]
+fn lower_gives_the_final_sigma_at_the_end_of_a_word() {
+    same_as_cpython(
+        "lower_gives_the_final_sigma_at_the_end_of_a_word",
+        indoc! {"
+            print('ΟΔΟΣ ΟΔΟΣ.'.lower())
+            print('Σ'.lower(), 'ΑΣ'.lower(), 'ΣΑ'.lower(), 'ΑΣΑ'.lower())
+            print(\"Α'Σ\".lower(), \"ΑΣ'\".lower(), \"ΑΣ'Α\".lower(), \"ΑΣ'.\".lower())
+            print('1Σ'.lower(), 'Α\u{301}Σ'.lower(), 'ΑΣ\u{301}Β'.lower())
+        "},
+    );
+}
+
+#[test]
+fn a_method_of_a_str_that_the_prelude_lacks_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            print('a'.title())
+        "}),
+        "a call of this method"
+    );
+}

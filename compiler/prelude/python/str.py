@@ -4,7 +4,11 @@ from __spython_prelude__.intrinsics import (
     builder_done,
     builder_new,
     code_point,
+    is_case_ignorable,
+    is_cased,
     is_printable,
+    lower_at,
+    upper_at,
 )
 
 
@@ -59,6 +63,81 @@ def repr_of(s: str) -> str:
         i += 1
     b[at] = quote
     return builder_done(b)
+
+
+def upper(s: str) -> str:
+    n = len(s)
+    size = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        k = 1
+        while upper_at(c, k) >= 0:
+            k += 1
+        size += k
+        i += 1
+    b = builder_new(size)
+    at = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        k = 0
+        m = upper_at(c, 0)
+        while m >= 0:
+            b[at] = m
+            at += 1
+            k += 1
+            m = upper_at(c, k)
+        i += 1
+    return builder_done(b)
+
+
+def lower(s: str) -> str:
+    n = len(s)
+    size = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        k = 1
+        while lower_at(c, k) >= 0:
+            k += 1
+        size += k
+        i += 1
+    b = builder_new(size)
+    at = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        if c == 931:
+            b[at] = sigma(s, i)
+            at += 1
+        else:
+            k = 0
+            m = lower_at(c, 0)
+            while m >= 0:
+                b[at] = m
+                at += 1
+                k += 1
+                m = lower_at(c, k)
+        i += 1
+    return builder_done(b)
+
+
+def sigma(s: str, i: int) -> int:
+    """The small sigma of the capital one at `i` of `s`. The final sigma comes after a cased code
+    point and before none, with case ignorable code points between them."""
+    j = i - 1
+    while j >= 0 and is_case_ignorable(code_point(s, j)):
+        j -= 1
+    if j < 0 or not is_cased(code_point(s, j)):
+        return 963
+    n = len(s)
+    j = i + 1
+    while j < n and is_case_ignorable(code_point(s, j)):
+        j += 1
+    if j < n and is_cased(code_point(s, j)):
+        return 963
+    return 962
 
 
 def escaped_len(c: int, quote: int) -> int:

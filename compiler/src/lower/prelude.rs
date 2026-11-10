@@ -10,7 +10,7 @@ use ty_python_semantic::types::lowering::DefId;
 
 use super::{Loaded, Lowering, Sig, unsupported};
 use crate::Error;
-use crate::ir::{CodePointSet, Expr, FuncId, Site};
+use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -63,6 +63,25 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .prelude_named(module, name)?
             .expect("a function of the prelude of the compiler");
         Ok(self.prelude_call_of(func, args, Some(site)))
+    }
+
+    /// A call of a method of a builtin type, which the prelude defines with
+    /// the receiver as the first parameter.
+    pub(super) fn method_call(
+        &self,
+        call: &ast::ExprCall,
+        attr: &ast::ExprAttribute,
+    ) -> Result<Expr, Error> {
+        let receiver = self.expr(&attr.value)?;
+        let name = attr.attr.as_str();
+        let module = match (receiver.rep(), name) {
+            (Rep::Str, "upper" | "lower") => "str",
+            _ => return Err(unsupported(call, "a call of this method")),
+        };
+        if !call.arguments.is_empty() {
+            return Err(unsupported(call, "a call of this method with arguments"));
+        }
+        self.prelude_call(call, module, name, vec![receiver])
     }
 
     /// The function `name` of the module `module` of the prelude.
@@ -171,10 +190,25 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "code_point" => arg()
                 .zip(arg())
                 .map(|(value, index)| Expr::CodePoint { value, index }),
-            "is_printable" => arg().map(|operand| Expr::CodePointIs {
-                set: CodePointSet::Printable,
+            "upper_at" | "lower_at" => arg().zip(arg()).map(|(operand, index)| Expr::CaseAt {
+                case: if name == "upper_at" {
+                    Case::Upper
+                } else {
+                    Case::Lower
+                },
                 operand,
+                index,
             }),
+            "is_printable" | "is_cased" | "is_case_ignorable" => {
+                arg().map(|operand| Expr::CodePointIs {
+                    set: match name {
+                        "is_printable" => CodePointSet::Printable,
+                        "is_cased" => CodePointSet::Cased,
+                        _ => CodePointSet::CaseIgnorable,
+                    },
+                    operand,
+                })
+            }
             "write_err" => arg().map(Expr::WriteErr),
             "captured_output" => Some(Expr::Captured),
             "captured_exception" => Some(Expr::CapturedException),
