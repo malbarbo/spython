@@ -11,7 +11,8 @@ use super::runtime::exc::Exceptions;
 use super::runtime::host::Host;
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
-    ArithOp, Choice, CmpOp, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep, SiteFrame,
+    ArithOp, Choice, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, MathFunc, MathFunc2, Rep,
+    SiteFrame,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -402,6 +403,37 @@ impl Reprs {
         self.int.as_i32(f);
         self.str.repeat(f);
         self.raise_if_null(m, f, &MEMORY_ERROR);
+    }
+
+    /// Pops an `int` and pushes a new `str` of that many code points, each
+    /// of them 0.
+    pub fn str_new(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.str.new_zeroed(f);
+    }
+
+    /// Pops a `str`, an `int` index in range and an `int` code point, and
+    /// sets the code point of the `str` at the index.
+    pub fn str_set(&self, f: &mut FuncState) {
+        // An `int` is the `i32` that the `str` holds for a code point, and
+        // that an index is.
+        self.str.set(f);
+    }
+
+    /// Pops a `str` and an `int` index in range, and pushes the code point
+    /// at the index as an `int`.
+    pub fn code_point(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+        self.str.get(f);
+        self.int.small_as_int(f);
+    }
+
+    /// Pops an `int`, a code point, and pushes the `bool` of whether it is
+    /// in `set`.
+    pub fn code_point_is(&self, m: &mut ModuleState, f: &mut FuncState, set: CodePointSet) {
+        self.int.as_i32(f);
+        let builtin = m.builtin(set.builtin());
+        f.ins().call(builtin);
     }
 
     /// Pops a `str` and an `int`, and pushes the code point at that index

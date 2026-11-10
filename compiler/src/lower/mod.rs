@@ -37,6 +37,7 @@ pub(crate) fn lower(db: &dyn Db, file: File, path: &str) -> Result<Program, Erro
     let lowering = Lowering {
         unit: Cell::new(&unit),
         prelude: &prelude,
+        intrinsics: prelude::intrinsics(db, file),
         sites: RefCell::new(Vec::new()),
         vars: RefCell::new(Vars::default()),
         funcs: RefCell::new(Funcs::default()),
@@ -140,6 +141,9 @@ struct Lowering<'a, 'db> {
     unit: Cell<&'a Unit<'a, 'db>>,
     /// The modules of the prelude.
     prelude: &'a [Unit<'a, 'db>],
+    /// The stub of the functions of the prelude that are instructions of
+    /// the module.
+    intrinsics: Option<File>,
     sites: RefCell<Vec<SiteFrame>>,
     /// The variables of the module.
     vars: RefCell<Vars>,
@@ -342,7 +346,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     ) -> Result<(), Error> {
         for (targets, value) in assigned {
             // The lowering of the assignment rejects a value without a rep.
-            let Some(rep) = shape_rep(expr_shape(self.model(), value)) else {
+            let Some(rep) = self.rep_of(expr_shape(self.model(), value)) else {
                 continue;
             };
             for target in *targets {
@@ -435,13 +439,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let params = params_of(def)
             .zip(&info.params)
             .map(|(param, info)| {
-                shape_rep(Some(info.shape.clone()))
+                self.rep_of(Some(info.shape.clone()))
                     .ok_or_else(|| unsupported(param, "a parameter of this type"))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let ret = match info.ret {
             Shape::None => Rep::None,
-            shape => shape_rep(Some(shape)).ok_or_else(|| match &def.returns {
+            shape => self.rep_of(Some(shape)).ok_or_else(|| match &def.returns {
                 Some(returns) => unsupported(&**returns, "a result of this type"),
                 None => unsupported(&def.name, "a result of this type"),
             })?,
@@ -532,6 +536,28 @@ impl<'a, 'db> Lowering<'a, 'db> {
         })
     }
 
+    /// The rep of the values of `shape`, and `None` when the compiler has no
+    /// rep for them.
+    fn rep_of(&self, shape: Option<Shape>) -> Option<Rep> {
+        match shape? {
+            Shape::Int | Shape::IntLit(_) => Some(Rep::Int),
+            // With `strict_numbers`, ty gives `int | float` only for a
+            // parameter of a stub and for `**`, which the compiler does not
+            // take.
+            Shape::Float => Some(Rep::Float),
+            Shape::Bool | Shape::BoolLit(_) => Some(Rep::Bool),
+            Shape::Str | Shape::StrLit(_) => Some(Rep::Str),
+            // A builder of the prelude is a `str` that its code still
+            // writes.
+            Shape::Instance(class, _)
+                if Some(class.file) == self.intrinsics && class.name == "StrBuilder" =>
+            {
+                Some(Rep::Str)
+            }
+            _ => None,
+        }
+    }
+
     /// A new site for the instruction at `range`, in the code that the
     /// lowering is in.
     fn site(&self, range: TextRange) -> Site {
@@ -566,20 +592,6 @@ fn params_of(def: &ast::StmtFunctionDef) -> impl Iterator<Item = &ast::Parameter
 
 /// The most parameters that a wasm engine accepts in a function.
 const MAX_PARAMS: usize = 1000;
-
-/// The rep of the values of `shape`, and `None` when the compiler has no rep
-/// for them.
-fn shape_rep(shape: Option<Shape>) -> Option<Rep> {
-    match shape? {
-        Shape::Int | Shape::IntLit(_) => Some(Rep::Int),
-        // With `strict_numbers`, ty gives `int | float` only for a parameter
-        // of a stub and for `**`, which the compiler does not take.
-        Shape::Float => Some(Rep::Float),
-        Shape::Bool | Shape::BoolLit(_) => Some(Rep::Bool),
-        Shape::Str | Shape::StrLit(_) => Some(Rep::Str),
-        _ => None,
-    }
-}
 
 fn unsupported(node: &impl Ranged, what: &str) -> Error {
     Error::Unsupported {

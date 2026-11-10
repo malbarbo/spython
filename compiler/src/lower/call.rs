@@ -35,6 +35,9 @@ impl<'a> Lowering<'a, '_> {
         // The checker sees no function, and binds no argument, in a name
         // that the `def` has yet to bind.
         let (func, bindings) = match call_target(self.model(), call) {
+            Some(CallTarget::Function(def)) if Some(def.file) == self.intrinsics => {
+                return self.intrinsic(call, &def.name);
+            }
             Some(CallTarget::Function(def)) => {
                 let known = self.funcs.borrow().ids.get(&def).copied();
                 let func = match known {

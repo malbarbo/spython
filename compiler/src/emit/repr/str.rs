@@ -196,6 +196,36 @@ impl StrRepr {
         }
     }
 
+    /// Pops an `i32` and pushes a new `str` of that many code points, each
+    /// of them 0.
+    pub fn new_zeroed(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { array, .. } => {
+                f.ins().array_new_default(*array);
+            }
+        }
+    }
+
+    /// Pops a `str`, an `i32` index in range and an `i32` code point, and
+    /// sets the code point of the `str` at the index.
+    pub fn set(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { array, .. } => {
+                f.ins().array_set(*array);
+            }
+        }
+    }
+
+    /// Pops a `str` and an `i32` index in range, and pushes the code point
+    /// at the index.
+    pub fn get(&self, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 { array, .. } => {
+                f.ins().array_get(*array);
+            }
+        }
+    }
+
     /// Pops two `str`s and pushes the second one after the first.
     pub fn concat(&self, f: &mut FuncState) {
         match self {

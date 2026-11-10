@@ -262,6 +262,16 @@ impl Emitter<'_> {
                 let target = self.code.loops.last().expect("a break in a loop").break_;
                 f.br(target);
             }
+            Stmt::StrSet {
+                builder,
+                index,
+                value,
+            } => {
+                self.expr(f, builder);
+                self.expr(f, index);
+                self.expr(f, value);
+                self.reprs.str_set(f);
+            }
             Stmt::Raise { class, arg, site } => {
                 if let Some(arg) = arg {
                     self.expr(f, arg);
@@ -875,6 +885,19 @@ impl Emitter<'_> {
                     f.free(n);
                 }
                 self.at(f, *site, |e, f| e.reprs.str_repeat(&mut e.m, f));
+            }
+            Expr::StrNew { len, site } => {
+                self.expr(f, len);
+                self.at(f, *site, |e, f| e.reprs.str_new(f));
+            }
+            Expr::CodePoint { value, index } => {
+                self.expr(f, value);
+                self.expr(f, index);
+                self.reprs.code_point(f);
+            }
+            Expr::CodePointIs { set, operand } => {
+                self.expr(f, operand);
+                self.reprs.code_point_is(&mut self.m, f, *set);
             }
             Expr::Index { value, index, site } => {
                 self.expr(f, value);

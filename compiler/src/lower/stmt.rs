@@ -49,6 +49,20 @@ impl<'a> Lowering<'a, '_> {
     fn stmt(&self, stmt: &ast::Stmt) -> Result<Option<Stmt>, Error> {
         match stmt {
             ast::Stmt::Expr(e) => Ok(Some(Stmt::Expr(self.expr(&e.value)?))),
+            ast::Stmt::Assign(a)
+                if self.in_prelude() && a.targets.iter().any(|t| t.is_subscript_expr()) =>
+            {
+                let [ast::Expr::Subscript(target)] = &*a.targets else {
+                    return Err(unsupported(a, "this target"));
+                };
+                // The one subscript that the prelude assigns is a code
+                // point of a builder.
+                Ok(Some(Stmt::StrSet {
+                    builder: self.expr(&target.value)?,
+                    index: self.expr(&target.slice)?,
+                    value: self.expr(&a.value)?,
+                }))
+            }
             ast::Stmt::Assign(a) => {
                 let value = self.expr(&a.value)?;
                 let targets = a

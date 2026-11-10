@@ -135,6 +135,13 @@ pub(crate) enum Stmt {
     },
     Break,
     Continue,
+    /// Sets the code point at the index of a `str` that the prelude still
+    /// builds. The index is in range.
+    StrSet {
+        builder: Expr,
+        index: Expr,
+        value: Expr,
+    },
     /// Raises an exception of the class at the site, with the `str` as the
     /// text of its argument, or without an argument.
     Raise {
@@ -365,6 +372,23 @@ pub(crate) enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
         site: Site,
+    },
+    /// A new `str` of `len` code points, each of them 0, which the prelude
+    /// builds with [`Stmt::StrSet`]. The site is where the program runs out
+    /// of memory for it.
+    StrNew {
+        len: Box<Expr>,
+        site: Site,
+    },
+    /// The code point of a `str` at an index in range, as an `int`.
+    CodePoint {
+        value: Box<Expr>,
+        index: Box<Expr>,
+    },
+    /// Whether a code point is in `set`, as a `bool`.
+    CodePointIs {
+        set: CodePointSet,
+        operand: Box<Expr>,
     },
     /// The code point of a `str` at an `int` index, as a `str`. An index
     /// out of range raises `IndexError` at the site.
@@ -655,6 +679,21 @@ pub(crate) enum Tolerance {
     Abs,
 }
 
+/// A set of code points of Unicode, which a builtin tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CodePointSet {
+    /// The code points that `str.isprintable` accepts.
+    Printable,
+}
+
+impl CodePointSet {
+    pub fn builtin(self) -> &'static str {
+        match self {
+            CodePointSet::Printable => "str_is_printable",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArithOp {
     Add,
@@ -724,6 +763,7 @@ impl Expr {
             | Expr::StrOf { .. }
             | Expr::Join { .. }
             | Expr::Repeat { .. }
+            | Expr::StrNew { .. }
             | Expr::Index { .. } => Rep::Str,
             Expr::Int(_)
             | Expr::BoolAsInt(_)
@@ -734,6 +774,7 @@ impl Expr {
             | Expr::IntChoose { .. }
             | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
+            | Expr::CodePoint { .. }
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)
@@ -756,6 +797,7 @@ impl Expr {
             | Expr::Div { .. }
             | Expr::FloatPow { .. } => Rep::Float,
             Expr::Bool(_)
+            | Expr::CodePointIs { .. }
             | Expr::IsClose { .. }
             | Expr::Truth(_)
             | Expr::Not(_)

@@ -2,6 +2,7 @@
 //! of the package of the prelude when a call reaches them.
 
 use ruff_db::files::File;
+use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
@@ -9,7 +10,7 @@ use ty_python_semantic::types::lowering::DefId;
 
 use super::{Loaded, Lowering, Sig, unsupported};
 use crate::Error;
-use crate::ir::{Expr, FuncId, Site};
+use crate::ir::{CodePointSet, Expr, FuncId, Site};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -23,6 +24,13 @@ pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
             (name != "__init__").then(|| (name, Loaded::new(db, file)))
         })
         .collect()
+}
+
+/// The stub of the intrinsics in the database of `file`.
+pub(super) fn intrinsics(db: &dyn Db, file: File) -> Option<File> {
+    let importing = ImportingFile::ResolverFile(db.program_file(file).resolver_file(db));
+    let module = ModuleName::new(&format!("{}.intrinsics", ::prelude::PACKAGE))?;
+    resolve_module(db, importing, &module)?.file(db)
 }
 
 impl<'a, 'db> Lowering<'a, 'db> {
@@ -108,6 +116,35 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// gives it.
     pub(super) fn prelude_def(&self, def: &DefId) -> Result<Option<FuncId>, Error> {
         self.prelude_func(def.file, &def.name)
+    }
+
+    /// The instruction of `name`, a function of the stub of the intrinsics,
+    /// for `call`.
+    pub(super) fn intrinsic(&self, call: &ast::ExprCall, name: &str) -> Result<Expr, Error> {
+        let mut args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expr(arg))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter();
+        let mut arg = || args.next().map(Box::new);
+        let lowered = match name {
+            "builder_new" => arg().map(|len| Expr::StrNew {
+                len,
+                site: self.site(call.range()),
+            }),
+            "builder_done" => arg().map(|builder| *builder),
+            "code_point" => arg()
+                .zip(arg())
+                .map(|(value, index)| Expr::CodePoint { value, index }),
+            "is_printable" => arg().map(|operand| Expr::CodePointIs {
+                set: CodePointSet::Printable,
+                operand,
+            }),
+            _ => None,
+        };
+        lowered.ok_or_else(|| unsupported(call, "this call of an intrinsic"))
     }
 
     /// Returns `true` if the lowering is in the code of the prelude,
