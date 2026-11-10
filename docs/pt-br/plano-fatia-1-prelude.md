@@ -389,6 +389,56 @@ capítulos para os níveis no teste do corpus.
 - O commit que pulava os quadros do prelude na memória esgotada sumiu,
   porque o `trap.rs` já faz isso.
 
+## O que a implementação mudou
+
+A fatia foi feita em 10/nov/2026, em 70 commits no spython e um no fork.
+Alguns commits do plano se juntaram, porque o código de um deles ficava
+morto sem o outro e o clippy recusa código morto. São o 9 com o 10, o 16
+com o 21, os 18 a 20, os 25 a 29, e o 61 com o 62. O 39 veio dentro do 36
+e do 37, porque um parâmetro e um resultado de uma união já passam pela
+mesma conversão das atribuições. Um commit novo tira o site de uma
+chamada do prelude que não pode lançar, e sem ele cada `math.isnan`
+custava cerca de 500 bytes.
+
+O teste do `engine` compara a separação dos exemplos com o `_parse` do
+runner em 3000 docstrings aleatórias, e não só no corpus. O oráculo dos
+testes de doctest do compilador é o runner rodando no CPython, com um
+substituto do `_spython_ffi`. O `SyntaxError` e as classes derivadas
+ficaram fora do `raise`, porque o CPython escreve `<no detail available>`
+para elas sem texto.
+
+`upper` e `lower` são duas funções, para que um programa leve só a tabela
+da que chama, e os seis predicados de classe de `str` têm um laço cada um
+pelo mesmo motivo. Uma tabela nova do Unicode entrou no crate dos
+builtins antes de cada método que a usa, sempre com o teste contra o
+CPython em todos os code points. O conjunto dos espaços e a categoria
+`Lt` são pequenos e ficaram em Python, com a mesma conferência.
+
+O `Unbox` entrou com o `is None`, que é o primeiro teste que estreita uma
+união. O compilador confia no estreitamento de uma variável local e no de
+uma global que nenhuma função declara com `global`. Uma chamada pode
+mudar outra global entre o teste e a leitura, e essa leitura continua
+recusada, em vez do `Unbox` com conferência que o plano previa. `print`
+aceita `None` também.
+
+O compilador recusava `int ** int` inteiro, e não só com o expoente
+variável. A potência com um expoente que não é negativo ficou no emissor,
+num `i64`, porque a mensagem do limite tem de ser a de `lcm` e de `comb`
+(`the result of ** does not fit in an int`), e não a de um quadrado no
+meio da conta. O `power` do prelude chama essa potência e dá um `float`
+para um expoente negativo.
+
+Um `str` do spython não guarda um surrogate, e o CPython só o recusa na
+escrita. `chr` de um surrogate para o programa com um erro do spython,
+pelo intrínseco novo `stop`. `float(str)` confere a gramática no prelude e
+copia o texto para a memória linear depois da área do host, que cresce
+para um texto longo, onde o `fast-float2` o lê.
+
+A conversão `!r` de um campo de f-string entrou junto. Uma chamada de
+método com argumento nomeado continua recusada, e isso inclui o `count=`
+de `replace`, que o CPython 3.13 aceita. Uma função do prelude não tem
+defaults, e o prelude passa o `None` de cada parâmetro opcional.
+
 ## Decisões
 
 O usuário tomou estas decisões em 9/nov/2026, uma pergunta por vez.

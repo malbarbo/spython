@@ -538,6 +538,12 @@ corpus.
   prelude de `str` e de `int`. O [plano da fatia
   1](plano-fatia-1-prelude.md) lista os commits. As classes foram para a
   fatia 3, e os arrays e os métodos especiais para a 5, onde alguém os usa.
+  Feita em 10/nov/2026. O compilador aceita os métodos de `str` dos níveis
+  0 a 5, `ord`, `chr`, `int` e `float` de um `str`, `int ** int`, as
+  uniões, `is None`, e roda os doctests de um arquivo como o runner. No
+  corpus, 33 arquivos dão a mesma saída que o CPython e o mesmo relatório
+  de doctests que o runner. Quase todos os 70 que o compilador recusa têm
+  um parâmetro ou um resultado de `list` ou de uma classe.
 - **2. Níveis 0 e 1**, com o diferencial do corpus verde.
 - **3. Nível 2.** Classes sem herança, Enum, dataclass e `match` com
   todos os padrões.
