@@ -102,6 +102,10 @@ def list_set_len[T](xs: list[T], n: int) -> None:
     """Makes `xs` a list of its first `n` items, where `n` is not above the capacity of `xs`. An
     item past the old length has the value that the prelude set there."""
 
+def list_truncate[T](xs: list[T], n: int) -> None:
+    """Makes `xs` a list of its first `n` items, where `n` is not above `len(xs)`, and drops the
+    items past them, so they may go."""
+
 def set_item[T](xs: list[T], index: int, x: T) -> None:
     """Sets the item at `index` of the array of `xs`, which is not negative and is below the
     capacity of `xs`, to `x`."""

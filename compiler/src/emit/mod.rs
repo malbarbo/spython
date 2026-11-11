@@ -1226,6 +1226,11 @@ impl Emitter<'_> {
                 self.expr(f, len);
                 self.reprs.list_set_len(f, list.rep());
             }
+            Expr::ListTruncate { list, len, rep } => {
+                self.expr(f, list);
+                self.expr(f, len);
+                self.reprs.list_truncate(f, list.rep(), *rep);
+            }
             Expr::ListIndex {
                 list,
                 index,

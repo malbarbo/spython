@@ -609,6 +609,13 @@ pub(crate) enum Expr {
         list: Box<Expr>,
         len: Box<Expr>,
     },
+    /// Sets the length of a list of items of `rep` to an `int` that is not
+    /// above its length, and drops the items past it.
+    ListTruncate {
+        list: Box<Expr>,
+        len: Box<Expr>,
+        rep: Rep,
+    },
     /// The item of a list at an `int` index that is not negative and is
     /// below the length of the list, which has `rep`, the rep of the items.
     Item {
@@ -1277,6 +1284,7 @@ impl Expr {
             | Expr::Stop { .. }
             | Expr::ListReserve { .. }
             | Expr::ListSetLen { .. }
+            | Expr::ListTruncate { .. }
             | Expr::SetItem { .. }
             | Expr::CopyItems { .. } => Rep::None,
         }

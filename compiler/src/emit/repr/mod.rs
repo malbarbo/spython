@@ -921,6 +921,18 @@ impl Reprs {
         self.list.set_len(f, list_index(rep));
     }
 
+    /// Pops a list of items of `item` and an `int`, not above its length,
+    /// and makes the list a list of that many items, without a reference
+    /// to the items past them.
+    pub fn list_truncate(&self, f: &mut FuncState, rep: Rep, item: Rep) {
+        self.int.as_i32(f);
+        let null = match self.local_type(item) {
+            Some(ValType::Ref(ty)) => Some(ty.heap_type),
+            _ => None,
+        };
+        self.list.truncate(f, list_index(rep), null);
+    }
+
     /// Pops a list and pushes the array of its items.
     pub fn list_items(&self, f: &mut FuncState, rep: Rep) {
         self.list.items(f, list_index(rep));

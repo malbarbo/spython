@@ -10,7 +10,7 @@
 //! starts with the array of no items of its type, which the module makes
 //! once.
 
-use wasm_encoder::{BlockType, ConstExpr, Instruction, StorageType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, HeapType, Instruction, StorageType, ValType};
 
 use super::super::module::{Composite, FuncState, GlobalIdx, LocalIdx, ModuleState, TypeIdx};
 
@@ -184,6 +184,32 @@ impl ListRepr {
     /// the list to it.
     pub fn set_len(&self, f: &mut FuncState, list: usize) {
         f.ins().struct_set(self.types(list).list, LEN);
+    }
+
+    /// Pops a list of the type `list` and an `i32` length, not above its
+    /// length, and makes the list a list of that many items. The array
+    /// keeps no reference past the new length, so the items there may go.
+    /// `null` is the null of the items when they are references.
+    pub fn truncate(&self, f: &mut FuncState, list: usize, null: Option<HeapType>) {
+        let types = self.types(list);
+        let len = f.temp(ValType::I32);
+        let value = f.temp(types.list.ref_to(true));
+        f.ins().local_set(len).local_tee(value);
+        if let Some(null) = null {
+            f.ins()
+                .struct_get(types.list, ITEMS)
+                .local_get(len)
+                .ref_null(null)
+                .local_get(value)
+                .struct_get(types.list, LEN)
+                .local_get(len)
+                .i32_sub()
+                .array_fill(types.items)
+                .local_get(value);
+        }
+        f.ins().local_get(len).struct_set(types.list, LEN);
+        f.free(len);
+        f.free(value);
     }
 
     /// Pops a list of the type `list` and pushes the array of its items.

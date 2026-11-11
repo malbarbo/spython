@@ -700,6 +700,11 @@ impl<'a> Ins<'a> {
         self
     }
 
+    pub fn array_fill(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.array_fill(ty.0);
+        self
+    }
+
     same! {
         array_len();
         drop();

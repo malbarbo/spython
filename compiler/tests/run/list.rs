@@ -488,6 +488,40 @@ fn pop_insert_and_extend_change_the_list_in_place() {
 }
 
 #[test]
+fn pop_and_remove_of_references_keep_the_other_items() {
+    same_as_cpython(
+        "pop_and_remove_of_references_keep_the_other_items",
+        indoc! {"
+            from dataclasses import dataclass
+
+
+            @dataclass
+            class P:
+                x: int
+
+
+            ss = ['a', 'b', 'c', 'd']
+            print(ss.pop(), ss.pop(0), ss)
+            ss.remove('b')
+            ss.append('e')
+            ss.insert(0, 'f')
+            print(ss, len(ss))
+            ps = [P(1), P(2), P(3)]
+            print(ps.pop(1), ps)
+            ps.remove(P(1))
+            ps.append(P(4))
+            print(ps, ps.pop(), ps.pop(), ps)
+            ls = [[1], [2], [3]]
+            ls.remove([2])
+            print(ls.pop(), ls)
+            us: list[int | str] = [1, 'a', 2]
+            us.remove('a')
+            print(us.pop(), us)
+        "},
+    );
+}
+
+#[test]
 fn pop_of_an_empty_list_or_out_of_range_raises_index_error() {
     for (name, source) in [
         (

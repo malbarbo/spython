@@ -6,6 +6,7 @@ from __spython_prelude__.intrinsics import (
     list_capacity,
     list_reserve,
     list_set_len,
+    list_truncate,
     set_item,
 )
 from __spython_prelude__.slices import slice_end, slice_start, step_bound
@@ -32,7 +33,7 @@ def pop[T](xs: list[T], i: int | None = None) -> T:
         raise IndexError("pop index out of range")
     x = item(xs, j)
     copy_items(xs, j, xs, j + 1, n - j - 1)
-    list_set_len(xs, n - 1)
+    list_truncate(xs, n - 1)
     return x
 
 
@@ -98,7 +99,7 @@ def remove[T](xs: list[T], x: T) -> None:
     for i in range(n):
         if item(xs, i) == x:
             copy_items(xs, i, xs, i + 1, n - i - 1)
-            list_set_len(xs, n - 1)
+            list_truncate(xs, n - 1)
             return
     raise ValueError("list.remove(x): x not in list")
 

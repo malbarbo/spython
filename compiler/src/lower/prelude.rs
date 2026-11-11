@@ -449,6 +449,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "list_set_len" => arg()
                 .zip(arg())
                 .map(|(list, len)| Expr::ListSetLen { list, len }),
+            "list_truncate" => arg().zip(arg()).and_then(|(list, len)| {
+                let rep = self.list_item(list.rep().list()?);
+                Some(Expr::ListTruncate { list, len, rep })
+            }),
             // The value takes the rep of the items of the list.
             "set_item" => {
                 let (list, index, value) = (arg(), arg(), arg());
