@@ -252,7 +252,7 @@ def found_at_most(s: str, sub: str, i: int) -> bool:
 def join(s: str, parts: list[str]) -> str:
     n = len(parts)
     if n == 0:
-        return ''
+        return ""
     size = len(s) * (n - 1)
     i = 0
     while i < n:

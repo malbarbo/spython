@@ -33,10 +33,10 @@ def repr_of[T](xs: list[T]) -> str:
     while i < len(xs):
         parts.append(repr(item(xs, i)))
         i += 1
-    return '[' + ', '.join(parts) + ']'
+    return "[" + ", ".join(parts) + "]"
 
 
 def repr_or_none[T](xs: list[T] | None) -> str:
     if xs is None:
-        return 'None'
+        return "None"
     return repr_of(xs)
