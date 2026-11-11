@@ -10,7 +10,7 @@ use ty_python_semantic::types::lowering::{
 };
 
 use super::expr::float_value;
-use super::{Lowering, Sig, coerce, params_of, unsupported};
+use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Place, PrintArg, Rep};
 
@@ -113,7 +113,8 @@ impl<'a> Lowering<'a, '_> {
             let Some((slot, rep)) = slot else {
                 return Err(unsupported(call, "a call with these arguments"));
             };
-            let lowered = coerce(self.expr(arg.value())?, *rep)
+            let lowered = self
+                .coerce(self.expr(arg.value())?, *rep)
                 .ok_or_else(|| unsupported(arg.value(), "an argument of this type"))?;
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
             args.push(lowered);
@@ -148,10 +149,10 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .map(|arg| {
                 let value = self.expr(arg)?;
-                // A uniform value may hold an object of any class, which the
-                // module writes with the `str` of its class.
+                // A uniform value may hold an object, which the module writes
+                // with the `str` of its class.
                 if value.rep() == Rep::Uniform {
-                    self.every_class_str()?;
+                    self.writes_uniform.set(true);
                 }
                 let str = self.object_str(value.rep())?;
                 Ok(PrintArg { value, str })

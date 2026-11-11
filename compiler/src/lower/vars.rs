@@ -7,7 +7,7 @@ use ty_python_semantic::types::lowering::{
 };
 
 use super::name_error::may_suggest;
-use super::{Lowering, coerce, holds, unbound_local, unsupported};
+use super::{Lowering, holds, unbound_local, unsupported};
 use crate::Error;
 use crate::ir::{Check, Expr, Place, Rep, Undefined};
 
@@ -18,7 +18,8 @@ impl<'a> Lowering<'a, '_> {
         let (place, rep) = self.place(target, value.rep())?;
         Ok((
             place,
-            coerce(value, rep).expect("a variable that holds the value"),
+            self.coerce(value, rep)
+                .expect("a variable that holds the value"),
         ))
     }
 

@@ -17,7 +17,7 @@ use ty_python_semantic::types::lowering::{
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::imported_name;
-use super::{HashSet, Lowering, Scope, Vars, coerce, unsupported};
+use super::{HashSet, Lowering, Scope, Vars, unsupported};
 use crate::Error;
 use crate::cpython::Class;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
@@ -350,8 +350,9 @@ impl<'a> Lowering<'a, '_> {
             }
             _ => {}
         }
-        let lowered =
-            coerce(lowered, rep).ok_or_else(|| unsupported(value, "a default of this type"))?;
+        let lowered = self
+            .coerce(lowered, rep)
+            .ok_or_else(|| unsupported(value, "a default of this type"))?;
         if let Some(scope) = self.scope.borrow_mut().as_mut() {
             scope.namespace.push(name.to_owned());
         }
@@ -448,7 +449,8 @@ impl<'a> Lowering<'a, '_> {
         value: Expr,
     ) -> Result<Stmt, Error> {
         let (object, class, field, rep) = self.updated_field(attr)?;
-        let value = coerce(value, rep)
+        let value = self
+            .coerce(value, rep)
             .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
         let text = format!(
             "'NoneType' object has no attribute '{}' and no __dict__ for setting new attributes",
@@ -517,15 +519,6 @@ impl<'a> Lowering<'a, '_> {
         let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
         self.classes.borrow_mut().get_mut(class).str = Some(func);
         Ok(func)
-    }
-
-    /// Makes the function of the `str` of every class of the module.
-    pub(super) fn every_class_str(&self) -> Result<(), Error> {
-        let count = self.classes.borrow().list.len();
-        for class in 0..count {
-            self.class_str(ClassId::new(class))?;
-        }
-        Ok(())
     }
 
     /// The function that gives the `repr` of an object of `class`, which a
@@ -951,7 +944,7 @@ impl<'a> Lowering<'a, '_> {
                 if a == b =>
             {
                 let rep = Rep::ObjectOrNone(a);
-                let coerced = |value| coerce(value, rep).expect("an object or None");
+                let coerced = |value| self.coerce(value, rep).expect("an object or None");
                 Expr::Call {
                     func: self.eq_or_none(a)?,
                     args: vec![coerced(left), coerced(right)],
@@ -1067,7 +1060,7 @@ impl<'a> Lowering<'a, '_> {
         }
         // A union compares by the types of its values.
         if matches!(rep, Rep::StrOrNone | Rep::Uniform) {
-            let uniform = |value| coerce(value, Rep::Uniform).expect("a uniform value");
+            let uniform = |value| self.coerce(value, Rep::Uniform).expect("a uniform value");
             return Ok(Expr::Compare(
                 Box::new(uniform(ours)),
                 vec![(CmpOp::Eq, uniform(theirs))],

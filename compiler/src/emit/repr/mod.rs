@@ -1172,8 +1172,12 @@ impl Reprs {
             f.ins().return_();
             f.end();
         }
+        // An object of a class without a `str` never goes to a union.
         for i in 0..self.classes.len() {
             let class = ClassId::new(i);
+            if self.class_strs.get(i).copied().flatten().is_none() {
+                continue;
+            }
             f.ins()
                 .local_get(value)
                 .ref_test(self.class(class).heap_type());

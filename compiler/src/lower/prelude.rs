@@ -8,7 +8,7 @@ use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::DefId;
 
-use super::{Loaded, Lowering, Sig, coerce, unsupported};
+use super::{Loaded, Lowering, Sig, unsupported};
 use crate::Error;
 use crate::cpython::names;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
@@ -112,7 +112,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let args = params
             .iter()
             .map(|rep| {
-                coerce(given.next().unwrap_or(Expr::None), *rep)
+                self.coerce(given.next().unwrap_or(Expr::None), *rep)
                     .ok_or_else(|| unsupported(call, "an argument of this type"))
             })
             .collect::<Result<_, _>>()?;

@@ -565,6 +565,42 @@ fn print_of_an_object_in_a_union_has_the_site_of_the_print() {
     );
 }
 
+/// The `print` of a union writes an object of a class that goes to a union
+/// with the `str` of the class, and needs no `str` of another class.
+#[test]
+fn print_of_a_union_needs_the_str_of_the_classes_in_a_union() {
+    same_as_cpython(
+        "print_of_a_union_needs_the_str_of_the_classes_in_a_union",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class A:
+                v: int
+
+            @dataclass
+            class B:
+                x: int | str
+
+            def show(x: int | A) -> None:
+                print(x)
+
+            def make(n: int) -> int | A:
+                if n > 0:
+                    return A(n)
+                return n
+
+            def text(s: int | str) -> None:
+                print(s)
+
+            show(make(1))
+            show(make(0))
+            text('a')
+            print(B(1).x)
+        "},
+    );
+}
+
 /// The read of a field of a union after a test has the type of the test.
 #[test]
 fn a_test_narrows_a_field_of_a_union() {

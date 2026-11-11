@@ -4,7 +4,7 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
-use super::{Lowering, coerce, join, unsupported};
+use super::{Lowering, join, unsupported};
 use crate::Error;
 use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
 
@@ -107,7 +107,7 @@ impl<'a> Lowering<'a, '_> {
                 let else_ = self.expr(&i.orelse)?;
                 let rep = join(then.rep(), else_.rep());
                 let widen =
-                    |value| Box::new(coerce(value, rep).expect("the join holds both values"));
+                    |value| Box::new(self.coerce(value, rep).expect("the join holds both values"));
                 Ok(Expr::IfElse {
                     cond: Box::new(cond),
                     then: widen(then),
@@ -131,7 +131,8 @@ impl<'a> Lowering<'a, '_> {
                             .into_iter()
                             .map(|part| {
                                 let part = bound(part)?.map_or(Expr::None, |part| *part);
-                                Ok(coerce(part, Rep::Uniform)
+                                Ok(self
+                                    .coerce(part, Rep::Uniform)
                                     .expect("a uniform value holds any value"))
                             })
                             .collect::<Result<Vec<_>, Error>>()?;
@@ -337,7 +338,7 @@ impl<'a> Lowering<'a, '_> {
                     let reference = |value: Expr, other: Rep| match (value.rep(), other) {
                         (rep, _) if is_object(rep) => Some(value),
                         (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
-                            coerce(value, Rep::ObjectOrNone(class))
+                            self.coerce(value, Rep::ObjectOrNone(class))
                         }
                         _ => None,
                     };
@@ -405,9 +406,10 @@ impl<'a> Lowering<'a, '_> {
                 .map(|(lowered, _)| lowered.rep())
                 .reduce(join)
                 .expect("a comparison has a first operand");
-            let mut operands = operands
-                .into_iter()
-                .map(|(lowered, _)| coerce(lowered, rep).expect("the join holds every operand"));
+            let mut operands = operands.into_iter().map(|(lowered, _)| {
+                self.coerce(lowered, rep)
+                    .expect("the join holds every operand")
+            });
             let first = operands.next().expect("a comparison has a first operand");
             return Ok(Expr::Compare(
                 Box::new(first),
@@ -421,7 +423,8 @@ impl<'a> Lowering<'a, '_> {
         };
         if operands.iter().any(union) {
             let mut operands = operands.into_iter().map(|(lowered, _)| {
-                coerce(lowered, Rep::Uniform).expect("a uniform value holds any value")
+                self.coerce(lowered, Rep::Uniform)
+                    .expect("a uniform value holds any value")
             });
             let first = operands.next().expect("a comparison has a first operand");
             return Ok(Expr::Compare(

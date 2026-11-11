@@ -26,7 +26,7 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{
-    Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
+    ClassId, Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
 };
 use crate::{Docstring, Error};
 use class::Classes;
@@ -74,6 +74,8 @@ pub(crate) fn lower(
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
+        uniform_classes: RefCell::new(Vec::new()),
+        writes_uniform: Cell::new(false),
         raises: Cell::new(false),
     };
     let suite = main.module.suite().as_slice();
@@ -84,15 +86,29 @@ pub(crate) fn lower(
         None => None,
     };
     // The lowering of a function may declare another one, which goes to the
-    // end of the queue.
+    // end of the queue, and may put the object of another class in a union.
     let mut funcs: Vec<Func> = Vec::new();
-    while funcs.len() < lowering.funcs.borrow().sigs.len() {
-        let id = FuncId::new(funcs.len());
-        let lowered = lowering.lowered.borrow_mut().remove(&id.index());
-        funcs.push(match lowered {
-            Some(func) => func,
-            None => lowering.func(id)?,
-        });
+    let mut strs = 0;
+    loop {
+        while funcs.len() < lowering.funcs.borrow().sigs.len() {
+            let id = FuncId::new(funcs.len());
+            let lowered = lowering.lowered.borrow_mut().remove(&id.index());
+            funcs.push(match lowered {
+                Some(func) => func,
+                None => lowering.func(id)?,
+            });
+        }
+        let classes = lowering.uniform_classes.borrow().len();
+        if !lowering.writes_uniform.get() || strs == classes {
+            break;
+        }
+        // The `str` of a class may put another class in a union.
+        loop {
+            let class = lowering.uniform_classes.borrow().get(strs).copied();
+            let Some(class) = class else { break };
+            lowering.class_str(class)?;
+            strs += 1;
+        }
     }
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
@@ -209,6 +225,12 @@ struct Lowering<'a, 'db> {
     /// Whether the code of the function of the prelude that the lowering
     /// is in has an instruction that may raise.
     raises: Cell<bool>,
+    /// The classes whose objects a union may hold, in the order of their
+    /// first widening.
+    uniform_classes: RefCell<Vec<ClassId>>,
+    /// Whether the program writes a union, which writes an object of each
+    /// class of `uniform_classes` with the `str` of its class.
+    writes_uniform: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -722,6 +744,30 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     /// The rep of the values of `shape`, and `None` when the compiler has no
     /// rep for them.
+    /// `value` as a value of `rep`, and `None` when a variable of `rep` does
+    /// not hold it.
+    fn coerce(&self, value: Expr, rep: Rep) -> Option<Expr> {
+        let from = value.rep();
+        if from == rep {
+            return Some(value);
+        }
+        if !holds(rep, from) {
+            return None;
+        }
+        if rep == Rep::Uniform
+            && let Rep::Object(class) | Rep::ObjectOrNone(class) = from
+        {
+            let mut classes = self.uniform_classes.borrow_mut();
+            if !classes.contains(&class) {
+                classes.push(class);
+            }
+        }
+        Some(Expr::Widen {
+            value: Box::new(value),
+            rep,
+        })
+    }
+
     fn rep_of(&self, shape: Option<Shape>) -> Option<Rep> {
         match shape? {
             Shape::Int | Shape::IntLit(_) => Some(Rep::Int),
@@ -858,21 +904,6 @@ fn join(a: Rep, b: Rep) -> Rep {
         Rep::ObjectOrNone(class)
     } else {
         Rep::Uniform
-    }
-}
-
-/// `value` as a value of `rep`, and `None` when a variable of `rep` does
-/// not hold it.
-fn coerce(value: Expr, rep: Rep) -> Option<Expr> {
-    if value.rep() == rep {
-        Some(value)
-    } else if holds(rep, value.rep()) {
-        Some(Expr::Widen {
-            value: Box::new(value),
-            rep,
-        })
-    } else {
-        None
     }
 }
 
