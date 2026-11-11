@@ -222,6 +222,9 @@ impl<'a> Lowering<'a, '_> {
                         .rep_of(Some(shape))
                         .filter(|rep| *rep != Rep::None)
                         .ok_or_else(|| unsupported(node, "a field of this type"))?;
+                    if rep.list().is_some() {
+                        return Err(unsupported(node, "a field of a list"));
+                    }
                     let default = node
                         .value
                         .as_ref()

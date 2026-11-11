@@ -18,6 +18,8 @@ pub(crate) struct Program {
     pub imports: Vec<Import>,
     /// The classes of the module, by their [`ClassId`].
     pub classes: Vec<UserClass>,
+    /// The types of the lists of the program, by their [`ListId`].
+    pub lists: Vec<ListType>,
     /// The frame of each place that can raise, by its [`Site`].
     pub sites: Vec<SiteFrame>,
     /// The function that gives the `repr` of a `str`, when the program
@@ -65,6 +67,7 @@ id! {
     FuncId, "functions";
     ImportId, "imports";
     ClassId, "classes";
+    ListId, "types of lists";
 }
 
 /// A variable of the module, or of a function, by its place in the list
@@ -125,6 +128,15 @@ pub(crate) struct UserClass {
     /// `true` when the `repr` of an object writes `...` for the object
     /// inside its own `repr`, as the `repr` of a dataclass does.
     pub repr_guard: bool,
+}
+
+/// A type of list of the program, which the rep of its items tells apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ListId(u32);
+
+pub(crate) struct ListType {
+    /// The rep of each item of a list of the type.
+    pub item: Rep,
 }
 
 pub(crate) struct Func {
@@ -245,8 +257,8 @@ pub(crate) enum Expr {
     },
     /// Whether a value is `None`, as a `bool`.
     IsNone(Box<Expr>),
-    /// Whether two objects, each of a class or `None`, are the same object,
-    /// as a `bool`.
+    /// Whether two objects, each of a class, of a type of list or `None`,
+    /// are the same object, as a `bool`.
     Is(Box<Expr>, Box<Expr>),
     /// The value of a variable. Only a read with a check may come before
     /// the first assignment.
@@ -343,6 +355,12 @@ pub(crate) enum Expr {
     New {
         class: ClassId,
         fields: Vec<Expr>,
+    },
+    /// A new list of the type `list`, with a value of the rep of its items
+    /// for each item, which the program evaluates in order.
+    List {
+        list: ListId,
+        items: Vec<Expr>,
     },
     /// Whether the `repr` of the object runs, as a `bool`.
     InRepr(Box<Expr>),
@@ -587,15 +605,16 @@ pub(crate) enum Expr {
         stop: Option<Box<Expr>>,
         site: Site,
     },
-    /// `len` of a `str`. A length outside 31 bits stops the program at the
-    /// site.
+    /// `len` of a `str` or of a list. A length outside 31 bits stops the
+    /// program at the site.
     Len {
         operand: Box<Expr>,
         site: Site,
     },
-    /// The truth of an `int`, a `float` or a `str`, as a `bool`. A number
-    /// is true when it is not 0, and a `str` when it is not empty. `nan` is
-    /// true, and `-0.0` is false.
+    /// The truth of an `int`, a `float`, a `str`, an object or a list, as a
+    /// `bool`. A number is true when it is not 0, and a `str` or a list when
+    /// it is not empty. `nan` is true, and `-0.0` is false. An object is
+    /// true, and `None` is false.
     Truth(Box<Expr>),
     /// `not` on a `bool`, which may be the truth of another value.
     Not(Box<Expr>),
@@ -1039,7 +1058,7 @@ pub(crate) enum CmpOp {
 }
 
 /// The shape of a value, which knows nothing of wasm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Rep {
     Int,
     Float,
@@ -1054,6 +1073,10 @@ pub(crate) enum Rep {
     Object(ClassId),
     /// An object of the class or `None`.
     ObjectOrNone(ClassId),
+    /// A list of the type.
+    List(ListId),
+    /// A list of the type or `None`.
+    ListOrNone(ListId),
 }
 
 /// A literal that a field of a member of an `Enum` holds.
@@ -1078,6 +1101,15 @@ impl Rep {
     pub(crate) fn class(self) -> Option<ClassId> {
         match self {
             Rep::Object(class) | Rep::ObjectOrNone(class) => Some(class),
+            _ => None,
+        }
+    }
+
+    /// The type of a list of `self`, which may be `None` too, and `None`
+    /// for a rep of another type.
+    pub(crate) fn list(self) -> Option<ListId> {
+        match self {
+            Rep::List(list) | Rep::ListOrNone(list) => Some(list),
             _ => None,
         }
     }
@@ -1151,6 +1183,7 @@ impl Expr {
             Expr::Member { class, .. } | Expr::New { class, .. } | Expr::Target(class) => {
                 Rep::Object(*class)
             }
+            Expr::List { list, .. } => Rep::List(*list),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
             Expr::After { value, .. }

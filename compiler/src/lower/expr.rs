@@ -116,6 +116,7 @@ impl<'a> Lowering<'a, '_> {
                 })
             }
             ast::Expr::Compare(c) => self.compare(c),
+            ast::Expr::List(list) => self.list(expr, list),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
                 if value.rep() != Rep::Str {
@@ -175,6 +176,33 @@ impl<'a> Lowering<'a, '_> {
             },
             _ => Err(unsupported(expr, "this expression")),
         }
+    }
+
+    /// The list of the literal `list`, whose type the checker gives, as the
+    /// annotation of `xs: list[int] = [True]` does. Each item becomes a
+    /// value of the rep of the items, and a `bool` in a list of `int`s is
+    /// the `int` it is.
+    fn list(&self, expr: &ast::Expr, list: &ast::ExprList) -> Result<Expr, Error> {
+        let Some(Rep::List(id)) = self.rep_of(expr_shape(self.model(), expr)) else {
+            return Err(unsupported(list, "a list of this type"));
+        };
+        let item = self.list_item(id);
+        let items = list
+            .elts
+            .iter()
+            .map(|elt| {
+                if elt.is_starred_expr() {
+                    return Err(unsupported(elt, "a starred item"));
+                }
+                let lowered = self.expr(elt)?;
+                let lowered = match (lowered.rep(), item) {
+                    (Rep::Bool, Rep::Int) => Expr::BoolAsInt(Box::new(lowered)),
+                    _ => lowered,
+                };
+                coerce(lowered, item).ok_or_else(|| unsupported(elt, "an item of this type"))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Expr::List { list: id, items })
     }
 
     /// Refuses the text `value` of the literal `node` when it may hold a
@@ -267,6 +295,7 @@ impl<'a> Lowering<'a, '_> {
             }),
             Rep::None => Err(unsupported(node, "str of None")),
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
+            Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "str of a list")),
             Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 let func = self
                     .object_str(lowered.rep())?
@@ -341,9 +370,12 @@ impl<'a> Lowering<'a, '_> {
                     // A value that the checker narrows to `None` has no
                     // reference, and gets the null of the other class.
                     let reference = |value: Expr, other: Rep| match (value.rep(), other) {
-                        (rep, _) if rep.class().is_some() => Some(value),
+                        (rep, _) if rep.class().is_some() || rep.list().is_some() => Some(value),
                         (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
                             coerce(value, Rep::ObjectOrNone(class))
+                        }
+                        (Rep::None, Rep::List(list) | Rep::ListOrNone(list)) => {
+                            coerce(value, Rep::ListOrNone(list))
                         }
                         _ => None,
                     };
@@ -392,6 +424,12 @@ impl<'a> Lowering<'a, '_> {
             .chain(c.comparators())
             .map(|operand| Ok((self.expr(operand)?, operand)))
             .collect::<Result<Vec<_>, Error>>()?;
+        if operands
+            .iter()
+            .any(|(lowered, _)| lowered.rep().list().is_some())
+        {
+            return Err(unsupported(c, "a comparison of lists"));
+        }
         if operands
             .windows(2)
             .any(|pair| matches!(pair, [left, right] if self.share_dataclass(left, right)))
@@ -640,7 +678,9 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Bool
             | Rep::Str
             | Rep::Object(_)
-            | Rep::ObjectOrNone(_) => Ok(lowered),
+            | Rep::ObjectOrNone(_)
+            | Rep::List(_)
+            | Rep::ListOrNone(_) => Ok(lowered),
         }
     }
 
@@ -660,7 +700,9 @@ impl<'a> Lowering<'a, '_> {
             | Rep::StrOrNone
             | Rep::Uniform
             | Rep::Object(_)
-            | Rep::ObjectOrNone(_) => Err(unsupported(
+            | Rep::ObjectOrNone(_)
+            | Rep::List(_)
+            | Rep::ListOrNone(_) => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -681,7 +723,9 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         | Rep::StrOrNone
         | Rep::Uniform
         | Rep::Object(_)
-        | Rep::ObjectOrNone(_) => Err(unsupported(
+        | Rep::ObjectOrNone(_)
+        | Rep::List(_)
+        | Rep::ListOrNone(_) => Err(unsupported(
             operand,
             "an operator on a value that is not a number",
         )),
@@ -705,10 +749,15 @@ pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
         Rep::Bool => Ok(lowered),
         // An object is true, since neither form of a class defines
         // `__bool__` or `__len__`, and an object or `None` is true when it
-        // is an object.
-        Rep::Int | Rep::Float | Rep::Str | Rep::Object(_) | Rep::ObjectOrNone(_) => {
-            Ok(Expr::Truth(Box::new(lowered)))
-        }
+        // is an object. A list or `None` is true when it is a list with
+        // items.
+        Rep::Int
+        | Rep::Float
+        | Rep::Str
+        | Rep::Object(_)
+        | Rep::ObjectOrNone(_)
+        | Rep::List(_)
+        | Rep::ListOrNone(_) => Ok(Expr::Truth(Box::new(lowered))),
         Rep::None => Err(unsupported(node, "the truth of None")),
         Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "the truth of a union")),
     }

@@ -26,7 +26,8 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{
-    ClassId, Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
+    ClassId, Expr, Func, FuncId, Import, ImportId, ListId, ListType, Program, Rep, Site, SiteFrame,
+    Stmt, Var, VarId,
 };
 use crate::{Docstring, Error};
 use class::Classes;
@@ -69,6 +70,7 @@ pub(crate) fn lower(
         funcs: RefCell::new(Funcs::default()),
         imports: RefCell::new(Imports::default()),
         classes: RefCell::new(Classes::default()),
+        lists: RefCell::new(Lists::default()),
         assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
@@ -117,6 +119,13 @@ pub(crate) fn lower(
         funcs,
         imports: lowering.imports.into_inner().list,
         classes: lowering.classes.into_inner().into_ir(),
+        lists: lowering
+            .lists
+            .into_inner()
+            .items
+            .into_iter()
+            .map(|item| ListType { item })
+            .collect(),
         sites: lowering.sites.into_inner(),
         str_repr,
     })
@@ -203,6 +212,7 @@ struct Lowering<'a, 'db> {
     funcs: RefCell<Funcs<'a, 'db>>,
     imports: RefCell<Imports>,
     classes: RefCell<Classes<'a>>,
+    lists: RefCell<Lists>,
     /// The globals that a function declares with `global`, which a call may
     /// assign between a test of the value and a read.
     assigned_globals: RefCell<HashSet<String>>,
@@ -274,6 +284,15 @@ impl Vars {
         names.sort_by_key(|(id, _)| id.index());
         names
     }
+}
+
+/// The types of the lists of the program.
+#[derive(Default)]
+struct Lists {
+    /// The type of a list of each rep of an item.
+    ids: HashMap<Rep, ListId>,
+    /// The rep of the items of each type, by its id.
+    items: Vec<Rep>,
 }
 
 #[derive(Default)]
@@ -775,19 +794,49 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .get(&class)
                 .copied()
                 .map(Rep::Object),
+            Shape::List(item) => self
+                .rep_of(Some(*item))
+                .map(|item| Rep::List(self.list_of(item))),
             // A union of `str` and `None` needs no box, and any other union
             // of values with a rep is uniform.
-            Shape::Union(shapes) => shapes
-                .into_iter()
-                .map(|shape| match shape {
-                    Shape::None => Some(Rep::None),
-                    shape => self.rep_of(Some(shape)),
-                })
-                .collect::<Option<Vec<_>>>()?
-                .into_iter()
-                .reduce(join),
+            Shape::Union(shapes) => {
+                let reps = shapes
+                    .into_iter()
+                    .map(|shape| match shape {
+                        Shape::None => Some(Rep::None),
+                        shape => self.rep_of(Some(shape)),
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                let rep = reps.iter().copied().reduce(join)?;
+                // A uniform value does not hold a list yet.
+                let holds_list = reps.iter().any(|rep| rep.list().is_some());
+                (rep != Rep::Uniform || !holds_list).then_some(rep)
+            }
             _ => None,
         }
+    }
+
+    /// The type of a list whose items have `item`, which the first call
+    /// for `item` creates.
+    fn list_of(&self, item: Rep) -> ListId {
+        let mut lists = self.lists.borrow_mut();
+        if let Some(list) = lists.ids.get(&item) {
+            return *list;
+        }
+        let list = ListId::new(lists.items.len());
+        lists.items.push(item);
+        lists.ids.insert(item, list);
+        list
+    }
+
+    /// The rep of each item of a list of the type `list`.
+    fn list_item(&self, list: ListId) -> Rep {
+        *self
+            .lists
+            .borrow()
+            .items
+            .get(list.index())
+            .expect("a type of list of the program")
     }
 
     /// Makes the function that gives the `repr` of a `str` and of an object
@@ -891,6 +940,9 @@ fn holds(rep: Rep, value: Rep) -> bool {
         Rep::ObjectOrNone(class) => {
             matches!(value, Rep::None) || value == Rep::Object(class) || value == rep
         }
+        Rep::ListOrNone(list) => {
+            matches!(value, Rep::None) || value == Rep::List(list) || value == rep
+        }
         Rep::Uniform => true,
         _ => rep == value,
     }
@@ -913,6 +965,12 @@ fn join(a: Rep, b: Rep) -> Rep {
             .all(|rep| *rep == Rep::None || rep.class() == Some(class))
     {
         Rep::ObjectOrNone(class)
+    } else if let Some(list) = a.list().or(b.list())
+        && [a, b]
+            .iter()
+            .all(|rep| *rep == Rep::None || rep.list() == Some(list))
+    {
+        Rep::ListOrNone(list)
     } else {
         Rep::Uniform
     }
@@ -929,6 +987,7 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
         Rep::Object(_) | Rep::ObjectOrNone(_) => {
             Err(unsupported(node, "a variable self of a class"))
         }
+        Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "a variable self of a list")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
     }
 }

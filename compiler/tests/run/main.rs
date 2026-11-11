@@ -20,6 +20,7 @@ mod float;
 mod functions;
 mod imports;
 mod int;
+mod list;
 mod math;
 mod memory;
 mod name_error;

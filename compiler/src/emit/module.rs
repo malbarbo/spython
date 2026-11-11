@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use wasm_encoder::{
-    BlockType, Catch, CodeSection, CompositeInnerType, CompositeType, ConstExpr, DataCountSection,
-    DataSection, EntityType, ExportKind, ExportSection, FieldType, Function, FunctionSection,
-    GlobalSection, GlobalType, HeapType, Ieee64, ImportSection, InstructionSink, MemArg,
-    MemorySection, MemoryType, Module, RefType, StorageType, StructType, SubType, TagKind,
+    ArrayType, BlockType, Catch, CodeSection, CompositeInnerType, CompositeType, ConstExpr,
+    DataCountSection, DataSection, EntityType, ExportKind, ExportSection, FieldType, Function,
+    FunctionSection, GlobalSection, GlobalType, HeapType, Ieee64, ImportSection, InstructionSink,
+    MemArg, MemorySection, MemoryType, Module, RefType, StorageType, StructType, SubType, TagKind,
     TagSection, TagType, TypeSection, ValType,
 };
 use wasmparser::{Parser, Payload};
@@ -39,6 +39,11 @@ impl TypeIdx {
         HeapType::Concrete(self.0)
     }
 
+    /// The index of the type in the type section.
+    pub fn index(self) -> u32 {
+        self.0
+    }
+
     /// The type `n` places after this one.
     pub fn plus(self, n: usize) -> TypeIdx {
         TypeIdx(self.0 + u32::try_from(n).expect("fewer than 2^32 types"))
@@ -51,6 +56,15 @@ impl TypeIdx {
             heap_type: self.heap_type(),
         })
     }
+}
+
+/// A type of a rec group.
+pub(crate) enum Composite {
+    /// A struct with the fields, each with its type and whether it is
+    /// mutable.
+    Struct(Vec<(StorageType, bool)>),
+    /// An array of the type, which is mutable when the `bool` is `true`.
+    Array(StorageType, bool),
 }
 
 /// The index of an exception tag in the module.
@@ -169,35 +183,38 @@ impl ModuleState {
         self.next_type()
     }
 
-    /// The struct types with the fields of each of `structs`, in one rec
-    /// group, so no two of them are the same type. A field can refer to a
-    /// struct of the group by [`Self::next_type_index`] plus the place of
-    /// the struct.
-    pub fn rec_group(&mut self, structs: &[Vec<(StorageType, bool)>]) -> Vec<TypeIdx> {
-        if structs.is_empty() {
+    /// The types of `composites`, in one rec group, so no two of them are
+    /// the same type. A type can refer to a type of the group by
+    /// [`Self::next_type_index`] plus the place of the type.
+    pub fn rec_group(&mut self, composites: &[Composite]) -> Vec<TypeIdx> {
+        if composites.is_empty() {
             return Vec::new();
         }
-        self.types.ty().rec(structs.iter().map(|fields| {
+        let field = |&(element_type, mutable): &(StorageType, bool)| FieldType {
+            element_type,
+            mutable,
+        };
+        self.types.ty().rec(composites.iter().map(|composite| {
+            let inner = match composite {
+                Composite::Struct(fields) => CompositeInnerType::Struct(StructType {
+                    fields: fields.iter().map(field).collect(),
+                }),
+                Composite::Array(element_type, mutable) => {
+                    CompositeInnerType::Array(ArrayType(field(&(*element_type, *mutable))))
+                }
+            };
             SubType {
                 is_final: true,
                 supertype_idxs: Vec::new(),
                 composite_type: CompositeType {
-                    inner: CompositeInnerType::Struct(StructType {
-                        fields: fields
-                            .iter()
-                            .map(|&(element_type, mutable)| FieldType {
-                                element_type,
-                                mutable,
-                            })
-                            .collect(),
-                    }),
+                    inner,
                     shared: false,
                     descriptor: None,
                     describes: None,
                 },
             }
         }));
-        structs.iter().map(|_| self.next_type()).collect()
+        composites.iter().map(|_| self.next_type()).collect()
     }
 
     /// The index the next type will have.

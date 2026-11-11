@@ -19,7 +19,13 @@ use runtime::host::Host;
 pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m, program.tests.is_some());
-    let mut reprs = Reprs::new(&mut m, &host, program.tests.is_some(), &program.classes);
+    let mut reprs = Reprs::new(
+        &mut m,
+        &host,
+        program.tests.is_some(),
+        &program.classes,
+        &program.lists,
+    );
     let vars = program
         .vars
         .iter()
@@ -1149,7 +1155,8 @@ impl Emitter<'_> {
             }
             Expr::Len { operand, site } => {
                 self.expr(f, operand);
-                self.at(f, *site, |e, f| e.reprs.str_len(f));
+                let rep = operand.rep();
+                self.at(f, *site, |e, f| e.reprs.len(f, rep));
             }
             Expr::Truth(operand) => {
                 self.expr(f, operand);
@@ -1175,6 +1182,15 @@ impl Emitter<'_> {
                     self.expr(f, field);
                 }
                 self.reprs.new_object(f, *class);
+            }
+            Expr::List { list, items } => {
+                let array = self.reprs.begin_literal(f, *list, items.len());
+                for (i, item) in items.iter().enumerate() {
+                    self.reprs.before_item(f, array, i);
+                    self.expr(f, item);
+                    self.reprs.after_item(f, *list, array);
+                }
+                self.reprs.end_literal(f, *list, items.len(), array);
             }
             Expr::Field {
                 object,

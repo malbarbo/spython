@@ -151,6 +151,9 @@ impl<'a> Lowering<'a, '_> {
                 let value = self.expr(arg)?;
                 // The write of an object calls the `str` of its class.
                 match value.rep() {
+                    Rep::List(_) | Rep::ListOrNone(_) => {
+                        return Err(unsupported(arg, "print of a list"));
+                    }
                     Rep::Object(class) | Rep::ObjectOrNone(class) => {
                         self.class_str(class)?;
                     }
@@ -170,13 +173,13 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
-    /// `len` of one `str`.
+    /// `len` of one `str` or one list.
     pub(super) fn len(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let ([arg], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
             return Err(unsupported(call, "this call of len"));
         };
         let operand = self.expr(arg)?;
-        if operand.rep() != Rep::Str {
+        if !matches!(operand.rep(), Rep::Str | Rep::List(_)) {
             return Err(unsupported(arg, "len of this type"));
         }
         Ok(Expr::Len {
@@ -200,7 +203,9 @@ impl<'a> Lowering<'a, '_> {
             | Rep::StrOrNone
             | Rep::Uniform
             | Rep::Object(_)
-            | Rep::ObjectOrNone(_) => Err(unsupported(arg, "abs of this type")),
+            | Rep::ObjectOrNone(_)
+            | Rep::List(_)
+            | Rep::ListOrNone(_) => Err(unsupported(arg, "abs of this type")),
         }
     }
 
@@ -278,7 +283,9 @@ impl<'a> Lowering<'a, '_> {
                 | Rep::StrOrNone
                 | Rep::Uniform
                 | Rep::Object(_)
-                | Rep::ObjectOrNone(_),
+                | Rep::ObjectOrNone(_)
+                | Rep::List(_)
+                | Rep::ListOrNone(_),
                 _,
             ) => Err(unsupported(arg, "round of this type")),
         }
@@ -295,7 +302,9 @@ impl<'a> Lowering<'a, '_> {
             | Rep::StrOrNone
             | Rep::Uniform
             | Rep::Object(_)
-            | Rep::ObjectOrNone(_) => Err(unsupported(digits, "round to this number of digits")),
+            | Rep::ObjectOrNone(_)
+            | Rep::List(_)
+            | Rep::ListOrNone(_) => Err(unsupported(digits, "round to this number of digits")),
         }
     }
 
@@ -321,7 +330,9 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::StrOrNone
                     | Rep::Uniform
                     | Rep::Object(_)
-                    | Rep::ObjectOrNone(_) => Err(unsupported(arg, "float of this type")),
+                    | Rep::ObjectOrNone(_)
+                    | Rep::List(_)
+                    | Rep::ListOrNone(_) => Err(unsupported(arg, "float of this type")),
                 }
             }
             _ => Err(unsupported(call, "this call of float")),
@@ -346,6 +357,9 @@ impl<'a> Lowering<'a, '_> {
 
     /// The `repr` of `lowered`. The conversion covers `range`.
     pub(super) fn repr_of(&self, lowered: Expr, range: TextRange) -> Result<Expr, Error> {
+        if lowered.rep().list().is_some() {
+            return Err(unsupported(&range, "the repr of a list"));
+        }
         let site = self.site(range);
         self.repr_at(lowered, site)
     }
@@ -365,6 +379,7 @@ impl<'a> Lowering<'a, '_> {
                 Rep::Str,
                 site,
             ),
+            Rep::List(_) | Rep::ListOrNone(_) => unreachable!("the repr of a list"),
             // The `repr` of a uniform value tests its type when it runs.
             Rep::None | Rep::StrOrNone | Rep::Uniform => {
                 self.uniform_repr.set(true);
@@ -395,7 +410,9 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::StrOrNone
                     | Rep::Uniform
                     | Rep::Object(_)
-                    | Rep::ObjectOrNone(_) => Err(unsupported(arg, "int of this type")),
+                    | Rep::ObjectOrNone(_)
+                    | Rep::List(_)
+                    | Rep::ListOrNone(_) => Err(unsupported(arg, "int of this type")),
                 }
             }
             ([arg, base], []) => self.int_with_base(call, arg, base),
