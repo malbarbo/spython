@@ -72,6 +72,9 @@ pub(super) struct Declared<'a> {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
     pub kind: Kind,
+    /// The name and the type of each field of a dataclass, as the checker
+    /// gives them.
+    pub checked: Vec<(String, Shape)>,
     /// The name and the rep of each field of an object of the class. A
     /// member of an `Enum` has `name` and `value`.
     pub fields: Vec<(String, Rep)>,
@@ -165,12 +168,22 @@ impl<'a> Lowering<'a, '_> {
             let fields = vec![("name".to_owned(), Rep::Str), ("value".to_owned(), value)];
             (Kind::Enum, fields, members)
         };
+        let checked = match kind {
+            Kind::Dataclass { .. } => info
+                .dataclass_fields
+                .expect("a dataclass that the checker knows")
+                .into_iter()
+                .map(|field| (field.name, field.shape))
+                .collect(),
+            Kind::Enum => Vec::new(),
+        };
         let mut classes = self.classes.borrow_mut();
         let id = ClassId::new(classes.list.len());
         classes.list.push(Declared {
             def,
             ordered: false,
             kind,
+            checked,
             fields,
             members,
             str: None,
@@ -192,30 +205,27 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn declare_fields(&self) -> Result<(), Error> {
         let count = self.classes.borrow().list.len();
         for class in (0..count).map(ClassId::new) {
-            let (def, kind) = {
+            let (def, checked) = {
                 let classes = self.classes.borrow();
                 let declared = classes.get(class);
-                (declared.def, declared.kind)
+                if !declared.kind.is_dataclass() {
+                    continue;
+                }
+                (declared.def, declared.checked.clone())
             };
-            if !kind.is_dataclass() {
-                continue;
-            }
-            let info = class_info(self.model(), def).expect("a class that the checker knows");
-            let fields = info
-                .dataclass_fields
-                .expect("a dataclass that the checker knows")
+            let fields = checked
                 .into_iter()
                 .zip(dataclass_fields(def))
-                .map(|(field, node)| {
+                .map(|((name, shape), node)| {
                     let rep = self
-                        .rep_of(Some(field.shape))
+                        .rep_of(Some(shape))
                         .filter(|rep| *rep != Rep::None)
                         .ok_or_else(|| unsupported(node, "a field of this type"))?;
                     let default = node
                         .value
                         .as_ref()
                         .map(|_| self.vars.borrow_mut().add_unnamed(rep));
-                    Ok(((field.name, rep), default))
+                    Ok(((name, rep), default))
                 })
                 .collect::<Result<Vec<_>, Error>>()?;
             let (fields, defaults) = fields.into_iter().unzip();
@@ -918,15 +928,13 @@ impl<'a> Lowering<'a, '_> {
         let line = 10 + fields.len().max(1);
         let site = self.dataclass_site("__eq__", line);
         let other = || param(1, object);
-        let shapes = class_info(self.model(), def)
-            .and_then(|info| info.dataclass_fields)
-            .expect("a dataclass that the checker knows");
+        let shapes = self.classes.borrow().get(class).checked.clone();
         let same = fields
             .iter()
             .zip(dataclass_fields(def))
             .zip(shapes)
             .enumerate()
-            .map(|(i, (((_, rep), node), checked))| {
+            .map(|(i, (((_, rep), node), (_, shape)))| {
                 let field = u32::try_from(i).expect("fewer than 2^32 fields");
                 let theirs = Expr::Field {
                     object: Box::new(other()),
@@ -934,13 +942,7 @@ impl<'a> Lowering<'a, '_> {
                     field,
                     rep: *rep,
                 };
-                self.field_eq(
-                    self.own_field(class, field),
-                    theirs,
-                    site,
-                    node,
-                    checked.shape,
-                )
+                self.field_eq(self.own_field(class, field), theirs, site, node, shape)
             })
             .collect::<Result<Vec<_>, Error>>()?
             .into_iter()
