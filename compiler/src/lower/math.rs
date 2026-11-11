@@ -60,14 +60,7 @@ impl<'a> Lowering<'a, '_> {
             .ids
             .get(imported.id.as_str())
             .expect("a declared import");
-        Ok(match self.global_check(imported)? {
-            Some(check) => Expr::After {
-                binding: Binding::Import(import),
-                check,
-                value: Box::new(value),
-            },
-            None => value,
-        })
+        self.after(Binding::Import(import), imported, value)
     }
 
     /// The value of `member`, a constant of `math`, through `imported`.

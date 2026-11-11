@@ -398,14 +398,7 @@ impl<'a> Lowering<'a, '_> {
             class,
             member: u32::try_from(member).expect("fewer than 2^32 members"),
         };
-        Ok(match self.global_check(name)? {
-            Some(check) => Expr::After {
-                binding: Binding::Class(class),
-                check,
-                value: Box::new(member),
-            },
-            None => member,
-        })
+        self.after(Binding::Class(class), name, member)
     }
 
     /// The value of `attr`, an attribute of an object of `class`, which
@@ -705,14 +698,7 @@ impl<'a> Lowering<'a, '_> {
             site: self.call_site(init, call),
             check: None,
         };
-        Ok(match self.global_check(name)? {
-            Some(check) => Expr::After {
-                binding: Binding::Class(class),
-                check,
-                value: Box::new(value),
-            },
-            None => value,
-        })
+        self.after(Binding::Class(class), name, value)
     }
 
     /// The function that makes an object of `class`, a dataclass, with the

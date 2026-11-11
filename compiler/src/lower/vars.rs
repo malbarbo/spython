@@ -9,7 +9,7 @@ use ty_python_semantic::types::lowering::{
 use super::name_error::may_suggest;
 use super::{Lowering, coerce, holds, unbound_local, unsupported};
 use crate::Error;
-use crate::ir::{Check, Expr, Place, Rep, Undefined};
+use crate::ir::{Binding, Check, Expr, Place, Rep, Undefined};
 
 impl<'a> Lowering<'a, '_> {
     /// The variable that `target` names, with `value` as a value of its
@@ -146,6 +146,24 @@ impl<'a> Lowering<'a, '_> {
                 value: Box::new(load),
                 rep: narrowed,
             }
+        })
+    }
+
+    /// `value`, which reads the global `name` that `binding` gives. A read
+    /// before the binding raises `NameError`.
+    pub(super) fn after(
+        &self,
+        binding: Binding,
+        name: &ast::ExprName,
+        value: Expr,
+    ) -> Result<Expr, Error> {
+        Ok(match self.global_check(name)? {
+            Some(check) => Expr::After {
+                binding,
+                check,
+                value: Box::new(value),
+            },
+            None => value,
         })
     }
 
