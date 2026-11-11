@@ -745,15 +745,10 @@ impl<'a> Lowering<'a, '_> {
             .map(|(i, rep)| param(i, *rep))
             .collect();
         let body = vec![Stmt::Return(Some(Expr::New { class, fields }))];
-        let func = self.generated(reps, Rep::Object(class), body);
         let defaults = self.classes.borrow().get(class).defaults.clone();
-        if let Some(sig) = self.funcs.borrow_mut().sigs.get_mut(func.index()) {
-            sig.defaults = defaults;
-        }
         // The function makes the object and raises nothing.
-        if let Some(raises) = self.funcs.borrow_mut().raises.get_mut(func.index()) {
-            *raises = false;
-        }
+        let func = self.reserve_with(reps, Rep::Object(class), defaults, false);
+        self.define(func, false, body);
         self.classes.borrow_mut().get_mut(class).init = Some(func);
         func
     }

@@ -281,17 +281,18 @@ impl<'a, 'db> Funcs<'a, 'db> {
 
     /// Adds the function of `def` to the end of the queue of the lowering.
     fn add(&mut self, def: DefId, sig: Sig<'a, 'db>) -> FuncId {
-        let id = self.add_generated(sig);
+        let id = self.add_generated(sig, true);
         self.ids.insert(def, id);
         id
     }
 
-    /// Adds a function that no `def` of the program names.
-    fn add_generated(&mut self, sig: Sig<'a, 'db>) -> FuncId {
+    /// Adds a function that no `def` of the program names, which may raise
+    /// when `raises` is `true`.
+    fn add_generated(&mut self, sig: Sig<'a, 'db>, raises: bool) -> FuncId {
         let id = FuncId::new(self.sigs.len());
         self.sigs.push(sig);
         self.ordered.push(false);
-        self.raises.push(true);
+        self.raises.push(raises);
         id
     }
 }
@@ -686,14 +687,30 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// `params`, whose code [`Self::define`] gives later. The code may call
     /// the function.
     fn reserve(&self, params: Vec<Rep>, ret: Rep) -> FuncId {
-        self.funcs.borrow_mut().add_generated(Sig {
-            unit: self.unit.get(),
-            def: None,
-            defaults: params.iter().map(|_| None).collect(),
-            doctest: None,
-            params,
-            ret,
-        })
+        let defaults = params.iter().map(|_| None).collect();
+        self.reserve_with(params, ret, defaults, true)
+    }
+
+    /// [`Self::reserve`] of a function with the global of each default in
+    /// `defaults`, which may raise when `raises` is `true`.
+    fn reserve_with(
+        &self,
+        params: Vec<Rep>,
+        ret: Rep,
+        defaults: Vec<Option<VarId>>,
+        raises: bool,
+    ) -> FuncId {
+        self.funcs.borrow_mut().add_generated(
+            Sig {
+                unit: self.unit.get(),
+                def: None,
+                defaults,
+                doctest: None,
+                params,
+                ret,
+            },
+            raises,
+        )
     }
 
     /// Gives `id`, a function of [`Self::reserve`], the code of `body`,
