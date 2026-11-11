@@ -248,18 +248,14 @@ impl<'a> Lowering<'a, '_> {
     /// for the first default that is an object of a dataclass.
     pub(super) fn class_body(&self, def: &ast::StmtClassDef) -> Result<Vec<Stmt>, Error> {
         let class = self.class_of(def)?;
-        let (kind, fields, defaults) = {
+        let (fields, defaults) = {
             let classes = self.classes.borrow();
             let declared = classes.get(class);
-            (
-                declared.kind,
-                declared.fields.clone(),
-                declared.defaults.clone(),
-            )
+            if !declared.kind.is_dataclass() {
+                return Ok(Vec::new());
+            }
+            (declared.fields.clone(), declared.defaults.clone())
         };
-        if !kind.is_dataclass() {
-            return Ok(Vec::new());
-        }
         let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
         if def.body.iter().any(ast::Stmt::is_ann_assign_stmt) {
             namespace.push("__annotations__".to_owned());
@@ -370,9 +366,12 @@ impl<'a> Lowering<'a, '_> {
         }
         let lowered =
             coerce(lowered, rep).ok_or_else(|| unsupported(value, "a default of this type"))?;
-        if let Some(scope) = self.scope.borrow_mut().as_mut() {
-            scope.namespace.push(name.to_owned());
-        }
+        self.scope
+            .borrow_mut()
+            .as_mut()
+            .expect("the scope of the class body")
+            .namespace
+            .push(name.to_owned());
         Ok(Stmt::Assign {
             targets: vec![Place::Global(var)],
             value: lowered,
@@ -504,26 +503,25 @@ impl<'a> Lowering<'a, '_> {
     /// The function that gives the `str` of an object of `class`, which a
     /// member of an `Enum` writes as `Cor.VERDE`.
     pub(super) fn class_str(&self, class: ClassId) -> Result<FuncId, Error> {
-        if let Some(func) = self.classes.borrow().get(class).str {
-            return Ok(func);
-        }
-        let (def, kind) = {
+        let (def, kind, str) = {
             let classes = self.classes.borrow();
-            (classes.get(class).def, classes.get(class).kind)
+            let declared = classes.get(class);
+            (declared.def, declared.kind, declared.str)
         };
-        // The `str` of an object of a dataclass is its `repr`.
-        if kind.is_dataclass() {
-            let func = self.class_repr(class)?;
-            self.classes.borrow_mut().get_mut(class).str = Some(func);
+        if let Some(func) = str {
             return Ok(func);
         }
-        let name = def.name.to_string();
-        let body = vec![Stmt::Return(Some(Expr::Concat {
-            left: Box::new(Expr::Str(format!("{name}."))),
-            right: Box::new(self.own_field(class, 0)),
-            site: Site::NONE,
-        }))];
-        let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
+        // The `str` of an object of a dataclass is its `repr`.
+        let func = if kind.is_dataclass() {
+            self.class_repr(class)?
+        } else {
+            let body = vec![Stmt::Return(Some(Expr::Concat {
+                left: Box::new(Expr::Str(format!("{}.", def.name))),
+                right: Box::new(self.own_field(class, 0)),
+                site: Site::NONE,
+            }))];
+            self.generated(vec![Rep::Object(class)], Rep::Str, body)
+        };
         self.classes.borrow_mut().get_mut(class).str = Some(func);
         Ok(func)
     }
@@ -532,13 +530,14 @@ impl<'a> Lowering<'a, '_> {
     /// member of an `Enum` writes as `<Cor.VERDE: 1>`, with the `repr` of
     /// its value.
     pub(super) fn class_repr(&self, class: ClassId) -> Result<FuncId, Error> {
-        if let Some(func) = self.classes.borrow().get(class).repr {
+        let (def, kind, repr) = {
+            let classes = self.classes.borrow();
+            let declared = classes.get(class);
+            (declared.def, declared.kind, declared.repr)
+        };
+        if let Some(func) = repr {
             return Ok(func);
         }
-        let (def, kind) = {
-            let classes = self.classes.borrow();
-            (classes.get(class).def, classes.get(class).kind)
-        };
         if kind.is_dataclass() {
             return self.dataclass_repr(class);
         }
@@ -922,36 +921,34 @@ impl<'a> Lowering<'a, '_> {
         let shapes = class_info(self.model(), def)
             .and_then(|info| info.dataclass_fields)
             .expect("a dataclass that the checker knows");
-        let mut same = None;
-        for (i, (((_, rep), node), checked)) in fields
+        let same = fields
             .iter()
             .zip(dataclass_fields(def))
             .zip(shapes)
             .enumerate()
-        {
-            let field = u32::try_from(i).expect("fewer than 2^32 fields");
-            let theirs = Expr::Field {
-                object: Box::new(other()),
-                class,
-                field,
-                rep: *rep,
-            };
-            let eq = self.field_eq(
-                self.own_field(class, field),
-                theirs,
-                site,
-                node,
-                checked.shape,
-            )?;
-            same = Some(match same {
-                None => eq,
-                Some(before) => Expr::Logic {
-                    op: LogicOp::And,
-                    left: Box::new(before),
-                    right: Box::new(eq),
-                },
+            .map(|(i, (((_, rep), node), checked))| {
+                let field = u32::try_from(i).expect("fewer than 2^32 fields");
+                let theirs = Expr::Field {
+                    object: Box::new(other()),
+                    class,
+                    field,
+                    rep: *rep,
+                };
+                self.field_eq(
+                    self.own_field(class, field),
+                    theirs,
+                    site,
+                    node,
+                    checked.shape,
+                )
+            })
+            .collect::<Result<Vec<_>, Error>>()?
+            .into_iter()
+            .reduce(|before, eq| Expr::Logic {
+                op: LogicOp::And,
+                left: Box::new(before),
+                right: Box::new(eq),
             });
-        }
         let body = Expr::Logic {
             op: LogicOp::Or,
             left: Box::new(Expr::Is(Box::new(own(class)), Box::new(other()))),
@@ -1092,7 +1089,6 @@ impl<'a> Lowering<'a, '_> {
             && mro
                 .get(1)
                 .is_some_and(|base| base.known == Some(KnownClass::Enum))
-            && def.decorator_list.is_empty()
             && def.type_params.is_none()
             && def.arguments.as_deref().is_some_and(|arguments| {
                 match (&*arguments.args, &*arguments.keywords) {
