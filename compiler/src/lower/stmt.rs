@@ -6,10 +6,10 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::call::is_builtins;
 use super::flow::imported_name;
-use super::{Lowering, params_of, unsupported};
+use super::{Lowering, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
-use crate::ir::{Expr, Place, PrintArg, Rep, Stmt};
+use crate::ir::{Expr, Place, Rep, Stmt};
 
 /// The modules that a program may import. No import runs code in the
 /// compiled program.
@@ -54,8 +54,7 @@ impl<'a> Lowering<'a, '_> {
             .filter_map(|(param, var)| Some((param.default.as_deref()?, (*var)?)))
             .map(|(default, var)| {
                 let rep = self.vars.borrow().get(var).rep;
-                let value = self
-                    .coerce(self.expr(default)?, rep)
+                let value = coerce(self.expr(default)?, rep)
                     .ok_or_else(|| unsupported(default, "a default of this type"))?;
                 Ok(Stmt::Assign {
                     targets: vec![Place::Global(var)],
@@ -75,10 +74,7 @@ impl<'a> Lowering<'a, '_> {
                 if self.in_doctest() && value.rep() != Rep::None {
                     let text = self.repr_of(value, &*e.value, e.range())?;
                     return Ok(Some(Stmt::Expr(Expr::Print {
-                        args: vec![PrintArg {
-                            value: text,
-                            str: None,
-                        }],
+                        args: vec![text],
                         site: self.site(e.range()),
                     })));
                 }
@@ -145,8 +141,7 @@ impl<'a> Lowering<'a, '_> {
                 let left = self.narrowed_field(target, attr, left)?;
                 let right = self.expr(value)?;
                 let value = self.binary(stmt, *op, (left, &**target), (right, &**value))?;
-                let value = self
-                    .coerce(value, rep)
+                let value = coerce(value, rep)
                     .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
                 Ok(Some(Stmt::UpdateField {
                     object,
@@ -355,12 +350,10 @@ impl<'a> Lowering<'a, '_> {
         };
         match r.value.as_deref() {
             None | Some(ast::Expr::NoneLiteral(_)) if ret == Rep::None => Ok(Stmt::Return(None)),
-            None => self
-                .coerce(Expr::None, ret)
+            None => coerce(Expr::None, ret)
                 .map(|value| Stmt::Return(Some(value)))
                 .ok_or_else(|| unsupported(r, "a return of None")),
-            Some(value) => self
-                .coerce(self.expr(value)?, ret)
+            Some(value) => coerce(self.expr(value)?, ret)
                 .map(|value| Stmt::Return(Some(value)))
                 .ok_or_else(|| unsupported(value, "a return of this type")),
         }

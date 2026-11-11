@@ -1016,20 +1016,28 @@ impl Reprs {
                 self.str.literal(m, f, "None");
                 self.str.write(f);
             }
-            Rep::Object(class) => {
-                let str = self
-                    .class_strs
-                    .get(class.index())
-                    .copied()
-                    .flatten()
-                    .expect("the str of a class whose objects the program writes");
-                f.ins().call(str);
+            // An object may be null.
+            Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                let value = f.temp(self.class(class).ref_to(true));
+                f.ins().local_tee(value).ref_is_null();
+                f.if_(BlockType::Empty);
+                self.write(m, f, Rep::None);
+                f.else_();
+                f.ins().local_get(value).call(self.class_str(class));
                 self.str.write(f);
-            }
-            Rep::ObjectOrNone(_) => {
-                unreachable!("print converts an object or None to a str")
+                f.end();
+                f.free(value);
             }
         }
+    }
+
+    /// The function that gives the `str` of an object of `class`.
+    fn class_str(&self, class: ClassId) -> FuncIdx {
+        self.class_strs
+            .get(class.index())
+            .copied()
+            .flatten()
+            .expect("the str of a class whose objects the program writes")
     }
 
     /// Defines the function that compares two values of a union. It gives

@@ -9,7 +9,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 use crate::cpython::{Class, Message, RECURSION_ERROR};
 use crate::ir::{
     Binding, Check, ClassId, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError,
-    Place, PrintArg, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
+    Place, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
 };
 use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
 use repr::Reprs;
@@ -1294,19 +1294,19 @@ impl Emitter<'_> {
     }
 
     /// Python evaluates every argument before it writes the first one.
-    fn print(&mut self, f: &mut FuncState, args: &[PrintArg], site: Site) {
+    fn print(&mut self, f: &mut FuncState, args: &[Expr], site: Site) {
         let mut values = Vec::new();
         for arg in args {
-            self.expr(f, &arg.value);
-            let rep = arg.value.rep();
+            self.expr(f, arg);
+            let rep = arg.rep();
             // `None` has no value to keep.
             let local = self.reprs.local_type(rep).map(|ty| f.temp(ty));
             if let Some(local) = local {
                 f.ins().local_set(local);
             }
-            values.push((rep, local, arg.str));
+            values.push((rep, local));
         }
-        for (i, (rep, local, str)) in values.into_iter().enumerate() {
+        for (i, (rep, local)) in values.into_iter().enumerate() {
             if i > 0 {
                 f.ins()
                     .i32_const(' ' as i32)
@@ -1317,14 +1317,7 @@ impl Emitter<'_> {
                 self.reprs.load(f, rep, local);
                 f.free(local);
             }
-            let rep = match str {
-                Some(func) => {
-                    self.invoke(f, func, Some(site));
-                    Rep::Str
-                }
-                None => rep,
-            };
-            // The write of a union calls the `str` of the class of an object.
+            // The write of an object calls the `str` of its class.
             self.at(f, site, |e, f| e.reprs.write(&mut e.m, f, rep));
         }
         f.ins()

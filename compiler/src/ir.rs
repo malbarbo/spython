@@ -616,20 +616,13 @@ pub(crate) enum Expr {
     },
     /// The object of the [`Stmt::UpdateField`] that encloses the expression.
     Target(ClassId),
-    /// `print` with the default `sep` and `end`. A write that fails raises
-    /// `OSError` at the site.
+    /// `print` with the default `sep` and `end`. As in CPython, `print`
+    /// converts each argument to `str` after every argument has its value,
+    /// and the conversion and a write that fails raise at the site.
     Print {
-        args: Vec<PrintArg>,
+        args: Vec<Expr>,
         site: Site,
     },
-}
-
-/// An argument of `print`. As in CPython, `str` converts the value when
-/// `print` writes it, after every argument has its value, and the call of
-/// `str` has the site of the `print`.
-pub(crate) struct PrintArg {
-    pub(crate) value: Expr,
-    pub(crate) str: Option<FuncId>,
 }
 
 /// What a read or a call raises at the site when the name has no value.

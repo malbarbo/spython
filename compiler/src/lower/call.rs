@@ -10,9 +10,9 @@ use ty_python_semantic::types::lowering::{
 };
 
 use super::expr::float_value;
-use super::{Lowering, Sig, params_of, unsupported};
+use super::{Lowering, Sig, coerce, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Expr, MinMaxOp, Place, PrintArg, Rep, Site};
+use crate::ir::{Expr, MinMaxOp, Place, Rep, Site};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -113,8 +113,7 @@ impl<'a> Lowering<'a, '_> {
             let Some((slot, rep)) = slot else {
                 return Err(unsupported(call, "a call with these arguments"));
             };
-            let lowered = self
-                .coerce(self.expr(arg.value())?, *rep)
+            let lowered = coerce(self.expr(arg.value())?, *rep)
                 .ok_or_else(|| unsupported(arg.value(), "an argument of this type"))?;
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
             args.push(lowered);
@@ -149,13 +148,19 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .map(|arg| {
                 let value = self.expr(arg)?;
-                // A uniform value may hold an object, which the module writes
-                // with the `str` of its class.
-                if value.rep() == Rep::Uniform {
-                    self.writes_uniform.set(true);
+                // The write of an object calls the `str` of its class.
+                match value.rep() {
+                    Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                        self.class_str(class)?;
+                    }
+                    Rep::Uniform => {
+                        for class in self.classes_in(expr_shape(self.model(), arg)) {
+                            self.class_str(class)?;
+                        }
+                    }
+                    _ => {}
                 }
-                let str = self.object_str(value.rep())?;
-                Ok(PrintArg { value, str })
+                Ok(value)
             })
             .collect::<Result<_, _>>()?;
         Ok(Expr::Print {

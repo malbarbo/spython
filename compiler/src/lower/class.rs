@@ -17,7 +17,7 @@ use ty_python_semantic::types::lowering::{
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::imported_name;
-use super::{HashSet, Lowering, Scope, Vars, unsupported};
+use super::{HashSet, Lowering, Scope, Vars, coerce, unsupported};
 use crate::Error;
 use crate::cpython::Class;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
@@ -350,9 +350,8 @@ impl<'a> Lowering<'a, '_> {
             }
             _ => {}
         }
-        let lowered = self
-            .coerce(lowered, rep)
-            .ok_or_else(|| unsupported(value, "a default of this type"))?;
+        let lowered =
+            coerce(lowered, rep).ok_or_else(|| unsupported(value, "a default of this type"))?;
         if let Some(scope) = self.scope.borrow_mut().as_mut() {
             scope.namespace.push(name.to_owned());
         }
@@ -365,9 +364,9 @@ impl<'a> Lowering<'a, '_> {
     /// Returns `true` if a value of `shape` may be an object of a class
     /// that [`Self::is_mutable`] accepts, `false` otherwise.
     fn may_be_mutable(&self, shape: Option<Shape>) -> bool {
-        let mut found = Vec::new();
-        self.classes_in(shape, &mut found);
-        found.into_iter().any(|class| self.is_mutable(class))
+        self.classes_in(shape)
+            .into_iter()
+            .any(|class| self.is_mutable(class))
     }
 
     /// Returns `true` if `class` is a dataclass whose fields a program may
@@ -449,8 +448,7 @@ impl<'a> Lowering<'a, '_> {
         value: Expr,
     ) -> Result<Stmt, Error> {
         let (object, class, field, rep) = self.updated_field(attr)?;
-        let value = self
-            .coerce(value, rep)
+        let value = coerce(value, rep)
             .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
         let text = format!(
             "'NoneType' object has no attribute '{}' and no __dict__ for setting new attributes",
@@ -856,27 +854,31 @@ impl<'a> Lowering<'a, '_> {
     /// The dataclasses whose objects the lowered `operand`, with its node,
     /// may be.
     fn dataclasses_of(&self, (lowered, node): &(Expr, &ast::Expr)) -> Vec<ClassId> {
-        let mut found = Vec::new();
-        match lowered.rep() {
-            Rep::Object(class) | Rep::ObjectOrNone(class) => found.push(class),
-            Rep::Uniform => self.classes_in(expr_shape(self.model(), node), &mut found),
-            _ => {}
-        }
+        let mut found = match lowered.rep() {
+            Rep::Object(class) | Rep::ObjectOrNone(class) => vec![class],
+            Rep::Uniform => self.classes_in(expr_shape(self.model(), node)),
+            _ => Vec::new(),
+        };
         let classes = self.classes.borrow();
         found.retain(|class| classes.get(*class).kind == Kind::Dataclass);
         found
     }
 
-    /// Adds the class of each object that a value of `shape` may be to
-    /// `found`.
-    fn classes_in(&self, shape: Option<Shape>, found: &mut Vec<ClassId>) {
+    /// The class of each object that a value of `shape` may be.
+    pub(super) fn classes_in(&self, shape: Option<Shape>) -> Vec<ClassId> {
+        let mut found = Vec::new();
+        self.add_classes_in(shape, &mut found);
+        found
+    }
+
+    fn add_classes_in(&self, shape: Option<Shape>, found: &mut Vec<ClassId>) {
         match shape {
-            Some(Shape::Instance(class, _)) => {
+            Some(Shape::Instance(class, _) | Shape::EnumMember(class, _)) => {
                 found.extend(self.classes.borrow().ids.get(&class).copied());
             }
             Some(Shape::Union(shapes)) => {
                 for shape in shapes {
-                    self.classes_in(Some(shape), found);
+                    self.add_classes_in(Some(shape), found);
                 }
             }
             _ => {}
@@ -907,7 +909,7 @@ impl<'a> Lowering<'a, '_> {
                 if a == b =>
             {
                 let rep = Rep::ObjectOrNone(a);
-                let coerced = |value| self.coerce(value, rep).expect("an object or None");
+                let coerced = |value| coerce(value, rep).expect("an object or None");
                 Expr::Call {
                     func: self.eq_or_none(a)?,
                     args: vec![coerced(left), coerced(right)],
@@ -1026,19 +1028,15 @@ impl<'a> Lowering<'a, '_> {
                 check: None,
             });
         }
-        if rep == Rep::Uniform {
-            let mut found = Vec::new();
-            self.classes_in(Some(shape), &mut found);
-            if found.into_iter().any(dataclass) {
-                return Err(unsupported(
-                    node,
-                    "== of a field of a union with a dataclass",
-                ));
-            }
+        if rep == Rep::Uniform && self.classes_in(Some(shape)).into_iter().any(dataclass) {
+            return Err(unsupported(
+                node,
+                "== of a field of a union with a dataclass",
+            ));
         }
         // A union compares by the types of its values.
         if matches!(rep, Rep::StrOrNone | Rep::Uniform) {
-            let uniform = |value| self.coerce(value, Rep::Uniform).expect("a uniform value");
+            let uniform = |value| coerce(value, Rep::Uniform).expect("a uniform value");
             return Ok(Expr::Compare(
                 Box::new(uniform(ours)),
                 vec![(CmpOp::Eq, uniform(theirs))],
