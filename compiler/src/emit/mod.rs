@@ -876,18 +876,10 @@ impl Emitter<'_> {
             }
             Expr::NotNone { value, text, site } => {
                 self.expr(f, value);
-                let ty = self
-                    .reprs
-                    .local_type(value.rep())
-                    .expect("an object has a value");
-                let local = f.temp(ty);
-                f.ins().local_tee(local).ref_is_null();
-                f.if_(BlockType::Empty);
                 let message = Message::new(Class::AttributeError, text);
-                self.at(f, *site, |e, f| e.reprs.raise(&mut e.m, f, &message));
-                f.end();
-                f.ins().local_get(local);
-                f.free(local);
+                self.check_value(f, value.rep(), *site, &message, |_, f| {
+                    f.ins().ref_is_null();
+                });
             }
             Expr::Expect {
                 value,
@@ -897,17 +889,11 @@ impl Emitter<'_> {
             } => {
                 self.expr(f, value);
                 let from = value.rep();
-                let ty = self.reprs.local_type(from).expect("a union has a value");
-                let local = f.temp(ty);
-                f.ins().local_tee(local);
-                self.reprs.has(&mut self.m, f, from, *rep);
-                f.ins().i32_eqz();
-                f.if_(BlockType::Empty);
                 let message = Message::new(Class::TypeError, text);
-                self.at(f, *site, |e, f| e.reprs.raise(&mut e.m, f, &message));
-                f.end();
-                f.ins().local_get(local);
-                f.free(local);
+                self.check_value(f, from, *site, &message, |e, f| {
+                    e.reprs.has(&mut e.m, f, from, *rep);
+                    f.ins().i32_eqz();
+                });
                 self.reprs.narrow(&mut self.m, f, from, *rep);
             }
             Expr::MathCall {
@@ -1291,6 +1277,27 @@ impl Emitter<'_> {
         self.expr(f, last);
         self.reprs.compare(&mut self.m, f, rep, *last_op);
         f.end();
+    }
+
+    /// Keeps the value of `rep` on the stack, and raises `message` at
+    /// `site` when `fails` pushes `true` for the value.
+    fn check_value(
+        &mut self,
+        f: &mut FuncState,
+        rep: Rep,
+        site: Site,
+        message: &Message,
+        fails: impl FnOnce(&mut Self, &mut FuncState),
+    ) {
+        let ty = self.reprs.local_type(rep).expect("a checked value");
+        let local = f.temp(ty);
+        f.ins().local_tee(local);
+        fails(self, f);
+        f.if_(BlockType::Empty);
+        self.at(f, site, |e, f| e.reprs.raise(&mut e.m, f, message));
+        f.end();
+        f.ins().local_get(local);
+        f.free(local);
     }
 
     /// Python evaluates every argument before it writes the first one.
