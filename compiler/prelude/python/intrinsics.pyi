@@ -105,3 +105,6 @@ def list_set_len[T](xs: list[T], n: int) -> None:
 def set_item[T](xs: list[T], index: int, x: T) -> None:
     """Sets the item at `index` of the array of `xs`, which is not negative and is below the
     capacity of `xs`, to `x`."""
+
+def item[T](xs: list[T], index: int) -> T:
+    """The item of `xs` at `index`, which is not negative and is below `len(xs)`."""

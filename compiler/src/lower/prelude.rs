@@ -3,7 +3,7 @@
 
 use ruff_db::files::File;
 use ruff_python_ast as ast;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::{DefId, Shape, function_info};
@@ -158,6 +158,38 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .collect::<Result<_, _>>()?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
+    }
+
+    /// The `repr` of `value`, a list or a list or `None`, at `site`, which
+    /// the module `list` of the prelude gives.
+    pub(super) fn list_repr(&self, value: Expr, site: Site) -> Result<Expr, Error> {
+        let rep = value.rep();
+        let name = match rep {
+            Rep::List(_) => "repr_of",
+            _ => "repr_or_none",
+        };
+        let unit = self
+            .prelude_unit("list")
+            .expect("the module list of the prelude");
+        let (func, _) = self
+            .prelude_for(&TextRange::default(), unit, name, &[rep])?
+            .expect("the repr of a list");
+        Ok(self.prelude_call_of(func, vec![value], Some(site)))
+    }
+
+    /// The function that gives the `repr` of a list of the type `list`,
+    /// which the write of a list calls.
+    pub(super) fn list_repr_func(&self, list: ListId) -> Result<FuncId, Error> {
+        let unit = self
+            .prelude_unit("list")
+            .expect("the module list of the prelude");
+        let (func, _) = self
+            .prelude_for(&TextRange::default(), unit, "repr_of", &[Rep::List(list)])?
+            .expect("the repr of a list");
+        if let Some(slot) = self.lists.borrow_mut().reprs.get_mut(list.index()) {
+            *slot = Some(func);
+        }
+        Ok(func)
     }
 
     /// Returns `true` if `def` is a generic function of the prelude,
@@ -356,6 +388,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 text,
                 site: self.site(call.range()),
             }),
+            "item" => arg().zip(arg()).and_then(|(list, index)| {
+                let rep = self.list_item(list.rep().list()?);
+                Some(Expr::Item { list, index, rep })
+            }),
             "list_capacity" => arg().map(Expr::ListCapacity),
             "list_reserve" => arg().zip(arg()).map(|(list, capacity)| Expr::ListReserve {
                 list,
@@ -442,6 +478,12 @@ fn type_map(
     };
     for (shape, rep) in params.iter().zip(args) {
         let (mut shape, mut rep) = (shape, *rep);
+        // A list or `None` is a list for `list[T] | None`.
+        if let (Shape::Union(shapes), Rep::ListOrNone(list)) = (shape, rep)
+            && let Some(member) = shapes.iter().find(|shape| matches!(shape, Shape::List(_)))
+        {
+            (shape, rep) = (member, Rep::List(list));
+        }
         // The item of a list, and of each list inside it.
         while let (Shape::List(inner), Rep::List(list)) = (shape, rep) {
             shape = inner;

@@ -295,7 +295,8 @@ impl<'a> Lowering<'a, '_> {
             }),
             Rep::None => Err(unsupported(node, "str of None")),
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
-            Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "str of a list")),
+            // The `str` of a list is its `repr`.
+            Rep::List(_) | Rep::ListOrNone(_) => self.repr_of(lowered, range),
             Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 let func = self
                     .object_str(lowered.rep())?

@@ -120,13 +120,15 @@ pub(crate) fn lower(
         funcs,
         imports: lowering.imports.into_inner().list,
         classes: lowering.classes.into_inner().into_ir(),
-        lists: lowering
-            .lists
-            .into_inner()
-            .items
-            .into_iter()
-            .map(|item| ListType { item })
-            .collect(),
+        lists: {
+            let lists = lowering.lists.into_inner();
+            lists
+                .items
+                .into_iter()
+                .zip(lists.reprs)
+                .map(|(item, repr)| ListType { item, repr })
+                .collect()
+        },
         sites: lowering.sites.into_inner(),
         str_repr,
     })
@@ -303,6 +305,9 @@ struct Lists {
     ids: HashMap<Rep, ListId>,
     /// The rep of the items of each type, by its id.
     items: Vec<Rep>,
+    /// The function that gives the `repr` of a list of each type, once the
+    /// program writes one.
+    reprs: Vec<Option<FuncId>>,
 }
 
 #[derive(Default)]
@@ -852,6 +857,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let list = ListId::new(lists.items.len());
         lists.items.push(item);
+        lists.reprs.push(None);
         lists.ids.insert(item, list);
         list
     }

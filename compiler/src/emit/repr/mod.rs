@@ -58,6 +58,9 @@ pub(crate) struct Reprs {
     /// `repr` of a value of a union.
     class_reprs: Vec<Option<FuncIdx>>,
     str_repr: Option<FuncIdx>,
+    /// The function that gives the `repr` of a list of each type, when the
+    /// program writes one.
+    list_reprs: Vec<Option<FuncIdx>>,
     /// The struct of a node of the stack of the objects whose `repr` runs,
     /// with the object and the node under it, and the global of the top of
     /// the stack, when a class guards its `repr`.
@@ -94,6 +97,7 @@ impl Reprs {
             class_strs: Vec::new(),
             class_reprs: Vec::new(),
             str_repr: None,
+            list_reprs: Vec::new(),
             repr_stack: None,
         };
         // A field of a class may hold an object of any class, its own too,
@@ -198,6 +202,12 @@ impl Reprs {
     pub fn set_reprs(&mut self, classes: Vec<Option<FuncIdx>>, str: Option<FuncIdx>) {
         self.class_reprs = classes;
         self.str_repr = str;
+    }
+
+    /// Takes the function that gives the `repr` of a list of each type, for
+    /// the types whose lists the program writes.
+    pub fn set_list_reprs(&mut self, reprs: Vec<Option<FuncIdx>>) {
+        self.list_reprs = reprs;
     }
 
     /// Pops a value of a union and pushes its `repr`, which may raise.
@@ -918,6 +928,16 @@ impl Reprs {
         self.int.as_i32(f);
     }
 
+    /// Pops the array of the items of a list and an index of
+    /// [`Self::index_of`], and pushes the item at the index, of `rep`.
+    pub fn list_item(&self, f: &mut FuncState, list: Rep, rep: Rep) {
+        self.list.item(f, list_index(list));
+        // An array holds an item in the form of a local.
+        if matches!(rep, Rep::Str | Rep::List(_)) {
+            f.ins().ref_as_non_null();
+        }
+    }
+
     /// Pops the array of the items of a list, an index of [`Self::index_of`]
     /// and an item, and sets the item of the array at the index.
     pub fn set_list_item(&self, f: &mut FuncState, rep: Rep) {
@@ -1229,7 +1249,25 @@ impl Reprs {
                 f.end();
                 f.free(value);
             }
-            Rep::List(_) | Rep::ListOrNone(_) => unreachable!("the write of a list"),
+            // The `str` of a list is its `repr`, and a list or `None` may be
+            // null.
+            Rep::List(list) | Rep::ListOrNone(list) => {
+                let repr = self
+                    .list_reprs
+                    .get(list.index())
+                    .copied()
+                    .flatten()
+                    .expect("the repr of a list that the program writes");
+                let value = f.temp(self.list_type(list).ref_to(true));
+                f.ins().local_tee(value).ref_is_null();
+                f.if_(BlockType::Empty);
+                self.write(m, f, Rep::None);
+                f.else_();
+                f.ins().local_get(value).ref_as_non_null().call(repr);
+                self.str.write(f);
+                f.end();
+                f.free(value);
+            }
         }
     }
 

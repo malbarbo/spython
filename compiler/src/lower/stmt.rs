@@ -74,7 +74,10 @@ impl<'a> Lowering<'a, '_> {
                 if self.in_doctest() && value.rep() != Rep::None {
                     // The prompt writes nothing for a value that is `None`
                     // when the example runs.
-                    if matches!(value.rep(), Rep::StrOrNone | Rep::Uniform) {
+                    if matches!(
+                        value.rep(),
+                        Rep::StrOrNone | Rep::Uniform | Rep::ListOrNone(_)
+                    ) {
                         return Err(unsupported(&*e.value, "an example whose value may be None"));
                     }
                     let text = self.repr_of(value, e.range())?;

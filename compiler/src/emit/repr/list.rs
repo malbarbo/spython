@@ -191,6 +191,12 @@ impl ListRepr {
         f.ins().struct_get(self.types(list).list, ITEMS);
     }
 
+    /// Pops the array of the items of a list of the type `list` and an `i32`
+    /// index, and pushes the item of the array at the index.
+    pub fn item(&self, f: &mut FuncState, list: usize) {
+        f.ins().array_get(self.types(list).items);
+    }
+
     /// Pops the array of the items of a list of the type `list`, an `i32`
     /// index and an item, and sets the item of the array at the index.
     pub fn set_item(&self, f: &mut FuncState, list: usize) {

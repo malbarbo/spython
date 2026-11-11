@@ -32,11 +32,7 @@ fn a_list_has_a_length_an_identity_and_a_truth() {
                     return None
                 return xs if i == 1 else ys
             print(pick(0) is None, bool(pick(0)), bool(pick(1)), bool(pick(2)), pick(1) is xs)
-            n: list[int] | None = None
-            if pick(1) is not None:
-                n = pick(1)
-            if n is not None:
-                print(len(n), len(xs or ys))
+            print(len(xs or ys))
         "},
     );
 }
@@ -70,9 +66,6 @@ fn a_literal_of_many_items_sets_each_item() {
 #[test]
 fn what_a_list_lacks_yet_is_unsupported() {
     for (source, what) in [
-        ("xs = [1]\nprint(xs)\n", "print of a list"),
-        ("xs = [1]\ns = repr(xs)\n", "the repr of a list"),
-        ("xs = [1]\ns = str(xs)\n", "str of a list"),
         ("xs = [1]\nb = xs == [2]\n", "a comparison of lists"),
         ("x: list[int] | str = [1]\n", "a variable of this type"),
         ("xs: list[None] = [None]\n", "a list of this type"),
@@ -114,6 +107,83 @@ fn append_adds_an_item_at_the_end() {
             us.append(None)
             us.append(7)
             print(len(ss), len(fs), len(ws), len(bs), len(us))
+        "},
+    );
+}
+
+#[test]
+fn print_repr_and_str_write_a_list_as_python() {
+    same_as_cpython(
+        "print_repr_and_str_write_a_list_as_python",
+        indoc! {r#"
+            from dataclasses import dataclass
+            from enum import Enum
+
+
+            class Cor(Enum):
+                AZUL = 1
+                VERDE = 2
+
+
+            @dataclass
+            class P:
+                x: int
+                s: str | None
+
+
+            xs = [1, -2, 1073741823]
+            empty: list[int] = []
+            nested: list[list[int]] = [[]]
+            print(xs, empty, [[1, 0], [0, 1]], nested)
+            print(['a', "it's", 'say "hi"', '\n'], [1.5, -0.0, 1e16], [True, False])
+            print([Cor.AZUL, Cor.VERDE], [P(1, None), P(2, 'b')])
+            print(repr(xs), str(xs), f'{xs} {xs!r}', len(repr(empty)))
+            n: list[str] | None = None
+            print(n, repr(n))
+            n = ['x']
+            print(n, repr(n), str(n), f'{n}')
+            def maybe(b: bool) -> list[int] | None:
+                return [1] if b else None
+            print(maybe(True), maybe(False), repr(maybe(True)), repr(maybe(False)), str(maybe(True)))
+            ws: list[list[str]] = [['a'], []]
+            ws.append(['b', 'c'])
+            print(ws)
+        "#},
+    );
+}
+
+#[test]
+fn join_puts_the_str_between_the_items() {
+    same_as_cpython(
+        "join_puts_the_str_between_the_items",
+        indoc! {"
+            empty: list[str] = []
+            print(repr(', '.join(['a', 'b', 'c'])), repr(''.join(['x', 'y'])), repr('-'.join(['z'])))
+            print(repr('ab'.join(empty)), repr('-'.join(['', ''])), 'ç'.join(['ã', 'õ']))
+        "},
+    );
+}
+
+#[test]
+fn print_writes_the_arguments_before_a_list_whose_repr_raises() {
+    same_as_cpython(
+        "print_writes_the_arguments_before_a_list_whose_repr_raises",
+        indoc! {"
+            from dataclasses import dataclass
+
+
+            @dataclass
+            class N:
+                n: 'N | None'
+
+
+            deep: N | None = None
+            i = 0
+            while i < 1100:
+                deep = N(deep)
+                i += 1
+            ns: list[N | None] = [deep]
+            print(1, 'a', ns)
         "},
     );
 }

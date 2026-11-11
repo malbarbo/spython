@@ -137,6 +137,9 @@ pub(crate) struct ListId(u32);
 pub(crate) struct ListType {
     /// The rep of each item of a list of the type.
     pub item: Rep,
+    /// The function that gives the `repr` of a list, when the program
+    /// writes one.
+    pub repr: Option<FuncId>,
 }
 
 pub(crate) struct Func {
@@ -580,6 +583,13 @@ pub(crate) enum Expr {
     ListSetLen {
         list: Box<Expr>,
         len: Box<Expr>,
+    },
+    /// The item of a list at an `int` index that is not negative and is
+    /// below the length of the list, which has `rep`, the rep of the items.
+    Item {
+        list: Box<Expr>,
+        index: Box<Expr>,
+        rep: Rep,
     },
     /// Sets the item at the `int` index of the array of a list to the
     /// value, which has the rep of the items. The index is not negative and
@@ -1204,6 +1214,7 @@ impl Expr {
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. }
             | Expr::Expect { rep, .. }
+            | Expr::Item { rep, .. }
             | Expr::Field { rep, .. } => *rep,
             Expr::Member { class, .. } | Expr::New { class, .. } | Expr::Target(class) => {
                 Rep::Object(*class)

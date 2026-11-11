@@ -156,8 +156,9 @@ impl<'a> Lowering<'a, '_> {
                 let value = self.expr(arg)?;
                 // The write of an object calls the `str` of its class.
                 match value.rep() {
-                    Rep::List(_) | Rep::ListOrNone(_) => {
-                        return Err(unsupported(arg, "print of a list"));
+                    // The write of a list calls its `repr`.
+                    Rep::List(list) | Rep::ListOrNone(list) => {
+                        self.list_repr_func(list)?;
                     }
                     Rep::Object(class) | Rep::ObjectOrNone(class) => {
                         self.class_str(class)?;
@@ -362,9 +363,6 @@ impl<'a> Lowering<'a, '_> {
 
     /// The `repr` of `lowered`. The conversion covers `range`.
     pub(super) fn repr_of(&self, lowered: Expr, range: TextRange) -> Result<Expr, Error> {
-        if lowered.rep().list().is_some() {
-            return Err(unsupported(&range, "the repr of a list"));
-        }
         let site = self.site(range);
         self.repr_at(lowered, site)
     }
@@ -384,7 +382,7 @@ impl<'a> Lowering<'a, '_> {
                 Rep::Str,
                 site,
             ),
-            Rep::List(_) | Rep::ListOrNone(_) => unreachable!("the repr of a list"),
+            Rep::List(_) | Rep::ListOrNone(_) => self.list_repr(value, site)?,
             // The `repr` of a uniform value tests its type when it runs.
             Rep::None | Rep::StrOrNone | Rep::Uniform => {
                 self.uniform_repr.set(true);

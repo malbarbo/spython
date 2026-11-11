@@ -17,6 +17,7 @@ from __spython_prelude__.intrinsics import (
     is_uppercase,
     is_xid_continue,
     is_xid_start,
+    item,
     lower_at,
     stop,
     title_at,
@@ -246,6 +247,25 @@ def replace(s: str, old: str, new: str, count: int | None = None) -> str:
 def found_at_most(s: str, sub: str, i: int) -> bool:
     """Returns `True` if `sub` is in `s` from `i` on, `False` otherwise."""
     return i + len(sub) <= len(s) and found_at(s, sub, i)
+
+
+def join(s: str, parts: list[str]) -> str:
+    n = len(parts)
+    if n == 0:
+        return ''
+    size = len(s) * (n - 1)
+    i = 0
+    while i < n:
+        size += len(item(parts, i))
+        i += 1
+    b = builder_new(size)
+    at = put(b, 0, item(parts, 0))
+    i = 1
+    while i < n:
+        at = put(b, at, s)
+        at = put(b, at, item(parts, i))
+        i += 1
+    return builder_done(b)
 
 
 def put(b: StrBuilder, at: int, t: str) -> int:

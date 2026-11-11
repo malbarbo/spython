@@ -80,6 +80,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             .collect(),
         index(program.str_repr),
     );
+    reprs.set_list_reprs(program.lists.iter().map(|list| index(list.repr)).collect());
     // The flag of each name that an import binds, as the flag of a `def`.
     let imports = program
         .imports
@@ -1121,6 +1122,13 @@ impl Emitter<'_> {
                 self.expr(f, len);
                 self.reprs.list_set_len(f, list.rep());
             }
+            Expr::Item { list, index, rep } => {
+                self.expr(f, list);
+                self.reprs.list_items(f, list.rep());
+                self.expr(f, index);
+                self.reprs.index_of(f);
+                self.reprs.list_item(f, list.rep(), *rep);
+            }
             Expr::SetItem { list, index, value } => {
                 self.expr(f, list);
                 self.reprs.list_items(f, list.rep());
@@ -1380,8 +1388,16 @@ impl Emitter<'_> {
                 self.reprs.load(f, rep, local);
                 f.free(local);
             }
-            // The write of an object calls the `str` of its class.
-            if matches!(rep, Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_)) {
+            // The write of an object calls the `str` of its class, and the
+            // write of a list the `repr` of the list.
+            if matches!(
+                rep,
+                Rep::Uniform
+                    | Rep::Object(_)
+                    | Rep::ObjectOrNone(_)
+                    | Rep::List(_)
+                    | Rep::ListOrNone(_)
+            ) {
                 self.at(f, site, |e, f| e.reprs.write(&mut e.m, f, rep));
             } else {
                 self.reprs.write(&mut self.m, f, rep);

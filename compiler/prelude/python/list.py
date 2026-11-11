@@ -1,6 +1,12 @@
 """The methods of `list`."""
 
-from __spython_prelude__.intrinsics import list_capacity, list_reserve, list_set_len, set_item
+from __spython_prelude__.intrinsics import (
+    item,
+    list_capacity,
+    list_reserve,
+    list_set_len,
+    set_item,
+)
 
 
 def append[T](xs: list[T], x: T) -> None:
@@ -18,3 +24,19 @@ def grow[T](xs: list[T], need: int) -> None:
     # Twice the room above 536870912 does not fit in an int.
     twice = 2 * room if room < 536870912 else need
     list_reserve(xs, max(4, need, twice))
+
+
+def repr_of[T](xs: list[T]) -> str:
+    """The `repr` of `xs`, which is also its `str`."""
+    parts: list[str] = []
+    i = 0
+    while i < len(xs):
+        parts.append(repr(item(xs, i)))
+        i += 1
+    return '[' + ', '.join(parts) + ']'
+
+
+def repr_or_none[T](xs: list[T] | None) -> str:
+    if xs is None:
+        return 'None'
+    return repr_of(xs)

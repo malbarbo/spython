@@ -313,6 +313,34 @@ fn an_example_that_raises_is_an_error_unless_it_expects_the_exception() {
     );
 }
 
+/// An example writes the `repr` of a list, and one that differs fails.
+#[test]
+fn an_example_writes_the_repr_of_a_list() {
+    same_as_the_runner(
+        "an_example_writes_the_repr_of_a_list",
+        indoc! {r#"
+            def dobra(xs: list[int]) -> list[int]:
+                """
+                >>> dobra([1, 2])
+                [1, 2, 1, 2]
+                >>> dobra([])
+                []
+                >>> dobra([3])
+                [3]
+                """
+                ys: list[int] = []
+                i = 0
+                while i < 2:
+                    j = 0
+                    while j < len(xs):
+                        ys.append(len(xs) + j)
+                        j += 1
+                    i += 1
+                return ys
+        "#},
+    );
+}
+
 /// An example writes the `repr` of a member, and compares members.
 #[test]
 fn an_example_writes_the_repr_of_a_member_of_an_enum() {
