@@ -139,16 +139,8 @@ impl<'a> Bindings<'a> {
 
     /// Adds each name of `expr` to the order.
     fn visit(&mut self, expr: &'a ast::Expr) {
-        struct Names<'a, 'b>(&'b mut Vec<&'a str>);
-        impl<'a> Visitor<'a> for Names<'a, '_> {
-            fn visit_expr(&mut self, expr: &'a ast::Expr) {
-                if let ast::Expr::Name(name) = expr {
-                    self.0.push(name.id.as_str());
-                }
-                walk_expr(self, expr);
-            }
-        }
-        Names(&mut self.order).visit_expr(expr);
+        self.order
+            .extend(names_in(expr).into_iter().map(|name| name.id.as_str()));
     }
 
     fn import(&mut self, alias: &'a ast::Alias, from: Option<&'a str>) {
@@ -202,4 +194,20 @@ fn breaks(body: &[ast::Stmt]) -> bool {
         ast::Stmt::While(w) => breaks(&w.orelse),
         _ => false,
     })
+}
+
+/// Each name that `expr` reads, in the order of the code.
+pub(super) fn names_in(expr: &ast::Expr) -> Vec<&ast::ExprName> {
+    struct Names<'a>(Vec<&'a ast::ExprName>);
+    impl<'a> Visitor<'a> for Names<'a> {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if let ast::Expr::Name(name) = expr {
+                self.0.push(name);
+            }
+            walk_expr(self, expr);
+        }
+    }
+    let mut names = Names(Vec::new());
+    names.visit_expr(expr);
+    names.0
 }

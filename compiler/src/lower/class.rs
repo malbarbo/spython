@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 
 use ruff_python_ast as ast;
-use ruff_python_ast::visitor::{Visitor, walk_expr};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_module_resolver::KnownModule;
 use ty_python_semantic::types::KnownClass;
@@ -16,7 +15,7 @@ use ty_python_semantic::types::lowering::{
 
 use super::call::is_module;
 use super::expr::int_literal;
-use super::flow::imported_name;
+use super::flow::{imported_name, names_in};
 use super::{HashSet, Lowering, Scope, Vars, coerce, unsupported};
 use crate::Error;
 use crate::cpython::Class;
@@ -1051,20 +1050,7 @@ impl<'a> Lowering<'a, '_> {
         &self,
         annotations: impl Iterator<Item = &'e ast::Expr>,
     ) -> Result<(), Error> {
-        struct Names<'e>(Vec<&'e ast::ExprName>);
-        impl<'e> Visitor<'e> for Names<'e> {
-            fn visit_expr(&mut self, expr: &'e ast::Expr) {
-                if let ast::Expr::Name(name) = expr {
-                    self.0.push(name);
-                }
-                walk_expr(self, expr);
-            }
-        }
-        let mut names = Names(Vec::new());
-        for annotation in annotations {
-            names.visit_expr(annotation);
-        }
-        for name in names.0 {
+        for name in annotations.flat_map(names_in) {
             let is_class = self.classes.borrow().names.contains_key(name.id.as_str());
             if is_class && self.global_check(name)?.is_some() {
                 return Err(unsupported(
