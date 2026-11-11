@@ -887,6 +887,43 @@ impl Reprs {
         self.int.len_as_int(f);
     }
 
+    /// Pops a list and pushes the `int` of how many items its array has
+    /// room for.
+    pub fn list_capacity(&self, f: &mut FuncState, rep: Rep) {
+        self.list.capacity(f, list_index(rep));
+        self.int.small_as_int(f);
+    }
+
+    /// Pops a list and an `int` capacity, and gives the list an array with
+    /// room for that many items, with its items.
+    pub fn list_reserve(&self, f: &mut FuncState, rep: Rep) {
+        self.int.as_i32(f);
+        self.list.reserve(f, list_index(rep));
+    }
+
+    /// Pops a list and an `int`, and makes the list a list of that many
+    /// items.
+    pub fn list_set_len(&self, f: &mut FuncState, rep: Rep) {
+        self.int.as_i32(f);
+        self.list.set_len(f, list_index(rep));
+    }
+
+    /// Pops a list and pushes the array of its items.
+    pub fn list_items(&self, f: &mut FuncState, rep: Rep) {
+        self.list.items(f, list_index(rep));
+    }
+
+    /// Pops an `int` index and pushes it as the `i32` that an array takes.
+    pub fn index_of(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+    }
+
+    /// Pops the array of the items of a list, an index of [`Self::index_of`]
+    /// and an item, and sets the item of the array at the index.
+    pub fn set_list_item(&self, f: &mut FuncState, rep: Rep) {
+        self.list.set_item(f, list_index(rep));
+    }
+
     /// Starts a literal of the type `list` with `count` items, as
     /// [`ListRepr::begin_literal`] says.
     pub fn begin_literal(&self, f: &mut FuncState, list: ListId, count: usize) -> Option<LocalIdx> {
@@ -1375,4 +1412,9 @@ impl Reprs {
         f.ins().unreachable();
         m.add_func(ty, f.finish())
     }
+}
+
+/// The index of the type of a list of `rep`.
+fn list_index(rep: Rep) -> usize {
+    rep.list().expect("a list").index()
 }

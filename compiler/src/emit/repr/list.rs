@@ -33,6 +33,8 @@ struct ListTypes {
 
 /// The field of the length of a list.
 const LEN: u32 = 0;
+/// The field of the array of the items of a list.
+const ITEMS: u32 = 1;
 
 impl ListRepr {
     /// The struct and the array of a type of list whose items have the
@@ -139,6 +141,60 @@ impl ListRepr {
             }
         }
         f.ins().struct_new(types.list);
+    }
+
+    /// Pops a list of the type `list` and pushes the length of its array as
+    /// an `i32`.
+    pub fn capacity(&self, f: &mut FuncState, list: usize) {
+        let types = self.types(list);
+        f.ins().struct_get(types.list, ITEMS).array_len();
+    }
+
+    /// Pops a list of the type `list` and an `i32` capacity, not below the
+    /// length of the list, and gives the list a new array of that length
+    /// with its items.
+    pub fn reserve(&self, f: &mut FuncState, list: usize) {
+        let types = self.types(list);
+        let capacity = f.temp(ValType::I32);
+        let value = f.temp(types.list.ref_to(true));
+        let array = f.temp(types.items.ref_to(true));
+        f.ins()
+            .local_set(capacity)
+            .local_set(value)
+            .local_get(capacity)
+            .array_new_default(types.items)
+            .local_tee(array)
+            .i32_const(0)
+            .local_get(value)
+            .struct_get(types.list, ITEMS)
+            .i32_const(0)
+            .local_get(value)
+            .struct_get(types.list, LEN)
+            .array_copy(types.items, types.items)
+            .local_get(value)
+            .local_get(array)
+            .ref_as_non_null()
+            .struct_set(types.list, ITEMS);
+        f.free(capacity);
+        f.free(value);
+        f.free(array);
+    }
+
+    /// Pops a list of the type `list` and an `i32`, and sets the length of
+    /// the list to it.
+    pub fn set_len(&self, f: &mut FuncState, list: usize) {
+        f.ins().struct_set(self.types(list).list, LEN);
+    }
+
+    /// Pops a list of the type `list` and pushes the array of its items.
+    pub fn items(&self, f: &mut FuncState, list: usize) {
+        f.ins().struct_get(self.types(list).list, ITEMS);
+    }
+
+    /// Pops the array of the items of a list of the type `list`, an `i32`
+    /// index and an item, and sets the item of the array at the index.
+    pub fn set_item(&self, f: &mut FuncState, list: usize) {
+        f.ins().array_set(self.types(list).items);
     }
 
     /// Pops a list of the type `list` and pushes its number of items as an

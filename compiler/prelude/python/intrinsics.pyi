@@ -90,3 +90,18 @@ def decimal_value(code_point: int) -> int:
 
 def parse_float(text: str) -> float:
     """The `float` of `text`, which is ASCII in the form of a float of Python without underscores."""
+
+def list_capacity[T](xs: list[T]) -> int:
+    """How many items the array of `xs` has room for."""
+
+def list_reserve[T](xs: list[T], capacity: int) -> None:
+    """Gives `xs` an array with room for `capacity` items, which is not below `len(xs)`, with the
+    items of `xs`."""
+
+def list_set_len[T](xs: list[T], n: int) -> None:
+    """Makes `xs` a list of its first `n` items, where `n` is not above the capacity of `xs`. An
+    item past the old length has the value that the prelude set there."""
+
+def set_item[T](xs: list[T], index: int, x: T) -> None:
+    """Sets the item at `index` of the array of `xs`, which is not negative and is below the
+    capacity of `xs`, to `x`."""

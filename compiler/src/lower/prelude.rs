@@ -356,6 +356,29 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 text,
                 site: self.site(call.range()),
             }),
+            "list_capacity" => arg().map(Expr::ListCapacity),
+            "list_reserve" => arg().zip(arg()).map(|(list, capacity)| Expr::ListReserve {
+                list,
+                capacity,
+                site: self.site(call.range()),
+            }),
+            "list_set_len" => arg()
+                .zip(arg())
+                .map(|(list, len)| Expr::ListSetLen { list, len }),
+            // The value takes the rep of the items of the list.
+            "set_item" => {
+                let (list, index, value) = (arg(), arg(), arg());
+                list.zip(index)
+                    .zip(value)
+                    .and_then(|((list, index), value)| {
+                        let item = self.list_item(list.rep().list()?);
+                        Some(Expr::SetItem {
+                            list,
+                            index,
+                            value: Box::new(coerce(*value, item)?),
+                        })
+                    })
+            }
             "captured_output" => Some(Expr::Captured),
             "captured_exception" => Some(Expr::CapturedException),
             _ => None,

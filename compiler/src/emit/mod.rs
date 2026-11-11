@@ -1102,6 +1102,33 @@ impl Emitter<'_> {
                 self.expr(f, len);
                 self.at(f, *site, |e, f| e.reprs.str_new(f));
             }
+            Expr::ListCapacity(list) => {
+                self.expr(f, list);
+                self.reprs.list_capacity(f, list.rep());
+            }
+            Expr::ListReserve {
+                list,
+                capacity,
+                site,
+            } => {
+                self.expr(f, list);
+                self.expr(f, capacity);
+                let rep = list.rep();
+                self.at(f, *site, |e, f| e.reprs.list_reserve(f, rep));
+            }
+            Expr::ListSetLen { list, len } => {
+                self.expr(f, list);
+                self.expr(f, len);
+                self.reprs.list_set_len(f, list.rep());
+            }
+            Expr::SetItem { list, index, value } => {
+                self.expr(f, list);
+                self.reprs.list_items(f, list.rep());
+                self.expr(f, index);
+                self.reprs.index_of(f);
+                self.expr(f, value);
+                self.reprs.set_list_item(f, list.rep());
+            }
             Expr::CodePoint { value, index } => {
                 self.expr(f, value);
                 self.expr(f, index);

@@ -565,6 +565,30 @@ pub(crate) enum Expr {
         len: Box<Expr>,
         site: Site,
     },
+    /// How many items the array of a list has room for, as an `int`.
+    ListCapacity(Box<Expr>),
+    /// Gives a list an array with room for an `int` number of items, not
+    /// below its length, with its items. The site is where the program runs
+    /// out of memory for the array.
+    ListReserve {
+        list: Box<Expr>,
+        capacity: Box<Expr>,
+        site: Site,
+    },
+    /// Sets the length of a list to an `int` that is not above its
+    /// capacity.
+    ListSetLen {
+        list: Box<Expr>,
+        len: Box<Expr>,
+    },
+    /// Sets the item at the `int` index of the array of a list to the
+    /// value, which has the rep of the items. The index is not negative and
+    /// is below the capacity of the list.
+    SetItem {
+        list: Box<Expr>,
+        index: Box<Expr>,
+        value: Box<Expr>,
+    },
     /// The code point of a `str` at an index in range, as an `int`.
     CodePoint {
         value: Box<Expr>,
@@ -1142,6 +1166,7 @@ impl Expr {
             | Expr::CodePoint { .. }
             | Expr::CaseAt { .. }
             | Expr::DecimalValue(_)
+            | Expr::ListCapacity(_)
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)
@@ -1190,7 +1215,12 @@ impl Expr {
             | Expr::DuringRepr { value, .. }
             | Expr::NotNone { value, .. } => value.rep(),
             Expr::MinMax { args, .. } => args.first().expect("min or max has values").rep(),
-            Expr::Print { .. } | Expr::WriteErr(_) | Expr::Stop { .. } => Rep::None,
+            Expr::Print { .. }
+            | Expr::WriteErr(_)
+            | Expr::Stop { .. }
+            | Expr::ListReserve { .. }
+            | Expr::ListSetLen { .. }
+            | Expr::SetItem { .. } => Rep::None,
         }
     }
 }
