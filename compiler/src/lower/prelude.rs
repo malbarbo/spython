@@ -102,22 +102,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
             None => None,
         }
         .ok_or_else(|| unsupported(call, "a call of this method"))?;
-        let params = self.funcs.borrow().get(func).params.clone();
-        if given.len() > params.len() {
-            return Err(unsupported(
-                call,
-                "a call of this method with these arguments",
-            ));
-        }
-        let mut given = given.into_iter();
-        let args = params
-            .iter()
-            .zip(&shapes)
-            .map(|(rep, shape)| {
-                prelude_arg(given.next().unwrap_or(Expr::None), *rep, shape)
-                    .ok_or_else(|| unsupported(call, "an argument of this type"))
-            })
-            .collect::<Result<_, _>>()?;
+        let args = self.prelude_args(
+            call,
+            (func, &shapes),
+            given,
+            (true, "a call of this method with these arguments"),
+        )?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
     }
@@ -143,19 +133,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let (func, shapes) = self
             .prelude_for(call, unit, &def.name, &reps)?
             .expect("a function of the prelude");
-        let params = self.funcs.borrow().get(func).params.clone();
-        if given.len() != params.len() {
-            return Err(unsupported(call, "a call with these arguments"));
-        }
-        let args = given
-            .into_iter()
-            .zip(&params)
-            .zip(&shapes)
-            .map(|((value, rep), shape)| {
-                prelude_arg(value, *rep, shape)
-                    .ok_or_else(|| unsupported(call, "an argument of this type"))
-            })
-            .collect::<Result<_, _>>()?;
+        let args = self.prelude_args(
+            call,
+            (func, &shapes),
+            given,
+            (false, "a call with these arguments"),
+        )?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
     }
@@ -186,18 +169,41 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let (func, shapes) = self
             .prelude_for(node, unit, name, &reps)?
             .expect("a function of the module list");
-        let params = self.funcs.borrow().get(func).params.clone();
-        let args = args
-            .into_iter()
-            .zip(&params)
-            .zip(&shapes)
-            .map(|((value, rep), shape)| {
-                prelude_arg(value, *rep, shape)
-                    .ok_or_else(|| unsupported(node, "an argument of this type"))
-            })
-            .collect::<Result<_, _>>()?;
+        let args = self.prelude_args(
+            node,
+            (func, &shapes),
+            args,
+            (false, "a call with these arguments"),
+        )?;
         let raises = self.funcs.borrow().raises.get(func.index()).copied();
         Ok(self.prelude_call_of(func, args, raises.unwrap_or(true).then_some(site)))
+    }
+
+    /// `given` as the arguments of `func`, a function of the prelude whose
+    /// parameters have the declared types `shapes`, for the call at `node`.
+    /// When `defaults` holds, a missing argument is `None`, which stands
+    /// for the default of the parameter. A number of arguments that does
+    /// not fit is `count`, a construct that the compiler does not support.
+    fn prelude_args(
+        &self,
+        node: &impl Ranged,
+        (func, shapes): (FuncId, &[Shape]),
+        given: Vec<Expr>,
+        (defaults, count): (bool, &str),
+    ) -> Result<Vec<Expr>, Error> {
+        let params = self.funcs.borrow().get(func).params.clone();
+        if given.len() > params.len() || (!defaults && given.len() < params.len()) {
+            return Err(unsupported(node, count));
+        }
+        let mut given = given.into_iter();
+        params
+            .iter()
+            .zip(shapes)
+            .map(|(rep, shape)| {
+                prelude_arg(given.next().unwrap_or(Expr::None), *rep, shape)
+                    .ok_or_else(|| unsupported(node, "an argument of this type"))
+            })
+            .collect()
     }
 
     /// The `repr` of `value`, a list or a list or `None`, at `site`, which
