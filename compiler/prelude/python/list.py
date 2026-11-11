@@ -8,7 +8,7 @@ from __spython_prelude__.intrinsics import (
     list_set_len,
     set_item,
 )
-from __spython_prelude__.slices import slice_end, slice_start
+from __spython_prelude__.slices import slice_end, slice_start, step_bound
 
 
 def append[T](xs: list[T], x: T) -> None:
@@ -134,6 +134,50 @@ def concat[T](xs: list[T], ys: list[T]) -> list[T]:
     extend(zs, xs)
     extend(zs, ys)
     return zs
+
+
+def slice_of[T](xs: list[T], start: int | None, stop: int | None) -> list[T]:
+    """`xs[start:stop]`, a new list with the items of `xs` from `start` up to `stop`."""
+    n = len(xs)
+    first = slice_start(start, n)
+    last = slice_end(stop, n)
+    ys: list[T] = []
+    if first < last:
+        list_reserve(ys, last - first)
+        copy_items(ys, 0, xs, first, last - first)
+        list_set_len(ys, last - first)
+    return ys
+
+
+def slice_step[T](
+    xs: list[T], start: int | None, stop: int | None, step: int | None
+) -> list[T]:
+    """`xs[start:stop:step]`, with the bounds that CPython adjusts to the step."""
+    n = len(xs)
+    k = 1
+    if step is not None:
+        k = step
+    if k == 0:
+        raise ValueError("slice step cannot be zero")
+    negative = k < 0
+    first = 0
+    last = n
+    if negative:
+        first = n - 1
+        last = -1
+    first = step_bound(start, n, negative, first)
+    last = step_bound(stop, n, negative, last)
+    count = 0
+    if negative and last < first:
+        count = (last - first + 1) // k + 1
+    elif not negative and first < last:
+        count = (last - first - 1) // k + 1
+    ys: list[T] = []
+    list_reserve(ys, count)
+    for i in range(count):
+        set_item(ys, i, item(xs, first + i * k))
+    list_set_len(ys, count)
+    return ys
 
 
 def grow[T](xs: list[T], need: int) -> None:

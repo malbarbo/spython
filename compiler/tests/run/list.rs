@@ -72,7 +72,6 @@ fn what_a_list_lacks_yet_is_unsupported() {
             "xs = [1]\nys = [True]\nxs.extend(ys)\n",
             "a call of a generic function with these types",
         ),
-        ("xs = [1]\nys = xs[1:]\n", "a slice of a list"),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
@@ -667,4 +666,43 @@ fn what_plus_of_lists_lacks_is_unsupported() {
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
+}
+
+#[test]
+fn a_slice_of_a_list_is_a_new_list() {
+    same_as_cpython(
+        "a_slice_of_a_list_is_a_new_list",
+        indoc! {"
+            def show(n: int) -> int:
+                print('bound', n)
+                return n
+
+
+            xs = [0, 1, 2, 3, 4, 5]
+            print(xs[1:3], xs[:2], xs[4:], xs[:], xs[:] is xs, xs[-2:], xs[:-2], xs[-10:10], xs[4:2])
+            print(xs[::2], xs[1::2], xs[::-1], xs[4:1:-1], xs[-1:-4:-2], xs[::10], xs[10::-3])
+            print(xs[None:2], xs[1:None:None], xs[show(1):show(4):show(2)], xs[True:])
+            ys = xs[1:4]
+            ys[0] = 9
+            print(xs, ys)
+            ws: list[list[int]] = [[1], [2]]
+            vs = ws[:1]
+            vs[0].append(3)
+            print(ws, vs)
+            empty: list[str] = []
+            print(empty[1:], empty[::-1], ['a', 'b'][1:], [True, False][::-1])
+        "},
+    );
+}
+
+#[test]
+fn a_slice_of_a_list_with_a_step_of_zero_raises_value_error() {
+    same_as_cpython(
+        "a_slice_of_a_list_with_a_step_of_zero_raises_value_error",
+        indoc! {"
+            xs = [1, 2]
+            k = len(xs) - 2
+            print(xs[::k])
+        "},
+    );
 }

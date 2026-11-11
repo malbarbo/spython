@@ -120,8 +120,8 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
                 if let Rep::List(list) = value.rep() {
-                    if sub.slice.is_slice_expr() {
-                        return Err(unsupported(sub, "a slice of a list"));
+                    if let ast::Expr::Slice(slice) = &*sub.slice {
+                        return self.list_slice(sub, value, slice);
                     }
                     let index = self.int_operand(&sub.slice)?;
                     let item = Expr::ListIndex {
@@ -189,6 +189,33 @@ impl<'a> Lowering<'a, '_> {
             },
             _ => Err(unsupported(expr, "this expression")),
         }
+    }
+
+    /// The slice `sub` of `value`, a list, as a new list, which the module
+    /// `list` of the prelude gives. A bound that the slice leaves out, or
+    /// that is `None`, goes to the prelude as `None`.
+    fn list_slice(
+        &self,
+        sub: &ast::ExprSubscript,
+        value: Expr,
+        slice: &ast::ExprSlice,
+    ) -> Result<Expr, Error> {
+        let parts = match &slice.step {
+            Some(_) => vec![&slice.lower, &slice.upper, &slice.step],
+            None => vec![&slice.lower, &slice.upper],
+        };
+        let mut args = vec![value];
+        for part in parts {
+            args.push(match part.as_deref() {
+                None | Some(ast::Expr::NoneLiteral(_)) => Expr::None,
+                Some(part) => self.int_operand(part)?,
+            });
+        }
+        let name = match slice.step {
+            Some(_) => "slice_step",
+            None => "slice_of",
+        };
+        self.list_call(sub, name, args)
     }
 
     /// The list of the literal `list`, whose type the checker gives, as the
