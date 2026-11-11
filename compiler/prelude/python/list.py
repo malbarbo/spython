@@ -127,6 +127,15 @@ def reverse[T](xs: list[T]) -> None:
         j -= 1
 
 
+def concat[T](xs: list[T], ys: list[T]) -> list[T]:
+    """`xs + ys`, a new list with the items of `xs` and then the items of `ys`."""
+    zs: list[T] = []
+    list_reserve(zs, len(xs) + len(ys))
+    extend(zs, xs)
+    extend(zs, ys)
+    return zs
+
+
 def grow[T](xs: list[T], need: int) -> None:
     """Gives `xs` room for `need` items, and for at least twice the items it has room for, from
     4."""

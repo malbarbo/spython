@@ -630,6 +630,15 @@ impl<'a> Lowering<'a, '_> {
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
         match (op, left.rep(), right.rep()) {
+            (ast::Operator::Add, Rep::List(a), Rep::List(b)) if a == b => {
+                return self.list_call(node, "concat", vec![left, right]);
+            }
+            (ast::Operator::Add, a, b) if a.list().is_some() && b.list().is_some() => {
+                return Err(unsupported(node, "a + of two types of list"));
+            }
+            (_, a, b) if a.list().is_some() || b.list().is_some() => {
+                return Err(unsupported(node, "this operator"));
+            }
             (ast::Operator::Add, Rep::Str, Rep::Str) => {
                 return Ok(Expr::Concat {
                     left: Box::new(left),

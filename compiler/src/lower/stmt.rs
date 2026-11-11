@@ -163,6 +163,7 @@ impl<'a> Lowering<'a, '_> {
                 let (object, class, field, rep) = self.updated_field(attr)?;
                 let left = self.object_attribute(attr, Expr::Target(class), class)?;
                 let left = self.narrowed_field(target, attr, left)?;
+                no_list_update(&left, stmt)?;
                 let right = self.expr(value)?;
                 let value = self.binary(stmt, *op, (left, &**target), (right, &**value))?;
                 let value = coerce(value, rep)
@@ -179,6 +180,7 @@ impl<'a> Lowering<'a, '_> {
                     return Err(unsupported(&*a.target, "this target"));
                 };
                 let left = self.load(name)?;
+                no_list_update(&left, a)?;
                 let right = self.expr(&a.value)?;
                 let value = self.binary(a, a.op, (left, name), (right, &*a.value))?;
                 let (target, value) = self.target(&a.target, value)?;
@@ -496,5 +498,14 @@ impl<'a> Lowering<'a, '_> {
                 .map(|value| Stmt::Return(Some(value)))
                 .ok_or_else(|| unsupported(value, "a return of this type")),
         }
+    }
+}
+
+/// Refuses an operator with assignment, as `xs += ys`, whose target `left`
+/// is a list. CPython changes the list in place, where `+` gives a new one.
+fn no_list_update(left: &Expr, node: &impl Ranged) -> Result<(), Error> {
+    match left.rep().list() {
+        Some(_) => Err(unsupported(node, "an operator with assignment on a list")),
+        None => Ok(()),
     }
 }

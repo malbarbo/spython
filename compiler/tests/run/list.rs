@@ -607,3 +607,64 @@ fn clear_copy_and_reverse_of_a_list() {
         "},
     );
 }
+
+#[test]
+fn plus_of_two_lists_gives_a_new_list() {
+    same_as_cpython(
+        "plus_of_two_lists_gives_a_new_list",
+        indoc! {"
+            def lista(s: str, xs: list[int]) -> list[int]:
+                print(s)
+                return xs
+
+
+            xs = [1, 2]
+            ys = xs + [3]
+            empty: list[int] = []
+            print(xs, ys, xs + empty, empty + xs, empty + empty, (xs + empty) is xs)
+            zs = lista('a', xs) + lista('b', ys)
+            zs.append(9)
+            print(zs, xs, ys)
+            ws: list[list[str]] = [['a']]
+            vs = ws + ws
+            vs[0].append('b')
+            print(vs, ws, ['x'] + ['y', 'z'], [True] + [False])
+            n = 0
+            acc: list[int] = []
+            while n < 5:
+                acc = acc + [n]
+                n += 1
+            print(acc)
+        "},
+    );
+}
+
+#[test]
+fn what_plus_of_lists_lacks_is_unsupported() {
+    for (source, what) in [
+        (
+            indoc! {"
+                xs = [1]
+                xs += [2]
+            "},
+            "an operator with assignment on a list",
+        ),
+        (
+            indoc! {"
+                xs = [1]
+                ys = [True]
+                zs = xs + ys
+            "},
+            "a + of two types of list",
+        ),
+        (
+            indoc! {"
+                xs = [1]
+                ys = xs * 2
+            "},
+            "this operator",
+        ),
+    ] {
+        assert_eq!(unsupported(source), what, "{source}");
+    }
+}
