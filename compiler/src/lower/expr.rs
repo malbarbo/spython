@@ -422,6 +422,13 @@ impl<'a> Lowering<'a, '_> {
         {
             let sub = self.expr(left)?;
             let s = self.expr(right)?;
+            if s.rep().list().is_some() {
+                let is_in = self.list_in(c, sub, (s, right))?;
+                return Ok(match op {
+                    ast::CmpOp::In => is_in,
+                    _ => Expr::Not(Box::new(is_in)),
+                });
+            }
             if sub.rep() != Rep::Str || s.rep() != Rep::Str {
                 return Err(unsupported(c, "in between values that are not strs"));
             }
@@ -551,7 +558,7 @@ impl<'a> Lowering<'a, '_> {
         if !self.in_prelude()
             && [&left, &right]
                 .iter()
-                .any(|operand| self.may_hold_dataclass(operand))
+                .any(|(lowered, node)| self.may_hold_dataclass(lowered.rep(), node))
         {
             return Err(unsupported(
                 c,
@@ -567,13 +574,33 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
-    /// Returns `true` if the items of the lowered `operand`, a list, or the
-    /// items of a list inside it, are of a union that may hold an object of
-    /// a dataclass, `false` otherwise. The `==` of a uniform value compares
+    /// `x in xs` of `c`, with `xs` a list, which `contains` of the module
+    /// `list` of the prelude gives. `x` runs first, as in CPython.
+    fn list_in(
+        &self,
+        c: &ast::ExprCompare,
+        x: Expr,
+        (xs, node): (Expr, &ast::Expr),
+    ) -> Result<Expr, Error> {
+        let Rep::List(_) = xs.rep() else {
+            return Err(unsupported(node, "in of a list that may be None"));
+        };
+        if !self.in_prelude() && self.may_hold_dataclass(xs.rep(), node) {
+            return Err(unsupported(
+                c,
+                "a search in a list whose items may be dataclasses of a union",
+            ));
+        }
+        self.list_call(c, "contains", vec![x, xs])
+    }
+
+    /// Returns `true` if the items of `node`, a list of `rep`, or the items
+    /// of a list inside it, are of a union that may hold an object of a
+    /// dataclass, `false` otherwise. The `==` of a uniform value compares
     /// two objects by their identity, and the `==` of a dataclass compares
     /// the fields.
-    fn may_hold_dataclass(&self, (lowered, node): &(Expr, &ast::Expr)) -> bool {
-        let mut rep = lowered.rep();
+    pub(super) fn may_hold_dataclass(&self, rep: Rep, node: &ast::Expr) -> bool {
+        let mut rep = rep;
         let mut shape = expr_shape(self.model(), node);
         while let Some(list) = rep.list() {
             rep = self.list_item(list);

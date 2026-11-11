@@ -8,6 +8,7 @@ from __spython_prelude__.intrinsics import (
     list_set_len,
     set_item,
 )
+from __spython_prelude__.slices import slice_end, slice_start
 
 
 def append[T](xs: list[T], x: T) -> None:
@@ -59,6 +60,47 @@ def extend[T](xs: list[T], ys: list[T]) -> None:
         grow(xs, n + m)
     copy_items(xs, n, ys, 0, m)
     list_set_len(xs, n + m)
+
+
+def contains[T](x: T, xs: list[T]) -> bool:
+    """`x in xs`, which compares each item with `x`, with the item on the left."""
+    for y in xs:
+        if y == x:
+            return True
+    return False
+
+
+def index[T](
+    xs: list[T], x: T, start: int | None = None, stop: int | None = None
+) -> int:
+    """The index of the first item of `xs` equal to `x`, between `start` and `stop`, which go
+    from the end when they are negative."""
+    i = slice_start(start, len(xs))
+    end = slice_end(stop, len(xs))
+    while i < end:
+        if item(xs, i) == x:
+            return i
+        i += 1
+    raise ValueError(repr(x) + " is not in list")
+
+
+def count[T](xs: list[T], x: T) -> int:
+    n = 0
+    for y in xs:
+        if y == x:
+            n += 1
+    return n
+
+
+def remove[T](xs: list[T], x: T) -> None:
+    """Removes the first item of `xs` equal to `x`."""
+    n = len(xs)
+    for i in range(n):
+        if item(xs, i) == x:
+            copy_items(xs, i, xs, i + 1, n - i - 1)
+            list_set_len(xs, n - 1)
+            return
+    raise ValueError("list.remove(x): x not in list")
 
 
 def grow[T](xs: list[T], need: int) -> None:

@@ -77,6 +77,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
     ) -> Result<Expr, Error> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
+        if ["count", "index", "remove"].contains(&name)
+            && self.may_hold_dataclass(receiver.rep(), &attr.value)
+        {
+            return Err(unsupported(
+                call,
+                "a search in a list whose items may be dataclasses of a union",
+            ));
+        }
         // The module `str` of the prelude defines each method of `str`
         // that it has under the name of the method, among other functions,
         // and the module `list` each method of `list`.
@@ -161,8 +169,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// The call at `node` of the function `name` of the module `list` of
-    /// the prelude, with `args` as values of its parameters, in the copy
-    /// for the reps of `args`.
+    /// the prelude with `args`, in the copy for the reps of `args`.
     pub(super) fn list_call(
         &self,
         node: &impl Ranged,
@@ -173,9 +180,19 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .prelude_unit("list")
             .expect("the module list of the prelude");
         let reps: Vec<Rep> = args.iter().map(Expr::rep).collect();
-        let (func, _) = self
+        let (func, shapes) = self
             .prelude_for(node, unit, name, &reps)?
             .expect("a function of the module list");
+        let params = self.funcs.borrow().get(func).params.clone();
+        let args = args
+            .into_iter()
+            .zip(&params)
+            .zip(&shapes)
+            .map(|((value, rep), shape)| {
+                prelude_arg(value, *rep, shape)
+                    .ok_or_else(|| unsupported(node, "an argument of this type"))
+            })
+            .collect::<Result<_, _>>()?;
         let site = self.call_site(func, node);
         Ok(self.prelude_call_of(func, args, site))
     }

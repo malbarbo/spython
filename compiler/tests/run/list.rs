@@ -469,3 +469,111 @@ fn pop_of_an_empty_list_or_out_of_range_raises_index_error() {
         same_as_cpython(name, source);
     }
 }
+
+#[test]
+fn in_index_count_and_remove_look_for_an_equal_item() {
+    same_as_cpython(
+        "in_index_count_and_remove_look_for_an_equal_item",
+        indoc! {"
+            from dataclasses import dataclass
+
+
+            @dataclass
+            class P:
+                x: int
+                y: int
+
+
+            def show(s: str, n: int) -> int:
+                print(s)
+                return n
+
+
+            def lista(xs: list[int]) -> list[int]:
+                print('lista')
+                return xs
+
+
+            xs = [1, 2, 3, 2, 1]
+            print(2 in xs, 5 in xs, 5 not in xs, 2 not in xs, show('x', 3) in lista(xs))
+            print(xs.index(2), xs.index(1, 1), xs.index(2, -2), xs.index(2, 0, 2), xs.index(3, -10, 10))
+            print(xs.count(1), xs.count(3), xs.count(7), [[1], [2], [1]].count([1]))
+            xs.remove(2)
+            print(xs)
+            xs.remove(1)
+            xs.remove(1)
+            print(xs, 'a' in ['a', 'b'], 'c' in ['a'], [1] in [[0], [1]], True in [False])
+            ps = [P(1, 2), P(3, 4)]
+            print(P(3, 4) in ps, P(4, 3) in ps, ps.index(P(3, 4)), ps.count(P(1, 2)))
+            ps.remove(P(1, 2))
+            print(ps)
+            ns: list[str | None] = ['a', None]
+            print(None in ns, 'a' in ns, ns.index(None), ns.count('b'))
+            empty: list[int] = []
+            print(1 in empty, empty.count(1))
+        "},
+    );
+}
+
+#[test]
+fn index_and_remove_of_a_missing_item_raise_value_error() {
+    for (name, source) in [
+        (
+            "index_of_a_missing_item_raises_value_error",
+            indoc! {"
+                xs = [1]
+                xs.index(9)
+            "},
+        ),
+        (
+            "index_of_a_missing_str_raises_value_error_with_its_repr",
+            indoc! {"
+                xs = ['a']
+                print(xs.index('b'))
+            "},
+        ),
+        (
+            "index_of_an_item_out_of_the_range_raises_value_error",
+            indoc! {"
+                xs = [1, 2]
+                xs.index(1, 1)
+            "},
+        ),
+        (
+            "remove_of_a_missing_item_raises_value_error",
+            indoc! {"
+                xs = [1]
+                xs.remove(9)
+            "},
+        ),
+    ] {
+        same_as_cpython(name, source);
+    }
+}
+
+#[test]
+fn a_search_in_a_list_of_a_union_with_a_dataclass_is_unsupported() {
+    let class = indoc! {"
+        from dataclasses import dataclass
+
+
+        @dataclass
+        class P:
+            x: int
+
+
+        xs: list[P | int] = [P(1)]
+    "};
+    for search in [
+        "b = 1 in xs",
+        "n = xs.count(1)",
+        "n = xs.index(1)",
+        "xs.remove(1)",
+    ] {
+        assert_eq!(
+            unsupported(&format!("{class}{search}\n")),
+            "a search in a list whose items may be dataclasses of a union",
+            "{search}"
+        );
+    }
+}
