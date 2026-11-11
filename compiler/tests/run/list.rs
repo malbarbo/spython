@@ -72,7 +72,44 @@ fn what_a_list_lacks_yet_is_unsupported() {
         ("xs = [1]\nb = xs == [2]\n", "a comparison of lists"),
         ("x: list[int] | str = [1]\n", "a variable of this type"),
         ("xs: list[None] = [None]\n", "a list of this type"),
+        ("xs = [1]\nxs.reverse()\n", "a call of this method"),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
+}
+
+#[test]
+fn append_adds_an_item_at_the_end() {
+    same_as_cpython(
+        "append_adds_an_item_at_the_end",
+        indoc! {"
+            def fill(xs: list[int], n: int) -> None:
+                i = 0
+                while i < n:
+                    xs.append(i)
+                    i += 1
+
+
+            xs: list[int] = []
+            fill(xs, 1000)
+            print(len(xs), xs.append(5), len(xs))
+            ys = [1, 2]
+            zs = ys
+            zs.append(3)
+            print(len(ys), ys is zs)
+            ss: list[str] = []
+            ss.append('a')
+            fs = [1.5]
+            fs.append(2.5)
+            ws: list[list[int]] = []
+            ws.append(xs)
+            ws.append([])
+            bs = [True]
+            bs.append(False)
+            us: list[int | None] = []
+            us.append(None)
+            us.append(7)
+            print(len(ss), len(fs), len(ws), len(bs), len(us))
+        "},
+    );
 }

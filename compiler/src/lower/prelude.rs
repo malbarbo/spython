@@ -518,4 +518,14 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn a_generic_function_of_the_prelude_has_a_copy_for_each_type_of_list() {
+        // `append` and the `grow` that it calls.
+        assert_eq!(funcs("xs = [1]\nxs.append(2)\nxs.append(3)\n"), 2);
+        assert_eq!(
+            funcs("xs = [1]\nys = ['a']\nxs.append(2)\nys.append('b')\n"),
+            4
+        );
+    }
 }

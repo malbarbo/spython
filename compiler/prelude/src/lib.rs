@@ -11,6 +11,7 @@ pub const FILES: &[(&str, &str)] = &[
     ("float.py", include_str!("../python/float.py")),
     ("int.py", include_str!("../python/int.py")),
     ("intrinsics.pyi", include_str!("../python/intrinsics.pyi")),
+    ("list.py", include_str!("../python/list.py")),
     ("math.py", include_str!("../python/math.py")),
     ("str.py", include_str!("../python/str.py")),
 ];
