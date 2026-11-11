@@ -1185,6 +1185,20 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.at(f, *site, |e, f| e.reprs.uniform_repr(&mut e.m, f));
             }
+            Expr::UniformEq {
+                left,
+                right,
+                eqs,
+                site,
+            } => {
+                self.expr(f, left);
+                self.expr(f, right);
+                let eqs: Vec<_> = eqs
+                    .iter()
+                    .map(|(class, func)| (*class, self.func_slots(*func).index))
+                    .collect();
+                self.at(f, *site, |e, f| e.reprs.uniform_eq(&mut e.m, f, eqs));
+            }
             Expr::Captured => self.reprs.captured(f),
             Expr::CapturedException => self.reprs.captured_exception(f),
             Expr::Target(_) => {

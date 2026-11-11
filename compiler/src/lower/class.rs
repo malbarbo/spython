@@ -803,13 +803,13 @@ impl<'a> Lowering<'a, '_> {
     /// The dataclasses whose objects the lowered `operand`, with its node,
     /// may be.
     fn dataclasses_of(&self, (lowered, node): &(Expr, &ast::Expr)) -> Vec<ClassId> {
-        let mut found = match lowered.rep() {
-            Rep::Object(class) | Rep::ObjectOrNone(class) => vec![class],
-            Rep::Uniform => self.classes_in(expr_shape(self.model(), node)),
+        match lowered.rep() {
+            Rep::Object(class) | Rep::ObjectOrNone(class) if self.is_dataclass(class) => {
+                vec![class]
+            }
+            Rep::Uniform => self.uniform_dataclasses(expr_shape(self.model(), node)),
             _ => Vec::new(),
-        };
-        found.retain(|class| self.is_dataclass(*class));
-        found
+        }
     }
 
     pub(super) fn is_dataclass(&self, class: ClassId) -> bool {
@@ -862,7 +862,7 @@ impl<'a> Lowering<'a, '_> {
         ops: Vec<CmpOp>,
         operands: Vec<(Expr, &ast::Expr)>,
     ) -> Result<Expr, Error> {
-        let (Ok([op]), Ok([(left, _), (right, _)])) =
+        let (Ok([op]), Ok([left, right])) =
             (<[CmpOp; 1]>::try_from(ops), <[_; 2]>::try_from(operands))
         else {
             return Err(unsupported(c, "a chain of comparisons of dataclasses"));
@@ -870,9 +870,14 @@ impl<'a> Lowering<'a, '_> {
         if !matches!(op, CmpOp::Eq | CmpOp::Ne) {
             return Err(unsupported(c, "an order of objects"));
         }
-        let eq = self
-            .dataclass_eq(left, right, self.site(c.range()))?
-            .ok_or_else(|| unsupported(c, "== of a union with a dataclass"))?;
+        let theirs = self.dataclasses_of(&right);
+        let mut shared = self.dataclasses_of(&left);
+        shared.retain(|class| theirs.contains(class));
+        let site = self.site(c.range());
+        let eq = match self.dataclass_eq(left.0, right.0, site)? {
+            Ok(eq) => eq,
+            Err((left, right)) => self.uniform_eq(left, right, shared, site)?,
+        };
         Ok(match op {
             CmpOp::Ne => Expr::Not(Box::new(eq)),
             _ => eq,
@@ -882,22 +887,51 @@ impl<'a> Lowering<'a, '_> {
     /// `left == right`, where both may be objects of a dataclass, which the
     /// `__eq__` of the class compares at `site`, and `None` when one of
     /// them is a union.
-    fn dataclass_eq(&self, left: Expr, right: Expr, site: Site) -> Result<Option<Expr>, Error> {
+    fn dataclass_eq(
+        &self,
+        left: Expr,
+        right: Expr,
+        site: Site,
+    ) -> Result<Result<Expr, (Expr, Expr)>, Error> {
         // An object may be null, which `__eq__` does not take.
         let (Some(a), Some(b)) = (left.rep().class(), right.rep().class()) else {
-            return Ok(None);
+            return Ok(Err((left, right)));
         };
         if a != b {
-            return Ok(None);
+            return Ok(Err((left, right)));
         }
         let rep = Rep::ObjectOrNone(a);
         let coerced = |value| coerce(value, rep).expect("an object or None");
-        Ok(Some(generated_call(
+        Ok(Ok(generated_call(
             self.eq_or_none(a)?,
             vec![coerced(left), coerced(right)],
             Rep::Bool,
             site,
         )))
+    }
+
+    /// `left == right` at `site`, where one of them is uniform and both
+    /// may be objects of the dataclasses `classes`. The `__eq__` of a class
+    /// compares two objects of the class.
+    fn uniform_eq(
+        &self,
+        left: Expr,
+        right: Expr,
+        classes: Vec<ClassId>,
+        site: Site,
+    ) -> Result<Expr, Error> {
+        let eqs = classes
+            .into_iter()
+            .map(|class| Ok((class, self.eq_or_none(class)?)))
+            .collect::<Result<_, Error>>()?;
+        let uniform =
+            |value| Box::new(coerce(value, Rep::Uniform).expect("a uniform value holds any value"));
+        Ok(Expr::UniformEq {
+            left: uniform(left),
+            right: uniform(right),
+            eqs,
+            site,
+        })
     }
 
     /// The function `__eq__` of `class`, a dataclass, as CPython 3.13
@@ -966,24 +1000,16 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         let rep = ours.rep();
         if let Some(list) = rep.list() {
-            if self.items_may_be_dataclasses(rep, Some(shape)) {
-                return Err(unsupported(
-                    node,
-                    "== of a field of a list whose items may be dataclasses of a union",
-                ));
-            }
             let rep = Rep::ListOrNone(list);
             let coerced = |value| coerce(value, rep).expect("a list or None");
             return self.list_call_at(node, "eq", vec![coerced(ours), coerced(theirs)], site);
         }
-        if self
-            .classes_in(Some(shape))
-            .into_iter()
-            .any(|class| self.is_dataclass(class))
-        {
-            return self
-                .dataclass_eq(ours, theirs, site)?
-                .ok_or_else(|| unsupported(node, "== of a field of a union with a dataclass"));
+        let classes = self.uniform_dataclasses(Some(shape));
+        if !classes.is_empty() {
+            return match self.dataclass_eq(ours, theirs, site)? {
+                Ok(eq) => Ok(eq),
+                Err((ours, theirs)) => self.uniform_eq(ours, theirs, classes, site),
+            };
         }
         // A union compares by the types of its values.
         if matches!(rep, Rep::StrOrNone | Rep::Uniform) {

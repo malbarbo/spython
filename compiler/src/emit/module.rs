@@ -23,7 +23,7 @@ pub(crate) use builtins::free_memory;
 const PAGE: u64 = 65536;
 
 /// The index of a function in the module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct FuncIdx(u32);
 
 /// The index of a global in the module.

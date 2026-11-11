@@ -905,36 +905,6 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
         ),
         (
             indoc! {"
-                from dataclasses import dataclass
-
-                @dataclass
-                class P:
-                    x: int
-
-                def f(a: P | int, b: P | int) -> bool:
-                    return a == b
-            "},
-            "== of a union with a dataclass",
-        ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
-                @dataclass
-                class P:
-                    x: int
-
-                @dataclass
-                class Q:
-                    p: P | int
-
-                def f(a: Q, b: Q) -> bool:
-                    return a == b
-            "},
-            "== of a field of a union with a dataclass",
-        ),
-        (
-            indoc! {"
                 from enum import Enum
 
                 class Cor(Enum):
@@ -1083,17 +1053,50 @@ fn an_operator_with_assignment_on_a_field_of_a_list_does_not_compile() {
 }
 
 #[test]
-fn eq_of_a_field_of_a_list_of_a_union_with_a_dataclass_does_not_compile() {
-    assert_eq!(
-        unsupported(indoc! {"
+fn eq_of_a_union_with_a_dataclass_compares_the_fields() {
+    same_as_cpython(
+        "eq_of_a_union_with_a_dataclass_compares_the_fields",
+        indoc! {"
             from dataclasses import dataclass
+
 
             @dataclass
             class P:
-                xs: list['P | int']
+                x: int
 
-            print(P([1]) == P([1]))
-        "}),
-        "== of a field of a list whose items may be dataclasses of a union",
+
+            @dataclass
+            class Q:
+                x: int
+
+
+            @dataclass
+            class R:
+                p: P | int
+                ps: list['P | int']
+
+
+            def eq(a: P | Q | int, b: P | Q | int) -> bool:
+                return a == b
+
+
+            print(eq(P(1), P(1)), eq(P(1), P(2)), eq(P(1), Q(1)), eq(P(1), 1), eq(1, 1))
+            print(P(1) != P(1), Q(1) == Q(1))
+            print(R(P(1), [P(2), 3]) == R(P(1), [P(2), 3]), R(P(1), []) == R(P(2), []))
+            print(R(1, [P(2)]) == R(1, [P(3)]), R(1, [1]) == R(1, [1]))
+            ps: list[P | int] = [P(1), 2, P(3), P(1)]
+            qs: list[Q | int] = [Q(1), 2]
+            print(P(1) in ps, P(2) in ps, 2 in ps, Q(1) in qs)
+            print(ps.count(P(1)), ps.index(P(3)), qs.index(Q(1)))
+            ps.remove(P(3))
+            print(ps, ps == [P(1), 2, P(1)], ps != [P(1), 2, P(1)])
+            ls: list[list[P | int]] = [[P(1)], [2]]
+            ms: list[list[P | int]] = [[P(1)], [2]]
+            ns: list[list[P | int]] = [[P(2)], [2]]
+            one: list[P | int] = [P(1)]
+            print(ls == ms, ls == ns, one in ls)
+            us: list[P | Q | int] = [P(1), Q(1), 1]
+            print(us.count(Q(1)), us.index(1), us == [P(1), Q(1), 1])
+        "},
     );
 }

@@ -6,6 +6,8 @@ mod list;
 pub(super) mod str;
 mod uniform;
 
+use std::collections::HashMap;
+
 use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
 use super::module::{
@@ -40,6 +42,9 @@ pub(crate) struct Reprs {
     /// compares two values of a union, as [`Self::add_compare_uniform`]
     /// says.
     compare_uniform: Option<FuncIdx>,
+    /// The function of [`Self::uniform_eq`] for each list of dataclasses
+    /// and their functions.
+    uniform_eqs: HashMap<Vec<(ClassId, FuncIdx)>, FuncIdx>,
     /// `(func (param (ref null eq)) (result (ref $Str)))`, which gives the
     /// `repr` of a value of a union. A module that gives none goes without
     /// it.
@@ -93,6 +98,7 @@ impl Reprs {
             write_uniform: None,
             repr_uniform: None,
             compare_uniform: None,
+            uniform_eqs: HashMap::new(),
             in_repr: None,
             exc,
             classes: Vec::new(),
@@ -1221,14 +1227,7 @@ impl Reprs {
     pub fn compare(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep, op: CmpOp) {
         match rep {
             Rep::Uniform => {
-                let compare = match self.compare_uniform {
-                    Some(compare) => compare,
-                    None => {
-                        let compare = self.add_compare_uniform(m);
-                        self.compare_uniform = Some(compare);
-                        compare
-                    }
-                };
+                let compare = self.compare_uniform(m);
                 f.ins().call(compare);
                 // -1, 0 and 1 are the order, and 2 is no order.
                 let mut ins = f.ins();
@@ -1370,6 +1369,62 @@ impl Reprs {
     /// `None` alone, and a number and a `str` have no order. The checker
     /// rejects an order between values without one, so only `==` and `!=`
     /// see a 2 that is not a NaN.
+    fn compare_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        if let Some(compare) = self.compare_uniform {
+            return compare;
+        }
+        let compare = self.add_compare_uniform(m);
+        self.compare_uniform = Some(compare);
+        compare
+    }
+
+    /// Pops two uniform values and pushes the `bool` of whether they are
+    /// equal. Two objects of a class of `eqs` go to the function beside the
+    /// class, which may raise, and the rest compare as `==` of a uniform
+    /// value does.
+    pub fn uniform_eq(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        eqs: Vec<(ClassId, FuncIdx)>,
+    ) {
+        let func = match self.uniform_eqs.get(&eqs) {
+            Some(func) => *func,
+            None => {
+                let func = self.add_uniform_eq(m, &eqs);
+                self.uniform_eqs.insert(eqs, func);
+                func
+            }
+        };
+        f.ins().call(func);
+    }
+
+    fn add_uniform_eq(&mut self, m: &mut ModuleState, eqs: &[(ClassId, FuncIdx)]) -> FuncIdx {
+        let uniform = self.uniform.val_type();
+        let ty = m.func_type(&[uniform, uniform], &[ValType::I32]);
+        let mut f = FuncState::new(2);
+        let (a, b) = (f.param(0), f.param(1));
+        for &(class, eq) in eqs {
+            let heap = self.class(class).heap_type();
+            f.ins()
+                .local_get(a)
+                .ref_test(heap)
+                .local_get(b)
+                .ref_test(heap)
+                .i32_and();
+            f.if_(BlockType::Empty);
+            for value in [a, b] {
+                f.ins().local_get(value);
+                self.narrow(m, &mut f, Rep::Uniform, Rep::Object(class));
+            }
+            f.ins().call(eq).return_();
+            f.end();
+        }
+        let compare = self.compare_uniform(m);
+        f.ins().local_get(a).local_get(b).call(compare).i32_eqz();
+        m.add_func(ty, f.finish())
+    }
+
     fn add_compare_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
         let uniform = self.uniform.val_type();
         let ty = m.func_type(&[uniform, uniform], &[ValType::I32]);

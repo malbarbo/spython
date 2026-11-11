@@ -582,16 +582,6 @@ impl<'a> Lowering<'a, '_> {
             _ => None,
         }
         .ok_or_else(|| unsupported(c, "a comparison of two types of list"))?;
-        if !self.in_prelude()
-            && [&left, &right]
-                .iter()
-                .any(|(lowered, node)| self.may_hold_dataclass(lowered.rep(), node))
-        {
-            return Err(unsupported(
-                c,
-                "== of a list whose items may be dataclasses of a union",
-            ));
-        }
         let rep = Rep::ListOrNone(list);
         let coerced = |(value, _): (Expr, _)| coerce(value, rep).expect("a list or None");
         let eq = self.list_call(c, "eq", vec![coerced(left), coerced(right)])?;
@@ -612,46 +602,7 @@ impl<'a> Lowering<'a, '_> {
         let Rep::List(_) = xs.rep() else {
             return Err(unsupported(node, "in of a list that may be None"));
         };
-        if !self.in_prelude() && self.may_hold_dataclass(xs.rep(), node) {
-            return Err(unsupported(
-                c,
-                "a search in a list whose items may be dataclasses of a union",
-            ));
-        }
         self.list_call(c, "contains", vec![x, xs])
-    }
-
-    /// Returns `true` if the items of `node`, a list of `rep`, or the items
-    /// of a list inside it, are of a union that may hold an object of a
-    /// dataclass, `false` otherwise. The `==` of a uniform value compares
-    /// two objects by their identity, and the `==` of a dataclass compares
-    /// the fields.
-    pub(super) fn may_hold_dataclass(&self, rep: Rep, node: &ast::Expr) -> bool {
-        self.items_may_be_dataclasses(rep, expr_shape(self.model(), node))
-    }
-
-    /// Returns `true` if the items of a list of `rep` and `shape`, or the
-    /// items of a list inside it, are of a union that may hold an object of
-    /// a dataclass, `false` otherwise.
-    pub(super) fn items_may_be_dataclasses(&self, rep: Rep, shape: Option<Shape>) -> bool {
-        let mut rep = rep;
-        let mut shape = shape;
-        while let Some(list) = rep.list() {
-            rep = self.list_item(list);
-            shape = match shape {
-                Some(Shape::List(item)) => Some(*item),
-                Some(Shape::Union(shapes)) => shapes.into_iter().find_map(|shape| match shape {
-                    Shape::List(item) => Some(*item),
-                    _ => None,
-                }),
-                _ => None,
-            };
-        }
-        rep == Rep::Uniform
-            && self
-                .classes_in(shape)
-                .into_iter()
-                .any(|class| self.is_dataclass(class))
     }
 
     /// The operator `op` of `node` on two lowered operands, each with the

@@ -423,21 +423,6 @@ fn a_comparison_of_lists_that_spython_lacks_is_unsupported() {
             "},
             "a chain of comparisons of lists",
         ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
-
-                @dataclass
-                class P:
-                    x: int
-
-
-                xs: list[list[P | int]] = [[P(1)]]
-                b = xs == xs
-            "},
-            "== of a list whose items may be dataclasses of a union",
-        ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
@@ -635,35 +620,6 @@ fn index_and_remove_of_a_missing_item_raise_value_error() {
         ),
     ] {
         same_as_cpython(name, source);
-    }
-}
-
-#[test]
-fn a_search_in_a_list_of_a_union_with_a_dataclass_is_unsupported() {
-    let class = indoc! {"
-        from dataclasses import dataclass
-
-
-        @dataclass
-        class P:
-            x: int
-
-
-        xs: list[P | int] = [P(1)]
-    "};
-    for search in [
-        "b = 1 in xs",
-        "n = xs.count(1)",
-        "n = xs.index(1)",
-        "xs.remove(1)",
-    ] {
-        assert_eq!(
-            unsupported(&formatdoc! {"
-                {class}{search}
-            "}),
-            "a search in a list whose items may be dataclasses of a union",
-            "{search}"
-        );
     }
 }
 

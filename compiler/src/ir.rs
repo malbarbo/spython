@@ -571,6 +571,15 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         site: Site,
     },
+    /// Whether two uniform values are equal, as a `bool`. Two objects of
+    /// a class of `eqs` go to the function beside the class, which may
+    /// raise at the site, and the rest compare as [`Expr::Compare`] does.
+    UniformEq {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        eqs: Vec<(ClassId, FuncId)>,
+        site: Site,
+    },
     /// What the body of the last [`Stmt::Example`] wrote to the standard
     /// output, as a `str`.
     Captured,
@@ -1259,6 +1268,7 @@ impl Expr {
             | Expr::Truth(_)
             | Expr::Not(_)
             | Expr::Compare(..)
+            | Expr::UniformEq { .. }
             | Expr::InRepr(_) => Rep::Bool,
             Expr::None => Rep::None,
             Expr::Load { rep, .. }
