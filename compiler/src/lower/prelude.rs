@@ -95,12 +95,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let params = self.funcs.borrow().get(func).params.clone();
         let mut given = vec![receiver];
         for arg in &call.arguments.args {
-            let lowered = self.expr(arg)?;
-            // A method of a builtin takes a `bool` as the `int` it is.
-            given.push(match lowered.rep() {
-                Rep::Bool => Expr::BoolAsInt(Box::new(lowered)),
-                _ => lowered,
-            });
+            given.push(self.expr(arg)?);
         }
         if given.len() > params.len() {
             return Err(unsupported(
@@ -112,7 +107,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let args = params
             .iter()
             .map(|rep| {
-                coerce(given.next().unwrap_or(Expr::None), *rep)
+                prelude_arg(given.next().unwrap_or(Expr::None), *rep)
                     .ok_or_else(|| unsupported(call, "an argument of this type"))
             })
             .collect::<Result<_, _>>()?;
@@ -261,6 +256,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// `false` in the code of the program.
     pub(super) fn in_prelude(&self) -> bool {
         self.unit.get().prelude.is_some()
+    }
+}
+
+/// `value` as an argument of a parameter of `rep` of a function of the
+/// prelude, and `None` when the parameter does not take it. A parameter of
+/// `int`, or of a union with `int`, takes a `bool` as the `int` it is,
+/// because the prelude reads the union as an `int` after a test. Any other
+/// parameter keeps the `bool`.
+pub(super) fn prelude_arg(value: Expr, rep: Rep) -> Option<Expr> {
+    match (value.rep(), rep) {
+        (Rep::Bool, Rep::Int | Rep::Uniform) => coerce(Expr::BoolAsInt(Box::new(value)), rep),
+        _ => coerce(value, rep),
     }
 }
 
