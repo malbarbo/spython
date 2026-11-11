@@ -86,7 +86,7 @@ impl<'a> Lowering<'a, '_> {
                 rep,
                 check,
             };
-            return self.narrowed(&ast::Expr::Name(name.clone()), load);
+            return self.narrowed_name(name, load);
         }
         let global = self.vars.borrow().find(id);
         let Some((var, rep)) = global else {
@@ -113,7 +113,7 @@ impl<'a> Lowering<'a, '_> {
         // A call between the test of the value and the read may assign a
         // global that a function declares.
         if self.assigned_globals.borrow().contains(id) {
-            let narrowed = self.narrowed(&ast::Expr::Name(name.clone()), load)?;
+            let narrowed = self.narrowed_name(name, load)?;
             if narrowed.rep() != rep {
                 return Err(unsupported(
                     name,
@@ -121,6 +121,15 @@ impl<'a> Lowering<'a, '_> {
                 ));
             }
             return Ok(narrowed);
+        }
+        self.narrowed_name(name, load)
+    }
+
+    /// [`Self::narrowed`] of the read `name`, which builds the node of the
+    /// read only for a union.
+    fn narrowed_name(&self, name: &ast::ExprName, load: Expr) -> Result<Expr, Error> {
+        if !is_union(load.rep()) {
+            return Ok(load);
         }
         self.narrowed(&ast::Expr::Name(name.clone()), load)
     }
@@ -130,7 +139,7 @@ impl<'a> Lowering<'a, '_> {
     /// than the type of a variable of a union after a test of the value.
     pub(super) fn narrowed(&self, node: &ast::Expr, load: Expr) -> Result<Expr, Error> {
         let rep = load.rep();
-        if !matches!(rep, Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_)) {
+        if !is_union(rep) {
             return Ok(load);
         }
         let narrowed = match expr_shape(self.model(), node) {
@@ -214,4 +223,10 @@ impl<'a> Lowering<'a, '_> {
             error: Undefined::Global(Box::new(self.name_error(name.id.as_str()))),
         }))
     }
+}
+
+/// Returns `true` if a value of `rep` may have one of several types, which
+/// a test of the value narrows, `false` otherwise.
+fn is_union(rep: Rep) -> bool {
+    matches!(rep, Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_))
 }
