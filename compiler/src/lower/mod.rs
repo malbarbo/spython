@@ -743,8 +743,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
         self.lowered.borrow_mut().insert(id.index(), func);
     }
 
-    /// The rep of the values of `shape`, and `None` when the compiler has no
-    /// rep for them.
     /// `value` as a value of `rep`, and `None` when a variable of `rep` does
     /// not hold it.
     fn coerce(&self, value: Expr, rep: Rep) -> Option<Expr> {
@@ -769,6 +767,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
         })
     }
 
+    /// The rep of the values of `shape`, and `None` when the compiler has no
+    /// rep for them.
     fn rep_of(&self, shape: Option<Shape>) -> Option<Rep> {
         match shape? {
             Shape::Int | Shape::IntLit(_) => Some(Rep::Int),
