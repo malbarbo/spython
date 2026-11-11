@@ -361,7 +361,8 @@ struct Sig<'a, 'db> {
 }
 
 struct Scope {
-    func: FuncId,
+    /// The number of parameters of the function.
+    params: usize,
     /// The docstring whose examples are the body of the function.
     doctest: Option<DoctestScope>,
     /// The name of the function, which its frames in a traceback show.
@@ -632,12 +633,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
     fn func(&self, id: FuncId) -> Result<Func, Error> {
         let sig = self.funcs.borrow().get(id).clone();
         let outer = self.unit.replace(sig.unit);
-        let func = self.func_of(id, &sig);
+        let func = self.func_of(&sig);
         self.unit.set(outer);
         func
     }
 
-    fn func_of(&self, id: FuncId, sig: &Sig<'a, 'db>) -> Result<Func, Error> {
+    fn func_of(&self, sig: &Sig<'a, 'db>) -> Result<Func, Error> {
         let def = sig.def.expect("a function with a def");
         let mut vars = Vars::default();
         let mut locals = HashSet::new();
@@ -659,7 +660,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .map(str::to_owned)
             .collect();
         *self.scope.borrow_mut() = Some(Scope {
-            func: id,
+            params: sig.params.len(),
             doctest: sig.doctest.map(|docstring| DoctestScope {
                 owner: docstring.owner.clone(),
                 example: None,

@@ -249,9 +249,8 @@ impl<'a> Lowering<'a, '_> {
         ) {
             namespace.push("__doc__".to_owned());
         }
-        let func = self.reserve(Vec::new(), Rep::None);
         *self.scope.borrow_mut() = Some(Scope {
-            func,
+            params: 0,
             doctest: None,
             name: def.name.to_string(),
             ret: Rep::None,
@@ -264,8 +263,12 @@ impl<'a> Lowering<'a, '_> {
         let body = self.class_defaults(def, &fields, &defaults);
         let scope = self.scope.take().expect("the scope of the class");
         let (body, mutable) = body?;
+        // The body of a class reads no variable of its own.
+        debug_assert!(scope.vars.list.is_empty(), "a variable in a class");
         let mut stmts = Vec::new();
         if !body.is_empty() {
+            let func = self.reserve(Vec::new(), Rep::None);
+            self.define(func, true, body);
             // CPython shows the statement from the keyword on, without the
             // decorator.
             let start = self.source()[..usize::from(def.name.start())]
@@ -284,9 +287,6 @@ impl<'a> Lowering<'a, '_> {
                 check: None,
             }));
         }
-        // The body of a class reads no variable of its own.
-        debug_assert!(scope.vars.list.is_empty(), "a variable in a class");
-        self.define(func, true, body);
         stmts.extend(mutable);
         Ok(stmts)
     }

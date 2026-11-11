@@ -54,7 +54,7 @@ impl<'a> Lowering<'a, '_> {
         // CPython lists the locals, the globals and the builtins, and the
         // frame of the module lists its globals as its locals too.
         let (factor, params) = match scope.as_ref() {
-            Some(scope) => (1, funcs.get(scope.func).params.len()),
+            Some(scope) => (1, scope.params),
             None => (2, 0),
         };
         let most = locals.len()
