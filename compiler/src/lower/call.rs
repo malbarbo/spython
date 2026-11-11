@@ -382,9 +382,13 @@ impl<'a> Lowering<'a, '_> {
                 Rep::Str,
                 site,
             ),
+            Rep::None | Rep::StrOrNone => {
+                let value = coerce(value, Rep::StrOrNone).expect("a str or None");
+                self.prelude_call_at("str", "repr_or_none", vec![value], site)?
+            }
             Rep::List(_) | Rep::ListOrNone(_) => self.list_repr(value, site)?,
             // The `repr` of a uniform value tests its type when it runs.
-            Rep::None | Rep::StrOrNone | Rep::Uniform => {
+            Rep::Uniform => {
                 self.uniform_repr.set(true);
                 Expr::UniformRepr {
                     value: Box::new(coerce(value, Rep::Uniform).expect("a uniform value")),

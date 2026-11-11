@@ -1,8 +1,10 @@
 //! `repr` of each type.
 
-use indoc::indoc;
+use std::path::Path;
 
-use super::same_as_cpython;
+use indoc::{formatdoc, indoc};
+
+use super::{compile, same_as_cpython};
 
 #[test]
 fn repr_of_a_number_follows_python() {
@@ -80,4 +82,42 @@ fn repr_of_a_str_follows_python() {
             print(repr('x' * 3) + repr(1) + repr(''))
         "#},
     );
+}
+
+#[test]
+fn repr_of_a_str_or_none_leaves_out_the_repr_of_the_classes() {
+    let program = |t: &str| {
+        formatdoc! {r#"
+            from dataclasses import dataclass
+
+
+            @dataclass
+            class P:
+                x: int
+                y: float
+                nome: str
+
+
+            @dataclass
+            class Q:
+                p: P
+                n: int
+
+
+            def f(s: {t}) -> str:
+                return repr(s)
+
+
+            p = Q(P(1, 2.5, 'a'), 3)
+            print(f('a'), p.n)
+        "#}
+    };
+    let size = |t| {
+        compile(&program(t), Path::new("size.py"))
+            .expect("the program to compile")
+            .bytes
+            .len()
+    };
+    let (str, or_none) = (size("str"), size("str | None"));
+    assert!(or_none < str + 200, "{str} and {or_none}");
 }

@@ -69,6 +69,12 @@ def repr_of(s: str) -> str:
     return builder_done(b)
 
 
+def repr_or_none(s: str | None) -> str:
+    if s is None:
+        return "None"
+    return repr_of(s)
+
+
 def upper(s: str) -> str:
     n = len(s)
     size = 0
