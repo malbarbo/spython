@@ -12,7 +12,7 @@ use ty_python_semantic::types::lowering::{
 use super::expr::float_value;
 use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Expr, MinMaxOp, Place, PrintArg, Rep};
+use crate::ir::{Expr, MinMaxOp, Place, PrintArg, Rep, Site};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -346,18 +346,33 @@ impl<'a> Lowering<'a, '_> {
         node: &impl Ranged,
         range: TextRange,
     ) -> Result<Expr, Error> {
-        match lowered.rep() {
-            Rep::Int | Rep::Float | Rep::Bool => self.str_of(lowered, node, range),
-            Rep::Str => self.prelude_call(&range, "str", "repr_of", vec![lowered]),
-            // An object may be null.
-            Rep::Object(class) | Rep::ObjectOrNone(class) => {
-                let func = self.or_none_conversion(class, true)?;
-                Ok(self.class_call(func, lowered, range))
-            }
-            Rep::None | Rep::StrOrNone | Rep::Uniform => {
-                Err(unsupported(node, "repr of this type"))
-            }
+        if matches!(lowered.rep(), Rep::None | Rep::StrOrNone | Rep::Uniform) {
+            return Err(unsupported(node, "repr of this type"));
         }
+        let site = self.site(range);
+        Ok(self.repr_at(lowered, site)?.expect("a repr of the rep"))
+    }
+
+    /// The `repr` of `value` at `site`, and `None` when the compiler has no
+    /// `repr` for its rep.
+    pub(super) fn repr_at(&self, value: Expr, site: Site) -> Result<Option<Expr>, Error> {
+        Ok(Some(match value.rep() {
+            Rep::Int | Rep::Float | Rep::Bool => Expr::StrOf {
+                operand: Box::new(value),
+                site,
+            },
+            Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], site)?,
+            // An object may be null.
+            Rep::Object(class) | Rep::ObjectOrNone(class) => Expr::Call {
+                func: self.or_none_conversion(class, true)?,
+                args: vec![value],
+                order: None,
+                rep: Rep::Str,
+                site: Some(site),
+                check: None,
+            },
+            Rep::None | Rep::StrOrNone | Rep::Uniform => return Ok(None),
+        }))
     }
 
     /// `int()`, which is `0`, or `int(x)` of a number.

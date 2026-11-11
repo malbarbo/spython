@@ -536,14 +536,9 @@ impl<'a> Lowering<'a, '_> {
             return self.dataclass_repr(class);
         }
         let name = def.name.to_string();
-        let value = self.own_field(class, 1);
-        let value = match value.rep() {
-            Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], Site::NONE)?,
-            _ => Expr::StrOf {
-                operand: Box::new(value),
-                site: Site::NONE,
-            },
-        };
+        let value = self
+            .repr_at(self.own_field(class, 1), Site::NONE)?
+            .expect("the value of a member is an int or a str");
         let body = vec![Stmt::Return(Some(Expr::Join {
             parts: vec![
                 Expr::Str(format!("<{name}.")),
@@ -653,51 +648,19 @@ impl<'a> Lowering<'a, '_> {
         node: &ast::StmtAnnAssign,
     ) -> Result<Expr, Error> {
         let value = self.own_field(class, field);
-        Ok(match rep {
-            Rep::Int | Rep::Float | Rep::Bool => Expr::StrOf {
-                operand: Box::new(value),
-                site,
-            },
-            Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], site)?,
-            Rep::StrOrNone | Rep::Object(_) | Rep::ObjectOrNone(_) => {
-                // A field of an object may be null.
-                let some = match rep {
-                    Rep::Object(_) => self.own_field(class, field),
-                    Rep::ObjectOrNone(other) => Expr::Narrow {
-                        value: Box::new(self.own_field(class, field)),
-                        rep: Rep::Object(other),
-                    },
-                    _ => Expr::Narrow {
-                        value: Box::new(self.own_field(class, field)),
-                        rep: Rep::Str,
-                    },
-                };
-                Expr::IfElse {
-                    cond: Box::new(Expr::IsNone(Box::new(value))),
-                    then: Box::new(Expr::Str("None".to_owned())),
-                    else_: Box::new(self.field_repr_of(some, site)?),
-                }
-            }
-            Rep::Uniform | Rep::None => {
-                return Err(unsupported(node, "the repr of a field of a union"));
-            }
-        })
-    }
-
-    /// The `repr` of `value`, a `str` or an object, which the code at
-    /// `site` gives.
-    fn field_repr_of(&self, value: Expr, site: Site) -> Result<Expr, Error> {
-        Ok(match value.rep() {
-            Rep::Object(class) => Expr::Call {
-                func: self.class_repr(class)?,
-                args: vec![value],
-                order: None,
+        if rep == Rep::StrOrNone {
+            let some = Expr::Narrow {
+                value: Box::new(self.own_field(class, field)),
                 rep: Rep::Str,
-                site: Some(site),
-                check: None,
-            },
-            _ => self.prelude_call_at("str", "repr_of", vec![value], site)?,
-        })
+            };
+            return Ok(Expr::IfElse {
+                cond: Box::new(Expr::IsNone(Box::new(value))),
+                then: Box::new(Expr::Str("None".to_owned())),
+                else_: Box::new(self.repr_at(some, site)?.expect("the repr of a str")),
+            });
+        }
+        self.repr_at(value, site)?
+            .ok_or_else(|| unsupported(node, "the repr of a field of a union"))
     }
 
     /// The object of `class`, a dataclass, that `call` makes. The checker
