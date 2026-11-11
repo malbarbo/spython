@@ -1149,7 +1149,7 @@ impl Emitter<'_> {
             Expr::Member { class, member } => self.reprs.member(f, *class, *member),
             Expr::InRepr(object) => {
                 self.expr(f, object);
-                self.reprs.in_repr(f);
+                self.reprs.in_repr(&mut self.m, f);
             }
             Expr::DuringRepr { object, value } => {
                 self.expr(f, object);

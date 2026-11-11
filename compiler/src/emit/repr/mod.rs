@@ -32,6 +32,9 @@ pub(crate) struct Reprs {
     /// compares two values of a union, as [`Self::add_compare_uniform`]
     /// says.
     compare_uniform: Option<FuncIdx>,
+    /// `(func (param (ref null eq)) (result i32))`, which tells whether
+    /// the `repr` of an object runs.
+    in_repr: Option<FuncIdx>,
     exc: Exceptions,
     /// The struct of an object of each class of the program, by its
     /// [`ClassId`].
@@ -62,6 +65,7 @@ impl Reprs {
             uniform: UniformRepr::new(),
             write_uniform: None,
             compare_uniform: None,
+            in_repr: None,
             exc,
             classes: Vec::new(),
             members: Vec::new(),
@@ -173,30 +177,41 @@ impl Reprs {
     }
 
     /// Pops an object and pushes whether its `repr` runs, as an `i32`.
-    pub fn in_repr(&self, f: &mut FuncState) {
+    pub fn in_repr(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let func = match self.in_repr {
+            Some(func) => func,
+            None => {
+                let func = self.add_in_repr(m);
+                self.in_repr = Some(func);
+                func
+            }
+        };
+        f.ins().call(func);
+    }
+
+    /// Defines the function that looks for its object in the stack of the
+    /// objects whose `repr` runs.
+    fn add_in_repr(&self, m: &mut ModuleState) -> FuncIdx {
         let (node, top) = self.repr_stack();
-        let object = f.temp(self.uniform.val_type());
+        let ty = m.func_type(&[self.uniform.val_type()], &[ValType::I32]);
+        let mut f = FuncState::new(1);
+        let object = f.param(0);
         let next = f.temp(node.ref_to(true));
-        let found = f.temp(ValType::I32);
-        f.ins()
-            .local_set(object)
-            .global_get(top)
-            .local_set(next)
-            .i32_const(0)
-            .local_set(found);
-        let done = f.block(BlockType::Empty);
+        f.ins().global_get(top).local_set(next);
         let nodes = f.loop_(BlockType::Empty);
         f.ins().local_get(next).ref_is_null();
-        f.br_if(done);
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(0).return_();
+        f.end();
         f.ins()
             .local_get(next)
             .ref_as_non_null()
             .struct_get(node, 0)
             .local_get(object)
-            .ref_eq()
-            .local_set(found)
-            .local_get(found);
-        f.br_if(done);
+            .ref_eq();
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(1).return_();
+        f.end();
         f.ins()
             .local_get(next)
             .ref_as_non_null()
@@ -204,11 +219,8 @@ impl Reprs {
             .local_set(next);
         f.br(nodes);
         f.end();
-        f.end();
-        f.ins().local_get(found);
-        for local in [object, next, found] {
-            f.free(local);
-        }
+        f.ins().unreachable();
+        m.add_func(ty, f.finish())
     }
 
     /// Pops an object and puts it on the top of the stack of the objects
