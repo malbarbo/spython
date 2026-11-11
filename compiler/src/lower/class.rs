@@ -222,9 +222,6 @@ impl<'a> Lowering<'a, '_> {
                         .rep_of(Some(shape))
                         .filter(|rep| *rep != Rep::None)
                         .ok_or_else(|| unsupported(node, "a field of this type"))?;
-                    if rep.list().is_some() {
-                        return Err(unsupported(node, "a field of a list"));
-                    }
                     let default = node
                         .value
                         .as_ref()
@@ -341,8 +338,8 @@ impl<'a> Lowering<'a, '_> {
 
     /// The assignment of `value`, the default of the field `name` of `def`,
     /// to `var`, which holds values of `rep`. `mutable` gets the raise of
-    /// the decorator when the default is the first that is an object of a
-    /// dataclass.
+    /// the decorator when the default is the first that is a list or an
+    /// object of a mutable dataclass.
     fn class_default(
         &self,
         def: &ast::StmtClassDef,
@@ -353,30 +350,34 @@ impl<'a> Lowering<'a, '_> {
         mutable: &mut Option<Stmt>,
     ) -> Result<Stmt, Error> {
         let lowered = self.expr(value)?;
-        match lowered.rep() {
-            Rep::Object(class) if mutable.is_none() && self.is_mutable(class) => {
-                let object = self.classes.borrow().get(class).def.name.to_string();
-                let decorator = &def
-                    .decorator_list
-                    .first()
-                    .expect("the decorator of a dataclass")
-                    .expression;
-                let frames = mutable_default_frames(decorator.is_call_expr());
-                *mutable = Some(Stmt::Raise {
-                    class: Class::ValueError,
-                    arg: Some(Expr::Str(mutable_default(&object, name))),
-                    site: self.site_with(decorator.range(), &frames),
-                });
-            }
-            Rep::ObjectOrNone(_) | Rep::Uniform
+        let object = match lowered.rep() {
+            Rep::Object(class) if self.is_mutable(class) => Some(format!(
+                "__main__.{}",
+                self.classes.borrow().get(class).def.name
+            )),
+            Rep::List(_) => Some("list".to_owned()),
+            Rep::ObjectOrNone(_) | Rep::ListOrNone(_) | Rep::Uniform
                 if self.may_be_mutable(expr_shape(self.model(), value)) =>
             {
                 return Err(unsupported(
                     value,
-                    "a default that may be an object of a dataclass",
+                    "a default that may be a list or an object of a dataclass",
                 ));
             }
-            _ => {}
+            _ => None,
+        };
+        if let Some(object) = object.filter(|_| mutable.is_none()) {
+            let decorator = &def
+                .decorator_list
+                .first()
+                .expect("the decorator of a dataclass")
+                .expression;
+            let frames = mutable_default_frames(decorator.is_call_expr());
+            *mutable = Some(Stmt::Raise {
+                class: Class::ValueError,
+                arg: Some(Expr::Str(mutable_default(&object, name))),
+                site: self.site_with(decorator.range(), &frames),
+            });
         }
         let lowered =
             coerce(lowered, rep).ok_or_else(|| unsupported(value, "a default of this type"))?;
@@ -392,10 +393,18 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
-    /// Returns `true` if a value of `shape` may be an object of a class
-    /// that [`Self::is_mutable`] accepts, `false` otherwise.
+    /// Returns `true` if a value of `shape` may be a list or an object of a
+    /// class that [`Self::is_mutable`] accepts, `false` otherwise.
     fn may_be_mutable(&self, shape: Option<Shape>) -> bool {
-        self.classes_in(shape)
+        let list = match &shape {
+            Some(Shape::List(_)) => true,
+            Some(Shape::Union(shapes)) => {
+                shapes.iter().any(|shape| matches!(shape, Shape::List(_)))
+            }
+            _ => false,
+        };
+        list || self
+            .classes_in(shape)
             .into_iter()
             .any(|class| self.is_mutable(class))
     }
@@ -940,6 +949,17 @@ impl<'a> Lowering<'a, '_> {
         shape: Shape,
     ) -> Result<Expr, Error> {
         let rep = ours.rep();
+        if let Some(list) = rep.list() {
+            if self.items_may_be_dataclasses(rep, Some(shape)) {
+                return Err(unsupported(
+                    node,
+                    "== of a field of a list whose items may be dataclasses of a union",
+                ));
+            }
+            let rep = Rep::ListOrNone(list);
+            let coerced = |value| coerce(value, rep).expect("a list or None");
+            return self.list_call_at(node, "eq", vec![coerced(ours), coerced(theirs)], site);
+        }
         if self
             .classes_in(Some(shape))
             .into_iter()

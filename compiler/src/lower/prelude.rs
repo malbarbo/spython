@@ -176,6 +176,17 @@ impl<'a, 'db> Lowering<'a, 'db> {
         name: &str,
         args: Vec<Expr>,
     ) -> Result<Expr, Error> {
+        self.list_call_at(node, name, args, self.site(node.range()))
+    }
+
+    /// [`Self::list_call`] with the call at `site`.
+    pub(super) fn list_call_at(
+        &self,
+        node: &impl Ranged,
+        name: &str,
+        args: Vec<Expr>,
+        site: Site,
+    ) -> Result<Expr, Error> {
         let unit = self
             .prelude_unit("list")
             .expect("the module list of the prelude");
@@ -193,8 +204,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     .ok_or_else(|| unsupported(node, "an argument of this type"))
             })
             .collect::<Result<_, _>>()?;
-        let site = self.call_site(func, node);
-        Ok(self.prelude_call_of(func, args, site))
+        let raises = self.funcs.borrow().raises.get(func.index()).copied();
+        Ok(self.prelude_call_of(func, args, raises.unwrap_or(true).then_some(site)))
     }
 
     /// The `repr` of `value`, a list or a list or `None`, at `site`, which

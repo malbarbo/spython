@@ -30,10 +30,11 @@ pub(crate) fn mutable_default_frames(call: bool) -> String {
 }
 
 /// The text of the `ValueError` of the field `field` with a default that
-/// is an object of the dataclass `class`, of the module `__main__`.
+/// is an object of `class`, a qualified name such as `list` or
+/// `__main__.Ponto`.
 pub(crate) fn mutable_default(class: &str, field: &str) -> String {
     format!(
-        "mutable default <class '__main__.{class}'> for field {field} is not allowed: use default_factory"
+        "mutable default <class '{class}'> for field {field} is not allowed: use default_factory"
     )
 }
 

@@ -886,16 +886,6 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
 
                 @dataclass
                 class P:
-                    x: list[int]
-            "},
-            "a field of a list",
-        ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
-                @dataclass
-                class P:
                     x: None
             "},
             "a field of this type",
@@ -996,9 +986,114 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 class Q:
                     p: P | None = f()
             "},
-            "a default that may be an object of a dataclass",
+            "a default that may be a list or an object of a dataclass",
         ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
+}
+
+#[test]
+fn a_field_of_a_list_holds_a_list() {
+    same_as_cpython(
+        "a_field_of_a_list_holds_a_list",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Turma:
+                nome: str
+                notas: list[float]
+                alunos: list[str] | None
+
+            t = Turma('a', [7.5, 8.0], None)
+            t.notas.append(9.0)
+            t.notas[0] = 6.0
+            print(t)
+            print(t.notas, len(t.notas))
+            t.alunos = ['Ana', 'Bia']
+            print(repr(t))
+            u = Turma('a', [6.0, 8.0, 9.0], ['Ana', 'Bia'])
+            print(t == u, t != u)
+            u.notas.pop()
+            print(t == u)
+            u.alunos = None
+            print(t == u)
+        "},
+    );
+}
+
+#[test]
+fn a_field_of_a_list_of_the_class_writes_and_compares_a_cycle() {
+    same_as_cpython(
+        "a_field_of_a_list_of_the_class_writes_and_compares_a_cycle",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class No:
+                valor: int
+                filhos: list['No']
+
+            a = No(1, [])
+            a.filhos.append(No(2, []))
+            a.filhos.append(a)
+            print(a)
+            b = No(1, [No(2, [])])
+            b.filhos.append(b)
+            print(a == a, a.filhos[0] == b.filhos[0])
+            print(a == b)
+        "},
+    );
+}
+
+#[test]
+fn a_default_of_a_list_raises_value_error() {
+    same_as_cpython(
+        "a_default_of_a_list_raises_value_error",
+        indoc! {"
+            from dataclasses import dataclass
+
+            print(1)
+
+            @dataclass
+            class P:
+                x: int = 0
+                xs: list[int] = []
+                ys: list[int] = [1]
+        "},
+    );
+}
+
+#[test]
+fn an_operator_with_assignment_on_a_field_of_a_list_does_not_compile() {
+    assert_eq!(
+        unsupported(indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class P:
+                xs: list[int]
+
+            p = P([1])
+            p.xs += [2]
+        "}),
+        "an operator with assignment on a list",
+    );
+}
+
+#[test]
+fn eq_of_a_field_of_a_list_of_a_union_with_a_dataclass_does_not_compile() {
+    assert_eq!(
+        unsupported(indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class P:
+                xs: list['P | int']
+
+            print(P([1]) == P([1]))
+        "}),
+        "== of a field of a list whose items may be dataclasses of a union",
+    );
 }

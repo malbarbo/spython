@@ -627,8 +627,15 @@ impl<'a> Lowering<'a, '_> {
     /// two objects by their identity, and the `==` of a dataclass compares
     /// the fields.
     pub(super) fn may_hold_dataclass(&self, rep: Rep, node: &ast::Expr) -> bool {
+        self.items_may_be_dataclasses(rep, expr_shape(self.model(), node))
+    }
+
+    /// Returns `true` if the items of a list of `rep` and `shape`, or the
+    /// items of a list inside it, are of a union that may hold an object of
+    /// a dataclass, `false` otherwise.
+    pub(super) fn items_may_be_dataclasses(&self, rep: Rep, shape: Option<Shape>) -> bool {
         let mut rep = rep;
-        let mut shape = expr_shape(self.model(), node);
+        let mut shape = shape;
         while let Some(list) = rep.list() {
             rep = self.list_item(list);
             shape = match shape {
