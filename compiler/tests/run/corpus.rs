@@ -59,6 +59,10 @@ const CHAPTERS: &[(&str, Level)] = &[
     ("03-projeto-de-funcoes", Level::Functions),
     ("04-selecao", Level::Selection),
     ("05-tipos-de-dados", Level::UserTypes),
+    ("06-repeticao-e-arranjos", Level::Repetition),
+    ("07-outras-formas-de-repeticao", Level::Repetition),
+    ("08-memoria-e-passagem-de-parametros", Level::Repetition),
+    ("11-recursividade", Level::Repetition),
 ];
 
 /// The level of the chapter of `file`, and the full level for a file
@@ -127,7 +131,7 @@ fn the_doctests_of_the_corpus_run_as_in_the_runner() {
 }
 
 /// The highest level whose programs the compiler covers.
-const COVERED: Level = Level::UserTypes;
+const COVERED: Level = Level::Repetition;
 
 /// Asserts that the compiler covers each file of `outcomes` that the
 /// checker accepts at a level up to [`COVERED`].
