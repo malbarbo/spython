@@ -103,6 +103,30 @@ def remove[T](xs: list[T], x: T) -> None:
     raise ValueError("list.remove(x): x not in list")
 
 
+def clear[T](xs: list[T]) -> None:
+    """Removes every item of `xs`, and drops its array, so the items may go."""
+    list_set_len(xs, 0)
+    list_reserve(xs, 0)
+
+
+def copy[T](xs: list[T]) -> list[T]:
+    """A new list with the items of `xs`."""
+    ys: list[T] = []
+    extend(ys, xs)
+    return ys
+
+
+def reverse[T](xs: list[T]) -> None:
+    i = 0
+    j = len(xs) - 1
+    while i < j:
+        x = item(xs, i)
+        set_item(xs, i, item(xs, j))
+        set_item(xs, j, x)
+        i += 1
+        j -= 1
+
+
 def grow[T](xs: list[T], need: int) -> None:
     """Gives `xs` room for `need` items, and for at least twice the items it has room for, from
     4."""

@@ -68,7 +68,6 @@ fn what_a_list_lacks_yet_is_unsupported() {
     for (source, what) in [
         ("x: list[int] | str = [1]\n", "a variable of this type"),
         ("xs: list[None] = [None]\n", "a list of this type"),
-        ("xs = [1]\nxs.reverse()\n", "a call of this method"),
         (
             "xs = [1]\nys = [True]\nxs.extend(ys)\n",
             "a call of a generic function with these types",
@@ -576,4 +575,35 @@ fn a_search_in_a_list_of_a_union_with_a_dataclass_is_unsupported() {
             "{search}"
         );
     }
+}
+
+#[test]
+fn clear_copy_and_reverse_of_a_list() {
+    same_as_cpython(
+        "clear_copy_and_reverse_of_a_list",
+        indoc! {"
+            xs = [1, 2, 3]
+            ys = xs.copy()
+            ys.append(4)
+            print(xs, ys, xs is ys, xs == [1, 2, 3])
+            xs.reverse()
+            ys.reverse()
+            print(xs, ys)
+            ws: list[list[int]] = [[1], [2, 3]]
+            vs = ws.copy()
+            vs[0].append(5)
+            print(ws, vs, ws[0] is vs[0])
+            empty: list[str] = []
+            print(empty.copy(), empty.copy() is empty, empty.reverse(), empty)
+            zs = xs
+            xs.clear()
+            print(xs, zs, len(zs), xs.clear())
+            xs.append(7)
+            xs.extend([8, 9])
+            print(zs)
+            one = ['a']
+            one.reverse()
+            print(one)
+        "},
+    );
 }
