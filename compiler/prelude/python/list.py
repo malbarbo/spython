@@ -1,6 +1,7 @@
 """The methods of `list`."""
 
 from __spython_prelude__.intrinsics import (
+    copy_items,
     item,
     list_capacity,
     list_reserve,
@@ -15,6 +16,49 @@ def append[T](xs: list[T], x: T) -> None:
         grow(xs, n + 1)
     set_item(xs, n, x)
     list_set_len(xs, n + 1)
+
+
+def pop[T](xs: list[T], i: int | None = None) -> T:
+    """Removes the item of `xs` at `i`, from the end when `i` is negative, and gives it. The last
+    item goes without `i`. An empty list raises before the test of `i`, as in CPython."""
+    n = len(xs)
+    if n == 0:
+        raise IndexError("pop from empty list")
+    j = n - 1 if i is None else i
+    if j < 0:
+        j += n
+    if j < 0 or j >= n:
+        raise IndexError("pop index out of range")
+    x = item(xs, j)
+    copy_items(xs, j, xs, j + 1, n - j - 1)
+    list_set_len(xs, n - 1)
+    return x
+
+
+def insert[T](xs: list[T], i: int, x: T) -> None:
+    """Puts `x` before the item of `xs` at `i`, which goes from the end when it is negative. An
+    index out of range puts `x` at the start or at the end, as a slice does."""
+    n = len(xs)
+    if i < 0:
+        i = max(i + n, 0)
+    elif i > n:
+        i = n
+    if n == list_capacity(xs):
+        grow(xs, n + 1)
+    copy_items(xs, i + 1, xs, i, n - i)
+    set_item(xs, i, x)
+    list_set_len(xs, n + 1)
+
+
+def extend[T](xs: list[T], ys: list[T]) -> None:
+    """Puts the items of `ys` at the end of `xs`. The length of `ys` comes first, so
+    `xs.extend(xs)` doubles `xs`."""
+    n = len(xs)
+    m = len(ys)
+    if n + m > list_capacity(xs):
+        grow(xs, n + m)
+    copy_items(xs, n, ys, 0, m)
+    list_set_len(xs, n + m)
 
 
 def grow[T](xs: list[T], need: int) -> None:

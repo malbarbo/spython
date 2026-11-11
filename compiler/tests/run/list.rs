@@ -69,6 +69,10 @@ fn what_a_list_lacks_yet_is_unsupported() {
         ("x: list[int] | str = [1]\n", "a variable of this type"),
         ("xs: list[None] = [None]\n", "a list of this type"),
         ("xs = [1]\nxs.reverse()\n", "a call of this method"),
+        (
+            "xs = [1]\nys = [True]\nxs.extend(ys)\n",
+            "a call of a generic function with these types",
+        ),
         ("xs = [1]\nys = xs[1:]\n", "a slice of a list"),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
@@ -395,5 +399,73 @@ fn a_comparison_of_lists_that_spython_lacks_is_unsupported() {
         ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
+    }
+}
+
+#[test]
+fn pop_insert_and_extend_change_the_list_in_place() {
+    same_as_cpython(
+        "pop_insert_and_extend_change_the_list_in_place",
+        indoc! {"
+            xs = [1, 2, 3, 4, 5]
+            print(xs.pop(), xs, xs.pop(0), xs, xs.pop(-2), xs, xs.pop(1), xs)
+            ys = xs
+            print(ys.pop(), xs, len(xs))
+            for i in [0, -1, 10, -10, 1, 2]:
+                xs.insert(i, i)
+                print(xs)
+            empty: list[str] = []
+            empty.insert(5, 'a')
+            empty.insert(-5, 'b')
+            print(empty)
+            zs: list[int] = []
+            i = 0
+            while i < 100:
+                zs.insert(0, i)
+                i += 1
+            print(len(zs), zs[0], zs[-1], zs.pop(50))
+            ws: list[int] = [1, 2]
+            ws.extend([3, 4])
+            ws.extend(ws)
+            other: list[int] = []
+            ws.extend(other)
+            other.extend(ws)
+            print(ws, other)
+            bs = [True]
+            bs.extend([False])
+            bs.insert(0, False)
+            print(bs, bs.pop())
+            ls: list[list[int]] = [[1]]
+            ls.extend([[2], []])
+            print(ls.pop(), ls)
+            vs = [1, 2, 3, 4]
+            for v in vs:
+                print(v, vs.pop())
+            print(vs)
+        "},
+    );
+}
+
+#[test]
+fn pop_of_an_empty_list_or_out_of_range_raises_index_error() {
+    for (name, source) in [
+        (
+            "pop_of_an_empty_list_raises_index_error",
+            "xs: list[int] = []\nxs.pop()\n",
+        ),
+        (
+            "pop_of_an_empty_list_with_an_index_raises_index_error",
+            "xs: list[int] = []\nprint(xs.pop(5))\n",
+        ),
+        (
+            "pop_past_the_end_raises_index_error",
+            "xs = [1]\nxs.pop(1)\n",
+        ),
+        (
+            "pop_before_the_start_raises_index_error",
+            "xs = [1, 2]\nxs.pop(-3)\n",
+        ),
+    ] {
+        same_as_cpython(name, source);
     }
 }
