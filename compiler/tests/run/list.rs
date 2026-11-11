@@ -1,6 +1,6 @@
 //! The lists.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::{run, same_as_cpython, unsupported};
 
@@ -56,20 +56,40 @@ fn a_literal_evaluates_its_items_in_order() {
 #[test]
 fn a_literal_of_many_items_sets_each_item() {
     let items: Vec<String> = (0..70).map(|i| i.to_string()).collect();
-    let source = format!(
-        "def item(n: int) -> int:\n    print(n)\n    return n\n\n\nxs = [{}, item(70)]\nprint(len(xs))\n",
-        items.join(", ")
-    );
+    let items = items.join(", ");
+    let source = formatdoc! {"
+        def item(n: int) -> int:
+            print(n)
+            return n
+
+
+        xs = [{items}, item(70)]
+        print(len(xs))
+    "};
     same_as_cpython("a_literal_of_many_items_sets_each_item", &source);
 }
 
 #[test]
 fn what_a_list_lacks_yet_is_unsupported() {
     for (source, what) in [
-        ("x: list[int] | str = [1]\n", "a variable of this type"),
-        ("xs: list[None] = [None]\n", "a list of this type"),
         (
-            "xs = [1]\nys = [True]\nxs.extend(ys)\n",
+            indoc! {"
+            x: list[int] | str = [1]
+        "},
+            "a variable of this type",
+        ),
+        (
+            indoc! {"
+            xs: list[None] = [None]
+        "},
+            "a list of this type",
+        ),
+        (
+            indoc! {"
+                xs = [1]
+                ys = [True]
+                xs.extend(ys)
+            "},
             "a call of a generic function with these types",
         ),
     ] {
@@ -231,9 +251,12 @@ fn an_index_out_of_range_raises_index_error() {
     ] {
         same_as_cpython(
             name,
-            &format!(
-                "xs = [10, 20, 30]\nws: list[list[int]] = [[1, 2]]\nempty: list[str] = []\nprint({read})\n"
-            ),
+            &formatdoc! {"
+                xs = [10, 20, 30]
+                ws: list[list[int]] = [[1, 2]]
+                empty: list[str] = []
+                print({read})
+            "},
         );
     }
 }
@@ -289,7 +312,11 @@ fn an_assignment_out_of_range_raises_index_error() {
     ] {
         same_as_cpython(
             name,
-            &format!("xs = [10, 20, 30]\nws: list[list[int]] = [[1, 2]]\n{target} = 5\n"),
+            &formatdoc! {"
+                xs = [10, 20, 30]
+                ws: list[list[int]] = [[1, 2]]
+                {target} = 5
+            "},
         );
     }
 }
@@ -370,14 +397,30 @@ fn equal_lists_have_equal_items_in_the_same_order() {
 #[test]
 fn a_comparison_of_lists_that_spython_lacks_is_unsupported() {
     for (source, what) in [
-        ("b = [1] == [True]\n", "a comparison of two types of list"),
         (
-            "xs: list[int | None] = [1]\nb = xs == [1]\n",
+            indoc! {"
+            b = [1] == [True]
+        "},
             "a comparison of two types of list",
         ),
-        ("b = [1] < [2]\n", "an order of lists"),
         (
-            "xs = [1]\nb = xs == xs == xs\n",
+            indoc! {"
+                xs: list[int | None] = [1]
+                b = xs == [1]
+            "},
+            "a comparison of two types of list",
+        ),
+        (
+            indoc! {"
+            b = [1] < [2]
+        "},
+            "an order of lists",
+        ),
+        (
+            indoc! {"
+                xs = [1]
+                b = xs == xs == xs
+            "},
             "a chain of comparisons of lists",
         ),
         (
@@ -449,19 +492,31 @@ fn pop_of_an_empty_list_or_out_of_range_raises_index_error() {
     for (name, source) in [
         (
             "pop_of_an_empty_list_raises_index_error",
-            "xs: list[int] = []\nxs.pop()\n",
+            indoc! {"
+                xs: list[int] = []
+                xs.pop()
+            "},
         ),
         (
             "pop_of_an_empty_list_with_an_index_raises_index_error",
-            "xs: list[int] = []\nprint(xs.pop(5))\n",
+            indoc! {"
+                xs: list[int] = []
+                print(xs.pop(5))
+            "},
         ),
         (
             "pop_past_the_end_raises_index_error",
-            "xs = [1]\nxs.pop(1)\n",
+            indoc! {"
+                xs = [1]
+                xs.pop(1)
+            "},
         ),
         (
             "pop_before_the_start_raises_index_error",
-            "xs = [1, 2]\nxs.pop(-3)\n",
+            indoc! {"
+                xs = [1, 2]
+                xs.pop(-3)
+            "},
         ),
     ] {
         same_as_cpython(name, source);
@@ -569,7 +624,9 @@ fn a_search_in_a_list_of_a_union_with_a_dataclass_is_unsupported() {
         "xs.remove(1)",
     ] {
         assert_eq!(
-            unsupported(&format!("{class}{search}\n")),
+            unsupported(&formatdoc! {"
+                {class}{search}
+            "}),
             "a search in a list whose items may be dataclasses of a union",
             "{search}"
         );

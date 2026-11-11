@@ -1,6 +1,6 @@
 //! The `for` loops.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::doctests::same_as_the_runner;
 use super::{same_as_cpython, unsupported};
@@ -161,8 +161,21 @@ fn a_for_in_an_example_assigns_its_variable() {
 #[test]
 fn what_a_for_lacks_yet_is_unsupported() {
     for (source, what) in [
-        ("for a, b in [[1, 2]]:\n    pass\n", "this target"),
-        ("xs = [1]\nfor xs[0] in [2]:\n    pass\n", "this target"),
+        (
+            indoc! {"
+                for a, b in [[1, 2]]:
+                    pass
+            "},
+            "this target",
+        ),
+        (
+            indoc! {"
+                xs = [1]
+                for xs[0] in [2]:
+                    pass
+            "},
+            "this target",
+        ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
@@ -253,7 +266,11 @@ fn a_step_of_zero_raises_value_error() {
     ] {
         same_as_cpython(
             name,
-            &format!("print('a')\nfor i in range(0, 5, {step}):\n    print(i)\n"),
+            &formatdoc! {"
+                print('a')
+                for i in range(0, 5, {step}):
+                    print(i)
+            "},
         );
     }
 }
