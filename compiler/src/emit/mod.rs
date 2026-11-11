@@ -1167,10 +1167,10 @@ impl Emitter<'_> {
                 object,
                 class,
                 field,
-                rep,
+                ..
             } => {
                 self.expr(f, object);
-                self.reprs.field(f, *class, *field, *rep);
+                self.reprs.field(f, *class, *field);
             }
             Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
             Expr::IfElse { cond, then, else_ } => {

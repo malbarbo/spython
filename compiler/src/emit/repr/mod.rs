@@ -84,7 +84,7 @@ impl Reprs {
                     .fields
                     .iter()
                     .map(|rep| {
-                        let ty = reprs.local_type(*rep).expect("a field has a value");
+                        let ty = reprs.value_type(*rep).expect("a field has a value");
                         (StorageType::Val(ty), class.mutable)
                     })
                     .collect()
@@ -150,13 +150,10 @@ impl Reprs {
         self.class_strs = strs;
     }
 
-    /// Pops an object of `class` and pushes its field at `field`, a value
-    /// of `rep`. A field has the type of a local.
-    pub fn field(&self, f: &mut FuncState, class: ClassId, field: u32, rep: Rep) {
+    /// Pops an object of `class` and pushes its field at `field`. A field
+    /// has the type of a value of its rep.
+    pub fn field(&self, f: &mut FuncState, class: ClassId, field: u32) {
         f.ins().struct_get(self.class(class), field);
-        if rep == Rep::Str {
-            f.ins().ref_as_non_null();
-        }
     }
 
     /// Pops a value for each field of `class` and pushes a new object of
