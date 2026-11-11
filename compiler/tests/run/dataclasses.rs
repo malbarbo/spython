@@ -888,7 +888,7 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 class P:
                     x: list[int]
             "},
-            "a field of this type",
+            "a field of a list",
         ),
         (
             indoc! {"
