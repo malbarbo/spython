@@ -1296,19 +1296,23 @@ impl<'a> Lowering<'a, '_> {
     /// library through a name that an import binds before `def`, as `Enum`
     /// or `enum.Enum` does, `false` otherwise.
     fn names_known(&self, def: &ast::StmtClassDef, expr: &ast::Expr, known: KnownClass) -> bool {
+        matches!(
+            self.imported_shape(def, expr),
+            Some(Shape::Class(class)) if class.known == Some(known)
+        )
+    }
+
+    /// The type of `expr`, when `expr` reads a name that an import binds
+    /// before `def`, as `Enum` or `enum.Enum` does, and `None` otherwise.
+    fn imported_shape(&self, def: &ast::StmtClassDef, expr: &ast::Expr) -> Option<Shape> {
         let name = match expr {
             ast::Expr::Name(name) => name,
-            ast::Expr::Attribute(ast::ExprAttribute { value, .. }) => match &**value {
-                ast::Expr::Name(name) => name,
-                _ => return false,
-            },
-            _ => return false,
+            ast::Expr::Attribute(ast::ExprAttribute { value, .. }) => value.as_name_expr()?,
+            _ => return None,
         };
         self.imported_before(name, def)
-            && matches!(
-                expr_shape(self.model(), expr),
-                Some(Shape::Class(class)) if class.known == Some(known)
-            )
+            .then(|| expr_shape(self.model(), expr))
+            .flatten()
     }
 
     /// Checks that the one decorator of `def` is `dataclass`, which the
@@ -1403,21 +1407,12 @@ impl<'a> Lowering<'a, '_> {
     /// standard library through a name that an import binds before `def`,
     /// as `dataclass` or `dataclasses.dataclass` does, `false` otherwise.
     fn names_dataclass(&self, def: &ast::StmtClassDef, expr: &ast::Expr) -> bool {
-        let name = match expr {
-            ast::Expr::Name(name) => name,
-            ast::Expr::Attribute(ast::ExprAttribute { value, .. }) => match &**value {
-                ast::Expr::Name(name) => name,
-                _ => return false,
-            },
-            _ => return false,
-        };
-        self.imported_before(name, def)
-            && matches!(
-                expr_shape(self.model(), expr),
-                Some(Shape::Function(func))
-                    if func.name == "dataclass"
-                        && is_module(self.model().db(), func.file, KnownModule::Dataclasses)
-            )
+        matches!(
+            self.imported_shape(def, expr),
+            Some(Shape::Function(func))
+                if func.name == "dataclass"
+                    && is_module(self.model().db(), func.file, KnownModule::Dataclasses)
+        )
     }
 }
 
