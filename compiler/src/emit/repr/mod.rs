@@ -893,11 +893,18 @@ impl Reprs {
     /// code points or of items as an `int`.
     pub fn len(&self, f: &mut FuncState, rep: Rep) {
         match rep {
-            Rep::Str => self.str.len(f),
-            Rep::List(list) => self.list.len(f, list.index()),
+            Rep::Str => {
+                self.str.len(f);
+                self.int.len_as_int(f);
+            }
+            // The length of a list is not above its capacity, which an
+            // `int` gave.
+            Rep::List(list) => {
+                self.list.len(f, list.index());
+                self.int.small_as_int(f);
+            }
             _ => unreachable!("the len of {rep:?}"),
         }
-        self.int.len_as_int(f);
     }
 
     /// Pops a list and pushes the `int` of how many items its array has
