@@ -1325,7 +1325,11 @@ impl Emitter<'_> {
                 f.free(local);
             }
             // The write of an object calls the `str` of its class.
-            self.at(f, site, |e, f| e.reprs.write(&mut e.m, f, rep));
+            if matches!(rep, Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_)) {
+                self.at(f, site, |e, f| e.reprs.write(&mut e.m, f, rep));
+            } else {
+                self.reprs.write(&mut self.m, f, rep);
+            }
         }
         f.ins()
             .i32_const('\n' as i32)
