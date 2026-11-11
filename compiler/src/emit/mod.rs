@@ -864,6 +864,27 @@ impl Emitter<'_> {
                 f.ins().local_get(local);
                 f.free(local);
             }
+            Expr::Expect {
+                value,
+                rep,
+                text,
+                site,
+            } => {
+                self.expr(f, value);
+                let from = value.rep();
+                let ty = self.reprs.local_type(from).expect("a union has a value");
+                let local = f.temp(ty);
+                f.ins().local_tee(local);
+                self.reprs.has(&mut self.m, f, from, *rep);
+                f.ins().i32_eqz();
+                f.if_(BlockType::Empty);
+                let message = Message::new(Class::TypeError, text);
+                self.at(f, *site, |e, f| e.reprs.raise(&mut e.m, f, &message));
+                f.end();
+                f.ins().local_get(local);
+                f.free(local);
+                self.reprs.narrow(&mut self.m, f, from, *rep);
+            }
             Expr::MathCall {
                 func,
                 operand,

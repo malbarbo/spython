@@ -423,6 +423,43 @@ impl Reprs {
         }
     }
 
+    /// Pops a value of `from`, a union, and pushes the `bool` of whether it
+    /// is a value of `to`, one of the types of the union.
+    pub fn has(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
+        let i31 = HeapType::Abstract {
+            shared: false,
+            ty: AbstractHeapType::I31,
+        };
+        let str = self.str.type_index().heap_type();
+        match (from, to) {
+            (Rep::StrOrNone, Rep::Str) => {
+                f.ins().ref_is_null().i32_eqz();
+            }
+            (Rep::Uniform, Rep::Int) => {
+                f.ins().ref_test(i31);
+            }
+            (Rep::Uniform, Rep::Float) => {
+                let float = self.uniform.float_box(m);
+                f.ins().ref_test(float);
+            }
+            (Rep::Uniform, Rep::Bool) => {
+                let bool = self.uniform.bool_box(m);
+                f.ins().ref_test(bool);
+            }
+            (Rep::Uniform, Rep::Str) => {
+                f.ins().ref_test(str);
+            }
+            (Rep::Uniform, Rep::StrOrNone) => {
+                f.ins().ref_test_nullable(str);
+            }
+            // An object may be null.
+            (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
+                f.ins().ref_test_nullable(self.class(class).heap_type());
+            }
+            _ => unreachable!("a test of {from:?} for {to:?}"),
+        }
+    }
+
     /// Pops a value of `rep` and pushes the `bool` of whether it is `None`.
     pub fn is_none(&self, f: &mut FuncState, rep: Rep) {
         match rep {

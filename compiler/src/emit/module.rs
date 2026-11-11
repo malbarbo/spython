@@ -622,6 +622,12 @@ impl<'a> Ins<'a> {
         self
     }
 
+    /// Tests whether a reference is null or a reference to `ty`.
+    pub fn ref_test_nullable(&mut self, ty: HeapType) -> &mut Self {
+        self.0.ref_test_nullable(ty);
+        self
+    }
+
     /// Casts a reference to `ty`, and null too when `nullable`.
     pub fn ref_cast(&mut self, ty: HeapType, nullable: bool) -> &mut Self {
         if nullable {

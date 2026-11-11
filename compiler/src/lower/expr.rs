@@ -86,7 +86,7 @@ impl<'a> Lowering<'a, '_> {
                             Some(Rep::Object(class)) => {
                                 let object = self.expr(value)?;
                                 let field = self.object_attribute(attr, object, class)?;
-                                self.narrowed_field(expr, field)
+                                self.narrowed_field(expr, attr, field)
                             }
                             _ => Err(unsupported(expr, "this expression")),
                         },
@@ -275,28 +275,35 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `field`, the read `node` of a field, as a value of the type that the
-    /// checker gives to the read. A call between the test that narrows the
-    /// field and the read may assign the field. An object stays valid,
-    /// since it may be null, and a read that the checker narrows to `None`
-    /// keeps the rep of the field. The compiler refuses the other
-    /// narrowings.
-    fn narrowed_field(&self, node: &ast::Expr, field: Expr) -> Result<Expr, Error> {
-        let rep = field.rep();
-        match self.narrowed(node, field)? {
+    /// `field`, the read `expr` of the field `attr`, as a value of the type
+    /// that the checker gives to the read. A call between the test that
+    /// narrows the field and the read may assign the field. An object may
+    /// be null, a read that the checker narrows to `None` keeps the rep of
+    /// the field, and the read of another type raises `TypeError` when the
+    /// field no longer has the type of the test.
+    fn narrowed_field(
+        &self,
+        expr: &ast::Expr,
+        attr: &ast::ExprAttribute,
+        field: Expr,
+    ) -> Result<Expr, Error> {
+        let from = field.rep();
+        Ok(match self.narrowed(expr, field)? {
             Expr::Narrow {
                 value,
                 rep: Rep::None,
-            } => Ok(*value),
-            narrowed => match (rep, narrowed.rep()) {
-                (from, to) if from == to => Ok(narrowed),
-                (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => Ok(narrowed),
-                _ => Err(unsupported(
-                    node,
-                    "a read of a field of a union that a test narrows",
-                )),
+            } => *value,
+            Expr::Narrow { value, rep } if !matches!(from, Rep::ObjectOrNone(_)) => Expr::Expect {
+                value,
+                rep,
+                text: format!(
+                    "the field '{}' changed after the test that narrowed its type",
+                    attr.attr
+                ),
+                site: self.site(attr.range()),
             },
-        }
+            narrowed => narrowed,
+        })
     }
 
     /// The function that gives the `str` of a value of `rep`, for an object

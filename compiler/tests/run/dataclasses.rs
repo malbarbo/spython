@@ -2,7 +2,7 @@
 
 use indoc::{formatdoc, indoc};
 
-use super::{same_as_cpython, unsupported};
+use super::{run, same_as_cpython, unsupported};
 
 #[test]
 fn a_dataclass_of_the_accepted_form_runs() {
@@ -481,6 +481,66 @@ fn a_field_that_a_call_assigns_after_the_test_holds_none() {
     );
 }
 
+/// The read of a field of a union after a test has the type of the test.
+#[test]
+fn a_test_narrows_a_field_of_a_union() {
+    same_as_cpython(
+        "a_test_narrows_a_field_of_a_union",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class P:
+                nome: str | None
+                idade: int | None
+                peso: float | bool
+
+            def f(p: P) -> int:
+                if p.nome is not None and p.idade is not None:
+                    s = p.nome
+                    return len(s) + p.idade
+                return 0
+
+            print(f(P('ana', 3, 1.5)), f(P(None, 3, True)))
+        "},
+    );
+}
+
+/// A call that assigns a field of a union after the test that narrows the
+/// field makes the read raise `TypeError`, where CPython goes on with the
+/// value.
+#[test]
+fn a_field_of_a_union_that_a_call_assigns_after_the_test_raises() {
+    let output = run(
+        "a_field_of_a_union_that_a_call_assigns_after_the_test_raises",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class P:
+                nome: str | None
+
+            def limpa(p: P) -> None:
+                p.nome = None
+
+            p = P('ana')
+            if p.nome is not None:
+                limpa(p)
+                print(p.nome)
+                s = p.nome
+        "},
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let end = indoc! {"
+        \", line 13, in <module>
+            print(p.nome)
+                  ^^^^^^
+        TypeError: the field 'nome' changed after the test that narrowed its type
+    "};
+    assert!(stderr.ends_with(end), "{stderr}");
+}
+
 /// The `repr` of an object inside its own `repr` is `...`.
 #[test]
 fn the_repr_of_a_cycle_writes_three_dots() {
@@ -773,21 +833,6 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 print(Cor(1) is Cor.A)
             "},
             "a call of this class",
-        ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
-                @dataclass
-                class P:
-                    nome: str | None
-
-                def f(p: P) -> int:
-                    if p.nome is not None:
-                        return len(p.nome)
-                    return 0
-            "},
-            "a read of a field of a union that a test narrows",
         ),
         (
             indoc! {"

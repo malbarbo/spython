@@ -80,6 +80,16 @@ impl UniformRepr {
         ]
     }
 
+    /// The type of the box of a `float`.
+    pub fn float_box(&mut self, m: &mut ModuleState) -> HeapType {
+        self.float_type(m).heap_type()
+    }
+
+    /// The type of the box of a `bool`.
+    pub fn bool_box(&mut self, m: &mut ModuleState) -> HeapType {
+        self.bool_type(m).heap_type()
+    }
+
     /// Pops a boxed `int` and pushes it as an `i32`.
     pub fn unbox_int(&self, f: &mut FuncState) {
         let i31 = HeapType::Abstract {

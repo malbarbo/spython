@@ -307,6 +307,16 @@ pub(crate) enum Expr {
         text: String,
         site: Site,
     },
+    /// The value of `value`, a union, as a value of `rep`, the type that
+    /// the checker gives to the read of a field after a test. A call may
+    /// assign the field after the test, and a value of another type raises
+    /// `TypeError` with `text` at the site.
+    Expect {
+        value: Box<Expr>,
+        rep: Rep,
+        text: String,
+        site: Site,
+    },
     /// The field at `field` of an object of `class`, which has `rep`.
     Field {
         object: Box<Expr>,
@@ -1092,6 +1102,7 @@ impl Expr {
             | Expr::Call { rep, .. }
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. }
+            | Expr::Expect { rep, .. }
             | Expr::Field { rep, .. } => *rep,
             Expr::Member { class, .. } | Expr::New { class, .. } => Rep::Object(*class),
             Expr::Logic { left, .. } => left.rep(),
