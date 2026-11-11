@@ -27,12 +27,16 @@ fn a_list_has_a_length_an_identity_and_a_truth() {
             print(xs is xs, xs is ys, xs is not ys, bool(xs), bool(ys), not ys, size([4]))
             if xs and not ys:
                 print('xs')
+            def pick(i: int) -> list[int] | None:
+                if i == 0:
+                    return None
+                return xs if i == 1 else ys
+            print(pick(0) is None, bool(pick(0)), bool(pick(1)), bool(pick(2)), pick(1) is xs)
             n: list[int] | None = None
-            print(n is None, bool(n))
-            n = xs
-            print(n is xs, n is not None, bool(n))
-            n = ys
-            print(bool(n), len(xs or ys))
+            if pick(1) is not None:
+                n = pick(1)
+            if n is not None:
+                print(len(n), len(xs or ys))
         "},
     );
 }

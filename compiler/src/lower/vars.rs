@@ -228,5 +228,8 @@ impl<'a> Lowering<'a, '_> {
 /// Returns `true` if a value of `rep` may have one of several types, which
 /// a test of the value narrows, `false` otherwise.
 fn is_union(rep: Rep) -> bool {
-    matches!(rep, Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_))
+    matches!(
+        rep,
+        Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) | Rep::ListOrNone(_)
+    )
 }
