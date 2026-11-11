@@ -535,6 +535,36 @@ fn an_augmented_assignment_reads_the_object_once() {
     );
 }
 
+/// The `str` of an object in a union runs with the site of the `print`.
+#[test]
+fn print_of_an_object_in_a_union_has_the_site_of_the_print() {
+    same_as_cpython(
+        "print_of_an_object_in_a_union_has_the_site_of_the_print",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class No:
+                v: int
+                prox: 'No | None'
+
+            def lista(n: int) -> No:
+                a = No(0, None)
+                i = 0
+                while i < n:
+                    a = No(i, a)
+                    i = i + 1
+                return a
+
+            def show(x: int | No) -> None:
+                n = len('ab')
+                print(x)
+
+            show(lista(2000))
+        "},
+    );
+}
+
 /// The read of a field of a union after a test has the type of the test.
 #[test]
 fn a_test_narrows_a_field_of_a_union() {

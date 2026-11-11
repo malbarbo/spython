@@ -1324,7 +1324,8 @@ impl Emitter<'_> {
                 }
                 None => rep,
             };
-            self.reprs.write(&mut self.m, f, rep);
+            // The write of a union calls the `str` of the class of an object.
+            self.at(f, site, |e, f| e.reprs.write(&mut e.m, f, rep));
         }
         f.ins()
             .i32_const('\n' as i32)
