@@ -20,6 +20,9 @@ pub(crate) struct Program {
     pub classes: Vec<UserClass>,
     /// The frame of each place that can raise, by its [`Site`].
     pub sites: Vec<SiteFrame>,
+    /// The function that gives the `repr` of a `str`, when the program
+    /// gives the `repr` of a uniform value.
+    pub str_repr: Option<FuncId>,
 }
 
 pub(crate) struct SiteFrame {
@@ -116,6 +119,9 @@ pub(crate) struct UserClass {
     /// The function that gives the `str` of an object, when the program
     /// writes one.
     pub str: Option<FuncId>,
+    /// The function that gives the `repr` of an object, when the program
+    /// gives the `repr` of a uniform value.
+    pub repr: Option<FuncId>,
     /// `true` when the `repr` of an object writes `...` for the object
     /// inside its own `repr`, as the `repr` of a dataclass does.
     pub repr_guard: bool,
@@ -511,6 +517,12 @@ pub(crate) enum Expr {
     Repeat {
         left: Box<Expr>,
         right: Box<Expr>,
+        site: Site,
+    },
+    /// The `repr` of a uniform value, as a `str`. The `repr` of an object
+    /// may raise, at the site.
+    UniformRepr {
+        value: Box<Expr>,
         site: Site,
     },
     /// What the body of the last [`Stmt::Example`] wrote to the standard
@@ -1081,6 +1093,7 @@ impl Expr {
             | Expr::Repeat { .. }
             | Expr::StrNew { .. }
             | Expr::Slice { .. }
+            | Expr::UniformRepr { .. }
             | Expr::Captured
             | Expr::CapturedException
             | Expr::Index { .. } => Rep::Str,

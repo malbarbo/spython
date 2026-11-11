@@ -72,7 +72,12 @@ impl<'a> Lowering<'a, '_> {
                 // of each expression statement that is not `None`, as the
                 // interactive prompt does.
                 if self.in_doctest() && value.rep() != Rep::None {
-                    let text = self.repr_of(value, &*e.value, e.range())?;
+                    // The prompt writes nothing for a value that is `None`
+                    // when the example runs.
+                    if matches!(value.rep(), Rep::StrOrNone | Rep::Uniform) {
+                        return Err(unsupported(&*e.value, "an example whose value may be None"));
+                    }
+                    let text = self.repr_of(value, e.range())?;
                     return Ok(Some(Stmt::Expr(Expr::Print {
                         args: vec![text],
                         site: self.site(e.range()),

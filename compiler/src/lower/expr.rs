@@ -228,7 +228,7 @@ impl<'a> Lowering<'a, '_> {
                                 }
                                 let value = self.expr(&field.expression)?;
                                 let text = if field.conversion == ast::ConversionFlag::Repr {
-                                    self.repr_of(value, &*field.expression, field.range())?
+                                    self.repr_of(value, field.range())?
                                 } else {
                                     self.str_of(value, &*field.expression, field.range())?
                                 };

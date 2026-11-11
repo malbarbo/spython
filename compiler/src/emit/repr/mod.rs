@@ -32,6 +32,10 @@ pub(crate) struct Reprs {
     /// compares two values of a union, as [`Self::add_compare_uniform`]
     /// says.
     compare_uniform: Option<FuncIdx>,
+    /// `(func (param (ref null eq)) (result (ref $Str)))`, which gives the
+    /// `repr` of a value of a union. A module that gives none goes without
+    /// it.
+    repr_uniform: Option<FuncIdx>,
     /// `(func (param (ref null eq)) (result i32))`, which tells whether
     /// the `repr` of an object runs.
     in_repr: Option<FuncIdx>,
@@ -44,6 +48,11 @@ pub(crate) struct Reprs {
     /// The function that gives the `str` of an object of each class, when
     /// the program writes one.
     class_strs: Vec<Option<FuncIdx>>,
+    /// The function that gives the `repr` of an object of each class, and
+    /// the one that gives the `repr` of a `str`, when the program gives the
+    /// `repr` of a value of a union.
+    class_reprs: Vec<Option<FuncIdx>>,
+    str_repr: Option<FuncIdx>,
     /// The struct of a node of the stack of the objects whose `repr` runs,
     /// with the object and the node under it, and the global of the top of
     /// the stack, when a class guards its `repr`.
@@ -64,12 +73,15 @@ impl Reprs {
             str,
             uniform: UniformRepr::new(),
             write_uniform: None,
+            repr_uniform: None,
             compare_uniform: None,
             in_repr: None,
             exc,
             classes: Vec::new(),
             members: Vec::new(),
             class_strs: Vec::new(),
+            class_reprs: Vec::new(),
+            str_repr: None,
             repr_stack: None,
         };
         // A field of a class may hold an object of any class, its own too,
@@ -148,6 +160,72 @@ impl Reprs {
     /// for the classes whose objects the program writes.
     pub fn set_class_strs(&mut self, strs: Vec<Option<FuncIdx>>) {
         self.class_strs = strs;
+    }
+
+    /// Takes the function that gives the `repr` of an object of each class,
+    /// and the one that gives the `repr` of a `str`, for a program that
+    /// gives the `repr` of a value of a union.
+    pub fn set_reprs(&mut self, classes: Vec<Option<FuncIdx>>, str: Option<FuncIdx>) {
+        self.class_reprs = classes;
+        self.str_repr = str;
+    }
+
+    /// Pops a value of a union and pushes its `repr`, which may raise.
+    pub fn uniform_repr(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let func = match self.repr_uniform {
+            Some(func) => func,
+            None => {
+                let func = self.add_repr_uniform(m);
+                self.repr_uniform = Some(func);
+                func
+            }
+        };
+        f.ins().call(func);
+    }
+
+    /// Defines the function that gives the `repr` of a value of a union,
+    /// after the test of its type.
+    fn add_repr_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        let ty = m.func_type(&[self.uniform.val_type()], &[self.str.val_type(false)]);
+        let mut f = FuncState::new(1);
+        let value = f.param(0);
+        f.ins().local_get(value).ref_is_null();
+        f.if_(BlockType::Empty);
+        self.str.literal(m, &mut f, "None");
+        f.ins().return_();
+        f.end();
+        for (rep, box_type) in self.uniform.boxes(m) {
+            f.ins().local_get(value).ref_test(box_type);
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value);
+            self.narrow(m, &mut f, Rep::Uniform, rep);
+            self.str_of(m, &mut f, rep);
+            f.ins().return_();
+            f.end();
+        }
+        let str = self.str.type_index().heap_type();
+        f.ins().local_get(value).ref_test(str);
+        f.if_(BlockType::Empty);
+        f.ins().local_get(value);
+        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
+        f.ins()
+            .call(self.str_repr.expect("the repr of a str"))
+            .return_();
+        f.end();
+        for (i, repr) in self.class_reprs.clone().into_iter().enumerate() {
+            let class = ClassId::new(i);
+            let repr = repr.expect("the repr of each class");
+            f.ins()
+                .local_get(value)
+                .ref_test(self.class(class).heap_type());
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value);
+            self.narrow(m, &mut f, Rep::Uniform, Rep::Object(class));
+            f.ins().call(repr).return_();
+            f.end();
+        }
+        f.ins().unreachable();
+        m.add_func(ty, f.finish())
     }
 
     /// Pops an object of `class` and pushes its field at `field`. A field

@@ -60,6 +60,7 @@ impl<'a> Classes<'a> {
                     .map(|member| vec![Literal::Str(member.name), member.value])
                     .collect(),
                 str: class.str,
+                repr: class.repr,
                 repr_guard: class.kind.is_dataclass(),
             })
             .collect()
@@ -552,9 +553,7 @@ impl<'a> Lowering<'a, '_> {
             return self.dataclass_repr(class);
         }
         let name = def.name.to_string();
-        let value = self
-            .repr_at(self.own_field(class, 1), Site::NONE)?
-            .expect("the value of a member is an int or a str");
+        let value = self.repr_at(self.own_field(class, 1), Site::NONE)?;
         let body = vec![Stmt::Return(Some(Expr::Join {
             parts: vec![
                 Expr::Str(format!("<{name}.")),
@@ -603,13 +602,13 @@ impl<'a> Lowering<'a, '_> {
             }))],
         );
         let mut parts = vec![Expr::Str(format!("{}(", def.name))];
-        for (i, ((name, rep), node)) in fields.iter().zip(dataclass_fields(def)).enumerate() {
+        for (i, (name, _)) in fields.iter().enumerate() {
             if i > 0 {
                 parts.push(Expr::Str(", ".to_owned()));
             }
             parts.push(Expr::Str(format!("{name}=")));
             let field = u32::try_from(i).expect("fewer than 2^32 fields");
-            parts.push(self.field_repr(class, field, *rep, repr_site, node)?);
+            parts.push(self.repr_at(self.own_field(class, field), repr_site)?);
         }
         parts.push(Expr::Str(")".to_owned()));
         self.define(
@@ -649,33 +648,6 @@ impl<'a> Lowering<'a, '_> {
             line,
             format!("  File \"<string>\", line {line}, in {name}\n"),
         )
-    }
-
-    /// The `repr` of the field at `field` of the object of `class` in the
-    /// first parameter, a value of `rep`, which the code at `site` gives.
-    /// `node` is the field in the class.
-    fn field_repr(
-        &self,
-        class: ClassId,
-        field: u32,
-        rep: Rep,
-        site: Site,
-        node: &ast::StmtAnnAssign,
-    ) -> Result<Expr, Error> {
-        let value = self.own_field(class, field);
-        if rep == Rep::StrOrNone {
-            let some = Expr::Narrow {
-                value: Box::new(self.own_field(class, field)),
-                rep: Rep::Str,
-            };
-            return Ok(Expr::IfElse {
-                cond: Box::new(Expr::IsNone(Box::new(value))),
-                then: Box::new(Expr::Str("None".to_owned())),
-                else_: Box::new(self.repr_at(some, site)?.expect("the repr of a str")),
-            });
-        }
-        self.repr_at(value, site)?
-            .ok_or_else(|| unsupported(node, "the repr of a field of a union"))
     }
 
     /// The object of `class`, a dataclass, that `call` makes. The checker

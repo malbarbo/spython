@@ -51,19 +51,28 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             }
         })
         .collect();
+    let index = |func: Option<FuncId>| {
+        func.map(|func| {
+            funcs
+                .get(func.index())
+                .expect("a function of the program")
+                .index
+        })
+    };
     reprs.set_class_strs(
         program
             .classes
             .iter()
-            .map(|class| {
-                class.str.map(|func| {
-                    funcs
-                        .get(func.index())
-                        .expect("a function of the program")
-                        .index
-                })
-            })
+            .map(|class| index(class.str))
             .collect(),
+    );
+    reprs.set_reprs(
+        program
+            .classes
+            .iter()
+            .map(|class| index(class.repr))
+            .collect(),
+        index(program.str_repr),
     );
     // The flag of each name that an import binds, as the flag of a `def`.
     let imports = program
@@ -1060,6 +1069,10 @@ impl Emitter<'_> {
                     f.free(n);
                 }
                 self.at(f, *site, |e, f| e.reprs.str_repeat(&mut e.m, f));
+            }
+            Expr::UniformRepr { value, site } => {
+                self.expr(f, value);
+                self.at(f, *site, |e, f| e.reprs.uniform_repr(&mut e.m, f));
             }
             Expr::Captured => self.reprs.captured(f),
             Expr::CapturedException => self.reprs.captured_exception(f),

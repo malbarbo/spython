@@ -26,7 +26,7 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{
-    Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
+    ClassId, Expr, Func, FuncId, Import, ImportId, Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
 };
 use crate::{Docstring, Error};
 use class::Classes;
@@ -75,6 +75,7 @@ pub(crate) fn lower(
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
         raises: Cell::new(false),
+        uniform_repr: Cell::new(false),
     };
     let suite = main.module.suite().as_slice();
     lowering.declare_vars(&Bindings::of(suite))?;
@@ -86,13 +87,24 @@ pub(crate) fn lower(
     // The lowering of a function may declare another one, which goes to the
     // end of the queue.
     let mut funcs: Vec<Func> = Vec::new();
-    while funcs.len() < lowering.funcs.borrow().sigs.len() {
-        let id = FuncId::new(funcs.len());
-        let lowered = lowering.lowered.borrow_mut().remove(&id.index());
-        funcs.push(match lowered {
-            Some(func) => func,
-            None => lowering.func(id)?,
-        });
+    let mut str_repr = None;
+    let mut reprs_made = false;
+    loop {
+        while funcs.len() < lowering.funcs.borrow().sigs.len() {
+            let id = FuncId::new(funcs.len());
+            let lowered = lowering.lowered.borrow_mut().remove(&id.index());
+            funcs.push(match lowered {
+                Some(func) => func,
+                None => lowering.func(id)?,
+            });
+        }
+        // The `repr` of a uniform value may meet a `str` or an object of
+        // any class, whose functions go to the end of the queue.
+        if !lowering.uniform_repr.get() || reprs_made {
+            break;
+        }
+        str_repr = lowering.uniform_reprs()?;
+        reprs_made = true;
     }
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
@@ -106,6 +118,7 @@ pub(crate) fn lower(
         imports: lowering.imports.into_inner().list,
         classes: lowering.classes.into_inner().into_ir(),
         sites: lowering.sites.into_inner(),
+        str_repr,
     })
 }
 
@@ -209,6 +222,8 @@ struct Lowering<'a, 'db> {
     /// Whether the code of the function of the prelude that the lowering
     /// is in has an instruction that may raise.
     raises: Cell<bool>,
+    /// Whether the program gives the `repr` of a uniform value.
+    uniform_repr: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -772,6 +787,21 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .into_iter()
                 .reduce(join),
             _ => None,
+        }
+    }
+
+    /// Makes the function that gives the `repr` of a `str` and of an object
+    /// of each class, which the `repr` of a uniform value calls, and
+    /// returns the one of the `str`.
+    fn uniform_reprs(&self) -> Result<Option<FuncId>, Error> {
+        let count = self.classes.borrow().list.len();
+        for i in 0..count {
+            self.class_repr(ClassId::new(i))?;
+        }
+        let str = self.prelude.iter().find(|unit| unit.prelude == Some("str"));
+        match str {
+            Some(unit) => self.prelude_func(unit.file, "repr_of"),
+            None => Ok(None),
         }
     }
 

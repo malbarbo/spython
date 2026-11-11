@@ -958,18 +958,6 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
             indoc! {"
                 from dataclasses import dataclass
 
-                @dataclass
-                class P:
-                    x: int | str
-
-                print(P(1))
-            "},
-            "the repr of a field of a union",
-        ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
                 x = 1
 
                 @dataclass

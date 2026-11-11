@@ -2,7 +2,7 @@
 
 use indoc::indoc;
 
-use super::{same_as_cpython, unsupported};
+use super::same_as_cpython;
 
 #[test]
 fn repr_of_a_number_follows_python() {
@@ -20,16 +20,49 @@ fn repr_of_a_number_follows_python() {
 }
 
 #[test]
-fn repr_of_none_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
+fn repr_of_a_union_tests_the_type_of_the_value() {
+    same_as_cpython(
+        "repr_of_a_union_tests_the_type_of_the_value",
+        indoc! {r#"
+            from dataclasses import dataclass
+            from enum import Enum
+
+
+            class Cor(Enum):
+                AZUL = 'azul'
+
+
+            @dataclass
+            class P:
+                x: int | str
+                s: str | None
+                q: 'P | Cor | None'
+
+
             def f() -> None:
                 pass
 
 
-            print(repr(f()))
-        "}),
-        "repr of this type"
+            def pick(i: int) -> int | float | bool | str | None:
+                if i == 0:
+                    return 1
+                if i == 1:
+                    return 2.5
+                if i == 2:
+                    return True
+                if i == 3:
+                    return "it's"
+                return None
+
+
+            print(repr(f()), repr(pick(0)), repr(pick(1)), repr(pick(2)), repr(pick(3)), repr(pick(4)))
+            s: str | None = 'a'
+            print(repr(s), f'{s!r}', f'{pick(3)!r}')
+            s = None
+            print(repr(s), f'{s!r}')
+            p = P('x', None, P(1, 'b', Cor.AZUL))
+            print(p, repr(p))
+        "#},
     );
 }
 

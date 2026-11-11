@@ -622,6 +622,23 @@ fn a_return_in_an_example_is_unsupported() {
 }
 
 #[test]
+fn an_example_whose_value_may_be_none_is_unsupported() {
+    let source = indoc! {r#"
+        def f(s: str | None) -> str | None:
+            """
+            >>> f(None)
+            """
+            return s
+    "#};
+    match compile_tests(source, Path::new("unsupported.py"), false) {
+        Err(compiler::Error::Unsupported { what, .. }) => {
+            assert_eq!(what, "an example whose value may be None");
+        }
+        _ => panic!("the program compiled"),
+    }
+}
+
+#[test]
 fn a_verbose_report_has_the_first_line_of_each_example_that_passes() {
     same_as_the_runner_with(
         "a_verbose_report_has_the_first_line_of_each_example_that_passes",

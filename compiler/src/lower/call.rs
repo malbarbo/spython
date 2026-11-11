@@ -337,32 +337,22 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `repr(x)` of a number or of a `str`.
+    /// `repr(x)` of a value of any rep.
     pub(super) fn repr(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let arg = one_arg(call, "this call of repr")?;
         let lowered = self.expr(arg)?;
-        self.repr_of(lowered, arg, call.range())
+        self.repr_of(lowered, call.range())
     }
 
-    /// The `repr` of `lowered`, the value of `node`. The conversion covers
-    /// `range`.
-    pub(super) fn repr_of(
-        &self,
-        lowered: Expr,
-        node: &impl Ranged,
-        range: TextRange,
-    ) -> Result<Expr, Error> {
-        if matches!(lowered.rep(), Rep::None | Rep::StrOrNone | Rep::Uniform) {
-            return Err(unsupported(node, "repr of this type"));
-        }
+    /// The `repr` of `lowered`. The conversion covers `range`.
+    pub(super) fn repr_of(&self, lowered: Expr, range: TextRange) -> Result<Expr, Error> {
         let site = self.site(range);
-        Ok(self.repr_at(lowered, site)?.expect("a repr of the rep"))
+        self.repr_at(lowered, site)
     }
 
-    /// The `repr` of `value` at `site`, and `None` when the compiler has no
-    /// `repr` for its rep.
-    pub(super) fn repr_at(&self, value: Expr, site: Site) -> Result<Option<Expr>, Error> {
-        Ok(Some(match value.rep() {
+    /// The `repr` of `value` at `site`.
+    pub(super) fn repr_at(&self, value: Expr, site: Site) -> Result<Expr, Error> {
+        Ok(match value.rep() {
             Rep::Int | Rep::Float | Rep::Bool => Expr::StrOf {
                 operand: Box::new(value),
                 site,
@@ -375,8 +365,15 @@ impl<'a> Lowering<'a, '_> {
                 Rep::Str,
                 site,
             ),
-            Rep::None | Rep::StrOrNone | Rep::Uniform => return Ok(None),
-        }))
+            // The `repr` of a uniform value tests its type when it runs.
+            Rep::None | Rep::StrOrNone | Rep::Uniform => {
+                self.uniform_repr.set(true);
+                Expr::UniformRepr {
+                    value: Box::new(coerce(value, Rep::Uniform).expect("a uniform value")),
+                    site,
+                }
+            }
+        })
     }
 
     /// `int()`, which is `0`, or `int(x)` of a number.
