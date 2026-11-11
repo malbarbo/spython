@@ -283,10 +283,6 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `for target in iter` over a list or a `str`, as a `while` over an
-    /// index. The test reads the length of the list each time, so an
-    /// `append` in the body makes the loop longer, as the iterator of
-    /// CPython does. The iterable runs once, before the loop.
     /// Returns `true` if `node`, a value of `rep`, may be `None`, `false`
     /// otherwise. A uniform value may be `None` unless its type is a union
     /// without `None`.
@@ -301,6 +297,10 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// `for target in iter` over a list or a `str`, as a `while` over an
+    /// index. The test reads the length of the list each time, so an
+    /// `append` in the body makes the loop longer, as the iterator of
+    /// CPython does. The iterable runs once, before the loop.
     fn for_(&self, f: &ast::StmtFor) -> Result<Vec<Stmt>, Error> {
         if f.is_async {
             return Err(unsupported(f, "this statement"));
