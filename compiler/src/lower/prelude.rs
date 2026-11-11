@@ -296,17 +296,28 @@ impl<'a, 'db> Lowering<'a, 'db> {
         name: &str,
         args: &[Rep],
     ) -> Result<Option<(FuncId, Vec<Shape>)>, Error> {
-        let Some(def) = unit.defs.get(name) else {
+        let Some((name, def)) = unit.defs.get_key_value(name) else {
             return Ok(None);
         };
-        let info = function_info(unit.model, def).ok_or_else(|| unsupported(node, "this call"))?;
-        let shapes: Vec<Shape> = info.params.into_iter().map(|param| param.shape).collect();
-        let names: Vec<String> = def
-            .type_params
-            .iter()
-            .flat_map(|params| &params.type_params)
-            .map(|param| param.name().to_string())
-            .collect();
+        let key = (unit.file, *name);
+        let cached = self.prelude_params.borrow().get(&key).cloned();
+        let (shapes, names) = match cached {
+            Some(params) => params,
+            None => {
+                let info =
+                    function_info(unit.model, def).ok_or_else(|| unsupported(node, "this call"))?;
+                let shapes: Vec<Shape> = info.params.into_iter().map(|param| param.shape).collect();
+                let names: Vec<String> = def
+                    .type_params
+                    .iter()
+                    .flat_map(|params| &params.type_params)
+                    .map(|param| param.name().to_string())
+                    .collect();
+                let params = (shapes, names);
+                self.prelude_params.borrow_mut().insert(key, params.clone());
+                params
+            }
+        };
         let types = type_map(&names, &shapes, args, |list| TypeArg {
             rep: self.list_item(list),
             classes: self.list_classes(list),

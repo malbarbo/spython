@@ -76,6 +76,7 @@ pub(crate) fn lower(
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
+        prelude_params: RefCell::new(HashMap::new()),
         types: RefCell::new(Vec::new()),
         raises: Cell::new(false),
         uniform_repr: Cell::new(false),
@@ -234,6 +235,10 @@ struct Lowering<'a, 'db> {
     /// skips its signature. A generic function has a copy for each rep of
     /// its type variables.
     prelude_funcs: RefCell<HashMap<PreludeKey<'a>, FuncId>>,
+    /// The declared type of each parameter of each function of the prelude
+    /// that a call reached, with the names of its type variables, by its
+    /// file and its name.
+    prelude_params: RefCell<HashMap<(File, &'a str), PreludeParams>>,
     /// The rep of each type variable of the copy of a generic function of
     /// the prelude whose signature or body the lowering is in.
     types: RefCell<Vec<(String, TypeArg)>>,
@@ -297,6 +302,10 @@ impl Vars {
 /// A function of the prelude, by its file, its name and the rep of each of
 /// its type variables.
 type PreludeKey<'a> = (File, &'a str, Vec<TypeArg>);
+
+/// The declared type of each parameter of a function of the prelude, and
+/// the names of its type variables.
+type PreludeParams = (Vec<Shape>, Vec<String>);
 
 /// What a type variable of a copy of a generic function of the prelude
 /// stands for. `classes` has the dataclasses that a uniform value of the
