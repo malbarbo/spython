@@ -119,6 +119,19 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::List(list) => self.list(expr, list),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
+                if let Rep::List(list) = value.rep() {
+                    if sub.slice.is_slice_expr() {
+                        return Err(unsupported(sub, "a slice of a list"));
+                    }
+                    let index = self.int_operand(&sub.slice)?;
+                    let item = Expr::ListIndex {
+                        list: Box::new(value),
+                        index: Box::new(index),
+                        rep: self.list_item(list),
+                        site: self.site(sub.range()),
+                    };
+                    return self.narrowed_place(expr, item, "the item", sub.range());
+                }
                 if value.rep() != Rep::Str {
                     return Err(unsupported(&*sub.value, "a subscript of this type"));
                 }
@@ -323,8 +336,21 @@ impl<'a> Lowering<'a, '_> {
         attr: &ast::ExprAttribute,
         field: Expr,
     ) -> Result<Expr, Error> {
-        let from = field.rep();
-        Ok(match self.narrowed(expr, field)? {
+        let what = format!("the field '{}'", attr.attr);
+        self.narrowed_place(expr, field, &what, attr.range())
+    }
+
+    /// `value`, the read `expr` of `what`, a field or an item of a list, as
+    /// [`Self::narrowed_field`] says. The read covers `range`.
+    fn narrowed_place(
+        &self,
+        expr: &ast::Expr,
+        value: Expr,
+        what: &str,
+        range: TextRange,
+    ) -> Result<Expr, Error> {
+        let from = value.rep();
+        Ok(match self.narrowed(expr, value)? {
             Expr::Narrow {
                 value,
                 rep: Rep::None,
@@ -332,11 +358,8 @@ impl<'a> Lowering<'a, '_> {
             Expr::Narrow { value, rep } if !matches!(from, Rep::ObjectOrNone(_)) => Expr::Expect {
                 value,
                 rep,
-                text: format!(
-                    "the field '{}' changed after the test that narrowed its type",
-                    attr.attr
-                ),
-                site: self.site(attr.range()),
+                text: format!("{what} changed after the test that narrowed its type"),
+                site: self.site(range),
             },
             narrowed => narrowed,
         })

@@ -13,7 +13,10 @@ use super::module::{
 };
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
-use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
+use crate::cpython::{
+    Class, LIST_INDEX_OUT_OF_RANGE, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message,
+    STR_INDEX_OUT_OF_RANGE,
+};
 use crate::ir::{
     ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, ListId,
     ListType, Literal, MathFunc, MathFunc2, Rep, SiteFrame, UserClass,
@@ -926,6 +929,36 @@ impl Reprs {
     /// Pops an `int` index and pushes it as the `i32` that an array takes.
     pub fn index_of(&self, f: &mut FuncState) {
         self.int.as_i32(f);
+    }
+
+    /// Pops a list and an `int` index, and pushes the item at the index, of
+    /// `rep`. A negative index counts from the end, and an index out of
+    /// range raises `IndexError`.
+    pub fn list_index(&mut self, m: &mut ModuleState, f: &mut FuncState, list: Rep, rep: Rep) {
+        let index = list_index(list);
+        self.int.as_i32(f);
+        let i = f.temp(ValType::I32);
+        let value = f.temp(self.list.list_type(index).ref_to(true));
+        f.ins().local_set(i).local_set(value);
+        f.ins().local_get(i).i32_const(0).i32_lt_s();
+        f.if_(BlockType::Empty);
+        f.ins().local_get(i).local_get(value);
+        self.list.len(f, index);
+        f.ins().i32_add().local_set(i);
+        f.end();
+        // A negative index past the start is a large unsigned one.
+        f.ins().local_get(i).local_get(value);
+        self.list.len(f, index);
+        f.ins().i32_ge_u();
+        f.if_(BlockType::Empty);
+        self.raise(m, f, &LIST_INDEX_OUT_OF_RANGE);
+        f.end();
+        f.ins().local_get(value);
+        self.list.items(f, index);
+        f.ins().local_get(i);
+        f.free(i);
+        f.free(value);
+        self.list_item(f, list, rep);
     }
 
     /// Pops the array of the items of a list and an index of

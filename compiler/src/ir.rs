@@ -629,6 +629,15 @@ pub(crate) enum Expr {
         index: Box<Expr>,
         site: Site,
     },
+    /// The item of a list at an `int` index, which has `rep`, the rep of
+    /// the items. A negative index counts from the end, and an index out of
+    /// range raises `IndexError` at the site.
+    ListIndex {
+        list: Box<Expr>,
+        index: Box<Expr>,
+        rep: Rep,
+        site: Site,
+    },
     /// The code points of a `str` from the `int` `start` up to the `int`
     /// `stop`, as a `str`. The slice goes from the first code point without
     /// a `start`, and to the last one without a `stop`. The site is where
@@ -1215,6 +1224,7 @@ impl Expr {
             | Expr::Narrow { rep, .. }
             | Expr::Expect { rep, .. }
             | Expr::Item { rep, .. }
+            | Expr::ListIndex { rep, .. }
             | Expr::Field { rep, .. } => *rep,
             Expr::Member { class, .. } | Expr::New { class, .. } | Expr::Target(class) => {
                 Rep::Object(*class)

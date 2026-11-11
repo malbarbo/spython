@@ -70,6 +70,7 @@ fn what_a_list_lacks_yet_is_unsupported() {
         ("x: list[int] | str = [1]\n", "a variable of this type"),
         ("xs: list[None] = [None]\n", "a list of this type"),
         ("xs = [1]\nxs.reverse()\n", "a call of this method"),
+        ("xs = [1]\nys = xs[1:]\n", "a slice of a list"),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
@@ -186,4 +187,52 @@ fn print_writes_the_arguments_before_a_list_whose_repr_raises() {
             print(1, 'a', ns)
         "},
     );
+}
+
+#[test]
+fn an_index_reads_an_item_from_the_start_or_from_the_end() {
+    same_as_cpython(
+        "an_index_reads_an_item_from_the_start_or_from_the_end",
+        indoc! {"
+            def at(xs: list[int], i: int) -> int:
+                return xs[i]
+
+
+            def show(n: int) -> int:
+                print('index', n)
+                return n
+
+
+            xs = [10, 20, 30]
+            print(xs[0], xs[2], xs[-1], xs[-3], at(xs, 1), xs[show(1)])
+            ws: list[list[int]] = [[1, 2], [3]]
+            print(ws[0][1], ws[-1][0], ws[1], len(ws[0]))
+            ss = ['a']
+            print(ss[0] + 'b', [True][0], [1.5][0])
+            ys: list[int | None] = [1, None]
+            y = ys[0]
+            if y is not None:
+                print(y + 1)
+            if ys[0] is not None:
+                print(ys[0] + 2)
+            print(ys[1] is None)
+        "},
+    );
+}
+
+#[test]
+fn an_index_out_of_range_raises_index_error() {
+    for (name, read) in [
+        ("an_index_past_the_end_raises_index_error", "xs[3]"),
+        ("an_index_before_the_start_raises_index_error", "xs[-4]"),
+        ("an_index_of_an_inner_list_raises_index_error", "ws[0][2]"),
+        ("an_index_of_an_empty_list_raises_index_error", "empty[0]"),
+    ] {
+        same_as_cpython(
+            name,
+            &format!(
+                "xs = [10, 20, 30]\nws: list[list[int]] = [[1, 2]]\nempty: list[str] = []\nprint({read})\n"
+            ),
+        );
+    }
 }

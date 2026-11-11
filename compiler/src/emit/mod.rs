@@ -1122,6 +1122,17 @@ impl Emitter<'_> {
                 self.expr(f, len);
                 self.reprs.list_set_len(f, list.rep());
             }
+            Expr::ListIndex {
+                list,
+                index,
+                rep,
+                site,
+            } => {
+                self.expr(f, list);
+                self.expr(f, index);
+                let list = list.rep();
+                self.at(f, *site, |e, f| e.reprs.list_index(&mut e.m, f, list, *rep));
+            }
             Expr::Item { list, index, rep } => {
                 self.expr(f, list);
                 self.reprs.list_items(f, list.rep());
