@@ -23,6 +23,7 @@ from __spython_prelude__.intrinsics import (
     title_at,
     upper_at,
 )
+from __spython_prelude__.slices import slice_end, slice_start, step_bound
 
 
 def repr_of(s: str) -> str:
@@ -691,24 +692,6 @@ def slice_step(s: str, start: int | None, stop: int | None, step: int | None) ->
     return builder_done(b)
 
 
-def step_bound(bound: int | None, n: int, negative: bool, missing: int) -> int:
-    """A bound of a slice with a step of the sign that `negative` says, in a `str` of length `n`."""
-    if bound is None:
-        return missing
-    i = bound
-    if i < 0:
-        i += n
-        if i < 0:
-            if negative:
-                return -1
-            return 0
-    elif i >= n:
-        if negative:
-            return n - 1
-        return n
-    return i
-
-
 def found_at(s: str, sub: str, i: int) -> bool:
     """Returns `True` if `sub` is in `s` from `i` on, `False` otherwise. The
     caller keeps `i + len(sub) <= len(s)`."""
@@ -719,24 +702,6 @@ def found_at(s: str, sub: str, i: int) -> bool:
             return False
         j += 1
     return True
-
-
-def slice_start(start: int | None, n: int) -> int:
-    """The first index of a slice of a `str` of length `n`, as CPython adjusts it."""
-    if start is None:
-        return 0
-    if start < 0:
-        return max(start + n, 0)
-    return start
-
-
-def slice_end(end: int | None, n: int) -> int:
-    """The index after the last of a slice of a `str` of length `n`, as CPython adjusts it."""
-    if end is None or end > n:
-        return n
-    if end < 0:
-        return max(end + n, 0)
-    return end
 
 
 def casefold(s: str) -> str:
