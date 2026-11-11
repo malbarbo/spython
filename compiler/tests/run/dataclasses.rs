@@ -208,51 +208,52 @@ fn a_default_of_a_dataclass_raises_value_error() {
 }
 
 /// CPython 3.13 evaluates an annotation without quotes in the body of the
-/// class, after the default of the field.
+/// class, and 3.14 does not.
 #[test]
-fn an_annotation_raises_name_error_for_a_class_without_a_value() {
-    for (name, field) in [
-        (
-            "an_annotation_raises_name_error_for_its_own_class",
-            "prox: No | None",
-        ),
-        (
-            "an_annotation_raises_name_error_after_the_default",
-            "prox: No | None = f()",
-        ),
-        (
-            "an_annotation_raises_name_error_for_a_later_class",
-            "segunda: Outra | None = None",
-        ),
-        ("an_annotation_in_quotes_runs", "prox: 'No | None' = f()"),
+fn a_field_with_a_class_without_a_value_does_not_compile() {
+    for field in [
+        "prox: No | None",
+        "prox: No | None = None",
+        "segunda: Outra | None = None",
     ] {
-        same_as_cpython(
-            name,
-            &formatdoc! {"
-                from dataclasses import dataclass
-                from enum import Enum
+        let what = unsupported(&formatdoc! {"
+            from dataclasses import dataclass
 
-                class Cor(Enum):
-                    A = 1
+            @dataclass
+            class No:
+                v: int
+                {field}
 
-                def f() -> None:
-                    print('default')
-                    return None
-
-                @dataclass
-                class No:
-                    v: int
-                    cor: Cor | None
-                    {field}
-
-                @dataclass
-                class Outra:
-                    x: int
-
-                print(1)
-            "},
+            @dataclass
+            class Outra:
+                x: int
+        "});
+        assert_eq!(
+            what, "a class in an annotation before its `class` statement",
+            "{field}"
         );
     }
+}
+
+#[test]
+fn a_field_in_quotes_takes_its_own_class() {
+    same_as_cpython(
+        "a_field_in_quotes_takes_its_own_class",
+        indoc! {"
+            from dataclasses import dataclass
+
+            def f() -> None:
+                print('default')
+                return None
+
+            @dataclass
+            class No:
+                v: int
+                prox: 'No | None' = f()
+
+            print(No(1, No(2)))
+        "},
+    );
 }
 
 #[test]

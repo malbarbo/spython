@@ -303,12 +303,10 @@ impl<'a> Lowering<'a, '_> {
         let mut body = Vec::new();
         let mut mutable = None;
         for ((node, (name, rep)), var) in dataclass_fields(def).zip(fields).zip(defaults) {
-            // CPython evaluates the default, binds the name and then
-            // evaluates the annotation.
             if let (Some(value), Some(var)) = (node.value.as_deref(), var) {
                 body.push(self.class_default(def, value, name, *rep, *var, &mut mutable)?);
             }
-            body.extend(self.annotation_checks(std::iter::once(&*node.annotation))?);
+            self.check_annotations(std::iter::once(&*node.annotation))?;
         }
         Ok((body, mutable))
     }
@@ -1145,14 +1143,14 @@ impl<'a> Lowering<'a, '_> {
         self.classes.borrow().names.get(id).copied()
     }
 
-    /// The checks that raise `NameError` for each class that an annotation
-    /// of `annotations` reads before its `class` statement, in the order of
-    /// CPython, which evaluates an annotation without quotes when the
-    /// statement that has it runs.
-    pub(super) fn annotation_checks<'e>(
+    /// Refuses an annotation of `annotations` that reads a class before its
+    /// `class` statement. CPython 3.13 evaluates an annotation without
+    /// quotes when the statement that has it runs, and raises `NameError`
+    /// there, while CPython 3.14 does not evaluate it.
+    pub(super) fn check_annotations<'e>(
         &self,
         annotations: impl Iterator<Item = &'e ast::Expr>,
-    ) -> Result<Vec<Stmt>, Error> {
+    ) -> Result<(), Error> {
         struct Names<'e>(Vec<&'e ast::ExprName>);
         impl<'e> Visitor<'e> for Names<'e> {
             fn visit_expr(&mut self, expr: &'e ast::Expr) {
@@ -1166,20 +1164,16 @@ impl<'a> Lowering<'a, '_> {
         for annotation in annotations {
             names.visit_expr(annotation);
         }
-        let mut checks = Vec::new();
         for name in names.0 {
-            let class = self.classes.borrow().names.get(name.id.as_str()).copied();
-            if let Some(class) = class
-                && let Some(check) = self.global_check(name)?
-            {
-                checks.push(Stmt::Expr(Expr::After {
-                    binding: Binding::Class(class),
-                    check,
-                    value: Box::new(Expr::None),
-                }));
+            let is_class = self.classes.borrow().names.contains_key(name.id.as_str());
+            if is_class && self.global_check(name)?.is_some() {
+                return Err(unsupported(
+                    name,
+                    "a class in an annotation before its `class` statement",
+                ));
             }
         }
-        Ok(checks)
+        Ok(())
     }
 
     /// The members of `def` in the order of the class, when `def` has the

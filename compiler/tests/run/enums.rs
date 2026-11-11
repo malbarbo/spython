@@ -59,42 +59,53 @@ fn a_function_takes_and_gives_members() {
     );
 }
 
-/// CPython evaluates the annotations of a `def` when the `def` runs, after
-/// the defaults, and an annotation in quotes stays a `str`.
+/// CPython 3.13 evaluates an annotation without quotes of a `def` and of an
+/// assignment of the module when the statement runs, and 3.14 does not.
 #[test]
-fn a_def_raises_name_error_for_a_class_in_an_annotation() {
-    for (name, def) in [
-        (
-            "a_def_raises_name_error_for_a_class_in_an_annotation",
-            "def f(c: int | Cor = 1, d: 'Cor | None' = g()) -> 'Cor | None':",
-        ),
-        (
-            "a_def_raises_name_error_for_a_class_in_its_result",
-            "def f(c: 'Cor | None' = g()) -> Cor | None:",
-        ),
-        (
-            "a_def_runs_with_a_class_in_quotes",
-            "def f(c: 'Cor | None' = g()) -> 'Cor | None':",
-        ),
+fn an_annotation_of_the_module_with_a_later_class_does_not_compile() {
+    for statement in [
+        "def f(c: int | Cor = 1) -> None:\n    return None",
+        "def f(c: 'Cor | None' = None) -> Cor | None:\n    return None",
+        "x: Cor | None = None",
+        "y: Cor",
     ] {
-        same_as_cpython(
-            name,
-            &formatdoc! {"
-                from enum import Enum
+        let what = unsupported(&formatdoc! {"
+            from enum import Enum
 
-                def g() -> None:
-                    print('g')
+            {statement}
 
-                {def}
-                    return None
-
-                print(f() is None)
-
-                class Cor(Enum):
-                    A = 1
-            "},
+            class Cor(Enum):
+                A = 1
+        "});
+        assert_eq!(
+            what, "a class in an annotation before its `class` statement",
+            "{statement}"
         );
     }
+}
+
+/// A function does not evaluate the annotation of an assignment, and an
+/// annotation in quotes stays a `str`.
+#[test]
+fn an_annotation_that_does_not_run_takes_a_later_class() {
+    same_as_cpython(
+        "an_annotation_that_does_not_run_takes_a_later_class",
+        indoc! {"
+            from enum import Enum
+
+            def f(c: 'Cor | None' = None) -> 'Cor | None':
+                z: Cor | None = c
+                return z
+
+            x: 'Cor | None' = f()
+            print(x is None)
+
+            class Cor(Enum):
+                A = 1
+
+            print(f(Cor.A))
+        "},
+    );
 }
 
 /// Each member is one object, which `_start` makes before the program runs.

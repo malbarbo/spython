@@ -19,7 +19,6 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
         for stmt in body {
-            // The `def` evaluates the defaults, then the annotations.
             if let ast::Stmt::FunctionDef(def) = stmt
                 && self.scope.borrow().is_none()
             {
@@ -27,7 +26,13 @@ impl<'a> Lowering<'a, '_> {
                 let annotations = params_of(def)
                     .filter_map(|param| param.annotation())
                     .chain(def.returns.as_deref());
-                lowered.extend(self.annotation_checks(annotations)?);
+                self.check_annotations(annotations)?;
+            }
+            // A function does not evaluate the annotation of an assignment.
+            if let ast::Stmt::AnnAssign(a) = stmt
+                && self.scope.borrow().is_none()
+            {
+                self.check_annotations(std::iter::once(&*a.annotation))?;
             }
             if let ast::Stmt::ClassDef(def) = stmt {
                 lowered.extend(self.class_body(def)?);
