@@ -82,6 +82,8 @@ pub(crate) const INFINITY_TO_INT: Message = Message::new(
 );
 pub(crate) const STR_INDEX_OUT_OF_RANGE: Message =
     Message::new(Class::IndexError, "string index out of range");
+pub(crate) const RANGE_STEP_ZERO: Message =
+    Message::new(Class::ValueError, "range() arg 3 must not be zero");
 pub(crate) const LIST_INDEX_OUT_OF_RANGE: Message =
     Message::new(Class::IndexError, "list index out of range");
 pub(crate) const LIST_ASSIGNMENT_OUT_OF_RANGE: Message =

@@ -167,3 +167,93 @@ fn what_a_for_lacks_yet_is_unsupported() {
         assert_eq!(unsupported(source), what, "{source}");
     }
 }
+
+#[test]
+fn for_over_a_range_counts_from_the_start_to_the_stop_by_the_step() {
+    same_as_cpython(
+        "for_over_a_range_counts_from_the_start_to_the_stop_by_the_step",
+        indoc! {"
+            def arg(s: str, n: int) -> int:
+                print(s)
+                return n
+
+
+            def soma(n: int) -> int:
+                s = 0
+                for i in range(n):
+                    s += i
+                return s
+
+
+            print(soma(5), soma(0), soma(-3))
+            xs = [10, 20, 30]
+            for i in range(len(xs)):
+                print(i, xs[i])
+            for i in range(2, 5):
+                print(i)
+            for i in range(5, 2):
+                print('nunca')
+            for i in range(10, 0, -3):
+                print(i)
+            for i in range(arg('start', 1), arg('stop', 8), arg('step', 2)):
+                print(i)
+            for i in range(arg('start', 8), arg('stop', 1), arg('step', -2)):
+                print(i)
+            for i in range(3):
+                i += 10
+                print(i)
+            print(i)
+            for i in range(1073741820, 1073741823):
+                print(i)
+            for i in range(-1073741824, -1073741822):
+                print(i)
+            for i in range(1073741823, -1073741824, -1073741824):
+                print(i)
+            for i in range(-5, 1073741823, 1073741823):
+                print(i)
+            for i in range(True, 3):
+                print(i)
+        "},
+    );
+}
+
+#[test]
+fn break_continue_and_else_of_a_for_over_a_range() {
+    same_as_cpython(
+        "break_continue_and_else_of_a_for_over_a_range",
+        indoc! {"
+            def primo(n: int) -> bool:
+                for d in range(2, n):
+                    if n % d == 0:
+                        break
+                else:
+                    return n > 1
+                return False
+
+
+            for n in range(12):
+                if not primo(n):
+                    continue
+                print(n)
+            else:
+                print('fim')
+            u: int | None = None
+            for u in range(2):
+                print(u)
+            print(u)
+        "},
+    );
+}
+
+#[test]
+fn a_step_of_zero_raises_value_error() {
+    for (name, step) in [
+        ("a_literal_step_of_zero_raises_value_error", "0"),
+        ("a_step_of_zero_raises_value_error", "len('')"),
+    ] {
+        same_as_cpython(
+            name,
+            &format!("print('a')\nfor i in range(0, 5, {step}):\n    print(i)\n"),
+        );
+    }
+}

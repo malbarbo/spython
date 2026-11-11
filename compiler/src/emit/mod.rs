@@ -6,7 +6,7 @@ mod runtime;
 
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
-use crate::cpython::{Class, Message, RECURSION_ERROR};
+use crate::cpython::{Class, Message, RANGE_STEP_ZERO, RECURSION_ERROR};
 use crate::ir::{
     Binding, Check, ClassId, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError,
     Place, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
@@ -343,6 +343,15 @@ impl Emitter<'_> {
                 f.end();
             }
             Stmt::While { cond, body, else_ } => self.while_(f, cond, body, else_),
+            Stmt::ForRange {
+                var,
+                start,
+                stop,
+                step,
+                body,
+                else_,
+                site,
+            } => self.for_range(f, *var, [start, stop, step], (body, else_), *site),
             Stmt::Break => {
                 let target = self.code.loops.last().expect("a break in a loop").break_;
                 f.br(target);
@@ -465,6 +474,85 @@ impl Emitter<'_> {
         f.end();
         self.body(f, else_);
         f.end();
+    }
+
+    /// The counter of the loop sums the step in an `i32` without a test,
+    /// since `start` and `step` fit in 31 bits and so the sum fits in 32.
+    fn for_range(
+        &mut self,
+        f: &mut FuncState,
+        var: Place,
+        [start, stop, step]: [&Expr; 3],
+        (body, else_): (&[Stmt], &[Stmt]),
+        site: Site,
+    ) {
+        let counter = f.temp(ValType::I32);
+        let end = f.temp(ValType::I32);
+        let by = f.temp(ValType::I32);
+        self.expr(f, start);
+        f.ins().local_set(counter);
+        self.expr(f, stop);
+        f.ins().local_set(end);
+        self.expr(f, step);
+        f.ins().local_set(by);
+        // The test knows the sign of a literal step that is not 0.
+        let sign = match step {
+            Expr::Int(step) if *step != 0 => Some(*step > 0),
+            _ => None,
+        };
+        if sign.is_none() {
+            f.ins().local_get(by);
+            self.at(f, site, |e, f| e.raise_if_zero(f, &RANGE_STEP_ZERO));
+        }
+        let break_ = f.block(BlockType::Empty);
+        let done = f.block(BlockType::Empty);
+        let top = f.loop_(BlockType::Empty);
+        f.ins().local_get(counter).local_get(end);
+        match sign {
+            Some(true) => {
+                f.ins().i32_lt_s();
+            }
+            Some(false) => {
+                f.ins().i32_gt_s();
+            }
+            None => {
+                f.ins()
+                    .i32_lt_s()
+                    .local_get(counter)
+                    .local_get(end)
+                    .i32_gt_s()
+                    .local_get(by)
+                    .i32_const(0)
+                    .i32_gt_s()
+                    .select();
+            }
+        }
+        f.ins().i32_eqz();
+        f.br_if(done);
+        f.ins().local_get(counter);
+        let rep = self.var(var).rep;
+        if rep != Rep::Int {
+            self.reprs.widen(&mut self.m, f, Rep::Int, rep);
+        }
+        self.store(f, var);
+        let continue_ = f.block(BlockType::Empty);
+        self.code.loops.push(Loop { break_, continue_ });
+        self.body(f, body);
+        self.code.loops.pop();
+        f.end();
+        f.ins()
+            .local_get(counter)
+            .local_get(by)
+            .i32_add()
+            .local_set(counter);
+        f.br(top);
+        f.end();
+        f.end();
+        self.body(f, else_);
+        f.end();
+        f.free(counter);
+        f.free(end);
+        f.free(by);
     }
 
     /// Pops a value into `place`.

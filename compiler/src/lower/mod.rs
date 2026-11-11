@@ -474,7 +474,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     /// Declares the target of each `for` of `loops` whose name `keep`
     /// accepts. The annotation of the name gives its rep, and the items of
-    /// the iterable give it otherwise.
+    /// the iterable give it otherwise, which are `int`s for a `range`.
     fn declare_loops(
         &self,
         loops: &[(&'a ast::Expr, &'a ast::Expr)],
@@ -483,6 +483,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         for (target, iter) in loops {
             let rep = match slot_shape(self.model(), target) {
                 Some(shape) => self.rep_of(Some(shape)),
+                None if self.range_call(iter).is_some() => Some(Rep::Int),
                 None => match self.rep_of(expr_shape(self.model(), iter)) {
                     Some(Rep::List(list)) => Some(self.list_item(list)),
                     Some(Rep::Str) => Some(Rep::Str),

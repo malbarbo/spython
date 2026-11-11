@@ -194,6 +194,21 @@ pub(crate) enum Stmt {
         body: Vec<Stmt>,
         else_: Vec<Stmt>,
     },
+    /// `for` over `range(start, stop, step)` of three `int`s, which run
+    /// once, in order. A counter of its own gives the variable each value,
+    /// so an assignment to the variable in the body leaves the loop as it
+    /// was, and the variable holds the values of an `int` in its own rep.
+    /// A step of 0 raises `ValueError` at the site. `continue` goes to the
+    /// next value, and `else_` runs when the loop ends without a `break`.
+    ForRange {
+        var: Place,
+        start: Expr,
+        stop: Expr,
+        step: Expr,
+        body: Vec<Stmt>,
+        else_: Vec<Stmt>,
+        site: Site,
+    },
     Break,
     Continue,
     /// Runs an example of a docstring. What the body writes to the standard

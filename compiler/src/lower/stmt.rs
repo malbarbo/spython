@@ -292,6 +292,9 @@ impl<'a> Lowering<'a, '_> {
         if f.is_async {
             return Err(unsupported(f, "this statement"));
         }
+        if let Some(range) = self.range_call(&f.iter) {
+            return self.for_range(f, range).map(|stmt| vec![stmt]);
+        }
         let seq = self.expr(&f.iter)?;
         let rep = seq.rep();
         if !matches!(rep, Rep::List(_) | Rep::Str) {
@@ -354,6 +357,46 @@ impl<'a> Lowering<'a, '_> {
                 else_: self.body(&f.orelse)?,
             },
         ])
+    }
+
+    /// The call of `range` that `iter` is, which only a `for` takes.
+    pub(super) fn range_call<'e>(&self, iter: &'e ast::Expr) -> Option<&'e ast::ExprCall> {
+        let ast::Expr::Call(call) = iter else {
+            return None;
+        };
+        (self.builtin_name(&call.func).as_deref() == Some("range")).then_some(call)
+    }
+
+    /// `for target in range(...)`, with the arguments in the order of the
+    /// call. `range(stop)` starts at 0, and the step is 1 without a third
+    /// argument.
+    fn for_range(&self, f: &ast::StmtFor, range: &ast::ExprCall) -> Result<Stmt, Error> {
+        if !range.arguments.keywords.is_empty() {
+            return Err(unsupported(range, "a range with these arguments"));
+        }
+        let args = range
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.int_operand(arg))
+            .collect::<Result<Vec<_>, Error>>()?;
+        let mut args = args.into_iter();
+        let (start, stop, step) = match (args.next(), args.next(), args.next(), args.next()) {
+            (Some(stop), None, None, None) => (Expr::Int(0), stop, Expr::Int(1)),
+            (Some(start), Some(stop), None, None) => (start, stop, Expr::Int(1)),
+            (Some(start), Some(stop), Some(step), None) => (start, stop, step),
+            _ => return Err(unsupported(range, "a range with these arguments")),
+        };
+        let (var, _) = self.place(&f.target, Rep::Int)?;
+        Ok(Stmt::ForRange {
+            var,
+            start,
+            stop,
+            step,
+            body: self.body(&f.body)?,
+            else_: self.body(&f.orelse)?,
+            site: self.site(range.range()),
+        })
     }
 
     /// The target and the name of the global of `a`, when `a` is a copy
