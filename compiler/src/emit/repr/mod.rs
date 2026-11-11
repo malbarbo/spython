@@ -1045,24 +1045,6 @@ impl Reprs {
             .i32_mul()
             .return_();
         f.end();
-        for class in self.classes.clone() {
-            f.ins()
-                .local_get(a)
-                .ref_test(class.heap_type())
-                .local_get(b)
-                .ref_test(class.heap_type())
-                .i32_or();
-            f.if_(BlockType::Empty);
-            f.ins()
-                .local_get(a)
-                .local_get(b)
-                .ref_eq()
-                .i32_eqz()
-                .i32_const(unordered)
-                .i32_mul()
-                .return_();
-            f.end();
-        }
         let str = self.str.type_index().heap_type();
         f.ins().local_get(a).ref_test(str);
         f.ins().local_get(b).ref_test(str);
@@ -1082,6 +1064,27 @@ impl Reprs {
         f.ins().return_();
         f.end();
         f.free(strs);
+        // An object is equal to itself alone.
+        let boxes = self.uniform.boxes(m);
+        for value in [a, b] {
+            for (i, (_, box_type)) in boxes.iter().enumerate() {
+                f.ins().local_get(value).ref_test(*box_type);
+                if i > 0 {
+                    f.ins().i32_or();
+                }
+            }
+        }
+        f.ins().i32_and().i32_eqz();
+        f.if_(BlockType::Empty);
+        f.ins()
+            .local_get(a)
+            .local_get(b)
+            .ref_eq()
+            .i32_eqz()
+            .i32_const(unordered)
+            .i32_mul()
+            .return_();
+        f.end();
         let (x, y) = (f.temp(ValType::F64), f.temp(ValType::F64));
         for (value, number) in [(a, x), (b, y)] {
             self.uniform_as_f64(m, &mut f, value);
@@ -1152,7 +1155,15 @@ impl Reprs {
             f.ins().return_();
             f.end();
         }
-        // An object of a class without a `str` never goes to a union.
+        let str = self.str.type_index().heap_type();
+        f.ins().local_get(value).ref_test(str);
+        f.if_(BlockType::Empty);
+        f.ins().local_get(value);
+        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
+        self.str.write(&mut f);
+        f.ins().return_();
+        f.end();
+        // The print of a union makes the `str` of each class in its type.
         for i in 0..self.classes.len() {
             let class = ClassId::new(i);
             if self.class_strs.get(i).copied().flatten().is_none() {
@@ -1168,9 +1179,7 @@ impl Reprs {
             f.ins().return_();
             f.end();
         }
-        f.ins().local_get(value);
-        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
-        self.str.write(&mut f);
+        f.ins().unreachable();
         m.add_func(ty, f.finish())
     }
 }
