@@ -833,8 +833,24 @@ impl<'a> Lowering<'a, '_> {
                     self.add_classes_in(Some(shape), found);
                 }
             }
+            Some(Shape::TypeVar(name)) => {
+                let types = self.types.borrow();
+                if let Some((_, arg)) = types.iter().find(|(var, _)| *var == name) {
+                    found.extend(arg.classes.iter().copied());
+                }
+            }
             _ => {}
         }
+    }
+
+    /// The dataclasses that a uniform value of `shape` may be, in the order
+    /// of their ids.
+    pub(super) fn uniform_dataclasses(&self, shape: Option<Shape>) -> Vec<ClassId> {
+        let mut found = self.classes_in(shape);
+        found.retain(|class| self.is_dataclass(*class));
+        found.sort_by_key(|class| class.index());
+        found.dedup();
+        found
     }
 
     /// The comparison `c`, with `ops` and the lowered `operands`, where two

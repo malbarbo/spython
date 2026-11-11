@@ -236,7 +236,7 @@ struct Lowering<'a, 'db> {
     prelude_funcs: RefCell<HashMap<PreludeKey<'a>, FuncId>>,
     /// The rep of each type variable of the copy of a generic function of
     /// the prelude whose signature or body the lowering is in.
-    types: RefCell<Vec<(String, Rep)>>,
+    types: RefCell<Vec<(String, TypeArg)>>,
     /// Whether the code of the function of the prelude that the lowering
     /// is in has an instruction that may raise.
     raises: Cell<bool>,
@@ -296,15 +296,28 @@ impl Vars {
 
 /// A function of the prelude, by its file, its name and the rep of each of
 /// its type variables.
-type PreludeKey<'a> = (File, &'a str, Vec<Rep>);
+type PreludeKey<'a> = (File, &'a str, Vec<TypeArg>);
+
+/// What a type variable of a copy of a generic function of the prelude
+/// stands for. `classes` has the dataclasses that a uniform value of the
+/// variable may be, whose `==` compares the fields.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct TypeArg {
+    pub(super) rep: Rep,
+    pub(super) classes: Vec<ClassId>,
+}
 
 /// The types of the lists of the program.
 #[derive(Default)]
 struct Lists {
-    /// The type of a list of each rep of an item.
-    ids: HashMap<Rep, ListId>,
+    /// The type of a list of each rep of an item, with the dataclasses
+    /// that a uniform item may be.
+    ids: HashMap<(Rep, Vec<ClassId>), ListId>,
     /// The rep of the items of each type, by its id.
     items: Vec<Rep>,
+    /// The dataclasses that an item of each type may be, when the items
+    /// are uniform.
+    classes: Vec<Vec<ClassId>>,
     /// The function that gives the `repr` of a list of each type, once the
     /// program writes one.
     reprs: Vec<Option<FuncId>>,
@@ -388,7 +401,7 @@ struct Sig<'a, 'db> {
     ret: Rep,
     /// The rep of each type variable of a copy of a generic function of the
     /// prelude, in the order of the `def`.
-    types: Vec<(String, Rep)>,
+    types: Vec<(String, TypeArg)>,
 }
 
 struct Scope {
@@ -859,15 +872,22 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .get(&class)
                 .copied()
                 .map(Rep::Object),
-            Shape::List(item) => self
-                .rep_of(Some(*item))
-                .map(|item| Rep::List(self.list_of(item))),
+            Shape::List(item) => {
+                let classes = self.uniform_dataclasses(Some((*item).clone()));
+                let item = self.rep_of(Some(*item))?;
+                let classes = if item == Rep::Uniform {
+                    classes
+                } else {
+                    Vec::new()
+                };
+                Some(Rep::List(self.list_of(item, classes)))
+            }
             Shape::TypeVar(name) => self
                 .types
                 .borrow()
                 .iter()
                 .find(|(var, _)| *var == name)
-                .map(|(_, rep)| *rep),
+                .map(|(_, arg)| arg.rep),
             // A union of `str` and `None` needs no box, and any other union
             // of values with a rep is uniform.
             Shape::Union(shapes) => {
@@ -887,18 +907,31 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
     }
 
-    /// The type of a list whose items have `item`, which the first call
-    /// for `item` creates.
-    fn list_of(&self, item: Rep) -> ListId {
+    /// The type of a list whose items have `item` and may be objects of
+    /// the dataclasses `classes`, which the first call for them creates.
+    fn list_of(&self, item: Rep, classes: Vec<ClassId>) -> ListId {
         let mut lists = self.lists.borrow_mut();
-        if let Some(list) = lists.ids.get(&item) {
+        let key = (item, classes);
+        if let Some(list) = lists.ids.get(&key) {
             return *list;
         }
         let list = ListId::new(lists.items.len());
         lists.items.push(item);
+        lists.classes.push(key.1.clone());
         lists.reprs.push(None);
-        lists.ids.insert(item, list);
+        lists.ids.insert(key, list);
         list
+    }
+
+    /// The dataclasses that an item of a list of the type `list` may be,
+    /// when the items are uniform.
+    fn list_classes(&self, list: ListId) -> Vec<ClassId> {
+        self.lists
+            .borrow()
+            .classes
+            .get(list.index())
+            .expect("a type of list of the program")
+            .clone()
     }
 
     /// The rep of each item of a list of the type `list`.

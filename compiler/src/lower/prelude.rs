@@ -8,7 +8,7 @@ use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::{DefId, Shape, function_info};
 
-use super::{Loaded, Lowering, Sig, Unit, coerce, unsupported};
+use super::{Loaded, Lowering, Sig, TypeArg, Unit, coerce, unsupported};
 use crate::Error;
 use crate::cpython::names;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, ListId, Rep, Site};
@@ -309,8 +309,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .flat_map(|params| &params.type_params)
             .map(|param| param.name().to_string())
             .collect();
-        let types = type_map(&names, &shapes, args, |list| self.list_item(list))
-            .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
+        let types = type_map(&names, &shapes, args, |list| TypeArg {
+            rep: self.list_item(list),
+            classes: self.list_classes(list),
+        })
+        .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
         let func = self
             .prelude_copy(unit.file, name, types)?
             .expect("a function of the module");
@@ -331,7 +334,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         &self,
         file: File,
         name: &str,
-        types: Vec<(String, Rep)>,
+        types: Vec<(String, TypeArg)>,
     ) -> Result<Option<FuncId>, Error> {
         let Some(unit) = self.prelude.iter().find(|unit| unit.file == file) else {
             return Ok(None);
@@ -339,7 +342,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let Some((name, def)) = unit.defs.get_key_value(name) else {
             return Ok(None);
         };
-        let reps = types.iter().map(|(_, rep)| *rep).collect();
+        let reps = types.iter().map(|(_, arg)| arg.clone()).collect();
         let (key, def) = ((file, *name, reps), *def);
         if let Some(func) = self.prelude_funcs.borrow().get(&key) {
             return Ok(Some(*func));
@@ -521,10 +524,10 @@ fn type_map(
     names: &[String],
     params: &[Shape],
     args: &[Rep],
-    item: impl Fn(ListId) -> Rep,
-) -> Option<Vec<(String, Rep)>> {
-    let mut found: Vec<Option<Rep>> = names.iter().map(|_| None).collect();
-    let mut bind = |name: &str, rep: Rep| -> Option<()> {
+    item: impl Fn(ListId) -> TypeArg,
+) -> Option<Vec<(String, TypeArg)>> {
+    let mut found: Vec<Option<TypeArg>> = names.iter().map(|_| None).collect();
+    let mut bind = |name: &str, arg: TypeArg| -> Option<()> {
         let Some(slot) = names
             .iter()
             .position(|var| var == name)
@@ -533,9 +536,9 @@ fn type_map(
             return Some(());
         };
         match slot {
-            Some(bound) if *bound != rep => None,
+            Some(bound) if *bound != arg => None,
             _ => {
-                *slot = Some(rep);
+                *slot = Some(arg);
                 Some(())
             }
         }
@@ -551,16 +554,17 @@ fn type_map(
         // The item of a list, and of each list inside it.
         while let (Shape::List(inner), Rep::List(list)) = (shape, rep) {
             shape = inner;
-            rep = item(list);
+            let arg = item(list);
+            rep = arg.rep;
             if let Shape::TypeVar(name) = shape {
-                bind(name, rep)?;
+                bind(name, arg)?;
             }
         }
     }
     names
         .iter()
         .zip(found)
-        .map(|(name, rep)| Some((name.clone(), rep?)))
+        .map(|(name, arg)| Some((name.clone(), arg?)))
         .collect()
 }
 
@@ -571,6 +575,7 @@ mod tests {
     use ty_python_semantic::types::lowering::Shape;
 
     use crate::ir::{ListId, Rep};
+    use crate::lower::TypeArg;
 
     /// The number of functions in the program of `source`.
     fn funcs(source: &str) -> usize {
@@ -588,9 +593,16 @@ mod tests {
     /// and the list 2 has lists 0 as its items.
     fn types_of(params: &[Shape], args: &[Rep]) -> Option<Vec<(String, Rep)>> {
         let items = [Rep::Int, Rep::Bool, Rep::List(ListId::new(0))];
-        super::type_map(&["T".to_owned()], params, args, |list| {
-            *items.get(list.index()).expect("a list of the test")
-        })
+        let types = super::type_map(&["T".to_owned()], params, args, |list| TypeArg {
+            rep: *items.get(list.index()).expect("a list of the test"),
+            classes: Vec::new(),
+        })?;
+        Some(
+            types
+                .into_iter()
+                .map(|(name, arg)| (name, arg.rep))
+                .collect(),
+        )
     }
 
     fn list_of(shape: Shape) -> Shape {
