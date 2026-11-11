@@ -8,7 +8,7 @@ use wasm_encoder::{AbstractHeapType, BlockType, HeapType, RefType, StorageType, 
 use super::super::module::{FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
 use crate::ir::Rep;
 
-const EQ: HeapType = HeapType::Abstract {
+pub(super) const EQ: HeapType = HeapType::Abstract {
     shared: false,
     ty: AbstractHeapType::Eq,
 };
@@ -65,29 +65,21 @@ impl UniformRepr {
     /// The rep of a boxed value of a type other than `str`, with the type
     /// of its box. `None` and a `str` have no box of their own.
     pub fn boxes(&mut self, m: &mut ModuleState) -> [(Rep, HeapType); 3] {
-        let float = self.float_type(m).heap_type();
-        let bool = self.bool_type(m).heap_type();
-        [
-            (
-                Rep::Int,
-                HeapType::Abstract {
-                    shared: false,
-                    ty: AbstractHeapType::I31,
-                },
-            ),
-            (Rep::Float, float),
-            (Rep::Bool, bool),
-        ]
+        [Rep::Int, Rep::Float, Rep::Bool].map(|rep| (rep, self.box_type(m, rep)))
     }
 
-    /// The type of the box of a `float`.
-    pub fn float_box(&mut self, m: &mut ModuleState) -> HeapType {
-        self.float_type(m).heap_type()
-    }
-
-    /// The type of the box of a `bool`.
-    pub fn bool_box(&mut self, m: &mut ModuleState) -> HeapType {
-        self.bool_type(m).heap_type()
+    /// The type of the box of a value of `rep`, an `int`, a `float` or a
+    /// `bool`.
+    pub fn box_type(&mut self, m: &mut ModuleState, rep: Rep) -> HeapType {
+        match rep {
+            Rep::Int => HeapType::Abstract {
+                shared: false,
+                ty: AbstractHeapType::I31,
+            },
+            Rep::Float => self.float_type(m).heap_type(),
+            Rep::Bool => self.bool_type(m).heap_type(),
+            _ => unreachable!("a box of {rep:?}"),
+        }
     }
 
     /// Pops a boxed `int` and pushes it as an `i32`.

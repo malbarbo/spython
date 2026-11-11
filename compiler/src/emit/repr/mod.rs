@@ -5,9 +5,7 @@ mod int;
 pub(super) mod str;
 mod uniform;
 
-use wasm_encoder::{
-    AbstractHeapType, BlockType, ConstExpr, HeapType, RefType, StorageType, ValType,
-};
+use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
 
 use super::module::{FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TypeIdx};
 use super::runtime::exc::Exceptions;
@@ -91,13 +89,7 @@ impl Reprs {
         let node = first.plus(classes.len());
         let guarded = classes.iter().any(|class| class.repr_guard);
         if guarded {
-            let object = ValType::Ref(RefType {
-                nullable: true,
-                heap_type: HeapType::Abstract {
-                    shared: false,
-                    ty: AbstractHeapType::Eq,
-                },
-            });
+            let object = reprs.uniform.val_type();
             structs.push(vec![
                 (StorageType::Val(object), false),
                 (StorageType::Val(node.ref_to(true)), false),
@@ -183,13 +175,7 @@ impl Reprs {
     /// Pops an object and pushes whether its `repr` runs, as an `i32`.
     pub fn in_repr(&self, f: &mut FuncState) {
         let (node, top) = self.repr_stack();
-        let object = f.temp(ValType::Ref(RefType {
-            nullable: true,
-            heap_type: HeapType::Abstract {
-                shared: false,
-                ty: AbstractHeapType::Eq,
-            },
-        }));
+        let object = f.temp(self.uniform.val_type());
         let next = f.temp(node.ref_to(true));
         let found = f.temp(ValType::I32);
         f.ins()
@@ -346,10 +332,7 @@ impl Reprs {
             Rep::Float => self.float.global_init(),
             Rep::Bool => ConstExpr::i32_const(0),
             Rep::Str | Rep::StrOrNone => ConstExpr::ref_null(self.str.type_index().heap_type()),
-            Rep::Uniform => ConstExpr::ref_null(wasm_encoder::HeapType::Abstract {
-                shared: false,
-                ty: wasm_encoder::AbstractHeapType::Eq,
-            }),
+            Rep::Uniform => ConstExpr::ref_null(uniform::EQ),
             Rep::Object(class) | Rep::ObjectOrNone(class) => {
                 ConstExpr::ref_null(self.class(class).heap_type())
             }
@@ -426,25 +409,14 @@ impl Reprs {
     /// Pops a value of `from`, a union, and pushes the `bool` of whether it
     /// is a value of `to`, one of the types of the union.
     pub fn has(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
-        let i31 = HeapType::Abstract {
-            shared: false,
-            ty: AbstractHeapType::I31,
-        };
         let str = self.str.type_index().heap_type();
         match (from, to) {
             (Rep::StrOrNone, Rep::Str) => {
                 f.ins().ref_is_null().i32_eqz();
             }
-            (Rep::Uniform, Rep::Int) => {
-                f.ins().ref_test(i31);
-            }
-            (Rep::Uniform, Rep::Float) => {
-                let float = self.uniform.float_box(m);
-                f.ins().ref_test(float);
-            }
-            (Rep::Uniform, Rep::Bool) => {
-                let bool = self.uniform.bool_box(m);
-                f.ins().ref_test(bool);
+            (Rep::Uniform, Rep::Int | Rep::Float | Rep::Bool) => {
+                let ty = self.uniform.box_type(m, to);
+                f.ins().ref_test(ty);
             }
             (Rep::Uniform, Rep::Str) => {
                 f.ins().ref_test(str);
