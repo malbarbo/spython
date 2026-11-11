@@ -991,8 +991,16 @@ impl<'a> Lowering<'a, '_> {
             rep: object,
             check: None,
         };
+        let shapes = class_info(self.model(), def)
+            .and_then(|info| info.dataclass_fields)
+            .expect("a dataclass that the checker knows");
         let mut same = None;
-        for (i, ((_, rep), node)) in fields.iter().zip(dataclass_fields(def)).enumerate() {
+        for (i, (((_, rep), node), checked)) in fields
+            .iter()
+            .zip(dataclass_fields(def))
+            .zip(shapes)
+            .enumerate()
+        {
             let field = u32::try_from(i).expect("fewer than 2^32 fields");
             let theirs = Expr::Field {
                 object: Box::new(other()),
@@ -1000,7 +1008,13 @@ impl<'a> Lowering<'a, '_> {
                 field,
                 rep: *rep,
             };
-            let eq = self.field_eq(self.own_field(class, field), theirs, site, node)?;
+            let eq = self.field_eq(
+                self.own_field(class, field),
+                theirs,
+                site,
+                node,
+                checked.shape,
+            )?;
             same = Some(match same {
                 None => eq,
                 Some(before) => Expr::Logic {
@@ -1020,14 +1034,15 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// Whether `ours` and `theirs`, the values of a field `node` of two
-    /// objects of a dataclass, are equal, as a `bool`. The code at `site`
-    /// compares them.
+    /// objects of a dataclass, are equal, as a `bool`. The field has the
+    /// type `shape`, and the code at `site` compares the values.
     fn field_eq(
         &self,
         ours: Expr,
         theirs: Expr,
         site: Site,
         node: &ast::StmtAnnAssign,
+        shape: Shape,
     ) -> Result<Expr, Error> {
         let rep = ours.rep();
         let dataclass = |class: ClassId| self.classes.borrow().get(class).kind == Kind::Dataclass;
@@ -1050,7 +1065,7 @@ impl<'a> Lowering<'a, '_> {
         }
         if rep == Rep::Uniform {
             let mut found = Vec::new();
-            self.classes_in(self.field_shape(node), &mut found);
+            self.classes_in(Some(shape), &mut found);
             if found.into_iter().any(dataclass) {
                 return Err(unsupported(
                     node,
@@ -1067,24 +1082,6 @@ impl<'a> Lowering<'a, '_> {
             ));
         }
         Ok(Expr::Compare(Box::new(ours), vec![(CmpOp::Eq, theirs)]))
-    }
-
-    /// The type of the field `node` of a dataclass, as the checker gives it.
-    fn field_shape(&self, node: &ast::StmtAnnAssign) -> Option<Shape> {
-        let ast::Expr::Name(name) = &*node.target else {
-            return None;
-        };
-        let classes = self.classes.borrow();
-        let def = classes
-            .list
-            .iter()
-            .find(|class| class.def.range().contains_range(node.range()))?
-            .def;
-        class_info(self.model(), def)?
-            .dataclass_fields?
-            .into_iter()
-            .find(|field| field.name == name.id.as_str())
-            .map(|field| field.shape)
     }
 
     /// The function that compares two values of `class`, a dataclass, that
