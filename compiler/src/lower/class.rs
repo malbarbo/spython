@@ -90,12 +90,27 @@ pub(super) struct Declared<'a> {
     /// The function that compares two values of a dataclass that may be
     /// `None`, once a comparison needs it.
     pub eq_or_none: Option<FuncId>,
-    /// The functions that give the `str` and the `repr` of an object of the
-    /// class or `None`, once a conversion needs them.
-    pub or_none: [Option<FuncId>; 2],
+    /// The function that gives the `str` of an object of the class or
+    /// `None`, once a conversion needs it.
+    pub str_or_none: Option<FuncId>,
+    /// The function that gives the `repr` of an object of the class or
+    /// `None`, once a conversion needs it.
+    pub repr_or_none: Option<FuncId>,
     /// The variable of the module that holds the default of each field of
     /// a dataclass that has one. The `class` statement gives it its value.
     pub defaults: Vec<Option<VarId>>,
+}
+
+impl Declared<'_> {
+    /// The function that gives the `repr` of an object or `None` when
+    /// `repr` is `true`, and the one that gives the `str` otherwise.
+    fn or_none(&mut self, repr: bool) -> &mut Option<FuncId> {
+        if repr {
+            &mut self.repr_or_none
+        } else {
+            &mut self.str_or_none
+        }
+    }
 }
 
 /// The forms of a class that the compiler takes.
@@ -163,7 +178,8 @@ impl<'a> Lowering<'a, '_> {
             init: None,
             eq: None,
             eq_or_none: None,
-            or_none: [None; 2],
+            str_or_none: None,
+            repr_or_none: None,
             defaults: Vec::new(),
         });
         classes.names.insert(name.to_owned(), id);
@@ -737,16 +753,7 @@ impl<'a> Lowering<'a, '_> {
     /// `true`, of an object of `class` or `None`. The function has no
     /// frame, and the conversion of the object has the frame of the call.
     pub(super) fn or_none_conversion(&self, class: ClassId, repr: bool) -> Result<FuncId, Error> {
-        let index = usize::from(repr);
-        let cached = self
-            .classes
-            .borrow()
-            .get(class)
-            .or_none
-            .get(index)
-            .copied()
-            .flatten();
-        if let Some(func) = cached {
+        if let Some(func) = *self.classes.borrow_mut().get_mut(class).or_none(repr) {
             return Ok(func);
         }
         let convert = if repr {
@@ -769,15 +776,7 @@ impl<'a> Lowering<'a, '_> {
             )),
         }))];
         let func = self.generated(vec![Rep::ObjectOrNone(class)], Rep::Str, body);
-        if let Some(slot) = self
-            .classes
-            .borrow_mut()
-            .get_mut(class)
-            .or_none
-            .get_mut(index)
-        {
-            *slot = Some(func);
-        }
+        *self.classes.borrow_mut().get_mut(class).or_none(repr) = Some(func);
         Ok(func)
     }
 
