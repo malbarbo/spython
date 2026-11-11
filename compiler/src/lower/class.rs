@@ -278,14 +278,12 @@ impl<'a> Lowering<'a, '_> {
                 TextSize::try_from(start).expect("a file shorter than 4 GiB"),
                 def.end(),
             );
-            stmts.push(Stmt::Expr(Expr::Call {
+            stmts.push(Stmt::Expr(generated_call(
                 func,
-                args: Vec::new(),
-                order: None,
-                rep: Rep::None,
-                site: Some(self.site(range)),
-                check: None,
-            }));
+                Vec::new(),
+                Rep::None,
+                self.site(range),
+            )));
         }
         stmts.extend(mutable);
         Ok(stmts)
@@ -564,14 +562,7 @@ impl<'a> Lowering<'a, '_> {
         let (wrapper_site, repr_site) = self.repr_sites(fields.len());
         // The `wrapper` of `reprlib.recursive_repr` gives `...` for an
         // object whose `repr` runs.
-        let call = Expr::Call {
-            func: repr,
-            args: vec![own(class)],
-            order: None,
-            rep: Rep::Str,
-            site: Some(wrapper_site),
-            check: None,
-        };
+        let call = generated_call(repr, vec![own(class)], Rep::Str, wrapper_site);
         self.define(
             wrapper,
             true,
@@ -619,12 +610,18 @@ impl<'a> Lowering<'a, '_> {
             ),
         );
         let line = 5 + fields.max(1);
-        let repr = self.add_site(
-            "<string>\n__repr__".to_owned(),
-            line,
-            format!("  File \"<string>\", line {line}, in __repr__\n"),
-        );
+        let repr = self.dataclass_site("__repr__", line);
         (wrapper, repr)
+    }
+
+    /// The site at `line` of the function `name` that the module
+    /// `dataclasses` writes, whose text has the file `<string>`.
+    fn dataclass_site(&self, name: &str, line: usize) -> Site {
+        self.add_site(
+            format!("<string>\n{name}"),
+            line,
+            format!("  File \"<string>\", line {line}, in {name}\n"),
+        )
     }
 
     /// The `repr` of the field at `field` of the object of `class` in the
@@ -718,11 +715,7 @@ impl<'a> Lowering<'a, '_> {
         let fields = reps
             .iter()
             .enumerate()
-            .map(|(i, rep)| Expr::Load {
-                place: Place::Local(VarId::new(i)),
-                rep: *rep,
-                check: None,
-            })
+            .map(|(i, rep)| param(i, *rep))
             .collect();
         let body = vec![Stmt::Return(Some(Expr::New { class, fields }))];
         let func = self.generated(reps, Rep::Object(class), body);
@@ -759,25 +752,19 @@ impl<'a> Lowering<'a, '_> {
         } else {
             self.class_str(class)?
         };
-        let param = || Expr::Load {
-            place: Place::Local(VarId::new(0)),
-            rep: Rep::ObjectOrNone(class),
-            check: None,
-        };
+        let param = || param(0, Rep::ObjectOrNone(class));
         let body = vec![Stmt::Return(Some(Expr::IfElse {
             cond: Box::new(Expr::IsNone(Box::new(param()))),
             then: Box::new(Expr::Str("None".to_owned())),
-            else_: Box::new(Expr::Call {
-                func: convert,
-                args: vec![Expr::Narrow {
+            else_: Box::new(generated_call(
+                convert,
+                vec![Expr::Narrow {
                     value: Box::new(param()),
                     rep: Rep::Object(class),
                 }],
-                order: None,
-                rep: Rep::Str,
-                site: Some(Site::NONE),
-                check: None,
-            }),
+                Rep::Str,
+                Site::NONE,
+            )),
         }))];
         let func = self.generated(vec![Rep::ObjectOrNone(class)], Rep::Str, body);
         if let Some(slot) = self
@@ -790,19 +777,6 @@ impl<'a> Lowering<'a, '_> {
             *slot = Some(func);
         }
         Ok(func)
-    }
-
-    /// The call of `func`, a function of the compiler that converts the
-    /// object `object` to a `str`, for the conversion at `range`.
-    pub(super) fn class_call(&self, func: FuncId, object: Expr, range: TextRange) -> Expr {
-        Expr::Call {
-            func,
-            args: vec![object],
-            order: None,
-            rep: Rep::Str,
-            site: Some(self.site(range)),
-            check: None,
-        }
     }
 
     /// The field at `field` of the object of `class` that the first
@@ -915,14 +889,12 @@ impl<'a> Lowering<'a, '_> {
         }
         let rep = Rep::ObjectOrNone(a);
         let coerced = |value| coerce(value, rep).expect("an object or None");
-        Ok(Some(Expr::Call {
-            func: self.eq_or_none(a)?,
-            args: vec![coerced(left), coerced(right)],
-            order: None,
-            rep: Rep::Bool,
-            site: Some(site),
-            check: None,
-        }))
+        Ok(Some(generated_call(
+            self.eq_or_none(a)?,
+            vec![coerced(left), coerced(right)],
+            Rep::Bool,
+            site,
+        )))
     }
 
     /// The function `__eq__` of `class`, a dataclass, as CPython 3.13
@@ -944,16 +916,8 @@ impl<'a> Lowering<'a, '_> {
         // A field may hold an object of the class itself.
         self.classes.borrow_mut().get_mut(class).eq = Some(func);
         let line = 10 + fields.len().max(1);
-        let site = self.add_site(
-            "<string>\n__eq__".to_owned(),
-            line,
-            format!("  File \"<string>\", line {line}, in __eq__\n"),
-        );
-        let other = || Expr::Load {
-            place: Place::Local(VarId::new(1)),
-            rep: object,
-            check: None,
-        };
+        let site = self.dataclass_site("__eq__", line);
+        let other = || param(1, object);
         let shapes = class_info(self.model(), def)
             .and_then(|info| info.dataclass_fields)
             .expect("a dataclass that the checker knows");
@@ -1037,11 +1001,7 @@ impl<'a> Lowering<'a, '_> {
             return Ok(func);
         }
         let eq = self.class_eq(class)?;
-        let param = |i| Expr::Load {
-            place: Place::Local(VarId::new(i)),
-            rep: Rep::ObjectOrNone(class),
-            check: None,
-        };
+        let param = |i| param(i, Rep::ObjectOrNone(class));
         let narrow = |i| Expr::Narrow {
             value: Box::new(param(i)),
             rep: Rep::Object(class),
@@ -1053,14 +1013,12 @@ impl<'a> Lowering<'a, '_> {
                 right: Box::new(Expr::IsNone(Box::new(param(1)))),
             }),
             then: Box::new(Expr::Is(Box::new(param(0)), Box::new(param(1)))),
-            else_: Box::new(Expr::Call {
-                func: eq,
-                args: vec![narrow(0), narrow(1)],
-                order: None,
-                rep: Rep::Bool,
-                site: Some(Site::NONE),
-                check: None,
-            }),
+            else_: Box::new(generated_call(
+                eq,
+                vec![narrow(0), narrow(1)],
+                Rep::Bool,
+                Site::NONE,
+            )),
         };
         let or_none = Rep::ObjectOrNone(class);
         let func = self.generated(
@@ -1426,9 +1384,27 @@ fn same_value(a: &Expr, b: &Expr) -> bool {
 /// The object in the first parameter of a function of the compiler for an
 /// object of `class`.
 fn own(class: ClassId) -> Expr {
+    param(0, Rep::Object(class))
+}
+
+/// The parameter at `i` of a function of the compiler, a value of `rep`.
+fn param(i: usize, rep: Rep) -> Expr {
     Expr::Load {
-        place: Place::Local(VarId::new(0)),
-        rep: Rep::Object(class),
+        place: Place::Local(VarId::new(i)),
+        rep,
+        check: None,
+    }
+}
+
+/// The call of `func`, a function of the compiler, with `args`, which
+/// gives a value of `rep` and raises at `site`.
+pub(super) fn generated_call(func: FuncId, args: Vec<Expr>, rep: Rep, site: Site) -> Expr {
+    Expr::Call {
+        func,
+        args,
+        order: None,
+        rep,
+        site: Some(site),
         check: None,
     }
 }

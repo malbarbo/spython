@@ -4,6 +4,7 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
+use super::class::generated_call;
 use super::{Lowering, coerce, join, unsupported};
 use crate::Error;
 use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
@@ -270,7 +271,12 @@ impl<'a> Lowering<'a, '_> {
                 let func = self
                     .object_str(lowered.rep())?
                     .expect("the str of an object");
-                Ok(self.class_call(func, lowered, range))
+                Ok(generated_call(
+                    func,
+                    vec![lowered],
+                    Rep::Str,
+                    self.site(range),
+                ))
             }
         }
     }

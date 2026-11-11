@@ -9,6 +9,7 @@ use ty_python_semantic::types::lowering::{
     ArgBinding, CallTarget, Shape, call_bindings, call_target, expr_shape,
 };
 
+use super::class::generated_call;
 use super::expr::float_value;
 use super::{Lowering, Sig, coerce, params_of, unsupported};
 use crate::Error;
@@ -368,14 +369,12 @@ impl<'a> Lowering<'a, '_> {
             },
             Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], site)?,
             // An object may be null.
-            Rep::Object(class) | Rep::ObjectOrNone(class) => Expr::Call {
-                func: self.or_none_conversion(class, true)?,
-                args: vec![value],
-                order: None,
-                rep: Rep::Str,
-                site: Some(site),
-                check: None,
-            },
+            Rep::Object(class) | Rep::ObjectOrNone(class) => generated_call(
+                self.or_none_conversion(class, true)?,
+                vec![value],
+                Rep::Str,
+                site,
+            ),
             Rep::None | Rep::StrOrNone | Rep::Uniform => return Ok(None),
         }))
     }
