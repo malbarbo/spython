@@ -341,7 +341,7 @@ impl<'a> Lowering<'a, '_> {
                     // A value that the checker narrows to `None` has no
                     // reference, and gets the null of the other class.
                     let reference = |value: Expr, other: Rep| match (value.rep(), other) {
-                        (rep, _) if is_object(rep) => Some(value),
+                        (rep, _) if rep.class().is_some() => Some(value),
                         (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
                             coerce(value, Rep::ObjectOrNone(class))
                         }
@@ -400,7 +400,10 @@ impl<'a> Lowering<'a, '_> {
         }
         // A member of an `Enum` is equal to itself alone, and an object of
         // a dataclass is not equal to a value of another class or type.
-        if operands.iter().any(|(lowered, _)| is_object(lowered.rep())) {
+        if operands
+            .iter()
+            .any(|(lowered, _)| lowered.rep().class().is_some())
+        {
             if ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne)) {
                 return Err(unsupported(c, "an order of objects"));
             }
@@ -663,12 +666,6 @@ impl<'a> Lowering<'a, '_> {
             )),
         }
     }
-}
-
-/// Returns `true` if a value of `rep` is an object of a class, or `None`
-/// in the place of one, `false` otherwise.
-fn is_object(rep: Rep) -> bool {
-    matches!(rep, Rep::Object(_) | Rep::ObjectOrNone(_))
 }
 
 /// `lowered`, the value of `operand`, as a `float`.

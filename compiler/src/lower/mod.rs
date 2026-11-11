@@ -851,10 +851,6 @@ fn holds(rep: Rep, value: Rep) -> bool {
 
 /// The narrowest rep that holds the values of `a` and the values of `b`.
 fn join(a: Rep, b: Rep) -> Rep {
-    let object = |rep| match rep {
-        Rep::Object(class) | Rep::ObjectOrNone(class) => Some(class),
-        _ => None,
-    };
     if holds(a, b) {
         a
     } else if holds(b, a) {
@@ -864,10 +860,10 @@ fn join(a: Rep, b: Rep) -> Rep {
         .all(|rep| matches!(rep, Rep::Str | Rep::None | Rep::StrOrNone))
     {
         Rep::StrOrNone
-    } else if let Some(class) = object(a).or(object(b))
+    } else if let Some(class) = a.class().or(b.class())
         && [a, b]
             .iter()
-            .all(|rep| *rep == Rep::None || object(*rep) == Some(class))
+            .all(|rep| *rep == Rep::None || rep.class() == Some(class))
     {
         Rep::ObjectOrNone(class)
     } else {

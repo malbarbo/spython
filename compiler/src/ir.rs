@@ -1044,6 +1044,17 @@ pub(crate) enum Rep {
     ObjectOrNone(ClassId),
 }
 
+impl Rep {
+    /// The class of an object of `self`, which may be `None` too, and
+    /// `None` for a rep of another type.
+    pub(crate) fn class(self) -> Option<ClassId> {
+        match self {
+            Rep::Object(class) | Rep::ObjectOrNone(class) => Some(class),
+            _ => None,
+        }
+    }
+}
+
 impl Expr {
     pub fn rep(&self) -> Rep {
         match self {

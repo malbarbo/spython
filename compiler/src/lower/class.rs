@@ -889,9 +889,7 @@ impl<'a> Lowering<'a, '_> {
     /// them is a union.
     fn dataclass_eq(&self, left: Expr, right: Expr, site: Site) -> Result<Option<Expr>, Error> {
         // An object may be null, which `__eq__` does not take.
-        let (Rep::Object(a) | Rep::ObjectOrNone(a), Rep::Object(b) | Rep::ObjectOrNone(b)) =
-            (left.rep(), right.rep())
-        else {
+        let (Some(a), Some(b)) = (left.rep().class(), right.rep().class()) else {
             return Ok(None);
         };
         if a != b {
