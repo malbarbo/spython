@@ -77,10 +77,7 @@ impl<'a> Lowering<'a, '_> {
                 if self.in_doctest() && value.rep() != Rep::None {
                     // The prompt writes nothing for a value that is `None`
                     // when the example runs.
-                    if matches!(
-                        value.rep(),
-                        Rep::StrOrNone | Rep::Uniform | Rep::ListOrNone(_)
-                    ) {
+                    if self.may_be_none(value.rep(), &e.value) {
                         return Err(unsupported(&*e.value, "an example whose value may be None"));
                     }
                     let text = self.repr_of(value, e.range())?;
@@ -290,6 +287,20 @@ impl<'a> Lowering<'a, '_> {
     /// index. The test reads the length of the list each time, so an
     /// `append` in the body makes the loop longer, as the iterator of
     /// CPython does. The iterable runs once, before the loop.
+    /// Returns `true` if `node`, a value of `rep`, may be `None`, `false`
+    /// otherwise. A uniform value may be `None` unless its type is a union
+    /// without `None`.
+    fn may_be_none(&self, rep: Rep, node: &ast::Expr) -> bool {
+        match rep {
+            Rep::StrOrNone | Rep::ObjectOrNone(_) | Rep::ListOrNone(_) => true,
+            Rep::Uniform => match expr_shape(self.model(), node) {
+                Some(Shape::Union(shapes)) => shapes.iter().any(|s| matches!(s, Shape::None)),
+                _ => true,
+            },
+            _ => false,
+        }
+    }
+
     fn for_(&self, f: &ast::StmtFor) -> Result<Vec<Stmt>, Error> {
         if f.is_async {
             return Err(unsupported(f, "this statement"));

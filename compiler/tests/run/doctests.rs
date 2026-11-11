@@ -667,6 +667,52 @@ fn an_example_whose_value_may_be_none_is_unsupported() {
 }
 
 #[test]
+fn an_example_whose_value_may_be_an_object_or_none_is_unsupported() {
+    let source = indoc! {r#"
+        from dataclasses import dataclass
+
+
+        @dataclass
+        class Ponto:
+            x: int
+
+
+        def acha(pontos: list[Ponto]) -> Ponto | None:
+            """
+            >>> acha([])
+            """
+            if len(pontos) == 0:
+                return None
+            return pontos[0]
+    "#};
+    match compile_tests(source, Path::new("unsupported.py"), false) {
+        Err(compiler::Error::Unsupported { what, .. }) => {
+            assert_eq!(what, "an example whose value may be None");
+        }
+        _ => panic!("the program compiled"),
+    }
+}
+
+#[test]
+fn an_example_writes_a_value_of_a_union_without_none() {
+    same_as_the_runner(
+        "an_example_writes_a_value_of_a_union_without_none",
+        indoc! {r#"
+            def f(n: int) -> int | str:
+                """
+                >>> f(1)
+                1
+                >>> f(0)
+                'zero'
+                """
+                if n == 0:
+                    return 'zero'
+                return n
+        "#},
+    );
+}
+
+#[test]
 fn a_verbose_report_has_the_first_line_of_each_example_that_passes() {
     same_as_the_runner_with(
         "a_verbose_report_has_the_first_line_of_each_example_that_passes",
