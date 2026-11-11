@@ -323,7 +323,7 @@ fn the_wasmgc_backend_writes_the_traceback_of_a_memory_error() {
 fn the_wasmgc_backend_names_the_place_of_what_it_does_not_support() {
     let dir = new_dir_with(
         "wasmgc_unsupported",
-        &[("main.py", "s = 'a b'\nprint(s.split())\n")],
+        &[("main.py", "s = 'a b'\nprint(s.splitlines())\n")],
     );
     let (out, err, success) = run_spython_native(&["--backend=wasmgc", "main.py"], dir.path());
     assert!(!success);

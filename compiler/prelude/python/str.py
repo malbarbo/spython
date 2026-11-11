@@ -250,6 +250,23 @@ def found_at_most(s: str, sub: str, i: int) -> bool:
     return i + len(sub) <= len(s) and found_at(s, sub, i)
 
 
+def split(s: str) -> list[str]:
+    """`s.split()`, the parts of `s` between the runs of white space of `str.isspace`."""
+    parts: list[str] = []
+    n = len(s)
+    i = 0
+    while i < n:
+        while i < n and is_space(code_point(s, i)):
+            i += 1
+        j = i
+        while j < n and not is_space(code_point(s, j)):
+            j += 1
+        if i < j:
+            parts.append(s[i:j])
+        i = j
+    return parts
+
+
 def join(s: str, parts: list[str]) -> str:
     n = len(parts)
     if n == 0:

@@ -324,7 +324,7 @@ fn lower_gives_the_final_sigma_at_the_end_of_a_word() {
 fn a_method_of_a_str_that_the_prelude_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-            print('a b'.split())
+            print('a b'.splitlines())
         "}),
         "a call of this method"
     );
@@ -696,4 +696,38 @@ fn a_field_with_the_conversion_r_writes_the_repr() {
             print(f'<{s!r}> <{s!s}> <{x!r}> <{True!r}> <{7!r}> <{\"a\"!r}>')
         "},
     );
+}
+
+#[test]
+fn split_without_arguments_cuts_at_the_runs_of_white_space() {
+    same_as_cpython(
+        "split_without_arguments_cuts_at_the_runs_of_white_space",
+        indoc! {r#"
+            print('a b  c'.split(), '  x\ty\n'.split(), ''.split(), '   '.split(), 'um'.split())
+            print('a\u00a0b\u2003c\u3000d\x1ce\x85f\u200bg'.split())
+            ws = 'o rato roeu'.split()
+            ws.append('a')
+            print(len(ws), ws, ' '.join(ws))
+            for w in 'uma frase curta'.split():
+                print(w)
+        "#},
+    );
+}
+
+#[test]
+fn split_with_arguments_is_unsupported() {
+    for source in [
+        indoc! {"
+            ws = 'a,b'.split(',')
+        "},
+        indoc! {"
+            ws = 'a b'.split(None, 1)
+        "},
+    ] {
+        assert_eq!(
+            unsupported(source),
+            "a call of this method with these arguments",
+            "{source}"
+        );
+    }
 }
