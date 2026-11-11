@@ -71,6 +71,10 @@ fn what_a_list_lacks_yet_is_unsupported() {
         ("xs: list[None] = [None]\n", "a list of this type"),
         ("xs = [1]\nxs.reverse()\n", "a call of this method"),
         ("xs = [1]\nys = xs[1:]\n", "a slice of a list"),
+        (
+            "xs = [1]\nxs[0] = 2\n",
+            "an assignment to an item of this type",
+        ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }

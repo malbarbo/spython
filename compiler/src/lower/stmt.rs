@@ -88,19 +88,21 @@ impl<'a> Lowering<'a, '_> {
                 }
                 Ok(Some(Stmt::Expr(value)))
             }
-            ast::Stmt::Assign(a)
-                if self.in_prelude() && a.targets.iter().any(|t| t.is_subscript_expr()) =>
-            {
+            ast::Stmt::Assign(a) if a.targets.iter().any(|t| t.is_subscript_expr()) => {
                 let [ast::Expr::Subscript(target)] = &*a.targets else {
                     return Err(unsupported(a, "this target"));
                 };
-                // The one subscript that the prelude assigns is a code
-                // point of a builder.
-                Ok(Some(Stmt::StrSet {
-                    builder: self.expr(&target.value)?,
-                    index: self.expr(&target.slice)?,
-                    value: self.expr(&a.value)?,
-                }))
+                let container = self.expr(&target.value)?;
+                match container.rep() {
+                    // A builder of the prelude is a `str` that its code
+                    // writes one code point at a time.
+                    Rep::Str if self.in_prelude() => Ok(Some(Stmt::StrSet {
+                        builder: container,
+                        index: self.expr(&target.slice)?,
+                        value: self.expr(&a.value)?,
+                    })),
+                    _ => Err(unsupported(target, "an assignment to an item of this type")),
+                }
             }
             ast::Stmt::Assign(a) if self.module_copy(&a.targets, &a.value).is_some() => {
                 let (target, from) = self
