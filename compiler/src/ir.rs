@@ -193,6 +193,15 @@ pub(crate) enum Stmt {
         field: u32,
         value: Expr,
     },
+    /// Sets the field at `field` of an object of `class` to the value, which
+    /// reads the object again with [`Expr::Target`]. The object runs once,
+    /// before the value, as in `t.x += v`.
+    UpdateField {
+        object: Expr,
+        class: ClassId,
+        field: u32,
+        value: Expr,
+    },
     /// Sets the code point at the index of a `str` that the prelude still
     /// builds. The index is in range.
     StrSet {
@@ -605,6 +614,8 @@ pub(crate) enum Expr {
         op: MinMaxOp,
         args: Vec<Expr>,
     },
+    /// The object of the [`Stmt::UpdateField`] that encloses the expression.
+    Target(ClassId),
     /// `print` with the default `sep` and `end`. A write that fails raises
     /// `OSError` at the site.
     Print {
@@ -1104,7 +1115,9 @@ impl Expr {
             | Expr::Narrow { rep, .. }
             | Expr::Expect { rep, .. }
             | Expr::Field { rep, .. } => *rep,
-            Expr::Member { class, .. } | Expr::New { class, .. } => Rep::Object(*class),
+            Expr::Member { class, .. } | Expr::New { class, .. } | Expr::Target(class) => {
+                Rep::Object(*class)
+            }
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
             Expr::After { value, .. }

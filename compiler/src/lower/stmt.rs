@@ -136,17 +136,22 @@ impl<'a> Lowering<'a, '_> {
                     value,
                 }))
             }
-            // The object of an attribute is a name, which the read and the
-            // assignment of the field both read.
             ast::Stmt::AugAssign(ast::StmtAugAssign {
                 target, op, value, ..
-            }) if let ast::Expr::Attribute(attr) = &**target
-                && attr.value.is_name_expr() =>
-            {
-                let left = self.expr(target)?;
+            }) if let ast::Expr::Attribute(attr) = &**target => {
+                let (object, class, field, rep) = self.updated_field(attr)?;
+                let left = self.object_attribute(attr, Expr::Target(class), class)?;
+                let left = self.narrowed_field(target, attr, left)?;
                 let right = self.expr(value)?;
                 let value = self.binary(stmt, *op, (left, &**target), (right, &**value))?;
-                self.assign_field(attr, value).map(Some)
+                let value = coerce(value, rep)
+                    .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
+                Ok(Some(Stmt::UpdateField {
+                    object,
+                    class,
+                    field,
+                    value,
+                }))
             }
             ast::Stmt::AugAssign(a) => {
                 let ast::Expr::Name(name) = &*a.target else {

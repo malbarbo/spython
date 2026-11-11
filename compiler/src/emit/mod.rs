@@ -99,6 +99,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             site: Some(site),
             loops: Vec::new(),
             vars: Vec::new(),
+            target: None,
         },
     };
     let start_ty = e.m.func_type(&[], &[]);
@@ -158,6 +159,9 @@ struct Code {
     loops: Vec<Loop>,
     /// The locals of each variable of the function.
     vars: Vec<Slots<LocalIdx>>,
+    /// The local that holds the object of the [`Stmt::UpdateField`] that
+    /// the emitter is in.
+    target: Option<LocalIdx>,
 }
 
 struct Loop {
@@ -210,6 +214,7 @@ impl Emitter<'_> {
             site,
             loops: Vec::new(),
             vars,
+            target: None,
         };
         let index = self.func_slots(id).index;
         let Some(site) = site else {
@@ -352,6 +357,26 @@ impl Emitter<'_> {
                 self.expr(f, object);
                 f.ins().local_get(temp);
                 f.free(temp);
+                self.reprs.set_field(f, *class, *field);
+            }
+            Stmt::UpdateField {
+                object,
+                class,
+                field,
+                value,
+            } => {
+                self.expr(f, object);
+                let ty = self
+                    .reprs
+                    .local_type(object.rep())
+                    .expect("an object has a value");
+                let target = f.temp(ty);
+                f.ins().local_set(target);
+                let outer = self.code.target.replace(target);
+                f.ins().local_get(target);
+                self.expr(f, value);
+                self.code.target = outer;
+                f.free(target);
                 self.reprs.set_field(f, *class, *field);
             }
             Stmt::StrSet {
@@ -1052,6 +1077,10 @@ impl Emitter<'_> {
             }
             Expr::Captured => self.reprs.captured(f),
             Expr::CapturedException => self.reprs.captured_exception(f),
+            Expr::Target(_) => {
+                let target = self.code.target.expect("a target in an update of a field");
+                f.ins().local_get(target);
+            }
             Expr::Stop { text, site } => {
                 self.expr(f, text);
                 self.at(f, *site, |e, f| {

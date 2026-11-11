@@ -447,14 +447,7 @@ impl<'a> Lowering<'a, '_> {
         attr: &ast::ExprAttribute,
         value: Expr,
     ) -> Result<Stmt, Error> {
-        // The checker rejects an assignment to a field of a frozen
-        // dataclass, whose fields the struct keeps immutable.
-        let class = match self.rep_of(expr_shape(self.model(), &attr.value)) {
-            Some(Rep::Object(class)) if self.is_mutable(class) => class,
-            _ => return Err(unsupported(attr, "this target")),
-        };
-        let object = self.expr(&attr.value)?;
-        let (field, rep) = self.field_of(attr, class)?;
+        let (object, class, field, rep) = self.updated_field(attr)?;
         let value = coerce(value, rep)
             .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
         let text = format!(
@@ -467,6 +460,23 @@ impl<'a> Lowering<'a, '_> {
             field,
             value,
         })
+    }
+
+    /// The object of `attr`, a field that a statement assigns, together
+    /// with the class of the object, the index of the field and its rep.
+    pub(super) fn updated_field(
+        &self,
+        attr: &ast::ExprAttribute,
+    ) -> Result<(Expr, ClassId, u32, Rep), Error> {
+        // The checker rejects an assignment to a field of a frozen
+        // dataclass, whose fields the struct keeps immutable.
+        let class = match self.rep_of(expr_shape(self.model(), &attr.value)) {
+            Some(Rep::Object(class)) if self.is_mutable(class) => class,
+            _ => return Err(unsupported(attr, "this target")),
+        };
+        let object = self.expr(&attr.value)?;
+        let (field, rep) = self.field_of(attr, class)?;
+        Ok((object, class, field, rep))
     }
 
     /// The index and the rep of the field of `class` that `attr` names.

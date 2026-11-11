@@ -482,6 +482,59 @@ fn a_field_that_a_call_assigns_after_the_test_holds_none() {
     );
 }
 
+/// An augmented assignment to a field reads the object once, before the
+/// field and the value.
+#[test]
+fn an_augmented_assignment_reads_the_object_once() {
+    let start = indoc! {"
+        from dataclasses import dataclass
+
+        @dataclass
+        class No:
+            v: int
+            prox: 'No | None'
+
+        def corta(n: No) -> None:
+            n.prox = None
+
+        def f() -> int:
+            global t
+            print('f')
+            t = No(10, None)
+            return 5
+
+        t = No(1, No(2, None))
+        u = t
+    "};
+    same_as_cpython(
+        "an_augmented_assignment_assigns_the_object_before_the_value",
+        &formatdoc! {"
+            {start}
+            t.v += f()
+            print(u, t)
+            if u.prox is not None:
+                u.prox.v -= f()
+            print(u, t)
+
+            def g() -> No:
+                print('g')
+                return u
+
+            g().v *= f()
+            print(u, t)
+        "},
+    );
+    same_as_cpython(
+        "an_augmented_assignment_of_none_raises_before_the_value",
+        &formatdoc! {"
+            {start}
+            if t.prox is not None:
+                corta(t)
+                t.prox.v += f()
+        "},
+    );
+}
+
 /// The read of a field of a union after a test has the type of the test.
 #[test]
 fn a_test_narrows_a_field_of_a_union() {
@@ -834,21 +887,6 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 print(Cor(1) is Cor.A)
             "},
             "a call of this class",
-        ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
-                @dataclass
-                class P:
-                    x: int
-
-                def f() -> P:
-                    return P(1)
-
-                f().x += 1
-            "},
-            "this target",
         ),
         (
             indoc! {"

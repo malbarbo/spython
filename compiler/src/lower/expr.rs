@@ -281,7 +281,7 @@ impl<'a> Lowering<'a, '_> {
     /// be null, a read that the checker narrows to `None` keeps the rep of
     /// the field, and the read of another type raises `TypeError` when the
     /// field no longer has the type of the test.
-    fn narrowed_field(
+    pub(super) fn narrowed_field(
         &self,
         expr: &ast::Expr,
         attr: &ast::ExprAttribute,
