@@ -160,6 +160,26 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(self.prelude_call_of(func, args, site))
     }
 
+    /// The call at `node` of the function `name` of the module `list` of
+    /// the prelude, with `args` as values of its parameters, in the copy
+    /// for the reps of `args`.
+    pub(super) fn list_call(
+        &self,
+        node: &impl Ranged,
+        name: &str,
+        args: Vec<Expr>,
+    ) -> Result<Expr, Error> {
+        let unit = self
+            .prelude_unit("list")
+            .expect("the module list of the prelude");
+        let reps: Vec<Rep> = args.iter().map(Expr::rep).collect();
+        let (func, _) = self
+            .prelude_for(node, unit, name, &reps)?
+            .expect("a function of the module list");
+        let site = self.call_site(func, node);
+        Ok(self.prelude_call_of(func, args, site))
+    }
+
     /// The `repr` of `value`, a list or a list or `None`, at `site`, which
     /// the module `list` of the prelude gives.
     pub(super) fn list_repr(&self, value: Expr, site: Site) -> Result<Expr, Error> {

@@ -40,3 +40,17 @@ def repr_or_none[T](xs: list[T] | None) -> str:
     if xs is None:
         return "None"
     return repr_of(xs)
+
+
+def eq[T](xs: list[T] | None, ys: list[T] | None) -> bool:
+    """`xs == ys`, which compares the items in order, with the item of `xs` on the left."""
+    if xs is ys:
+        return True
+    if xs is None or ys is None:
+        return False
+    if len(xs) != len(ys):
+        return False
+    for i in range(len(xs)):
+        if not item(xs, i) == item(ys, i):
+            return False
+    return True

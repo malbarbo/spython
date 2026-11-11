@@ -803,7 +803,7 @@ impl<'a> Lowering<'a, '_> {
         found
     }
 
-    fn is_dataclass(&self, class: ClassId) -> bool {
+    pub(super) fn is_dataclass(&self, class: ClassId) -> bool {
         self.classes.borrow().get(class).kind.is_dataclass()
     }
 

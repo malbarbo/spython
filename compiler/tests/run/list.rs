@@ -66,7 +66,6 @@ fn a_literal_of_many_items_sets_each_item() {
 #[test]
 fn what_a_list_lacks_yet_is_unsupported() {
     for (source, what) in [
-        ("xs = [1]\nb = xs == [2]\n", "a comparison of lists"),
         ("x: list[int] | str = [1]\n", "a variable of this type"),
         ("xs: list[None] = [None]\n", "a list of this type"),
         ("xs = [1]\nxs.reverse()\n", "a call of this method"),
@@ -317,4 +316,84 @@ fn an_item_of_a_union_that_a_call_assigns_after_the_test_raises() {
         TypeError: the item changed after the test that narrowed its type
     "};
     assert!(stderr.ends_with(end), "{stderr}");
+}
+
+#[test]
+fn equal_lists_have_equal_items_in_the_same_order() {
+    same_as_cpython(
+        "equal_lists_have_equal_items_in_the_same_order",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum
+
+
+            class Cor(Enum):
+                AZUL = 1
+                VERDE = 2
+
+
+            @dataclass
+            class P:
+                x: int
+                s: str | None
+
+
+            def pick(b: bool) -> list[int] | None:
+                return [1, 2] if b else None
+
+
+            xs = [1, 2, 3]
+            ys = xs
+            empty: list[int] = []
+            other: list[int] = []
+            print(xs == [1, 2, 3], xs != [1, 2, 3], xs == [1, 2], xs == [3, 2, 1], xs == ys, xs != ys)
+            print(empty == other, empty == xs, xs == empty)
+            ws: list[list[int]] = [[1], []]
+            print(ws == [[1], other], [[1], [2]] == [[1], [3]], ['a', 'b'] == ['a', 'b'], ['a'] == ['b'])
+            print([True] == [True], [True] == [False], [1.5, -0.0] == [1.5, 0.0], [0.1 + 0.2] == [0.3])
+            print([Cor.AZUL] == [Cor.AZUL], [Cor.AZUL] == [Cor.VERDE])
+            print([P(1, None)] == [P(1, None)], [P(1, 'a')] == [P(1, 'b')])
+            ns: list[int | None] = [1, None]
+            print(ns == [1, None], ns == [None, 1])
+            ss: list[str | None] = ['a', None]
+            print(ss == ['a', None], ss == [None, 'a'])
+            ps: list[P | None] = [None, P(2, None)]
+            print(ps == [None, P(2, None)], ps == [P(2, None), None])
+            print(pick(True) == [1, 2], pick(False) == [1, 2], [2, 1] != pick(True))
+            print(pick(False) == pick(False), pick(True) == pick(True), [1, 2] == pick(True))
+        "},
+    );
+}
+
+#[test]
+fn a_comparison_of_lists_that_spython_lacks_is_unsupported() {
+    for (source, what) in [
+        ("b = [1] == [True]\n", "a comparison of two types of list"),
+        (
+            "xs: list[int | None] = [1]\nb = xs == [1]\n",
+            "a comparison of two types of list",
+        ),
+        ("b = [1] < [2]\n", "an order of lists"),
+        (
+            "xs = [1]\nb = xs == xs == xs\n",
+            "a chain of comparisons of lists",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+
+                @dataclass
+                class P:
+                    x: int
+
+
+                xs: list[list[P | int]] = [[P(1)]]
+                b = xs == xs
+            "},
+            "== of a list whose items may be dataclasses of a union",
+        ),
+    ] {
+        assert_eq!(unsupported(source), what, "{source}");
+    }
 }

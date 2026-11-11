@@ -452,7 +452,7 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .any(|(lowered, _)| lowered.rep().list().is_some())
         {
-            return Err(unsupported(c, "a comparison of lists"));
+            return self.list_compare(c, ops, operands);
         }
         if operands
             .windows(2)
@@ -523,6 +523,74 @@ impl<'a> Lowering<'a, '_> {
             Box::new(first),
             ops.into_iter().zip(operands).collect(),
         ))
+    }
+
+    /// The comparison `c`, with `ops` and the lowered `operands`, where an
+    /// operand is a list. `==` of the module `list` of the prelude compares
+    /// two lists of the same type, and `!=` is `not` of `==`, as in CPython.
+    fn list_compare(
+        &self,
+        c: &ast::ExprCompare,
+        ops: Vec<CmpOp>,
+        operands: Vec<(Expr, &ast::Expr)>,
+    ) -> Result<Expr, Error> {
+        let (Ok([op]), Ok([left, right])) =
+            (<[CmpOp; 1]>::try_from(ops), <[_; 2]>::try_from(operands))
+        else {
+            return Err(unsupported(c, "a chain of comparisons of lists"));
+        };
+        if !matches!(op, CmpOp::Eq | CmpOp::Ne) {
+            return Err(unsupported(c, "an order of lists"));
+        }
+        let list = match (left.0.rep(), right.0.rep()) {
+            (a, b) if a.list().is_some() && a.list() == b.list() => a.list(),
+            (a, Rep::None) | (Rep::None, a) => a.list(),
+            _ => None,
+        }
+        .ok_or_else(|| unsupported(c, "a comparison of two types of list"))?;
+        if !self.in_prelude()
+            && [&left, &right]
+                .iter()
+                .any(|operand| self.may_hold_dataclass(operand))
+        {
+            return Err(unsupported(
+                c,
+                "== of a list whose items may be dataclasses of a union",
+            ));
+        }
+        let rep = Rep::ListOrNone(list);
+        let coerced = |(value, _): (Expr, _)| coerce(value, rep).expect("a list or None");
+        let eq = self.list_call(c, "eq", vec![coerced(left), coerced(right)])?;
+        Ok(match op {
+            CmpOp::Ne => Expr::Not(Box::new(eq)),
+            _ => eq,
+        })
+    }
+
+    /// Returns `true` if the items of the lowered `operand`, a list, or the
+    /// items of a list inside it, are of a union that may hold an object of
+    /// a dataclass, `false` otherwise. The `==` of a uniform value compares
+    /// two objects by their identity, and the `==` of a dataclass compares
+    /// the fields.
+    fn may_hold_dataclass(&self, (lowered, node): &(Expr, &ast::Expr)) -> bool {
+        let mut rep = lowered.rep();
+        let mut shape = expr_shape(self.model(), node);
+        while let Some(list) = rep.list() {
+            rep = self.list_item(list);
+            shape = match shape {
+                Some(Shape::List(item)) => Some(*item),
+                Some(Shape::Union(shapes)) => shapes.into_iter().find_map(|shape| match shape {
+                    Shape::List(item) => Some(*item),
+                    _ => None,
+                }),
+                _ => None,
+            };
+        }
+        rep == Rep::Uniform
+            && self
+                .classes_in(shape)
+                .into_iter()
+                .any(|class| self.is_dataclass(class))
     }
 
     /// The operator `op` of `node` on two lowered operands, each with the
