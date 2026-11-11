@@ -14,8 +14,8 @@ use super::module::{
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{
-    Class, LIST_INDEX_OUT_OF_RANGE, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message,
-    STR_INDEX_OUT_OF_RANGE,
+    Class, LIST_ASSIGNMENT_OUT_OF_RANGE, LIST_INDEX_OUT_OF_RANGE, MATH_DOMAIN_ERROR, MEMORY_ERROR,
+    Message, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
     ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, ListId,
@@ -935,6 +935,29 @@ impl Reprs {
     /// `rep`. A negative index counts from the end, and an index out of
     /// range raises `IndexError`.
     pub fn list_index(&mut self, m: &mut ModuleState, f: &mut FuncState, list: Rep, rep: Rep) {
+        self.checked_index(m, f, list, &LIST_INDEX_OUT_OF_RANGE);
+        self.list_item(f, list, rep);
+    }
+
+    /// Pops a list and an `int` index, and sets the item at the index to
+    /// the value in `item`. A negative index counts from the end, and an
+    /// index out of range raises `IndexError`.
+    pub fn list_set(&mut self, m: &mut ModuleState, f: &mut FuncState, list: Rep, item: LocalIdx) {
+        self.checked_index(m, f, list, &LIST_ASSIGNMENT_OUT_OF_RANGE);
+        f.ins().local_get(item);
+        self.set_list_item(f, list);
+    }
+
+    /// Pops a list and an `int` index, and pushes the array of the items
+    /// and the index in range as an `i32`. A negative index counts from the
+    /// end, and an index out of range raises `IndexError` with `message`.
+    fn checked_index(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        list: Rep,
+        message: &Message,
+    ) {
         let index = list_index(list);
         self.int.as_i32(f);
         let i = f.temp(ValType::I32);
@@ -951,14 +974,13 @@ impl Reprs {
         self.list.len(f, index);
         f.ins().i32_ge_u();
         f.if_(BlockType::Empty);
-        self.raise(m, f, &LIST_INDEX_OUT_OF_RANGE);
+        self.raise(m, f, message);
         f.end();
         f.ins().local_get(value);
         self.list.items(f, index);
         f.ins().local_get(i);
         f.free(i);
         f.free(value);
-        self.list_item(f, list, rep);
     }
 
     /// Pops the array of the items of a list and an index of

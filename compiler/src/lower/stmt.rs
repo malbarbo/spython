@@ -101,6 +101,17 @@ impl<'a> Lowering<'a, '_> {
                         index: self.expr(&target.slice)?,
                         value: self.expr(&a.value)?,
                     })),
+                    Rep::List(list) => {
+                        let item = self.list_item(list);
+                        let value = coerce(self.expr(&a.value)?, item)
+                            .ok_or_else(|| unsupported(&*a.value, "an item of this type"))?;
+                        Ok(Some(Stmt::ListSet {
+                            list: container,
+                            index: self.int_operand(&target.slice)?,
+                            value,
+                            site: self.site(target.range()),
+                        }))
+                    }
                     _ => Err(unsupported(target, "an assignment to an item of this type")),
                 }
             }

@@ -223,6 +223,16 @@ pub(crate) enum Stmt {
         field: u32,
         value: Expr,
     },
+    /// Sets the item of a list at an `int` index to the value, which has
+    /// the rep of the items. The value runs first, then the list and then
+    /// the index, as in CPython. A negative index counts from the end, and
+    /// an index out of range raises `IndexError` at the site.
+    ListSet {
+        list: Expr,
+        index: Expr,
+        value: Expr,
+        site: Site,
+    },
     /// Sets the code point at the index of a `str` that the prelude still
     /// builds. The index is in range.
     StrSet {

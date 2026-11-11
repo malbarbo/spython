@@ -84,6 +84,8 @@ pub(crate) const STR_INDEX_OUT_OF_RANGE: Message =
     Message::new(Class::IndexError, "string index out of range");
 pub(crate) const LIST_INDEX_OUT_OF_RANGE: Message =
     Message::new(Class::IndexError, "list index out of range");
+pub(crate) const LIST_ASSIGNMENT_OUT_OF_RANGE: Message =
+    Message::new(Class::IndexError, "list assignment index out of range");
 
 /// The last line of the traceback of the `OSError` that CPython raises on
 /// Linux for each error of WASI that wasmtime can give to `fd_write`. These

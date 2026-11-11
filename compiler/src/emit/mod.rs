@@ -395,6 +395,22 @@ impl Emitter<'_> {
                 f.free(target);
                 self.reprs.set_field(f, *class, *field);
             }
+            Stmt::ListSet {
+                list,
+                index,
+                value,
+                site,
+            } => {
+                self.expr(f, value);
+                let rep = value.rep();
+                let item = f.temp(self.reprs.local_type(rep).expect("an item has a value"));
+                f.ins().local_set(item);
+                self.expr(f, list);
+                self.expr(f, index);
+                let list = list.rep();
+                self.at(f, *site, |e, f| e.reprs.list_set(&mut e.m, f, list, item));
+                f.free(item);
+            }
             Stmt::StrSet {
                 builder,
                 index,

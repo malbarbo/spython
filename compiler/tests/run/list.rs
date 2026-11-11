@@ -2,7 +2,7 @@
 
 use indoc::indoc;
 
-use super::{same_as_cpython, unsupported};
+use super::{run, same_as_cpython, unsupported};
 
 #[test]
 fn a_list_has_a_length_an_identity_and_a_truth() {
@@ -71,10 +71,6 @@ fn what_a_list_lacks_yet_is_unsupported() {
         ("xs: list[None] = [None]\n", "a list of this type"),
         ("xs = [1]\nxs.reverse()\n", "a call of this method"),
         ("xs = [1]\nys = xs[1:]\n", "a slice of a list"),
-        (
-            "xs = [1]\nxs[0] = 2\n",
-            "an assignment to an item of this type",
-        ),
     ] {
         assert_eq!(unsupported(source), what, "{source}");
     }
@@ -239,4 +235,86 @@ fn an_index_out_of_range_raises_index_error() {
             ),
         );
     }
+}
+
+#[test]
+fn an_assignment_to_an_index_sets_the_item() {
+    same_as_cpython(
+        "an_assignment_to_an_index_sets_the_item",
+        indoc! {"
+            def show(s: str, n: int) -> int:
+                print(s)
+                return n
+
+
+            def lists(xs: list[int]) -> list[int]:
+                print('list')
+                return xs
+
+
+            xs = [10, 20, 30]
+            xs[0] = 1
+            xs[-1] = 3
+            ys = xs
+            ys[1] = 2
+            print(xs)
+            lists(xs)[show('index', 1)] = show('value', 5)
+            print(xs)
+            ws: list[list[int]] = [[1, 2], [3]]
+            ws[0][1] = 7
+            ws[1] = []
+            ss = ['a', 'b']
+            ss[1] = 'c'
+            us: list[int | None] = [1, None]
+            us[0] = None
+            us[1] = 4
+            print(ws, ss, us)
+        "},
+    );
+}
+
+#[test]
+fn an_assignment_out_of_range_raises_index_error() {
+    for (name, target) in [
+        ("an_assignment_past_the_end_raises_index_error", "xs[3]"),
+        (
+            "an_assignment_before_the_start_raises_index_error",
+            "xs[-4]",
+        ),
+        (
+            "an_assignment_to_an_inner_list_raises_index_error",
+            "ws[0][2]",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &format!("xs = [10, 20, 30]\nws: list[list[int]] = [[1, 2]]\n{target} = 5\n"),
+        );
+    }
+}
+
+#[test]
+fn an_item_of_a_union_that_a_call_assigns_after_the_test_raises() {
+    let output = run(
+        "an_item_of_a_union_that_a_call_assigns_after_the_test_raises",
+        indoc! {"
+            def clear(xs: list[int | None]) -> None:
+                xs[0] = None
+
+
+            xs: list[int | None] = [1]
+            if xs[0] is not None:
+                clear(xs)
+                print(xs[0] + 1)
+        "},
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let end = indoc! {"
+        \", line 8, in <module>
+            print(xs[0] + 1)
+                  ~~^^^
+        TypeError: the item changed after the test that narrowed its type
+    "};
+    assert!(stderr.ends_with(end), "{stderr}");
 }
