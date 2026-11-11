@@ -25,11 +25,13 @@ pub(super) type Assigned<'a> = (
     Option<&'a ast::StmtAnnAssign>,
 );
 
-/// What a body binds, out of its `if`s and its `while`s too.
+/// What a body binds, out of its `if`s and its loops too.
 #[derive(Default)]
 pub(super) struct Bindings<'a> {
     /// Each assignment of a value.
     pub assignments: Vec<Assigned<'a>>,
+    /// The target and the iterable of each `for`.
+    pub loops: Vec<(&'a ast::Expr, &'a ast::Expr)>,
     pub defs: Vec<&'a ast::StmtFunctionDef>,
     /// The `class` statements of the body, out of its `if`s and its
     /// `while`s.
@@ -39,8 +41,9 @@ pub(super) struct Bindings<'a> {
     pub imports: Vec<(&'a str, &'a ast::Alias, Option<&'a str>)>,
     /// The names of the `global` statements.
     pub globals: HashSet<&'a str>,
-    /// Each name that the body assigns or imports. Any other way to bind a
-    /// name, as a `for` or a `:=`, makes the lowering of the function fail.
+    /// Each name that the body assigns, imports or takes as the target of
+    /// a `for`. Any other way to bind a name, as a `:=`, makes the lowering
+    /// of the function fail.
     pub assigned: HashSet<&'a str>,
     /// Each name of the body in the order of the code that CPython makes
     /// for it, which gives the order of the locals of a frame. The value of
@@ -100,6 +103,14 @@ impl<'a> Bindings<'a> {
                     self.visit(&w.test);
                     self.add(&w.body);
                     self.add(&w.orelse);
+                }
+                ast::Stmt::For(f) => {
+                    self.visit(&f.iter);
+                    self.visit(&f.target);
+                    self.assign(&f.target);
+                    self.loops.push((&f.target, &f.iter));
+                    self.add(&f.body);
+                    self.add(&f.orelse);
                 }
                 ast::Stmt::Return(r) => {
                     if let Some(value) = &r.value {
@@ -192,6 +203,7 @@ fn breaks(body: &[ast::Stmt]) -> bool {
         // A `break` in the body of an inner loop leaves that loop, and one
         // in its `else` leaves this one.
         ast::Stmt::While(w) => breaks(&w.orelse),
+        ast::Stmt::For(f) => breaks(&f.orelse),
         _ => false,
     })
 }

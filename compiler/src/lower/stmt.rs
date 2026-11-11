@@ -9,7 +9,7 @@ use super::flow::imported_name;
 use super::{Lowering, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
-use crate::ir::{Expr, Place, Rep, Stmt};
+use crate::ir::{ArithOp, CmpOp, Expr, Place, Rep, Stmt};
 
 /// The modules that a program may import. No import runs code in the
 /// compiled program.
@@ -37,7 +37,10 @@ impl<'a> Lowering<'a, '_> {
             if let ast::Stmt::ClassDef(def) = stmt {
                 lowered.extend(self.class_body(def)?);
             }
-            lowered.extend(self.stmt(stmt)?);
+            match stmt {
+                ast::Stmt::For(f) => lowered.extend(self.for_(f)?),
+                _ => lowered.extend(self.stmt(stmt)?),
+            }
         }
         Ok(lowered)
     }
@@ -279,6 +282,78 @@ impl<'a> Lowering<'a, '_> {
             }
             _ => Err(unsupported(stmt, "this statement")),
         }
+    }
+
+    /// `for target in iter` over a list or a `str`, as a `while` over an
+    /// index. The test reads the length of the list each time, so an
+    /// `append` in the body makes the loop longer, as the iterator of
+    /// CPython does. The iterable runs once, before the loop.
+    fn for_(&self, f: &ast::StmtFor) -> Result<Vec<Stmt>, Error> {
+        if f.is_async {
+            return Err(unsupported(f, "this statement"));
+        }
+        let seq = self.expr(&f.iter)?;
+        let rep = seq.rep();
+        if !matches!(rep, Rep::List(_) | Rep::Str) {
+            return Err(unsupported(&*f.iter, "a for over this type"));
+        }
+        let site = self.site(f.iter.range());
+        let (seq_var, index) = (self.hidden_var(rep), self.hidden_var(Rep::Int));
+        let read = |place, rep| {
+            Box::new(Expr::Load {
+                place,
+                rep,
+                check: None,
+            })
+        };
+        let item = match rep {
+            Rep::List(list) => Expr::Item {
+                list: read(seq_var, rep),
+                index: read(index, Rep::Int),
+                rep: self.list_item(list),
+            },
+            _ => Expr::Index {
+                value: read(seq_var, rep),
+                index: read(index, Rep::Int),
+                site,
+            },
+        };
+        let (target, item) = self.target(&f.target, item)?;
+        let mut body = vec![
+            Stmt::Assign {
+                targets: vec![target],
+                value: item,
+            },
+            Stmt::Assign {
+                targets: vec![index],
+                value: Expr::Arith {
+                    op: ArithOp::Add,
+                    left: read(index, Rep::Int),
+                    right: Box::new(Expr::Int(1)),
+                    site,
+                },
+            },
+        ];
+        body.extend(self.body(&f.body)?);
+        let len = Expr::Len {
+            operand: read(seq_var, rep),
+            site,
+        };
+        Ok(vec![
+            Stmt::Assign {
+                targets: vec![seq_var],
+                value: seq,
+            },
+            Stmt::Assign {
+                targets: vec![index],
+                value: Expr::Int(0),
+            },
+            Stmt::While {
+                cond: Expr::Compare(read(index, Rep::Int), vec![(CmpOp::Lt, len)]),
+                body,
+                else_: self.body(&f.orelse)?,
+            },
+        ])
     }
 
     /// The target and the name of the global of `a`, when `a` is a copy

@@ -26,8 +26,8 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{
-    ClassId, Expr, Func, FuncId, Import, ImportId, ListId, ListType, Program, Rep, Site, SiteFrame,
-    Stmt, Var, VarId,
+    ClassId, Expr, Func, FuncId, Import, ImportId, ListId, ListType, Place, Program, Rep, Site,
+    SiteFrame, Stmt, Var, VarId,
 };
 use crate::{Docstring, Error};
 use class::Classes;
@@ -450,12 +450,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 self.declare_globals(def)?;
             }
         }
-        self.declare_assigned(&bindings.assignments, |name| {
+        let keep = |name: &str| {
             self.scope
                 .borrow()
                 .as_ref()
                 .is_none_or(|scope| scope.is_local(name))
-        })
+        };
+        self.declare_assigned(&bindings.assignments, keep)?;
+        self.declare_loops(&bindings.loops, keep)
     }
 
     /// Declares in the module each global that `def` assigns, since the
@@ -465,9 +467,36 @@ impl<'a, 'db> Lowering<'a, 'db> {
         self.assigned_globals
             .borrow_mut()
             .extend(bindings.globals.iter().map(|name| (*name).to_owned()));
-        self.declare_assigned(&bindings.assignments, |name| {
-            bindings.globals.contains(name)
-        })
+        let keep = |name: &str| bindings.globals.contains(name);
+        self.declare_assigned(&bindings.assignments, keep)?;
+        self.declare_loops(&bindings.loops, keep)
+    }
+
+    /// Declares the target of each `for` of `loops` whose name `keep`
+    /// accepts. The annotation of the name gives its rep, and the items of
+    /// the iterable give it otherwise.
+    fn declare_loops(
+        &self,
+        loops: &[(&'a ast::Expr, &'a ast::Expr)],
+        keep: impl Fn(&str) -> bool,
+    ) -> Result<(), Error> {
+        for (target, iter) in loops {
+            let rep = match slot_shape(self.model(), target) {
+                Some(shape) => self.rep_of(Some(shape)),
+                None => match self.rep_of(expr_shape(self.model(), iter)) {
+                    Some(Rep::List(list)) => Some(self.list_item(list)),
+                    Some(Rep::Str) => Some(Rep::Str),
+                    _ => None,
+                },
+            };
+            if let ast::Expr::Name(name) = target
+                && keep(name.id.as_str())
+                && let Some(rep) = rep
+            {
+                self.declare_var(name.id.as_str(), rep, iter)?;
+            }
+        }
+        Ok(())
     }
 
     /// Declares each variable of `assigned` whose name `keep` accepts, in
@@ -731,6 +760,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
             ret: sig.ret,
             body,
         })
+    }
+
+    /// A new variable of `rep` that no name of the program reads, local to
+    /// the function that the lowering is in, or global in the module.
+    fn hidden_var(&self, rep: Rep) -> Place {
+        match self.scope.borrow_mut().as_mut() {
+            Some(scope) => Place::Local(scope.vars.add_unnamed(rep)),
+            None => Place::Global(self.vars.borrow_mut().add_unnamed(rep)),
+        }
     }
 
     /// A function that the compiler writes, without a frame in a

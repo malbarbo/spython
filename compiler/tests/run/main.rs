@@ -21,6 +21,7 @@ mod functions;
 mod imports;
 mod int;
 mod list;
+mod loops;
 mod math;
 mod memory;
 mod name_error;

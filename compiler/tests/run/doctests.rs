@@ -131,7 +131,7 @@ pub(super) fn runner(name: &str, file: &Path, source: &str, verbose: bool) -> Ou
 /// Asserts that the module of the doctests of `source` writes what the
 /// runner writes, and exits with 1 when the runner counts a failure, in
 /// wasmtime and in deno.
-fn same_as_the_runner(name: &str, source: &str) {
+pub(super) fn same_as_the_runner(name: &str, source: &str) {
     same_as_the_runner_with(name, source, false);
 }
 
