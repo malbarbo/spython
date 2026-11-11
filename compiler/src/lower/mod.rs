@@ -76,6 +76,7 @@ pub(crate) fn lower(
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
+        types: RefCell::new(Vec::new()),
         raises: Cell::new(false),
         uniform_repr: Cell::new(false),
     };
@@ -226,9 +227,14 @@ struct Lowering<'a, 'db> {
     /// The functions of the prelude, which the lowering lowers at their
     /// first call, by the index of their id.
     lowered: RefCell<HashMap<usize, Func>>,
-    /// Each function of the prelude that a call reached, by its file and
-    /// its name, so a later call skips its signature.
-    prelude_funcs: RefCell<HashMap<(File, &'a str), FuncId>>,
+    /// Each function of the prelude that a call reached, by its file, its
+    /// name and the rep of each of its type variables, so a later call
+    /// skips its signature. A generic function has a copy for each rep of
+    /// its type variables.
+    prelude_funcs: RefCell<HashMap<PreludeKey<'a>, FuncId>>,
+    /// The rep of each type variable of the copy of a generic function of
+    /// the prelude whose signature or body the lowering is in.
+    types: RefCell<Vec<(String, Rep)>>,
     /// Whether the code of the function of the prelude that the lowering
     /// is in has an instruction that may raise.
     raises: Cell<bool>,
@@ -285,6 +291,10 @@ impl Vars {
         names
     }
 }
+
+/// A function of the prelude, by its file, its name and the rep of each of
+/// its type variables.
+type PreludeKey<'a> = (File, &'a str, Vec<Rep>);
 
 /// The types of the lists of the program.
 #[derive(Default)]
@@ -371,6 +381,9 @@ struct Sig<'a, 'db> {
     /// The docstring whose examples are the body of the function.
     doctest: Option<&'a Docstring>,
     ret: Rep,
+    /// The rep of each type variable of a copy of a generic function of the
+    /// prelude, in the order of the `def`.
+    types: Vec<(String, Rep)>,
 }
 
 struct Scope {
@@ -559,6 +572,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 defaults,
                 doctest,
                 ret,
+                types: Vec::new(),
             },
         );
         funcs.names.insert(name.to_owned(), func);
@@ -568,7 +582,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// The id of `def`, a function of the file that the lowering is in,
     /// with the rep of each parameter and of the result.
     fn signature(&self, def: &ast::StmtFunctionDef) -> Result<(DefId, Vec<Rep>, Rep), Error> {
-        if def.is_async || !def.decorator_list.is_empty() || def.type_params.is_some() {
+        // Only the prelude has generic functions, whose copy has a rep for
+        // each type variable.
+        let generic = def.type_params.is_some() && !self.in_prelude();
+        if def.is_async || !def.decorator_list.is_empty() || generic {
             return Err(unsupported(def, "this def"));
         }
         let parameters = &def.parameters;
@@ -642,11 +659,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(())
     }
 
-    /// The body of the function, lowered in its own scope and in its file.
+    /// The body of the function, lowered in its own scope and in its file,
+    /// with the reps of its type variables.
     fn func(&self, id: FuncId) -> Result<Func, Error> {
         let sig = self.funcs.borrow().get(id).clone();
         let outer = self.unit.replace(sig.unit);
+        let types = self.types.replace(sig.types.clone());
         let func = self.func_of(&sig);
+        self.types.replace(types);
         self.unit.set(outer);
         func
     }
@@ -742,6 +762,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 doctest: None,
                 params,
                 ret,
+                types: Vec::new(),
             },
             raises,
         )
@@ -797,6 +818,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
             Shape::List(item) => self
                 .rep_of(Some(*item))
                 .map(|item| Rep::List(self.list_of(item))),
+            Shape::TypeVar(name) => self
+                .types
+                .borrow()
+                .iter()
+                .find(|(var, _)| *var == name)
+                .map(|(_, rep)| *rep),
             // A union of `str` and `None` needs no box, and any other union
             // of values with a rep is uniform.
             Shape::Union(shapes) => {

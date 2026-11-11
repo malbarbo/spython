@@ -99,6 +99,12 @@ pub const STR_ATTRIBUTES: &[&str] = &[
     "startswith", "strip", "swapcase", "title", "translate", "upper", "zfill",
 ];
 
+/// The methods of a `list` whose name does not start with `_`.
+pub const LIST_METHODS: &[&str] = &[
+    "append", "clear", "copy", "count", "extend", "index", "insert", "pop", "remove", "reverse",
+    "sort",
+];
+
 /// The attributes of a function, sorted for a binary search.
 #[rustfmt::skip]
 pub const FUNCTION_ATTRIBUTES: &[&str] = &[

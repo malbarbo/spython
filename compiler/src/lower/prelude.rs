@@ -6,12 +6,12 @@ use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
-use ty_python_semantic::types::lowering::DefId;
+use ty_python_semantic::types::lowering::{DefId, Shape, function_info};
 
-use super::{Loaded, Lowering, Sig, coerce, unsupported};
+use super::{Loaded, Lowering, Sig, Unit, coerce, unsupported};
 use crate::Error;
 use crate::cpython::names;
-use crate::ir::{Case, CodePointSet, Expr, FuncId, Rep, Site};
+use crate::ir::{Case, CodePointSet, Expr, FuncId, ListId, Rep, Site};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -78,9 +78,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
         // The module `str` of the prelude defines each method of `str`
-        // that it has under the name of the method, among other functions.
+        // that it has under the name of the method, among other functions,
+        // and the module `list` each method of `list`.
         let module = match receiver.rep() {
             Rep::Str if !name.starts_with('_') && names::STR_ATTRIBUTES.contains(&name) => "str",
+            Rep::List(_) if names::LIST_METHODS.contains(&name) => "list",
             _ => return Err(unsupported(call, "a call of this method")),
         };
         if !call.arguments.keywords.is_empty() {
@@ -89,14 +91,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 "a call of a method with keyword arguments",
             ));
         }
-        let func = self
-            .prelude_named(module, name)?
-            .ok_or_else(|| unsupported(call, "a call of this method"))?;
-        let params = self.funcs.borrow().get(func).params.clone();
         let mut given = vec![receiver];
         for arg in &call.arguments.args {
             given.push(self.expr(arg)?);
         }
+        let unit = self.prelude_unit(module);
+        let reps: Vec<Rep> = given.iter().map(Expr::rep).collect();
+        let (func, shapes) = match unit {
+            Some(unit) => self.prelude_for(call, unit, name, &reps)?,
+            None => None,
+        }
+        .ok_or_else(|| unsupported(call, "a call of this method"))?;
+        let params = self.funcs.borrow().get(func).params.clone();
         if given.len() > params.len() {
             return Err(unsupported(
                 call,
@@ -106,8 +112,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let mut given = given.into_iter();
         let args = params
             .iter()
-            .map(|rep| {
-                prelude_arg(given.next().unwrap_or(Expr::None), *rep)
+            .zip(&shapes)
+            .map(|(rep, shape)| {
+                prelude_arg(given.next().unwrap_or(Expr::None), *rep, shape)
                     .ok_or_else(|| unsupported(call, "an argument of this type"))
             })
             .collect::<Result<_, _>>()?;
@@ -115,13 +122,64 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(self.prelude_call_of(func, args, site))
     }
 
-    /// The function `name` of the module `module` of the prelude.
-    fn prelude_named(&self, module: &str, name: &str) -> Result<Option<FuncId>, Error> {
-        match self
+    /// A call of `def`, a generic function of the prelude, from the code of
+    /// the prelude, with positional arguments.
+    pub(super) fn generic_call(&self, call: &ast::ExprCall, def: &DefId) -> Result<Expr, Error> {
+        if !call.arguments.keywords.is_empty() {
+            return Err(unsupported(call, "a call with these arguments"));
+        }
+        let given = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expr(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        let reps: Vec<Rep> = given.iter().map(Expr::rep).collect();
+        let unit = self
             .prelude
             .iter()
+            .find(|unit| unit.file == def.file)
+            .expect("a module of the prelude");
+        let (func, shapes) = self
+            .prelude_for(call, unit, &def.name, &reps)?
+            .expect("a function of the prelude");
+        let params = self.funcs.borrow().get(func).params.clone();
+        if given.len() != params.len() {
+            return Err(unsupported(call, "a call with these arguments"));
+        }
+        let args = given
+            .into_iter()
+            .zip(&params)
+            .zip(&shapes)
+            .map(|((value, rep), shape)| {
+                prelude_arg(value, *rep, shape)
+                    .ok_or_else(|| unsupported(call, "an argument of this type"))
+            })
+            .collect::<Result<_, _>>()?;
+        let site = self.call_site(func, call);
+        Ok(self.prelude_call_of(func, args, site))
+    }
+
+    /// Returns `true` if `def` is a generic function of the prelude,
+    /// `false` otherwise.
+    pub(super) fn is_generic(&self, def: &DefId) -> bool {
+        self.prelude
+            .iter()
+            .find(|unit| unit.file == def.file)
+            .and_then(|unit| unit.defs.get(def.name.as_str()))
+            .is_some_and(|def| def.type_params.is_some())
+    }
+
+    /// The module `module` of the prelude.
+    fn prelude_unit(&self, module: &str) -> Option<&'a Unit<'a, 'db>> {
+        self.prelude
+            .iter()
             .find(|unit| unit.prelude == Some(module))
-        {
+    }
+
+    /// The function `name` of the module `module` of the prelude.
+    fn prelude_named(&self, module: &str, name: &str) -> Result<Option<FuncId>, Error> {
+        match self.prelude_unit(module) {
             Some(unit) => self.prelude_func(unit.file, name),
             None => Ok(None),
         }
@@ -148,22 +206,68 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
     }
 
+    /// The function `name` of `unit`, a module of the prelude, for a call
+    /// at `node` with arguments of `args`, with the declared type of each
+    /// parameter. A generic function gives the copy for the reps that the
+    /// arguments give to its type variables. `None` when the module has no
+    /// such function.
+    fn prelude_for(
+        &self,
+        node: &impl Ranged,
+        unit: &'a Unit<'a, 'db>,
+        name: &str,
+        args: &[Rep],
+    ) -> Result<Option<(FuncId, Vec<Shape>)>, Error> {
+        let Some(def) = unit.defs.get(name) else {
+            return Ok(None);
+        };
+        let info = function_info(unit.model, def).ok_or_else(|| unsupported(node, "this call"))?;
+        let shapes: Vec<Shape> = info.params.into_iter().map(|param| param.shape).collect();
+        let names: Vec<String> = def
+            .type_params
+            .iter()
+            .flat_map(|params| &params.type_params)
+            .map(|param| param.name().to_string())
+            .collect();
+        let types = type_map(&names, &shapes, args, |list| self.list_item(list))
+            .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
+        let func = self
+            .prelude_copy(unit.file, name, types)?
+            .expect("a function of the module");
+        Ok(Some((func, shapes)))
+    }
+
     /// The function `name` of the module of the prelude in `file`, which
-    /// the lowering lowers at the first call. `None` when
-    /// `file` is not a module of the prelude, or has no such function.
+    /// the lowering lowers at the first call. `None` when `file` is not a
+    /// module of the prelude, or has no such function.
     pub(super) fn prelude_func(&self, file: File, name: &str) -> Result<Option<FuncId>, Error> {
+        self.prelude_copy(file, name, Vec::new())
+    }
+
+    /// The copy of the function `name` of the module of the prelude in
+    /// `file` whose type variables have the reps of `types`, as
+    /// [`Self::prelude_func`] gives it.
+    fn prelude_copy(
+        &self,
+        file: File,
+        name: &str,
+        types: Vec<(String, Rep)>,
+    ) -> Result<Option<FuncId>, Error> {
         let Some(unit) = self.prelude.iter().find(|unit| unit.file == file) else {
             return Ok(None);
         };
         let Some((name, def)) = unit.defs.get_key_value(name) else {
             return Ok(None);
         };
-        let (key, def) = ((file, *name), *def);
+        let reps = types.iter().map(|(_, rep)| *rep).collect();
+        let (key, def) = ((file, *name, reps), *def);
         if let Some(func) = self.prelude_funcs.borrow().get(&key) {
             return Ok(Some(*func));
         }
         let outer = self.unit.replace(unit);
+        let outer_types = self.types.replace(types.clone());
         let signature = self.signature(def);
+        self.types.replace(outer_types);
         self.unit.set(outer);
         let (id, params, ret) = signature?;
         let sig = Sig {
@@ -173,8 +277,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
             doctest: None,
             params,
             ret,
+            types,
         };
-        let func = self.funcs.borrow_mut().add(id, sig);
+        // Each copy of a generic function is a function of its own, which
+        // no id of the checker names.
+        let func = if def.type_params.is_some() {
+            self.funcs.borrow_mut().add_generated(sig, true)
+        } else {
+            self.funcs.borrow_mut().add(id, sig)
+        };
         self.prelude_funcs.borrow_mut().insert(key, func);
         // The body comes now, so the call knows whether the function may
         // raise. A call of the function in its own body takes that it may.
@@ -260,21 +371,77 @@ impl<'a, 'db> Lowering<'a, 'db> {
 }
 
 /// `value` as an argument of a parameter of `rep` of a function of the
-/// prelude, and `None` when the parameter does not take it. A parameter of
-/// `int`, or of a union with `int`, takes a `bool` as the `int` it is,
-/// because the prelude reads the union as an `int` after a test. Any other
-/// parameter keeps the `bool`.
-pub(super) fn prelude_arg(value: Expr, rep: Rep) -> Option<Expr> {
-    match (value.rep(), rep) {
-        (Rep::Bool, Rep::Int | Rep::Uniform) => coerce(Expr::BoolAsInt(Box::new(value)), rep),
+/// prelude, whose declared type is `shape`, and `None` when the parameter
+/// does not take it. A parameter of `int`, or of a union with `int`, takes
+/// a `bool` as the `int` it is, because the prelude reads the union as an
+/// `int` after a test. A parameter of a type variable takes it as an `int`
+/// only when the variable is `int`, so a list of `bool`s keeps its items.
+/// Any other parameter keeps the `bool`.
+fn prelude_arg(value: Expr, rep: Rep, shape: &Shape) -> Option<Expr> {
+    let as_int = match shape {
+        Shape::TypeVar(_) => rep == Rep::Int,
+        _ => matches!(rep, Rep::Int | Rep::Uniform),
+    };
+    match value.rep() {
+        Rep::Bool if as_int => coerce(Expr::BoolAsInt(Box::new(value)), rep),
         _ => coerce(value, rep),
     }
+}
+
+/// The rep of each type variable of `names` for a call with arguments of
+/// `args` of a function whose parameters have the declared types `params`.
+/// `item` gives the rep of the items of a type of list. Only a variable
+/// inside `list[...]` takes the rep of the argument, since a list of one
+/// type holds no item of another, and a bare variable takes the argument
+/// as a value of that rep. `None` when a variable gets no rep or two.
+fn type_map(
+    names: &[String],
+    params: &[Shape],
+    args: &[Rep],
+    item: impl Fn(ListId) -> Rep,
+) -> Option<Vec<(String, Rep)>> {
+    let mut found: Vec<Option<Rep>> = names.iter().map(|_| None).collect();
+    let mut bind = |name: &str, rep: Rep| -> Option<()> {
+        let Some(slot) = names
+            .iter()
+            .position(|var| var == name)
+            .and_then(|i| found.get_mut(i))
+        else {
+            return Some(());
+        };
+        match slot {
+            Some(bound) if *bound != rep => None,
+            _ => {
+                *slot = Some(rep);
+                Some(())
+            }
+        }
+    };
+    for (shape, rep) in params.iter().zip(args) {
+        let (mut shape, mut rep) = (shape, *rep);
+        // The item of a list, and of each list inside it.
+        while let (Shape::List(inner), Rep::List(list)) = (shape, rep) {
+            shape = inner;
+            rep = item(list);
+            if let Shape::TypeVar(name) = shape {
+                bind(name, rep)?;
+            }
+        }
+    }
+    names
+        .iter()
+        .zip(found)
+        .map(|(name, rep)| Some((name.clone(), rep?)))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use engine::Level;
     use engine::check::check_source;
+    use ty_python_semantic::types::lowering::Shape;
+
+    use crate::ir::{ListId, Rep};
 
     /// The number of functions in the program of `source`.
     fn funcs(source: &str) -> usize {
@@ -285,6 +452,39 @@ mod tests {
             Ok(program) => program.funcs.len(),
             Err(error) => panic!("{error:?}"),
         }
+    }
+
+    /// The reps that [`super::type_map`] gives to `T` for `params` and
+    /// `args`, where the list 0 has items of `int`, the list 1 of `bool`,
+    /// and the list 2 has lists 0 as its items.
+    fn types_of(params: &[Shape], args: &[Rep]) -> Option<Vec<(String, Rep)>> {
+        let items = [Rep::Int, Rep::Bool, Rep::List(ListId::new(0))];
+        super::type_map(&["T".to_owned()], params, args, |list| {
+            *items.get(list.index()).expect("a list of the test")
+        })
+    }
+
+    fn list_of(shape: Shape) -> Shape {
+        Shape::List(Box::new(shape))
+    }
+
+    #[test]
+    fn a_type_variable_takes_the_rep_of_the_items_of_a_list() {
+        let t = || Shape::TypeVar("T".to_owned());
+        let list = |i| Rep::List(ListId::new(i));
+        let int = Some(vec![("T".to_owned(), Rep::Int)]);
+        assert_eq!(types_of(&[list_of(t()), t()], &[list(0), Rep::Bool]), int);
+        assert_eq!(
+            types_of(&[list_of(t())], &[list(1)]),
+            Some(vec![("T".to_owned(), Rep::Bool)])
+        );
+        assert_eq!(types_of(&[list_of(list_of(t()))], &[list(2)]), int);
+        assert_eq!(
+            types_of(&[list_of(t()), list_of(t())], &[list(0), list(1)]),
+            None
+        );
+        assert_eq!(types_of(&[t()], &[Rep::Int]), None);
+        assert_eq!(types_of(&[Shape::Int], &[Rep::Int]), None);
     }
 
     #[test]

@@ -49,6 +49,11 @@ impl<'a> Lowering<'a, '_> {
             Some(CallTarget::Function(def)) if Some(def.file) == self.intrinsics => {
                 return self.intrinsic(call, &def.name);
             }
+            // Each call of a generic function of the prelude picks the copy
+            // for the reps of its arguments.
+            Some(CallTarget::Function(def)) if self.is_generic(&def) => {
+                return self.generic_call(call, &def);
+            }
             Some(CallTarget::Function(def)) => {
                 let known = self.funcs.borrow().ids.get(&def).copied();
                 let func = match known {
