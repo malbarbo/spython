@@ -1115,22 +1115,10 @@ impl<'a> Lowering<'a, '_> {
                         }
                     }
                 }
-                ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    value: ast::Number::Int(n),
-                    ..
-                }) => int_literal(&**value, n.as_i64())?,
-                ast::Expr::UnaryOp(ast::ExprUnaryOp {
-                    op: ast::UnaryOp::USub,
-                    operand,
-                    ..
-                }) => match &**operand {
-                    ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                        value: ast::Number::Int(n),
-                        ..
-                    }) => int_literal(&**value, n.as_i64().map(|n| -n))?,
-                    _ => return Err(unsupported(&**value, "a member of an Enum with this value")),
-                },
-                ast::Expr::StringLiteral(_) => self.expr(value)?,
+                // `self.expr` folds the minus of a literal.
+                literal if is_int_literal(literal) || literal.is_string_literal_expr() => {
+                    self.expr(value)?
+                }
                 _ => return Err(unsupported(&**value, "a member of an Enum with this value")),
             };
             if let Expr::Int(n) = value {
@@ -1402,4 +1390,24 @@ fn dataclass_fields(def: &ast::StmtClassDef) -> impl Iterator<Item = &ast::StmtA
         ast::Stmt::AnnAssign(field) => Some(field),
         _ => None,
     })
+}
+
+/// Returns `true` if `expr` is an `int` literal, or the minus of one,
+/// `false` otherwise.
+fn is_int_literal(expr: &ast::Expr) -> bool {
+    let expr = match expr {
+        ast::Expr::UnaryOp(ast::ExprUnaryOp {
+            op: ast::UnaryOp::USub,
+            operand,
+            ..
+        }) => operand,
+        expr => expr,
+    };
+    matches!(
+        expr,
+        ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
+            value: ast::Number::Int(_),
+            ..
+        })
+    )
 }
