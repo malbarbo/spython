@@ -570,8 +570,33 @@ corpus.
   uma união com tipos distintos, o `==` de uma união que pode guardar a
   mesma dataclass dos dois lados e o `==` em cadeia entre dataclasses.
 - **4. REPL na CLI.**
-- **5. Nível 3.** Arrays, os métodos especiais, `list`, `for`, `range`,
-  fatias e `+=`.
+- **5. Nível 3.** `list`, `for`, `range` e fatias. Feita em 11/nov/2026,
+  como registra o [plano da fatia](plano-fatia-5-listas.md). Os métodos
+  especiais foram para a fatia 6, e a tupla para a 8. Os métodos de lista
+  são funções genéricas do prelude em Python, e o compilador faz uma cópia
+  de cada uma para o `Rep` dos itens, como o gleam faz. O `for` aceita uma
+  lista, um `str` e `range`, com `else`, e o `str` ganhou `split()`. Uma
+  dataclass aceita um campo de lista, e um default `[]` lança o
+  `ValueError` do CPython. O teste do corpus verifica os capítulos 06, 07,
+  08 e 11 no nível 3. Dos 45 arquivos, 38 dão a saída do CPython e o
+  relatório do runner. O checker recusa os outros 7, quatro por uma
+  comparação encadeada, dois por variáveis sem uso e um por uma variável em
+  maiúscula. Ficaram de fora o `+=` com lista no alvo, a ordem entre
+  listas, o `==` entre dois tipos de lista e a busca numa lista cujos
+  itens podem ser dataclasses de uma união. As medidas abaixo comparam o
+  wasmtime e o deno com o `python3`, com o tempo do processo inteiro.
+
+  | Caso | wasmtime | deno | python3 |
+  |---|---:|---:|---:|
+  | 10^7 `append` numa lista vazia | 0,31 s | 0,23 s | 1,12 s |
+  | os mesmos `append` e a soma da `list[int]` com `for` | 0,50 s | 0,47 s | 1,58 s |
+  | os mesmos `append` e a soma da `list[float]` com `for` | 0,50 s | 0,40 s | 1,02 s |
+
+  Um programa com `append`, `==`, `index`, uma fatia e `+` sobre uma
+  `list[int]` dá um módulo de 20,1 KiB, e o `print(1)` dá 8,7 KiB. Com as
+  mesmas operações sobre listas de `int`, `float`, `str` e de uma
+  dataclass, o módulo tem 63,4 KiB. Cada tipo de item a mais custa então
+  cerca de 14 KiB.
 - **6. Nível 4.** Classes com herança, `dict`,
   `set`, compreensões, lambda e closures. É a fatia de maior risco.
 - **7. Imagens e programas interativos.**
