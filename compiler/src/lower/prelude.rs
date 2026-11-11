@@ -435,6 +435,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         })
                     })
             }
+            "copy_items" => {
+                let (dst, at, src, start, count) = (arg(), arg(), arg(), arg(), arg());
+                dst.zip(at).zip(src.zip(start)).zip(count).map(
+                    |(((dst, at), (src, start)), count)| Expr::CopyItems {
+                        dst,
+                        at,
+                        src,
+                        start,
+                        count,
+                    },
+                )
+            }
             "captured_output" => Some(Expr::Captured),
             "captured_exception" => Some(Expr::CapturedException),
             _ => None,

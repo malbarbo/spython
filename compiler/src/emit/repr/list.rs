@@ -203,6 +203,14 @@ impl ListRepr {
         f.ins().array_set(self.types(list).items);
     }
 
+    /// Pops the array of the items of a list of the type `list`, an `i32`
+    /// index, another array of the type, an `i32` index and an `i32`
+    /// count, and copies that many items of the second array to the first.
+    pub fn copy_items(&self, f: &mut FuncState, list: usize) {
+        let items = self.types(list).items;
+        f.ins().array_copy(items, items);
+    }
+
     /// Pops a list of the type `list` and pushes its number of items as an
     /// `i32`.
     pub fn len(&self, f: &mut FuncState, list: usize) {

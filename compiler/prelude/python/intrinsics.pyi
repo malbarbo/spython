@@ -108,3 +108,7 @@ def set_item[T](xs: list[T], index: int, x: T) -> None:
 
 def item[T](xs: list[T], index: int) -> T:
     """The item of `xs` at `index`, which is not negative and is below `len(xs)`."""
+
+def copy_items[T](dst: list[T], at: int, src: list[T], start: int, count: int) -> None:
+    """Copies `count` items of `src`, from `start`, to the array of `dst`, from `at`, as if through
+    a buffer, so the two ranges may overlap. Both ranges are below the capacity of their lists."""

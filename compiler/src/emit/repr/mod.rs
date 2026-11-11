@@ -999,6 +999,13 @@ impl Reprs {
         self.list.set_item(f, list_index(rep));
     }
 
+    /// Pops the array of a list of `rep`, an `i32` index, the array of
+    /// another list of `rep`, an `i32` index and an `i32` count, and copies
+    /// that many items of the second array to the first one.
+    pub fn copy_list_items(&self, f: &mut FuncState, rep: Rep) {
+        self.list.copy_items(f, list_index(rep));
+    }
+
     /// Starts a literal of the type `list` with `count` items, as
     /// [`ListRepr::begin_literal`] says.
     pub fn begin_literal(&self, f: &mut FuncState, list: ListId, count: usize) -> Option<LocalIdx> {

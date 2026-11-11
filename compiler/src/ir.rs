@@ -624,6 +624,17 @@ pub(crate) enum Expr {
         index: Box<Expr>,
         value: Box<Expr>,
     },
+    /// Copies `count` items of the list `src`, from the `int` `start`, to
+    /// the array of the list `dst`, from the `int` `at`, as if through a
+    /// buffer, so the two ranges may overlap. Both lists are of the same
+    /// type, and both ranges are below the capacity of their lists.
+    CopyItems {
+        dst: Box<Expr>,
+        at: Box<Expr>,
+        src: Box<Expr>,
+        start: Box<Expr>,
+        count: Box<Expr>,
+    },
     /// The code point of a `str` at an index in range, as an `int`.
     CodePoint {
         value: Box<Expr>,
@@ -1266,7 +1277,8 @@ impl Expr {
             | Expr::Stop { .. }
             | Expr::ListReserve { .. }
             | Expr::ListSetLen { .. }
-            | Expr::SetItem { .. } => Rep::None,
+            | Expr::SetItem { .. }
+            | Expr::CopyItems { .. } => Rep::None,
         }
     }
 }

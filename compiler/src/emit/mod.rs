@@ -1252,6 +1252,26 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.set_list_item(f, list.rep());
             }
+            Expr::CopyItems {
+                dst,
+                at,
+                src,
+                start,
+                count,
+            } => {
+                let rep = dst.rep();
+                self.expr(f, dst);
+                self.reprs.list_items(f, rep);
+                self.expr(f, at);
+                self.reprs.index_of(f);
+                self.expr(f, src);
+                self.reprs.list_items(f, rep);
+                self.expr(f, start);
+                self.reprs.index_of(f);
+                self.expr(f, count);
+                self.reprs.index_of(f);
+                self.reprs.copy_list_items(f, rep);
+            }
             Expr::CodePoint { value, index } => {
                 self.expr(f, value);
                 self.expr(f, index);
