@@ -53,14 +53,14 @@ impl<'a> Classes<'a> {
             .map(|class| UserClass {
                 ordered: class.ordered,
                 fields: class.fields.into_iter().map(|(_, rep)| rep).collect(),
-                mutable: class.kind == Kind::Dataclass && !class.frozen,
+                mutable: class.kind == Kind::Dataclass { frozen: false },
                 members: class
                     .members
                     .into_iter()
                     .map(|member| vec![Expr::Str(member.name), member.value])
                     .collect(),
                 str: class.str,
-                repr_guard: class.kind == Kind::Dataclass,
+                repr_guard: class.kind.is_dataclass(),
             })
             .collect()
     }
@@ -72,9 +72,6 @@ pub(super) struct Declared<'a> {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
     pub kind: Kind,
-    /// `true` for a dataclass with `frozen=True`, whose fields keep their
-    /// first value.
-    pub frozen: bool,
     /// The name and the rep of each field of an object of the class. A
     /// member of an `Enum` has `name` and `value`.
     pub fields: Vec<(String, Rep)>,
@@ -105,7 +102,17 @@ pub(super) struct Declared<'a> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
     Enum,
-    Dataclass,
+    /// `frozen` is `true` for `frozen=True`, whose fields keep their first
+    /// value.
+    Dataclass {
+        frozen: bool,
+    },
+}
+
+impl Kind {
+    pub fn is_dataclass(self) -> bool {
+        matches!(self, Kind::Dataclass { .. })
+    }
 }
 
 /// A member of an `Enum`, with its value.
@@ -128,22 +135,20 @@ impl<'a> Lowering<'a, '_> {
         }
         // A decorator other than `dataclass` may make the class something
         // else, which the checker does not describe.
-        let frozen = if def.decorator_list.is_empty() {
-            false
-        } else {
-            self.dataclass_decorator(def)?
-        };
+        let frozen = (!def.decorator_list.is_empty())
+            .then(|| self.dataclass_decorator(def))
+            .transpose()?;
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        let (kind, fields, members) = if def.decorator_list.is_empty() {
+        let (kind, fields, members) = if let Some(frozen) = frozen {
+            self.dataclass_form(def, &info)?;
+            (Kind::Dataclass { frozen }, Vec::new(), Vec::new())
+        } else {
             let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
             let value = members
                 .first()
                 .map_or(Rep::Int, |member| member.value.rep());
             let fields = vec![("name".to_owned(), Rep::Str), ("value".to_owned(), value)];
             (Kind::Enum, fields, members)
-        } else {
-            self.dataclass_form(def, &info)?;
-            (Kind::Dataclass, Vec::new(), Vec::new())
         };
         let mut classes = self.classes.borrow_mut();
         let id = ClassId::new(classes.list.len());
@@ -151,7 +156,6 @@ impl<'a> Lowering<'a, '_> {
             def,
             ordered: false,
             kind,
-            frozen,
             fields,
             members,
             str: None,
@@ -177,7 +181,7 @@ impl<'a> Lowering<'a, '_> {
                 let declared = classes.get(class);
                 (declared.def, declared.kind)
             };
-            if kind != Kind::Dataclass {
+            if !kind.is_dataclass() {
                 continue;
             }
             let info = class_info(self.model(), def).expect("a class that the checker knows");
@@ -237,7 +241,7 @@ impl<'a> Lowering<'a, '_> {
                 declared.defaults.clone(),
             )
         };
-        if kind != Kind::Dataclass {
+        if !kind.is_dataclass() {
             return Ok(Vec::new());
         }
         let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
@@ -371,9 +375,7 @@ impl<'a> Lowering<'a, '_> {
     /// assign, `false` otherwise. CPython calls a default of such a class
     /// mutable, because the `__eq__` of the class takes its hash away.
     fn is_mutable(&self, class: ClassId) -> bool {
-        let classes = self.classes.borrow();
-        let declared = classes.get(class);
-        declared.kind == Kind::Dataclass && !declared.frozen
+        self.classes.borrow().get(class).kind == Kind::Dataclass { frozen: false }
     }
 
     /// The value of `attr`, an attribute of a class, which has to be a
@@ -494,7 +496,7 @@ impl<'a> Lowering<'a, '_> {
             (classes.get(class).def, classes.get(class).kind)
         };
         // The `str` of an object of a dataclass is its `repr`.
-        if kind == Kind::Dataclass {
+        if kind.is_dataclass() {
             let func = self.class_repr(class)?;
             self.classes.borrow_mut().get_mut(class).str = Some(func);
             return Ok(func);
@@ -521,7 +523,7 @@ impl<'a> Lowering<'a, '_> {
             let classes = self.classes.borrow();
             (classes.get(class).def, classes.get(class).kind)
         };
-        if kind == Kind::Dataclass {
+        if kind.is_dataclass() {
             return self.dataclass_repr(class);
         }
         let name = def.name.to_string();
@@ -659,7 +661,7 @@ impl<'a> Lowering<'a, '_> {
         name: &ast::ExprName,
         class: ClassId,
     ) -> Result<Expr, Error> {
-        if self.classes.borrow().get(class).kind != Kind::Dataclass {
+        if !self.is_dataclass(class) {
             return Err(unsupported(call, "a call of this class"));
         }
         let init = self.class_init(class);
@@ -824,7 +826,7 @@ impl<'a> Lowering<'a, '_> {
     }
 
     fn is_dataclass(&self, class: ClassId) -> bool {
-        self.classes.borrow().get(class).kind == Kind::Dataclass
+        self.classes.borrow().get(class).kind.is_dataclass()
     }
 
     /// The class of each object that a value of `shape` may be.
