@@ -112,7 +112,7 @@ pub(crate) struct UserClass {
     pub mutable: bool,
     /// The objects that the class has from the start, as the members of an
     /// `Enum` are, with a literal for each field.
-    pub members: Vec<Vec<Expr>>,
+    pub members: Vec<Vec<Literal>>,
     /// The function that gives the `str` of an object, when the program
     /// writes one.
     pub str: Option<FuncId>,
@@ -1042,6 +1042,22 @@ pub(crate) enum Rep {
     Object(ClassId),
     /// An object of the class or `None`.
     ObjectOrNone(ClassId),
+}
+
+/// A literal that a field of a member of an `Enum` holds.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum Literal {
+    Int(i32),
+    Str(String),
+}
+
+impl Literal {
+    pub(crate) fn rep(&self) -> Rep {
+        match self {
+            Literal::Int(_) => Rep::Int,
+            Literal::Str(_) => Rep::Str,
+        }
+    }
 }
 
 impl Rep {

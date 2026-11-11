@@ -12,7 +12,7 @@ use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
-    ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, Expr, FloatFunc2, FloatOp,
+    ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, Literal,
     MathFunc, MathFunc2, Rep, SiteFrame, UserClass,
 };
 use float::FloatRepr;
@@ -122,22 +122,22 @@ impl Reprs {
     /// The global of an object of the struct `ty` with the literals of
     /// `fields`, which `_start` makes. A `str` is not a constant
     /// expression, so the global is mutable and starts as null.
-    fn member_global(&mut self, m: &mut ModuleState, ty: TypeIdx, fields: &[Expr]) -> GlobalIdx {
+    fn member_global(&mut self, m: &mut ModuleState, ty: TypeIdx, fields: &[Literal]) -> GlobalIdx {
         let global = m.global(ty.ref_to(true), &ConstExpr::ref_null(ty.heap_type()));
         let texts: Vec<Option<GlobalIdx>> = fields
             .iter()
             .map(|field| match field {
-                Expr::Str(text) => Some(self.str.literal_global(m, text)),
-                _ => None,
+                Literal::Str(text) => Some(self.str.literal_global(m, text)),
+                Literal::Int(_) => None,
             })
             .collect();
         for (field, text) in fields.iter().zip(texts) {
             match (field, text) {
-                (Expr::Int(value), _) => self.int.init_literal(m, *value),
-                (_, Some(text)) => {
+                (Literal::Int(value), _) => self.int.init_literal(m, *value),
+                (Literal::Str(_), text) => {
+                    let text = text.expect("the global of the text");
                     Ins::new(&mut m.init).global_get(text).ref_as_non_null();
                 }
-                _ => unreachable!("a field of a member that is not a literal"),
             }
         }
         Ins::new(&mut m.init).struct_new(ty).global_set(global);

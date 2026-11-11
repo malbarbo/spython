@@ -21,7 +21,8 @@ use crate::Error;
 use crate::cpython::Class;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
 use crate::ir::{
-    Binding, ClassId, CmpOp, Expr, FuncId, LogicOp, Place, Rep, Site, Stmt, UserClass, VarId,
+    Binding, ClassId, CmpOp, Expr, FuncId, Literal, LogicOp, Place, Rep, Site, Stmt, UserClass,
+    VarId,
 };
 
 /// The classes of the module.
@@ -56,7 +57,7 @@ impl<'a> Classes<'a> {
                 members: class
                     .members
                     .into_iter()
-                    .map(|member| vec![Expr::Str(member.name), member.value])
+                    .map(|member| vec![Literal::Str(member.name), member.value])
                     .collect(),
                 str: class.str,
                 repr_guard: class.kind.is_dataclass(),
@@ -135,7 +136,7 @@ impl Kind {
 /// A member of an `Enum`, with its value.
 pub(super) struct Member {
     pub name: String,
-    pub value: Expr,
+    pub value: Literal,
 }
 
 impl<'a> Lowering<'a, '_> {
@@ -1121,18 +1122,20 @@ impl<'a> Lowering<'a, '_> {
                 }
                 _ => return Err(unsupported(&**value, "a member of an Enum with this value")),
             };
-            if let Expr::Int(n) = value {
+            let value = match value {
+                Expr::Int(n) => Literal::Int(n),
+                Expr::Str(text) => Literal::Str(text),
+                _ => unreachable!("an int or a str literal"),
+            };
+            if let Literal::Int(n) = value {
                 greatest = Some(greatest.map_or(n, |greatest| greatest.max(n)));
             }
             if let Some(first) = members.first()
-                && std::mem::discriminant(&first.value) != std::mem::discriminant(&value)
+                && first.value.rep() != value.rep()
             {
                 return Err(unsupported(stmt, "an Enum with values of two types"));
             }
-            if members
-                .iter()
-                .any(|member| same_value(&member.value, &value))
-            {
+            if members.iter().any(|member| member.value == value) {
                 return Err(unsupported(
                     stmt,
                     "two members of an Enum with the same value",
@@ -1151,8 +1154,8 @@ impl<'a> Lowering<'a, '_> {
             && checked.iter().zip(&members).all(|((name, shape), member)| {
                 *name == member.name
                     && match (shape, &member.value) {
-                        (Shape::IntLit(a), Expr::Int(b)) => *a == i64::from(*b),
-                        (Shape::StrLit(a), Expr::Str(b)) => a == b,
+                        (Shape::IntLit(a), Literal::Int(b)) => *a == i64::from(*b),
+                        (Shape::StrLit(a), Literal::Str(b)) => a == b,
                         _ => false,
                     }
             });
@@ -1339,15 +1342,6 @@ fn imports(stmt: &ast::Stmt, name: &str) -> bool {
             .names
             .iter()
             .any(|alias| imported_name(alias, true) == name),
-        _ => false,
-    }
-}
-
-/// Returns `true` if `a` and `b` are the same literal, `false` otherwise.
-fn same_value(a: &Expr, b: &Expr) -> bool {
-    match (a, b) {
-        (Expr::Int(a), Expr::Int(b)) => a == b,
-        (Expr::Str(a), Expr::Str(b)) => a == b,
         _ => false,
     }
 }
