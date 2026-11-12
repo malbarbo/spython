@@ -111,10 +111,13 @@ pub(crate) fn lower(
         lists: {
             let lists = lowering.lists.into_inner();
             lists
-                .items
+                .args
                 .into_iter()
                 .zip(lists.reprs)
-                .map(|(item, repr)| ListType { item, repr })
+                .map(|(arg, repr)| ListType {
+                    item: arg.rep,
+                    repr,
+                })
                 .collect()
         },
         sites: lowering.sites.into_inner(),
@@ -306,14 +309,10 @@ pub(super) struct TypeArg {
 /// The types of the lists of the program.
 #[derive(Default)]
 struct Lists {
-    /// The type of a list of each rep of an item, with the dataclasses
-    /// that a uniform item may be.
-    ids: HashMap<(Rep, Vec<ClassId>), ListId>,
-    /// The rep of the items of each type, by its id.
-    items: Vec<Rep>,
-    /// The dataclasses that an item of each type may be, when the items
-    /// are uniform.
-    classes: Vec<Vec<ClassId>>,
+    /// The type of a list of each type of item.
+    ids: HashMap<TypeArg, ListId>,
+    /// The type of the items of each type of list, by its id.
+    args: Vec<TypeArg>,
     /// The function that gives the `repr` of a list of each type, once the
     /// program writes one.
     reprs: Vec<Option<FuncId>>,
@@ -869,14 +868,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .copied()
                 .map(Rep::Object),
             Shape::List(item) => {
-                let classes = self.uniform_dataclasses(Some((*item).clone()));
-                let item = self.rep_of(Some(*item))?;
-                let classes = if item == Rep::Uniform {
-                    classes
-                } else {
-                    Vec::new()
+                let rep = self.rep_of(Some((*item).clone()))?;
+                let classes = match rep {
+                    Rep::Uniform => self.uniform_dataclasses(Some(*item)),
+                    _ => Vec::new(),
                 };
-                Some(Rep::List(self.list_of(item, classes)))
+                Some(Rep::List(self.list_of(TypeArg { rep, classes })))
             }
             Shape::TypeVar(name) => self
                 .types
@@ -903,28 +900,25 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
     }
 
-    /// The type of a list whose items have `item` and may be objects of
-    /// the dataclasses `classes`, which the first call for them creates.
-    fn list_of(&self, item: Rep, classes: Vec<ClassId>) -> ListId {
+    /// The type of a list whose items have the type `arg`, which the first
+    /// call for it creates.
+    fn list_of(&self, arg: TypeArg) -> ListId {
         let mut lists = self.lists.borrow_mut();
-        let key = (item, classes);
-        if let Some(list) = lists.ids.get(&key) {
+        if let Some(list) = lists.ids.get(&arg) {
             return *list;
         }
-        let list = ListId::new(lists.items.len());
-        lists.items.push(item);
-        lists.classes.push(key.1.clone());
+        let list = ListId::new(lists.args.len());
+        lists.args.push(arg.clone());
         lists.reprs.push(None);
-        lists.ids.insert(key, list);
+        lists.ids.insert(arg, list);
         list
     }
 
-    /// The dataclasses that an item of a list of the type `list` may be,
-    /// when the items are uniform.
-    fn list_classes(&self, list: ListId) -> Vec<ClassId> {
+    /// The type of each item of a list of the type `list`.
+    fn list_arg(&self, list: ListId) -> TypeArg {
         self.lists
             .borrow()
-            .classes
+            .args
             .get(list.index())
             .expect("a type of list of the program")
             .clone()
@@ -932,12 +926,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     /// The rep of each item of a list of the type `list`.
     fn list_item(&self, list: ListId) -> Rep {
-        *self
-            .lists
+        self.lists
             .borrow()
-            .items
+            .args
             .get(list.index())
             .expect("a type of list of the program")
+            .rep
     }
 
     /// Lowers the functions of the queue after the ones in `funcs`. The

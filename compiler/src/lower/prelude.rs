@@ -318,11 +318,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 params
             }
         };
-        let types = type_map(&names, &shapes, args, |list| TypeArg {
-            rep: self.list_item(list),
-            classes: self.list_classes(list),
-        })
-        .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
+        let types = type_map(&names, &shapes, args, |list| self.list_arg(list))
+            .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
         let func = self
             .prelude_copy(unit.file, name, types)?
             .expect("a function of the module");
