@@ -243,7 +243,7 @@ class Dict[K, V]:
             elif ix == -1:
                 return -1
             perturb = hash_shift(perturb)
-            i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
 
     def remove(self, key: K) -> int:
         """Removes the entry of `key` and gives its index, or -1 when the `dict` has no such key.
@@ -262,25 +262,23 @@ class Dict[K, V]:
     def slot_of(self, h: Hash, ix: int) -> int:
         """The slot of the entry at `ix`, whose `hash` is `h`."""
         indices = self.indices
-        size = len(indices)
-        mask = size - 1
+        mask = len(indices) - 1
         i = hash_slot(h, mask)
         perturb = h
         while item(indices, i) != ix:
             perturb = hash_shift(perturb)
-            i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
         return i
 
     def empty_slot(self, h: Hash) -> int:
         """The first slot for `h` that holds no entry."""
         indices = self.indices
-        size = len(indices)
-        mask = size - 1
+        mask = len(indices) - 1
         i = hash_slot(h, mask)
         perturb = h
         while item(indices, i) >= 0:
             perturb = hash_shift(perturb)
-            i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
         return i
 
     def insert(self, key: K, h: Hash, value: V) -> None:

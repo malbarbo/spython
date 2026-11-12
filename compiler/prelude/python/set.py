@@ -130,7 +130,7 @@ class Set[T]:
                         return j
                 j += 1
             perturb = hash_shift(perturb)
-            i = (i * 5 + 1 + hash_slot(perturb, mask)) % (mask + 1)
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
 
     def add_entry(self, key: T, h: Hash) -> None:
         """Puts `key`, whose `hash` is `h`, in the `set`, as `set_add_entry` does. The item goes
@@ -176,7 +176,7 @@ class Set[T]:
                     free = j
                 j += 1
             perturb = hash_shift(perturb)
-            i = (i * 5 + 1 + hash_slot(perturb, mask)) % (mask + 1)
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
 
     def insert_clean(self, key: T, h: Hash) -> None:
         """Puts `key`, whose `hash` is `h`, in the first empty slot of its search, in a table
@@ -194,7 +194,7 @@ class Set[T]:
                     return
                 j += 1
             perturb = hash_shift(perturb)
-            i = (i * 5 + 1 + hash_slot(perturb, mask)) % (mask + 1)
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
 
     def resize(self, minused: int) -> None:
         """Moves the items to a new table, whose size is the first power of 2 from 8 above
