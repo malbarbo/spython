@@ -712,6 +712,9 @@ pub(crate) enum Expr {
     ParseFloat(Box<Expr>),
     /// The `hash` of the value, as CPython gives it.
     Hash(Box<Expr>),
+    /// The `hash` of a tuple whose items have the `hash`es of the values,
+    /// as CPython gives it.
+    HashTuple(Vec<Expr>),
     /// Whether a code point is in `set`, as a `bool`.
     CodePointIs {
         set: CodePointSet,
@@ -1339,7 +1342,7 @@ impl Expr {
             | Expr::Div { .. }
             | Expr::FloatPow { .. }
             | Expr::ParseFloat(_) => Rep::Float,
-            Expr::Hash(_) => Rep::Hash,
+            Expr::Hash(_) | Expr::HashTuple(_) => Rep::Hash,
             Expr::Bool(_)
             | Expr::IsNone(_)
             | Expr::Is(..)

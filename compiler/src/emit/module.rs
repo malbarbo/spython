@@ -826,6 +826,7 @@ impl<'a> Ins<'a> {
         i64_ne();
         i64_rem_s();
         i64_rem_u();
+        i64_rotl();
         i64_shl();
         i64_sub();
         f64_const(value: Ieee64);

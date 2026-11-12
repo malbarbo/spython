@@ -32,6 +32,10 @@ use uniform::UniformRepr;
 
 /// The `hash` of `None`, a constant since CPython 3.12.
 const NONE_HASH: i64 = 4238894112;
+/// The primes of the xxHash of the `hash` of a tuple.
+const XXPRIME_1: u64 = 11400714785074694791;
+const XXPRIME_2: u64 = 14029467366897019727;
+const XXPRIME_5: u64 = 2870177450012600261;
 
 pub(crate) struct Reprs {
     int: IntRepr,
@@ -1387,6 +1391,45 @@ impl Reprs {
             Rep::Str => self.str.hash(m, f),
             _ => unreachable!("the hash of {rep:?}"),
         }
+    }
+
+    /// Pushes the start of the `hash` of a tuple, as `tuplehash` of
+    /// `Objects/tupleobject.c` of CPython gives it, an xxHash of the
+    /// `hash` of each item.
+    pub fn hash_tuple_start(&self, f: &mut FuncState) {
+        f.ins().i64_const(XXPRIME_5 as i64);
+    }
+
+    /// Pops the `hash` of a tuple up to an item and the `hash` of the
+    /// item, and pushes the `hash` of the tuple up to the item.
+    pub fn hash_tuple_item(&self, f: &mut FuncState) {
+        f.ins()
+            .i64_const(XXPRIME_2 as i64)
+            .i64_mul()
+            .i64_add()
+            .i64_const(31)
+            .i64_rotl()
+            .i64_const(XXPRIME_1 as i64)
+            .i64_mul();
+    }
+
+    /// Pops the `hash` of a tuple of `len` items up to its last item, and
+    /// pushes the `hash` of the tuple. CPython keeps -1 for an error, and
+    /// takes it to 1546275796.
+    pub fn hash_tuple_end(&self, f: &mut FuncState, len: usize) {
+        let len = u64::try_from(len).expect("a length in 64 bits");
+        let h = f.temp(ValType::I64);
+        f.ins()
+            .i64_const((len ^ XXPRIME_5 ^ 3527539) as i64)
+            .i64_add()
+            .local_set(h)
+            .i64_const(1546275796)
+            .local_get(h)
+            .local_get(h)
+            .i64_const(-1)
+            .i64_eq()
+            .select();
+        f.free(h);
     }
 
     /// Pops an `int`, a code point, and pushes the `int` of its value as a

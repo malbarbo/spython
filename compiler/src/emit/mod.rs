@@ -1352,6 +1352,14 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.hash(&mut self.m, f, value.rep());
             }
+            Expr::HashTuple(items) => {
+                self.reprs.hash_tuple_start(f);
+                for item in items {
+                    self.expr(f, item);
+                    self.reprs.hash_tuple_item(f);
+                }
+                self.reprs.hash_tuple_end(f, items.len());
+            }
             Expr::DecimalValue(operand) => {
                 self.expr(f, operand);
                 self.reprs.decimal_value(&mut self.m, f);

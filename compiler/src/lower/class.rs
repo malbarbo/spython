@@ -64,6 +64,8 @@ pub(super) enum Key {
     Repr,
     /// The truth of the object.
     Truth,
+    /// The `hash` of the object.
+    Hash,
 }
 
 /// The function that a call of `key` through a value of `class` calls,
@@ -186,6 +188,9 @@ pub(super) struct Declared<'a> {
     /// truth comes from the `__len__` of this class, or, for a class
     /// without a base, from neither `__bool__` nor `__len__`.
     pub own_truth: Option<FuncId>,
+    /// The `hash` of an object of a class whose `hash` comes from this
+    /// class, once a table needs it.
+    pub own_hash: Option<FuncId>,
     /// The function that makes an object from a value for each field of a
     /// dataclass, or for each parameter of the `__init__` of a class of
     /// [`Kind::Plain`], once a call needs it.
@@ -329,6 +334,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             own_str: None,
             own_repr: None,
             own_truth: None,
+            own_hash: None,
             init: None,
             reinit: None,
             methods,
@@ -397,6 +403,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             own_str: None,
             own_repr: None,
             own_truth: None,
+            own_hash: None,
             init: None,
             reinit: None,
             methods,
@@ -1128,6 +1135,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
         )
     }
 
+    /// The function that gives the `hash` of a value of `class`. An object
+    /// of a subclass may have its own.
+    pub(super) fn class_hash(&self, class: ClassId) -> FuncId {
+        self.slot(
+            class,
+            Key::Hash,
+            vec![Rep::Object(class)],
+            Rep::Hash,
+            Vec::new(),
+        )
+    }
+
     /// The function that a call of `key` through a value of `class` calls,
     /// with a parameter of each rep of `params`, the first an object of
     /// `class`, the global of each default in `defaults`, and a result of
@@ -1195,6 +1214,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         Key::Str => self.exact_str(exact)?,
                         Key::Repr => self.exact_repr(exact)?,
                         Key::Truth => self.exact_truth(exact)?,
+                        Key::Hash => self.exact_hash(exact)?,
                     };
                     Ok((exact, body))
                 })
@@ -1854,7 +1874,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     /// The field at `field` of the object of `class` that the first
     /// parameter of a function of the compiler holds.
-    fn own_field(&self, class: ClassId, field: u32) -> Expr {
+    pub(super) fn own_field(&self, class: ClassId, field: u32) -> Expr {
         let rep = self
             .classes
             .borrow()
