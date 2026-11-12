@@ -437,20 +437,8 @@ impl Lowering<'_, '_> {
         if same {
             body.push(Stmt::Return(Some(truth(first, narrowed())?)));
         } else {
-            for (exact, own) in classes.iter().zip(&truths) {
-                let exact_value = Expr::AsExact {
-                    value: Box::new(narrowed()),
-                    class: *exact,
-                };
-                body.push(Stmt::If {
-                    cond: Expr::IsExact {
-                        value: Box::new(narrowed()),
-                        class: *exact,
-                    },
-                    then: vec![Stmt::Return(Some(truth(*own, exact_value)?))],
-                    else_: Vec::new(),
-                });
-            }
+            let arms = classes.into_iter().zip(truths);
+            body.extend(self.truth_arms(node, narrowed, arms, site)?);
             body.push(Stmt::Unreachable);
         }
         let func = self.generated(vec![value.rep()], Rep::Bool, body);
@@ -472,26 +460,10 @@ impl Lowering<'_, '_> {
         }
         let site = self.site(node.range());
         let uniform = || param(0, Rep::Uniform);
-        let mut body = Vec::new();
-        for (class, method) in methods {
-            let object = Expr::AsExact {
-                value: Box::new(uniform()),
-                class,
-            };
-            body.push(Stmt::If {
-                cond: Expr::IsExact {
-                    value: Box::new(uniform()),
-                    class,
-                },
-                then: vec![Stmt::Return(Some(self.object_truth(
-                    node,
-                    Some(method),
-                    object,
-                    site,
-                )?))],
-                else_: Vec::new(),
-            });
-        }
+        let arms = methods
+            .into_iter()
+            .map(|(class, method)| (class, Some(method)));
+        let mut body = self.truth_arms(node, uniform, arms, site)?;
         body.push(Stmt::Return(Some(Expr::Truth(Box::new(uniform())))));
         let func = self.generated(vec![Rep::Uniform], Rep::Bool, body);
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
@@ -505,6 +477,35 @@ impl Lowering<'_, '_> {
             let func = self.method_func(class, name)?;
             Some((name, func))
         })
+    }
+
+    /// The code that returns the truth of `value()` at `site` when it is an
+    /// object of exactly the class of an arm, by the method of the arm.
+    fn truth_arms<'n>(
+        &self,
+        node: &impl Ranged,
+        value: impl Fn() -> Expr,
+        arms: impl IntoIterator<Item = (ClassId, Option<(&'n str, FuncId)>)>,
+        site: Site,
+    ) -> Result<Vec<Stmt>, Error> {
+        arms.into_iter()
+            .map(|(class, method)| {
+                let object = Expr::AsExact {
+                    value: Box::new(value()),
+                    class,
+                };
+                Ok(Stmt::If {
+                    cond: Expr::IsExact {
+                        value: Box::new(value()),
+                        class,
+                    },
+                    then: vec![Stmt::Return(Some(
+                        self.object_truth(node, method, object, site)?,
+                    ))],
+                    else_: Vec::new(),
+                })
+            })
+            .collect()
     }
 
     /// The truth of `object` at `site`, which calls `method`, the one of
