@@ -27,8 +27,14 @@ enum Source {
 }
 
 impl Lowering<'_, '_> {
-    /// The `hash` of `value` at `node`, as CPython gives it.
-    pub(super) fn hash_value(&self, node: &impl Ranged, value: Expr) -> Result<Expr, Error> {
+    /// The `hash` of `value` at `node`, as CPython gives it. A `__hash__`
+    /// of the program raises at `site`.
+    pub(super) fn hash_value(
+        &self,
+        node: &impl Ranged,
+        value: Expr,
+        site: Site,
+    ) -> Result<Expr, Error> {
         match value.rep() {
             Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str | Rep::StrOrNone => {
                 Ok(Expr::Hash(Box::new(value)))
@@ -37,7 +43,7 @@ impl Lowering<'_, '_> {
                 self.class_hash(class),
                 vec![value],
                 Rep::Hash,
-                Site::NONE,
+                site,
             )),
             rep @ Rep::ObjectOrNone(class) => {
                 let object = Expr::Narrow {
@@ -58,13 +64,13 @@ impl Lowering<'_, '_> {
                     ))),
                 ];
                 let func = self.generated(vec![rep], Rep::Hash, body);
-                Ok(generated_call(func, vec![value], Rep::Hash, Site::NONE))
+                Ok(generated_call(func, vec![value], Rep::Hash, site))
             }
             Rep::Uniform => Ok(generated_call(
                 self.uniform_hash()?,
                 vec![value],
                 Rep::Hash,
-                Site::NONE,
+                site,
             )),
             Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash => {
                 Err(unsupported(node, "the hash of this type"))
@@ -217,7 +223,7 @@ impl Lowering<'_, '_> {
                 (0..fields)
                     .map(|field| {
                         let field = u32::try_from(field).expect("fewer than 2^32 fields");
-                        self.hash_value(def, self.own_field(owner, field))
+                        self.hash_value(def, self.own_field(owner, field), Site::NONE)
                     })
                     .collect::<Result<_, _>>()?,
             ),

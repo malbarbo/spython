@@ -611,7 +611,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "write_err" => arg().map(Expr::WriteErr),
             "decimal_value" => arg().map(Expr::DecimalValue),
             "parse_float" => arg().map(Expr::ParseFloat),
-            "hash_of" => return self.hash_value(call, *arg().expect("hash_of has an argument")),
+            "hash_of" => {
+                let arg = arg().expect("hash_of has an argument");
+                return self.hash_value(call, *arg, Site::NONE);
+            }
             "exact" => {
                 let class = arg().and_then(|x| x.rep().class());
                 return Ok(self.exact_of(
