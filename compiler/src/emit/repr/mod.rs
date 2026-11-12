@@ -664,6 +664,10 @@ impl Reprs {
             (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
                 self.test_class(f, class, true);
             }
+            // Each object of `from` is an object of `to`.
+            (Rep::ObjectOrNone(from), Rep::Object(to)) if self.layout.descends(from, to) => {
+                f.ins().ref_is_null().i32_eqz();
+            }
             (Rep::Object(_) | Rep::ObjectOrNone(_), Rep::Object(class)) => {
                 self.test_class(f, class, false);
             }

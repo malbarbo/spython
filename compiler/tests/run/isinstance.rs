@@ -59,6 +59,34 @@ fn isinstance_tests_a_class_of_the_program() {
     );
 }
 
+/// A test of a class for a value of the class or `None` tests only for
+/// `None`.
+#[test]
+fn isinstance_of_an_optional_object_tests_for_none() {
+    same_as_cpython(
+        "isinstance_of_an_optional_object_tests_for_none",
+        indoc! {"
+            class Animal:
+                nome: str
+
+                def __init__(self, nome: str) -> None:
+                    self.nome = nome
+
+            class Gato(Animal):
+                pass
+
+            def animal(a: Animal | None) -> bool:
+                return isinstance(a, Animal)
+
+            def gato(g: Gato | None) -> bool:
+                return isinstance(g, Animal)
+
+            print(animal(None), animal(Animal('a')), animal(Gato('g')))
+            print(gato(None), gato(Gato('g')))
+        "},
+    );
+}
+
 /// A `bool` is an `int`, and an `int` is not a `float`.
 #[test]
 fn isinstance_tests_a_builtin_type() {
