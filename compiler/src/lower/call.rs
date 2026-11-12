@@ -176,6 +176,18 @@ impl<'a> Lowering<'a, '_> {
         sig: &Sig<'a, '_>,
         bindings: Option<&[ArgBinding]>,
     ) -> Result<(Vec<Expr>, Option<Vec<u32>>), Error> {
+        self.arguments_with(call, sig, bindings, &|_, arg| self.expr(arg))
+    }
+
+    /// [`Self::arguments`] with the value of each argument from `value`,
+    /// which takes its place in the call and its node.
+    fn arguments_with(
+        &self,
+        call: &ast::ExprCall,
+        sig: &Sig<'a, '_>,
+        bindings: Option<&[ArgBinding]>,
+        value: &dyn Fn(usize, &ast::Expr) -> Result<Expr, Error>,
+    ) -> Result<(Vec<Expr>, Option<Vec<u32>>), Error> {
         let mut order: Vec<Option<u32>> = sig.params.iter().map(|_| None).collect();
         let mut args = Vec::new();
         for (i, arg) in call.arguments.iter_source_order().enumerate() {
@@ -196,7 +208,7 @@ impl<'a> Lowering<'a, '_> {
                 return Err(unsupported(call, "a call with these arguments"));
             };
             let lowered = self
-                .coerce(self.expr(arg.value())?, *rep)
+                .coerce(value(i, arg.value())?, *rep)
                 .ok_or_else(|| unsupported(arg.value(), "an argument of this type"))?;
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
             args.push(lowered);
