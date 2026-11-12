@@ -462,3 +462,102 @@ fn a_name_of_a_field_in_init_is_unsupported() {
         "the name of a field in __init__"
     );
 }
+
+#[test]
+fn an_object_writes_its_str_and_its_repr() {
+    same_as_cpython(
+        "an_object_writes_its_str_and_its_repr",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum
+
+            class Fracao:
+                num: int
+                den: int
+
+                def __init__(self, num: int, den: int) -> None:
+                    self.num = num
+                    self.den = den
+
+                def __str__(self) -> str:
+                    return str(self.num) + '/' + str(self.den)
+
+                def __repr__(self) -> str:
+                    return 'Fracao(' + str(self.num) + ', ' + str(self.den) + ')'
+
+            class SoRepr:
+                def __repr__(self) -> str:
+                    return 'SoRepr()'
+
+            @dataclass
+            class Ponto:
+                x: int
+                y: int
+
+                def __repr__(self) -> str:
+                    return f'<{self.x}, {self.y}>'
+
+            @dataclass
+            class Nome:
+                texto: str
+
+                def __str__(self) -> str:
+                    return self.texto
+
+            class Cor(Enum):
+                A = 1
+                B = 2
+
+                def __str__(self) -> str:
+                    return self.name.lower()
+
+            class Tam(Enum):
+                P = 1
+
+                def __repr__(self) -> str:
+                    return 'Tam.P!'
+
+            f = Fracao(1, 2)
+            g: Fracao | None = f
+            print(f, [f], repr(f), str(f), f'{f}', g)
+            print(SoRepr(), [SoRepr()], str(SoRepr()))
+            print(Ponto(1, 2), [Ponto(3, 4)], Nome('ana'), [Nome('bia')])
+            print(Cor.A, [Cor.B], f'{Cor.A}', Tam.P, [Tam.P])
+        "},
+    );
+}
+
+/// `print` writes the arguments before the one whose `__str__` raises.
+#[test]
+fn an_exception_in_str_has_the_frame_of_str() {
+    same_as_cpython(
+        "an_exception_in_str_has_the_frame_of_str",
+        indoc! {"
+            class Ruim:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __str__(self) -> str:
+                    return str(10 // self.n)
+
+            print(Ruim(1), Ruim(2))
+            print('a', Ruim(0), 'b')
+        "},
+    );
+}
+
+#[test]
+fn a_conversion_with_parameters_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            class Ruim:
+                def __str__(self, x: int = 0) -> str:
+                    return 'ruim'
+
+            print(Ruim())
+        "}),
+        "a conversion with these parameters"
+    );
+}

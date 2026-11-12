@@ -494,8 +494,8 @@ fn a_special_method_in_an_enum_is_unsupported() {
             class Cor(Enum):
                 A = 1
 
-                def __str__(self) -> str:
-                    return 'cor'
+                def __eq__(self, other: object) -> bool:
+                    return True
         "}),
         "a special method in an Enum"
     );

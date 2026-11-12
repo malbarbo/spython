@@ -691,8 +691,11 @@ impl<'a> Lowering<'a, '_> {
             return Ok(func);
         }
         // The `str` of an object of a dataclass is its `repr`, and so is
-        // the one of an object of a class without `__str__`.
-        let func = if kind != Kind::Enum {
+        // the one of an object of a class without `__str__`. The class
+        // `Enum` has its own.
+        let func = if let Some(func) = self.conversion(class, "__str__")? {
+            func
+        } else if kind != Kind::Enum {
             self.class_repr(class)?
         } else {
             let body = vec![Stmt::Return(Some(Expr::Concat {
@@ -706,6 +709,23 @@ impl<'a> Lowering<'a, '_> {
         Ok(func)
     }
 
+    /// The function of the method `name` of `class`, `__str__` or
+    /// `__repr__`, and `None` when the class does not define it.
+    fn conversion(&self, class: ClassId, name: &str) -> Result<Option<FuncId>, Error> {
+        let Some(method) = self.method(class, name) else {
+            return Ok(None);
+        };
+        let func = method.func();
+        let sig = self.funcs.borrow().get(func).clone();
+        if sig.params.len() != 1 || sig.ret != Rep::Str {
+            return Err(unsupported(
+                method.def,
+                "a conversion with these parameters",
+            ));
+        }
+        Ok(Some(func))
+    }
+
     /// The function that gives the `repr` of an object of `class`, which a
     /// member of an `Enum` writes as `<Cor.VERDE: 1>`, with the `repr` of
     /// its value.
@@ -716,6 +736,10 @@ impl<'a> Lowering<'a, '_> {
             (declared.def, declared.kind, declared.repr)
         };
         if let Some(func) = repr {
+            return Ok(func);
+        }
+        if let Some(func) = self.conversion(class, "__repr__")? {
+            self.classes.borrow_mut().get_mut(class).repr = Some(func);
             return Ok(func);
         }
         if kind.is_dataclass() {
@@ -1407,7 +1431,9 @@ impl<'a> Lowering<'a, '_> {
         for (i, stmt) in def.body.iter().enumerate() {
             let (target, value) = match stmt {
                 // The class `Enum` defines the special methods.
-                ast::Stmt::FunctionDef(method) if is_special(&method.name) => {
+                ast::Stmt::FunctionDef(method)
+                    if is_special(&method.name) && !is_conversion(&method.name) =>
+                {
                     return Err(unsupported(method, "a special method in an Enum"));
                 }
                 ast::Stmt::FunctionDef(method) => {
@@ -1570,7 +1596,9 @@ impl<'a> Lowering<'a, '_> {
             match stmt {
                 // The decorator writes the special methods, and keeps one
                 // that the class defines.
-                ast::Stmt::FunctionDef(method) if is_special(&method.name) => {
+                ast::Stmt::FunctionDef(method)
+                    if is_special(&method.name) && !is_conversion(&method.name) =>
+                {
                     return Err(unsupported(method, "a special method in a dataclass"));
                 }
                 ast::Stmt::FunctionDef(method) => push_method(&mut methods, method)?,
@@ -1645,7 +1673,9 @@ impl<'a> Lowering<'a, '_> {
                 // The compiler calls no special method other than `__init__`
                 // for an operator or a builtin yet.
                 ast::Stmt::FunctionDef(method)
-                    if is_special(&method.name) && method.name.as_str() != "__init__" =>
+                    if is_special(&method.name)
+                        && method.name.as_str() != "__init__"
+                        && !is_conversion(&method.name) =>
                 {
                     return Err(unsupported(method, "this special method"));
                 }
@@ -1769,6 +1799,12 @@ fn push_method<'a>(
 /// is, `false` otherwise.
 fn is_special(name: &str) -> bool {
     name.len() > 4 && name.starts_with("__") && name.ends_with("__")
+}
+
+/// Returns `true` if `name` is `__str__` or `__repr__`, the methods that
+/// give the text of an object, `false` otherwise.
+fn is_conversion(name: &str) -> bool {
+    matches!(name, "__str__" | "__repr__")
 }
 
 /// The object in the first parameter of a function of the compiler for an

@@ -1143,8 +1143,8 @@ fn a_special_method_in_a_dataclass_is_unsupported() {
             class Tempo:
                 horas: int
 
-                def __repr__(self) -> str:
-                    return 'tempo'
+                def __eq__(self, other: object) -> bool:
+                    return True
         "}),
         "a special method in a dataclass"
     );
