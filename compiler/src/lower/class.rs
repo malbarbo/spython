@@ -873,53 +873,36 @@ impl<'a> Lowering<'a, '_> {
         let theirs = self.dataclasses_of(&right);
         let mut shared = self.dataclasses_of(&left);
         shared.retain(|class| theirs.contains(class));
-        let site = self.site(c.range());
-        let eq = match self.dataclass_eq(left.0, right.0, site)? {
-            Ok(eq) => eq,
-            Err((left, right)) => self.uniform_eq(left, right, shared, site)?,
-        };
+        let eq = self.dataclass_eq(left.0, right.0, shared, self.site(c.range()))?;
         Ok(match op {
             CmpOp::Ne => Expr::Not(Box::new(eq)),
             _ => eq,
         })
     }
 
-    /// `left == right`, where both may be objects of a dataclass, which the
-    /// `__eq__` of the class compares at `site`, and `None` when one of
-    /// them is a union.
+    /// `left == right` at `site`, where both may be objects of the
+    /// dataclasses `classes`. The `__eq__` of a class compares two objects
+    /// of the class.
     fn dataclass_eq(
-        &self,
-        left: Expr,
-        right: Expr,
-        site: Site,
-    ) -> Result<Result<Expr, (Expr, Expr)>, Error> {
-        // An object may be null, which `__eq__` does not take.
-        let (Some(a), Some(b)) = (left.rep().class(), right.rep().class()) else {
-            return Ok(Err((left, right)));
-        };
-        if a != b {
-            return Ok(Err((left, right)));
-        }
-        let rep = Rep::ObjectOrNone(a);
-        let coerced = |value| coerce(value, rep).expect("an object or None");
-        Ok(Ok(generated_call(
-            self.eq_or_none(a)?,
-            vec![coerced(left), coerced(right)],
-            Rep::Bool,
-            site,
-        )))
-    }
-
-    /// `left == right` at `site`, where one of them is uniform and both
-    /// may be objects of the dataclasses `classes`. The `__eq__` of a class
-    /// compares two objects of the class.
-    fn uniform_eq(
         &self,
         left: Expr,
         right: Expr,
         classes: Vec<ClassId>,
         site: Site,
     ) -> Result<Expr, Error> {
+        if let (Some(a), Some(b)) = (left.rep().class(), right.rep().class())
+            && a == b
+        {
+            // An object may be null, which `__eq__` does not take.
+            let rep = Rep::ObjectOrNone(a);
+            let coerced = |value| coerce(value, rep).expect("an object or None");
+            return Ok(generated_call(
+                self.eq_or_none(a)?,
+                vec![coerced(left), coerced(right)],
+                Rep::Bool,
+                site,
+            ));
+        }
         let eqs = classes
             .into_iter()
             .map(|class| Ok((class, self.eq_or_none(class)?)))
@@ -1006,10 +989,7 @@ impl<'a> Lowering<'a, '_> {
         }
         let classes = self.uniform_dataclasses(Some(shape));
         if !classes.is_empty() {
-            return match self.dataclass_eq(ours, theirs, site)? {
-                Ok(eq) => Ok(eq),
-                Err((ours, theirs)) => self.uniform_eq(ours, theirs, classes, site),
-            };
+            return self.dataclass_eq(ours, theirs, classes, site);
         }
         // A union compares by the types of its values.
         if matches!(rep, Rep::StrOrNone | Rep::Uniform) {
