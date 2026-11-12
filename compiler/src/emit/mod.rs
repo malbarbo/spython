@@ -133,6 +133,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             loops: Vec::new(),
             vars: Vec::new(),
             target: None,
+            chain: None,
         },
     };
     let start_ty = e.m.func_type(&[], &[]);
@@ -197,6 +198,9 @@ struct Code {
     /// The local that holds the object of the [`Stmt::UpdateField`] that
     /// the emitter is in.
     target: Option<LocalIdx>,
+    /// The locals of the left and the right value of the test of the
+    /// [`Expr::Chain`] that the emitter is in.
+    chain: Option<(LocalIdx, LocalIdx)>,
 }
 
 struct Loop {
@@ -251,6 +255,7 @@ impl Emitter<'_> {
             loops: Vec::new(),
             vars,
             target: None,
+            chain: None,
         };
         let index = self.func_slots(id).index;
         let Some(site) = site else {
@@ -1458,6 +1463,15 @@ impl Emitter<'_> {
                 f.end();
             }
             Expr::Compare(first, rest) => self.compare(f, first, rest),
+            Expr::Chain { first, links } => self.chain(f, first, links),
+            Expr::ChainLeft(_) => {
+                let (left, _) = self.code.chain.expect("a test of a chain");
+                f.ins().local_get(left);
+            }
+            Expr::ChainRight(_) => {
+                let (_, right) = self.code.chain.expect("a test of a chain");
+                f.ins().local_get(right);
+            }
             Expr::MinMax { op, args } => self.min_max(f, *op, args),
             Expr::Print { args, site } => self.print(f, args, *site),
         }
@@ -1551,6 +1565,42 @@ impl Emitter<'_> {
         }
         self.expr(f, last);
         self.reprs.compare(&mut self.m, f, rep, *last_op);
+        f.end();
+    }
+
+    /// Each operand goes to a local, which the test of its link reads on
+    /// the right and the test of the next link reads on the left.
+    fn chain(&mut self, f: &mut FuncState, first: &Expr, links: &[(Expr, Expr)]) {
+        let bool = self
+            .reprs
+            .local_type(Rep::Bool)
+            .expect("a bool has a value");
+        let local = |e: &Self, f: &mut FuncState, rep: Rep| {
+            f.temp(e.reprs.local_type(rep).expect("an operand has a value"))
+        };
+        let result = f.block(BlockType::Result(bool));
+        let mut left = local(self, f, first.rep());
+        self.expr(f, first);
+        f.ins().local_set(left);
+        let outer = self.code.chain;
+        for (i, (operand, test)) in links.iter().enumerate() {
+            let right = local(self, f, operand.rep());
+            self.expr(f, operand);
+            f.ins().local_set(right);
+            self.code.chain = Some((left, right));
+            self.expr(f, test);
+            self.code.chain = outer;
+            if i + 1 < links.len() {
+                f.ins().i32_eqz();
+                f.if_(BlockType::Empty);
+                self.reprs.bool_literal(f, false);
+                f.br(result);
+                f.end();
+            }
+            f.free(left);
+            left = right;
+        }
+        f.free(left);
         f.end();
     }
 

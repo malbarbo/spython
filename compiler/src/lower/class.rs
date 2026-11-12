@@ -446,20 +446,29 @@ impl<'a> Lowering<'a, '_> {
 
     /// Refuses a special method of `class` whose parameters and result
     /// differ from the ones that the operator gives and takes. `__eq__`
-    /// and `__ne__` take any value and give a `bool`.
+    /// and `__ne__` take any value, and the methods of an order take one
+    /// value. Each gives a `bool`.
     fn check_special(&self, class: ClassId, method: Method<'a>) -> Result<(), Error> {
         let name = method.def.name.as_str();
-        if !matches!(name, "__eq__" | "__ne__") {
-            return Ok(());
-        }
+        let other = match name {
+            "__eq__" | "__ne__" => Some(Rep::Uniform),
+            "__lt__" | "__le__" | "__gt__" | "__ge__" => None,
+            _ => return Ok(()),
+        };
         let funcs = self.funcs.borrow();
         let sig = funcs.get(method.func());
         let defaults = params_of(method.def).any(|param| param.default.is_some());
-        if defaults || sig.params != [Rep::Object(class), Rep::Uniform] || sig.ret != Rep::Bool {
-            return Err(unsupported(
-                method.def,
-                "an __eq__ or __ne__ other than (self, other: object) -> bool",
-            ));
+        let params = match (&*sig.params, other) {
+            ([object, _], None) => *object == Rep::Object(class),
+            ([object, param], Some(other)) => *object == Rep::Object(class) && *param == other,
+            _ => false,
+        };
+        if defaults || !params || sig.ret != Rep::Bool {
+            let what = match other {
+                Some(_) => "an __eq__ or __ne__ other than (self, other: object) -> bool",
+                None => "a method of an order other than (self, other) -> bool",
+            };
+            return Err(unsupported(method.def, what));
         }
         Ok(())
     }
@@ -2322,7 +2331,16 @@ impl<'a> Lowering<'a, '_> {
                 // for an operator or a builtin yet.
                 ast::Stmt::FunctionDef(method)
                     if is_special(&method.name)
-                        && !matches!(method.name.as_str(), "__init__" | "__eq__" | "__ne__")
+                        && !matches!(
+                            method.name.as_str(),
+                            "__init__"
+                                | "__eq__"
+                                | "__ne__"
+                                | "__lt__"
+                                | "__le__"
+                                | "__gt__"
+                                | "__ge__"
+                        )
                         && !is_conversion(&method.name) =>
                 {
                     return Err(unsupported(method, "this special method"));

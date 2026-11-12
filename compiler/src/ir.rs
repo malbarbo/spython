@@ -783,6 +783,21 @@ pub(crate) enum Expr {
     },
     /// The object of the [`Stmt::UpdateField`] that encloses the expression.
     Target(ClassId),
+    /// A chain of comparisons, as `a < b < c`. Each link runs its operand
+    /// and then its test, a `bool` that reads the value before the operand
+    /// with [`Expr::ChainLeft`] and the operand with [`Expr::ChainRight`].
+    /// A test that is false ends the chain with `False`, before the
+    /// operand of the next link runs.
+    Chain {
+        first: Box<Expr>,
+        links: Vec<(Expr, Expr)>,
+    },
+    /// The value on the left of the test of the [`Expr::Chain`] that
+    /// encloses the expression, a value of `rep`.
+    ChainLeft(Rep),
+    /// The value on the right of the test of the [`Expr::Chain`] that
+    /// encloses the expression, a value of `rep`.
+    ChainRight(Rep),
     /// `print` with the default `sep` and `end`. As in CPython, `print`
     /// converts each argument to `str` after every argument has its value,
     /// and the conversion and a write that fails raise at the site.
@@ -1311,6 +1326,7 @@ impl Expr {
             | Expr::Truth(_)
             | Expr::Not(_)
             | Expr::Compare(..)
+            | Expr::Chain { .. }
             | Expr::UniformEq { .. }
             | Expr::InRepr(_) => Rep::Bool,
             Expr::None => Rep::None,
@@ -1328,6 +1344,7 @@ impl Expr {
             | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
             Expr::List { list, .. } => Rep::List(*list),
+            Expr::ChainLeft(rep) | Expr::ChainRight(rep) => *rep,
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),
             Expr::After { value, .. }

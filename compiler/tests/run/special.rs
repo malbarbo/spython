@@ -155,6 +155,79 @@ fn a_list_tests_the_identity_before_eq() {
     );
 }
 
+/// `<` calls the `__lt__` of the left object, or else the `__gt__` of the
+/// right object, and a chain compares each pair once, up to the first
+/// pair that is false.
+#[test]
+fn the_order_operators_call_the_special_methods() {
+    same_as_cpython(
+        "the_order_operators_call_the_special_methods",
+        indoc! {"
+            class Nota:
+                valor: int
+
+                def __init__(self, valor: int) -> None:
+                    self.valor = valor
+
+                def __lt__(self, other: 'Nota') -> bool:
+                    print('lt', self.valor, other.valor)
+                    return self.valor < other.valor
+
+                def __le__(self, other: 'Nota') -> bool:
+                    print('le', self.valor, other.valor)
+                    return self.valor <= other.valor
+
+                def __eq__(self, other: object) -> bool:
+                    print('eq', self.valor)
+                    return isinstance(other, Nota) and self.valor == other.valor
+
+            class Peso:
+                kg: int
+
+                def __init__(self, kg: int) -> None:
+                    self.kg = kg
+
+                def __gt__(self, other: int) -> bool:
+                    print('gt', self.kg)
+                    return self.kg > other
+
+            def nota(n: int) -> Nota:
+                print('nota', n)
+                return Nota(n)
+
+            a = Nota(1)
+            b = Nota(2)
+            print(a < b, b < a, a <= b, a > b, a >= b)
+            print(nota(1) < nota(2) < nota(3), nota(3) < nota(2) < nota(1))
+            print(nota(1) <= nota(1) == nota(1), nota(1) < nota(2) != nota(3))
+            print(Peso(3) > 2, 2 < Peso(3), 5 < Peso(3))
+            p = Nota(5)
+            print(a < p == p, b <= p < a)
+        "},
+    );
+}
+
+/// The traceback has the frame of the method after the frame of the line
+/// of the comparison, in a chain too.
+#[test]
+fn an_exception_in_lt_has_the_frame_of_the_method() {
+    same_as_cpython(
+        "an_exception_in_lt_has_the_frame_of_the_method",
+        indoc! {"
+            class Nota:
+                valor: int
+
+                def __init__(self, valor: int) -> None:
+                    self.valor = valor
+
+                def __lt__(self, other: 'Nota') -> bool:
+                    return 1 // self.valor < other.valor
+
+            print(Nota(1) < Nota(2) < Nota(0) < Nota(3))
+        "},
+    );
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [
@@ -169,13 +242,21 @@ fn eq_outside_the_accepted_form_is_unsupported() {
         (
             indoc! {"
                 class P:
-                    def __eq__(self, other: object) -> bool:
+                    def __lt__(self, other: int) -> bool:
                         return True
 
                 p = P()
-                print(p == p == p)
+                print(p < 1 < 2)
             "},
-            "a chain of comparisons of objects with __eq__",
+            "a chain of comparisons of objects and other values",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __lt__(self, other: 'P', x: int = 0) -> bool:
+                        return True
+            "},
+            "a method of an order other than (self, other) -> bool",
         ),
         (
             indoc! {"

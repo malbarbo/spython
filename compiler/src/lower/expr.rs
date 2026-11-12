@@ -500,7 +500,7 @@ impl<'a> Lowering<'a, '_> {
         if operands
             .windows(2)
             .zip(&ops)
-            .any(|(pair, op)| matches!(pair, [left, right] if self.calls_eq_of(left, right, *op)))
+            .any(|(pair, op)| matches!(pair, [left, right] if self.calls_special(left, right, *op)))
         {
             return self.special_compare(c, ops, operands);
         }
@@ -516,9 +516,6 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .any(|(lowered, _)| lowered.rep().class().is_some())
         {
-            if ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne)) {
-                return Err(unsupported(c, "an order of objects"));
-            }
             // The tests of the type of a uniform value compare an object
             // with a value of another class or type.
             let rep = operands
