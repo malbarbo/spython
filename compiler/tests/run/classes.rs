@@ -321,14 +321,116 @@ fn an_attribute_without_an_annotation_is_unsupported() {
 }
 
 #[test]
-fn a_method_other_than_init_is_unsupported() {
+fn a_method_takes_self_and_the_arguments() {
+    same_as_cpython(
+        "a_method_takes_self_and_the_arguments",
+        indoc! {"
+            class Point:
+                x: int
+                y: int
+
+                def __init__(self, x: int, y: int) -> None:
+                    self.x = x
+                    self.y = y
+
+                def scale(self, factor: int) -> \"Point\":
+                    return Point(self.x * factor, self.y * factor)
+
+                def move(self, dx: int = 1, dy: int = 0) -> None:
+                    self.x += dx
+                    self.y += dy
+
+                def norm1(self) -> int:
+                    return abs(self.x) + abs(self.y)
+
+                def far(self, limit: int) -> bool:
+                    return self.norm1() > limit
+
+            def f(x: int) -> int:
+                print(x)
+                return x
+
+            p = Point(3, 4).scale(2)
+            print(p.x, p.y)
+            p.move()
+            p.move(dy=f(2), dx=f(1))
+            p.move(f(3), f(4))
+            print(p.x, p.y, p.norm1(), p.far(10), p.far(100))
+        "},
+    );
+}
+
+#[test]
+fn an_exception_in_a_method_has_the_frame_of_the_method() {
+    same_as_cpython(
+        "an_exception_in_a_method_has_the_frame_of_the_method",
+        indoc! {"
+            class Conta:
+                saldo: int
+
+                def __init__(self) -> None:
+                    self.saldo = 0
+
+                def saca(self, valor: int) -> None:
+                    if valor > self.saldo:
+                        raise ValueError('saldo insuficiente')
+                    self.saldo -= valor
+
+                def esvazia(self) -> None:
+                    self.saca(self.saldo + 1)
+
+            c = Conta()
+            c.saca(0)
+            c.esvazia()
+        "},
+    );
+}
+
+#[test]
+fn a_method_of_none_raises_attribute_error() {
+    same_as_cpython(
+        "a_method_of_none_raises_attribute_error",
+        indoc! {"
+            class No:
+                proximo: 'No | None'
+
+                def __init__(self) -> None:
+                    self.proximo = None
+
+                def corta(self) -> None:
+                    self.proximo = None
+
+                def anda(self) -> None:
+                    if self.proximo is not None:
+                        self.corta()
+                        self.proximo.corta()
+
+            a = No()
+            a.proximo = No()
+            a.anda()
+            print('ok')
+        "},
+    );
+}
+
+/// A method called in `__init__` may read any field.
+#[test]
+fn a_method_call_in_init_before_each_field_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
             class Ponto:
-                def m(self) -> None:
-                    pass
+                x: int
+                y: int
+
+                def __init__(self) -> None:
+                    self.x = 0
+                    self.mostra()
+                    self.y = 0
+
+                def mostra(self) -> None:
+                    print(self.x, self.y)
         "}),
-        "a method other than __init__"
+        "self before __init__ assigns each field"
     );
 }
 

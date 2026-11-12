@@ -53,6 +53,10 @@ impl<'a> Classes<'a> {
     pub fn has_attribute(&self, class: ClassId, name: &str) -> bool {
         let declared = self.get(class);
         declared.fields.iter().any(|(field, _)| field == name)
+            || declared
+                .methods
+                .iter()
+                .any(|method| method.def.name.as_str() == name)
             || (name == "__annotations__" && !declared.fields.is_empty())
             || names::OBJECT_ATTRIBUTES.binary_search(&name).is_ok()
     }
@@ -105,9 +109,8 @@ pub(super) struct Declared<'a> {
     /// dataclass, or for each parameter of the `__init__` of a class of
     /// [`Kind::Plain`], once a call needs it.
     pub init: Option<FuncId>,
-    /// The `def` of `__init__` in a class of [`Kind::Plain`], with its
-    /// function once [`Lowering::declare_methods`] declares it.
-    pub init_method: Option<(&'a ast::StmtFunctionDef, Option<FuncId>)>,
+    /// The methods of the class, in the order of the body.
+    pub methods: Vec<Method<'a>>,
     /// The function `__eq__` of a dataclass, once a comparison needs it.
     pub eq: Option<FuncId>,
     /// The function that compares two values of a dataclass that may be
@@ -162,6 +165,20 @@ impl Kind {
     }
 }
 
+/// A method of a class, with its function once
+/// [`Lowering::declare_methods`] declares it.
+#[derive(Clone, Copy)]
+pub(super) struct Method<'a> {
+    pub def: &'a ast::StmtFunctionDef,
+    pub func: Option<FuncId>,
+}
+
+impl Method<'_> {
+    fn func(&self) -> FuncId {
+        self.func.expect("a declared method")
+    }
+}
+
 /// A member of an `Enum`, with its value.
 pub(super) struct Member {
     pub name: String,
@@ -186,7 +203,7 @@ impl<'a> Lowering<'a, '_> {
             .then(|| self.dataclass_decorator(def))
             .transpose()?;
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        let mut init_method = None;
+        let mut methods = Vec::new();
         let (kind, checked, fields, members) = if let Some(frozen) = frozen {
             self.dataclass_form(def, &info)?;
             let checked = info
@@ -197,8 +214,8 @@ impl<'a> Lowering<'a, '_> {
                 .collect();
             (Kind::Dataclass { frozen }, checked, Vec::new(), Vec::new())
         } else if def.arguments.is_none() && info.mro.len() == 2 {
-            let (checked, init) = self.plain_form(def, &info)?;
-            init_method = init.map(|init| (init, None));
+            let checked;
+            (checked, methods) = self.plain_form(def, &info)?;
             (Kind::Plain, checked, Vec::new(), Vec::new())
         } else {
             let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
@@ -220,7 +237,7 @@ impl<'a> Lowering<'a, '_> {
             str: None,
             repr: None,
             init: None,
-            init_method,
+            methods,
             eq: None,
             eq_or_none: None,
             str_or_none: None,
@@ -270,37 +287,57 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
-    /// Declares the `__init__` of each class of [`Kind::Plain`], once each
-    /// field has its rep.
+    /// Declares each method of each class, once each field has its rep.
     pub(super) fn declare_methods(&self) -> Result<(), Error> {
         let count = self.classes.borrow().list.len();
         for class in (0..count).map(ClassId::new) {
-            let Some((def, _)) = self.classes.borrow().get(class).init_method else {
-                continue;
-            };
-            let (id, params, ret) = self.signature(def, Some(class))?;
-            let defaults = {
-                let mut vars = self.vars.borrow_mut();
-                params_of(def)
-                    .zip(&params)
-                    .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
-                    .collect()
-            };
-            let func = self.funcs.borrow_mut().add(
-                id,
-                Sig {
-                    unit: self.unit.get(),
-                    def: Some(def),
-                    params,
-                    defaults,
-                    doctest: None,
-                    ret,
-                    types: Vec::new(),
-                },
-            );
-            self.classes.borrow_mut().get_mut(class).init_method = Some((def, Some(func)));
+            let mut methods = self.classes.borrow().get(class).methods.clone();
+            for method in &mut methods {
+                method.func = Some(self.declare_method(method.def, class)?);
+            }
+            self.classes.borrow_mut().get_mut(class).methods = methods;
         }
         Ok(())
+    }
+
+    /// Declares `def`, a method of `class`.
+    fn declare_method(
+        &self,
+        def: &'a ast::StmtFunctionDef,
+        class: ClassId,
+    ) -> Result<FuncId, Error> {
+        let (id, params, ret) = self.signature(def, Some(class))?;
+        let defaults = {
+            let mut vars = self.vars.borrow_mut();
+            params_of(def)
+                .zip(&params)
+                .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
+                .collect()
+        };
+        Ok(self.funcs.borrow_mut().add(
+            id,
+            Sig {
+                unit: self.unit.get(),
+                def: Some(def),
+                params,
+                defaults,
+                doctest: None,
+                ret,
+                types: Vec::new(),
+            },
+        ))
+    }
+
+    /// The method `name` of `class`, and `None` when the class has no
+    /// method of the name.
+    pub(super) fn method(&self, class: ClassId, name: &str) -> Option<Method<'a>> {
+        self.classes
+            .borrow()
+            .get(class)
+            .methods
+            .iter()
+            .find(|method| method.def.name.as_str() == name)
+            .copied()
     }
 
     /// The class of `def`, a `class` statement that the lowering finds in
@@ -324,7 +361,7 @@ impl<'a> Lowering<'a, '_> {
     /// for the first default that is an object of a dataclass.
     pub(super) fn class_body(&self, def: &ast::StmtClassDef) -> Result<Vec<Stmt>, Error> {
         let class = self.class_of(def)?;
-        let (kind, fields, defaults, init) = {
+        let (kind, fields, defaults) = {
             let classes = self.classes.borrow();
             let declared = classes.get(class);
             if declared.kind == Kind::Enum {
@@ -334,7 +371,6 @@ impl<'a> Lowering<'a, '_> {
                 declared.kind,
                 declared.fields.clone(),
                 declared.defaults.clone(),
-                declared.init_method.and_then(|(_, func)| func),
             )
         };
         let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
@@ -358,7 +394,7 @@ impl<'a> Lowering<'a, '_> {
             class: Some(def.start()),
         });
         let body = if kind == Kind::Plain {
-            self.plain_body(def, init).map(|body| (body, None))
+            self.plain_body(def, class).map(|body| (body, None))
         } else {
             self.class_defaults(def, &fields, &defaults)
         };
@@ -467,15 +503,11 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
-    /// The code of the body of `def`, a class of [`Kind::Plain`] whose
-    /// `__init__` has the function `init`. The body evaluates the
-    /// annotation of each field, and the `def` of `__init__` evaluates the
-    /// annotations and the defaults of its parameters.
-    fn plain_body(
-        &self,
-        def: &ast::StmtClassDef,
-        init: Option<FuncId>,
-    ) -> Result<Vec<Stmt>, Error> {
+    /// The code of the body of `def`, the class `class` of [`Kind::Plain`].
+    /// The body evaluates the annotation of each field, and the `def` of
+    /// each method evaluates the annotations and the defaults of its
+    /// parameters.
+    fn plain_body(&self, def: &ast::StmtClassDef, class: ClassId) -> Result<Vec<Stmt>, Error> {
         let mut body = Vec::new();
         for stmt in &def.body {
             match stmt {
@@ -483,7 +515,10 @@ impl<'a> Lowering<'a, '_> {
                     self.check_annotations(std::iter::once(&*field.annotation))?;
                 }
                 ast::Stmt::FunctionDef(method) => {
-                    let func = init.expect("the function of __init__");
+                    let func = self
+                        .method(class, method.name.as_str())
+                        .expect("a method of the class")
+                        .func();
                     body.extend(self.default_values(method, func)?);
                     let annotations = params_of(method)
                         .filter_map(|param| param.annotation())
@@ -569,7 +604,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// `object`, which raises `AttributeError` with `text` at the site of
     /// `attr` when it is `None`. A member of an `Enum` is never `None`.
-    fn not_none(&self, object: Expr, text: String, attr: &ast::ExprAttribute) -> Expr {
+    pub(super) fn not_none(&self, object: Expr, text: String, attr: &ast::ExprAttribute) -> Expr {
         if matches!(object, Expr::Member { .. }) {
             return object;
         }
@@ -851,20 +886,7 @@ impl<'a> Lowering<'a, '_> {
             .skip(1)
             .map(|param| param.name().as_str())
             .collect();
-        // The index of a parameter of the checker may count `self`, and the
-        // name finds the parameter.
-        let bindings: Vec<ArgBinding> = call_bindings(self.model(), call)
-            .ok_or_else(|| unsupported(call, "a call with these arguments"))?
-            .into_iter()
-            .map(|binding| ArgBinding {
-                parameter: binding
-                    .parameter_name
-                    .as_deref()
-                    .and_then(|param| names.iter().position(|name| *name == param)),
-                parameter_name: binding.parameter_name,
-                parameter_shape: None,
-            })
-            .collect();
+        let bindings = self.bindings_by_name(call, &names)?;
         let (args, order) = self.arguments(call, &sig, Some(&bindings))?;
         let value = Expr::Call {
             func: init,
@@ -877,13 +899,73 @@ impl<'a> Lowering<'a, '_> {
         self.after(Binding::Class(class), name, value)
     }
 
+    /// The call of `method`, a method of `class`, with the object that
+    /// `receiver` gives as `self`. The object runs before the arguments,
+    /// and `None` raises `AttributeError` there.
+    pub(super) fn call_method(
+        &self,
+        call: &ast::ExprCall,
+        attr: &ast::ExprAttribute,
+        receiver: Expr,
+        method: Method<'a>,
+    ) -> Result<Expr, Error> {
+        let func = method.func();
+        let sig = self.funcs.borrow().get(func).clone();
+        let names: Vec<&str> = params_of(method.def)
+            .skip(1)
+            .map(|param| param.name().as_str())
+            .collect();
+        let bindings = self.bindings_by_name(call, &names)?;
+        let mut rest = sig.clone();
+        rest.params.remove(0);
+        rest.defaults.remove(0);
+        let (args, order) = self.arguments(call, &rest, Some(&bindings))?;
+        let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
+        let receiver = self.not_none(receiver, text, attr);
+        let order = order.map(|order| {
+            std::iter::once(0)
+                .chain(order.into_iter().map(|arg| arg + 1))
+                .collect()
+        });
+        Ok(Expr::Call {
+            func,
+            args: std::iter::once(receiver).chain(args).collect(),
+            order,
+            rep: sig.ret,
+            site: self.call_site(func, call),
+            check: None,
+        })
+    }
+
+    /// The bindings of the checker for the arguments of `call`, with the
+    /// index of each parameter in `names`. The index of the checker may
+    /// count `self`, and the name finds the parameter.
+    fn bindings_by_name(
+        &self,
+        call: &ast::ExprCall,
+        names: &[&str],
+    ) -> Result<Vec<ArgBinding>, Error> {
+        Ok(call_bindings(self.model(), call)
+            .ok_or_else(|| unsupported(call, "a call with these arguments"))?
+            .into_iter()
+            .map(|binding| ArgBinding {
+                parameter: binding
+                    .parameter_name
+                    .as_deref()
+                    .and_then(|param| names.iter().position(|name| *name == param)),
+                parameter_name: binding.parameter_name,
+                parameter_shape: None,
+            })
+            .collect())
+    }
+
     /// The `def` of the `__init__` of `class`, a class of [`Kind::Plain`],
     /// with the function that makes an empty object, calls the `__init__`
     /// with it and the arguments, and returns it. The function has no
     /// frame, and `None` stands for a class without `__init__`.
     fn plain_init(&self, class: ClassId) -> Option<(&'a ast::StmtFunctionDef, FuncId)> {
-        let (def, method) = self.classes.borrow().get(class).init_method?;
-        let method = method.expect("a declared __init__");
+        let init = self.method(class, "__init__")?;
+        let (def, method) = (init.def, init.func());
         if let Some(func) = self.classes.borrow().get(class).init {
             return Some((def, func));
         }
@@ -1495,20 +1577,19 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The name and the type of each field of `def`, a class without a
-    /// decorator and without a base, together with the `def` of its
-    /// `__init__`. `info` is what the checker gives for the class. Each
+    /// decorator and without a base, together with its methods. `info` is what the checker gives for the class. Each
     /// field has an annotation in the body, and [`check_init`] proves that
     /// the `__init__` assigns it.
     fn plain_form(
         &self,
         def: &'a ast::StmtClassDef,
         info: &ClassInfo,
-    ) -> Result<(Checked, Option<&'a ast::StmtFunctionDef>), Error> {
+    ) -> Result<(Checked, Vec<Method<'a>>), Error> {
         if def.type_params.is_some() {
             return Err(unsupported(def, "a generic class"));
         }
         let mut checked = Vec::new();
-        let mut init = None;
+        let mut methods: Vec<Method> = Vec::new();
         for (i, stmt) in def.body.iter().enumerate() {
             match stmt {
                 ast::Stmt::Pass(_) => {}
@@ -1527,14 +1608,14 @@ impl<'a> Lowering<'a, '_> {
                         .ok_or_else(|| unsupported(stmt, "a field of this type"))?;
                     checked.push((name, shape));
                 }
-                ast::Stmt::FunctionDef(method) if method.name.as_str() == "__init__" => {
-                    if init.is_some() {
+                ast::Stmt::FunctionDef(method) => {
+                    if methods.iter().any(|known| known.def.name == method.name) {
                         return Err(unsupported(method, "two methods of the same name"));
                     }
-                    init = Some(method);
-                }
-                ast::Stmt::FunctionDef(method) => {
-                    return Err(unsupported(method, "a method other than __init__"));
+                    methods.push(Method {
+                        def: method,
+                        func: None,
+                    });
                 }
                 _ => return Err(unsupported(stmt, "this statement in a class")),
             }
@@ -1556,14 +1637,17 @@ impl<'a> Lowering<'a, '_> {
             .zip(&checked)
             .map(|(node, (name, _))| (name.as_str(), node.range()))
             .collect();
+        let init = methods
+            .iter()
+            .find(|method| method.def.name.as_str() == "__init__");
         match (init, fields.first()) {
-            (Some(init), _) => check_init(init, &fields)?,
+            (Some(init), _) => check_init(init.def, &fields)?,
             (None, Some((_, range))) => {
                 return Err(unsupported(range, "a field that __init__ may not assign"));
             }
             (None, None) => {}
         }
-        Ok((checked, init))
+        Ok((checked, methods))
     }
 
     /// Returns `true` if `expr` reads the function `dataclass` of the

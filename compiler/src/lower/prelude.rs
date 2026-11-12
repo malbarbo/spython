@@ -79,6 +79,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
     ) -> Result<Expr, Error> {
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
+        if let Rep::Object(class) = receiver.rep()
+            && let Some(method) = self.method(class, name)
+        {
+            return self.call_method(call, attr, receiver, method);
+        }
         // The module `str` of the prelude defines each method of `str`
         // that it has under the name of the method, among other functions,
         // and the module `list` each method of `list`.
