@@ -320,7 +320,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
-            | Rep::ListOrNone(_) => Err(unsupported(arg, "abs of this type")),
+            | Rep::ListOrNone(_)
+            | Rep::Hash => Err(unsupported(arg, "abs of this type")),
         }
     }
 
@@ -405,7 +406,8 @@ impl<'a> Lowering<'a, '_> {
                 | Rep::Object(_)
                 | Rep::ObjectOrNone(_)
                 | Rep::List(_)
-                | Rep::ListOrNone(_),
+                | Rep::ListOrNone(_)
+                | Rep::Hash,
                 _,
             ) => Err(unsupported(arg, "round of this type")),
         }
@@ -424,7 +426,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
-            | Rep::ListOrNone(_) => Err(unsupported(digits, "round to this number of digits")),
+            | Rep::ListOrNone(_)
+            | Rep::Hash => Err(unsupported(digits, "round to this number of digits")),
         }
     }
 
@@ -519,7 +522,8 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::Object(_)
                     | Rep::ObjectOrNone(_)
                     | Rep::List(_)
-                    | Rep::ListOrNone(_) => Err(unsupported(arg, "float of this type")),
+                    | Rep::ListOrNone(_)
+                    | Rep::Hash => Err(unsupported(arg, "float of this type")),
                 }
             }
             _ => Err(unsupported(call, "this call of float")),
@@ -576,6 +580,7 @@ impl<'a> Lowering<'a, '_> {
                     site,
                 }
             }
+            Rep::Hash => unreachable!("the prelude writes no hash"),
         })
     }
 
@@ -600,7 +605,8 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::Object(_)
                     | Rep::ObjectOrNone(_)
                     | Rep::List(_)
-                    | Rep::ListOrNone(_) => Err(unsupported(arg, "int of this type")),
+                    | Rep::ListOrNone(_)
+                    | Rep::Hash => Err(unsupported(arg, "int of this type")),
                 }
             }
             ([arg, base], []) => self.int_with_base(call, arg, base),

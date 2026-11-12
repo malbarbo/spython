@@ -68,6 +68,7 @@ These builtins are ports of code of CPython 3.13:
   `Modules/mathmodule.c`, for two numbers.
 - `src/math.rs` ports `math_ulp` and `m_remainder`, and `src/pow.rs`
   ports `math_pow`, of `Modules/mathmodule.c`.
+- `src/hash.rs` ports `_Py_HashDouble` of `Python/pyhash.c`.
 
 The ports are in Rust and work on `f64` alone. Where CPython raises an
 exception, they return a value that the emitted code turns into the same

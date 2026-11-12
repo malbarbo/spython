@@ -710,6 +710,8 @@ pub(crate) enum Expr {
     /// The `float` of a `str` of ASCII in the form of a `float` of Python
     /// without underscores.
     ParseFloat(Box<Expr>),
+    /// The `hash` of the value, as CPython gives it.
+    Hash(Box<Expr>),
     /// Whether a code point is in `set`, as a `bool`.
     CodePointIs {
         set: CodePointSet,
@@ -1236,6 +1238,8 @@ pub(crate) enum Rep {
     List(ListId),
     /// A list of the type or `None`.
     ListOrNone(ListId),
+    /// The `hash` of CPython of a value, which only the prelude holds.
+    Hash,
 }
 
 /// A literal that a field of a member of an `Enum` holds.
@@ -1335,6 +1339,7 @@ impl Expr {
             | Expr::Div { .. }
             | Expr::FloatPow { .. }
             | Expr::ParseFloat(_) => Rep::Float,
+            Expr::Hash(_) => Rep::Hash,
             Expr::Bool(_)
             | Expr::IsNone(_)
             | Expr::Is(..)

@@ -7,6 +7,12 @@ class StrBuilder:
 
     def __setitem__(self, index: int, code_point: int) -> None: ...
 
+class Hash:
+    """The `hash` of a value, an integer of 64 bits that only the prelude holds."""
+
+def hash_of[T](x: T) -> Hash:
+    """The `hash` of `x`, as CPython gives it with `PYTHONHASHSEED=0`."""
+
 def same[T](a: T, b: T) -> bool:
     """Returns `True` if `a` and `b` are the same object, `False` otherwise. A value of a type
     without a reference, as an `int`, is never the same object. Neither argument has an effect."""

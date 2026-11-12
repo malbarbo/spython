@@ -1348,6 +1348,10 @@ impl Emitter<'_> {
                 self.expr(f, text);
                 self.reprs.parse_float(&mut self.m, f);
             }
+            Expr::Hash(value) => {
+                self.expr(f, value);
+                self.reprs.hash(&mut self.m, f, value.rep());
+            }
             Expr::DecimalValue(operand) => {
                 self.expr(f, operand);
                 self.reprs.decimal_value(&mut self.m, f);

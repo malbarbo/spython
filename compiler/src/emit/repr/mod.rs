@@ -30,6 +30,9 @@ use list::ListRepr;
 use str::StrRepr;
 use uniform::UniformRepr;
 
+/// The `hash` of `None`, a constant since CPython 3.12.
+const NONE_HASH: i64 = 4238894112;
+
 pub(crate) struct Reprs {
     int: IntRepr,
     float: FloatRepr,
@@ -495,6 +498,7 @@ impl Reprs {
             Rep::Uniform => Some(self.uniform.val_type()),
             Rep::Object(class) | Rep::ObjectOrNone(class) => Some(self.class(class).ref_to(true)),
             Rep::List(list) | Rep::ListOrNone(list) => Some(self.list_type(list).ref_to(true)),
+            Rep::Hash => Some(ValType::I64),
             Rep::None => None,
         }
     }
@@ -542,6 +546,7 @@ impl Reprs {
             Rep::List(list) | Rep::ListOrNone(list) => {
                 ConstExpr::ref_null(self.list_type(list).heap_type())
             }
+            Rep::Hash => ConstExpr::i64_const(0),
             Rep::None => unreachable!("a variable of rep None"),
         };
         m.global(ty, &init)
@@ -764,7 +769,7 @@ impl Reprs {
             | Rep::ListOrNone(_) => {
                 f.ins().ref_is_null();
             }
-            Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::List(_) => {
+            Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::List(_) | Rep::Hash => {
                 f.ins().drop().i32_const(0);
             }
         }
@@ -844,6 +849,7 @@ impl Reprs {
                 f.ins().i32_const(0).i32_ne();
             }
             Rep::ListOrNone(list) => self.list.truth(f, list.index()),
+            Rep::Hash => unreachable!("the truth of a hash"),
         }
     }
 
@@ -891,7 +897,8 @@ impl Reprs {
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
-            | Rep::ListOrNone(_) => unreachable!("the str of {rep:?}"),
+            | Rep::ListOrNone(_)
+            | Rep::Hash => unreachable!("the str of {rep:?}"),
         }
     }
 
@@ -1349,6 +1356,38 @@ impl Reprs {
         self.float.parse(m, f, &self.str);
     }
 
+    /// Pops a value of `rep` and pushes its `hash`, an `i64`, as CPython
+    /// gives it. `None` has no value to pop.
+    pub fn hash(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {
+        match rep {
+            // An `int` is its own hash, except -1, which CPython keeps for
+            // an error. `x - (x == -1)` takes -1 to -2.
+            Rep::Int => {
+                self.int.as_i32(f);
+                let x = f.temp(ValType::I32);
+                f.ins()
+                    .local_tee(x)
+                    .local_get(x)
+                    .i32_const(-1)
+                    .i32_eq()
+                    .i32_sub()
+                    .i64_extend_i32_s();
+                f.free(x);
+            }
+            Rep::Bool => {
+                f.ins().i64_extend_i32_u();
+            }
+            Rep::None => {
+                f.ins().i64_const(NONE_HASH);
+            }
+            Rep::Float => {
+                let builtin = m.builtin("f64_hash");
+                f.ins().call(builtin);
+            }
+            _ => unreachable!("the hash of {rep:?}"),
+        }
+    }
+
     /// Pops an `int`, a code point, and pushes the `int` of its value as a
     /// decimal digit, or -1.
     pub fn decimal_value(&self, m: &mut ModuleState, f: &mut FuncState) {
@@ -1470,7 +1509,7 @@ impl Reprs {
                     _ => unreachable!("an order of objects"),
                 };
             }
-            Rep::None | Rep::StrOrNone | Rep::List(_) | Rep::ListOrNone(_) => {
+            Rep::None | Rep::StrOrNone | Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash => {
                 unreachable!("a comparison of {rep:?}")
             }
         }
@@ -1547,6 +1586,7 @@ impl Reprs {
                 f.end();
                 f.free(value);
             }
+            Rep::Hash => unreachable!("the prelude writes no hash"),
         }
     }
 

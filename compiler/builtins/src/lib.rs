@@ -17,6 +17,7 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 
 mod div;
 mod gamma;
+pub mod hash;
 mod hypot;
 mod log;
 mod math;

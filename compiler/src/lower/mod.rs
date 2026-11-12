@@ -5,6 +5,7 @@ mod class;
 mod doctest;
 mod expr;
 mod flow;
+mod hash;
 mod init;
 mod math;
 mod name_error;
@@ -974,6 +975,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 Some(Rep::Str)
             }
+            Shape::Instance(class, _)
+                if Some(class.file) == self.intrinsics && class.name == "Hash" =>
+            {
+                Some(Rep::Hash)
+            }
             Shape::Instance(class, args)
                 if let Some(unit) = self.prelude.iter().find(|unit| unit.file == class.file) =>
             {
@@ -1278,6 +1284,7 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
             Err(unsupported(node, "a variable self of a class"))
         }
         Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "a variable self of a list")),
+        Rep::Hash => Err(unsupported(node, "a variable self of a hash")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
     }
 }

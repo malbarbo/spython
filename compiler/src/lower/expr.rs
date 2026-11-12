@@ -435,6 +435,7 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site(range),
             }),
             Rep::None => Err(unsupported(node, "str of None")),
+            Rep::Hash => Err(unsupported(node, "str of a hash")),
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
             // The `str` of a list is its `repr`.
             Rep::List(_) | Rep::ListOrNone(_) => self.repr_of(lowered, range),
@@ -939,7 +940,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
-            | Rep::ListOrNone(_) => Err(unsupported(
+            | Rep::ListOrNone(_)
+            | Rep::Hash => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -962,7 +964,8 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         | Rep::Object(_)
         | Rep::ObjectOrNone(_)
         | Rep::List(_)
-        | Rep::ListOrNone(_) => Err(unsupported(
+        | Rep::ListOrNone(_)
+        | Rep::Hash => Err(unsupported(
             operand,
             "an operator on a value that is not a number",
         )),
