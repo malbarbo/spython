@@ -288,3 +288,35 @@ fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
         "a variable self of a union"
     );
 }
+
+#[test]
+fn a_test_of_equality_keeps_the_type_of_a_narrowed_value() {
+    same_as_cpython(
+        "a_test_of_equality_keeps_the_type_of_a_narrowed_value",
+        indoc! {"
+            def step_of(step: int | None) -> int:
+                if step is None:
+                    return 1
+                if step == 0:
+                    raise ValueError('slice step cannot be zero')
+                return step
+
+
+            def name_of(s: str | None) -> str:
+                if s is None or s == '':
+                    return '?'
+                return s
+
+
+            def first(s: str) -> str:
+                if s != '':
+                    return s[0]
+                return s
+
+
+            print(step_of(None), step_of(3), name_of(None), name_of(''), name_of('a'))
+            print(first('xy'), first(''))
+            print(step_of(0))
+        "},
+    );
+}
