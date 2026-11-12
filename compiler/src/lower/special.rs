@@ -382,14 +382,7 @@ impl Lowering<'_, '_> {
     /// `len(operand)` of `call`, an object, which calls `__len__` of its
     /// class. A negative result raises `ValueError`.
     pub(super) fn special_len(&self, call: &ast::ExprCall, operand: Expr) -> Result<Expr, Error> {
-        let Rep::Object(class) = operand.rep() else {
-            return Err(unsupported(call, "len of an object of a union"));
-        };
-        let method = self
-            .method(class, "__len__")
-            .ok_or_else(|| unsupported(call, "len of this type"))?;
-        let func = self.method_slot(class, method);
-        let len = generated_call(func, vec![operand], Rep::Int, self.site(call.range()));
+        let len = self.call_special(call, "__len__", vec![operand], &[0])?;
         self.prelude_call(call, "int", "length", vec![len])
     }
 
@@ -641,20 +634,7 @@ impl Lowering<'_, '_> {
 
     /// `-operand` of `u`, an object, which calls `__neg__` of its class.
     pub(super) fn special_neg(&self, u: &ast::ExprUnaryOp, operand: Expr) -> Result<Expr, Error> {
-        let Rep::Object(class) = operand.rep() else {
-            return Err(unsupported(u, "an operator on an object of a union"));
-        };
-        let method = self
-            .method(class, "__neg__")
-            .ok_or_else(|| unsupported(u, "this operator on an object"))?;
-        let func = self.method_slot(class, method);
-        let ret = self.funcs.borrow().get(func).ret;
-        Ok(generated_call(
-            func,
-            vec![operand],
-            ret,
-            self.site(u.range()),
-        ))
+        self.call_special(u, "__neg__", vec![operand], &[0])
     }
 
     /// The call of `func`, the method of an operator at `node`, with
