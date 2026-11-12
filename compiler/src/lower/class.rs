@@ -2912,6 +2912,8 @@ pub(super) const COMPILED_SPECIAL: &[&str] = &[
     "__rmod__",
     "__pow__",
     "__rpow__",
+    "__or__",
+    "__ror__",
     "__neg__",
     "__len__",
     "__bool__",
@@ -2926,6 +2928,7 @@ pub(super) const COMPILED_SPECIAL: &[&str] = &[
     "__ifloordiv__",
     "__imod__",
     "__ipow__",
+    "__ior__",
 ];
 
 /// Returns `true` if `name` is the name of a special method, as `__eq__`

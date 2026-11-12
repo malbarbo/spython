@@ -832,6 +832,7 @@ fn arith_methods(op: ast::Operator) -> Option<(&'static str, &'static str)> {
         ast::Operator::FloorDiv => Some(("__floordiv__", "__rfloordiv__")),
         ast::Operator::Mod => Some(("__mod__", "__rmod__")),
         ast::Operator::Pow => Some(("__pow__", "__rpow__")),
+        ast::Operator::BitOr => Some(("__or__", "__ror__")),
         _ => None,
     }
 }
@@ -881,6 +882,7 @@ fn operator_symbol(op: ast::Operator, augmented: bool) -> String {
         ast::Operator::FloorDiv => "//",
         ast::Operator::Mod => "%",
         ast::Operator::Pow => "**",
+        ast::Operator::BitOr => "|",
         _ => unreachable!("an operator with a special method"),
     };
     if augmented {
@@ -902,6 +904,7 @@ fn inplace_method(op: ast::Operator) -> Option<&'static str> {
         ast::Operator::FloorDiv => Some("__ifloordiv__"),
         ast::Operator::Mod => Some("__imod__"),
         ast::Operator::Pow => Some("__ipow__"),
+        ast::Operator::BitOr => Some("__ior__"),
         _ => None,
     }
 }

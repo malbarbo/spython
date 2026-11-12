@@ -410,17 +410,39 @@ impl<'a> Lowering<'a, '_> {
         Ok(generated_call(done, args, Rep::Object(class), site))
     }
 
-    /// A call of `set`, which makes an empty `set` of the type that the
-    /// checker gives.
+    /// A call of `set`, which makes a `set` of the type that the checker
+    /// gives. The items of a list go in in order, as `set_update_iterable`
+    /// puts them, and a `set` gives its copy, as `set_merge` does.
     fn set_call(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let expr = ast::Expr::Call(call.clone());
         let class = self
             .copy_of(&expr)
             .ok_or_else(|| unsupported(call, "a set of this type"))?;
-        if !call.arguments.is_empty() {
-            return Err(unsupported(call, "a call of set with arguments"));
+        let site = self.site(call.range());
+        let arg = match (&call.arguments.args[..], &call.arguments.keywords[..]) {
+            ([], []) => return Ok(self.new_copy(class, Vec::new(), site)),
+            ([arg], []) if !arg.is_starred_expr() => arg,
+            _ => return Err(unsupported(call, "a call of set with these arguments")),
+        };
+        let value = self.expr(arg)?;
+        let object = Rep::Object(class);
+        if value.rep() == object {
+            let copy = self.method_func(class, "copy").expect("Set has copy");
+            return Ok(generated_call(copy, vec![value], object, site));
         }
-        Ok(self.new_copy(class, Vec::new(), self.site(call.range())))
+        let done = self.method_func(class, "done").expect("Set has done");
+        let list = *self
+            .funcs
+            .borrow()
+            .get(done)
+            .params
+            .get(1)
+            .expect("done takes a list");
+        let value = self
+            .coerce(value, list)
+            .ok_or_else(|| unsupported(arg, "a set of this value"))?;
+        let args = vec![self.new_copy(class, Vec::new(), site), value];
+        Ok(generated_call(done, args, object, site))
     }
 
     /// The copy of a generic class of the prelude whose object `expr` gives,

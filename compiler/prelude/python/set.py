@@ -223,6 +223,39 @@ class Set[T]:
         self.used -= 1
         return True
 
+    def merge(self, other: Set[T]) -> None:
+        """Puts the items of `other` in the `set`, as `set_merge` does. An empty `set` takes the
+        slots of `other` as they are when the two tables have the same size, and puts the items
+        in the order of the slots of `other` otherwise."""
+        if same(self, other) or other.used == 0:
+            return
+        if (self.fill + other.used) * 5 >= self.mask * 3:
+            self.resize((self.used + other.used) * 2)
+        if self.fill == 0 and self.mask == other.mask and other.fill == other.used:
+            for i in range(other.mask + 1):
+                if item(other.states, i) == 1:
+                    self.put(i, item(other.keys, i), item(other.hashes, i))
+            self.fill = other.fill
+            self.used = other.used
+            return
+        if self.fill == 0:
+            self.fill = other.used
+            self.used = other.used
+            for i in range(other.mask + 1):
+                if item(other.states, i) == 1:
+                    self.insert_clean(item(other.keys, i), item(other.hashes, i))
+            return
+        i = 0
+        while i <= other.mask:
+            if item(other.states, i) == 1:
+                self.add_entry(item(other.keys, i), item(other.hashes, i))
+            i += 1
+
+    def copy(self) -> Set[T]:
+        new: Set[T] = Set()
+        new.merge(self)
+        return new
+
     def __repr__(self) -> str:
         """The `repr` of the `set`, which is also its `str`. A `set` inside its own `repr` is
         `set(...)`, as in CPython."""
@@ -246,6 +279,16 @@ class Set[T]:
 
     def iter(self) -> SetIter[T]:
         return SetIter(self)
+
+    def __or__(self, other: Set[T]) -> Set[T]:
+        result = self.copy()
+        if not same(self, other):
+            result.merge(other)
+        return result
+
+    def __ior__(self, other: Set[T]) -> Set[T]:
+        self.merge(other)
+        return self
 
 
 class SetIter[T]:

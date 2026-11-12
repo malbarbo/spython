@@ -304,3 +304,99 @@ fn a_for_over_a_set_that_changes_size_raises_runtime_error() {
         "},
     );
 }
+
+/// A copy of a `set` after removals puts the items in a new table, in the
+/// order of the slots, so it may come out in another order.
+#[test]
+fn copy_and_set_of_a_set_give_a_new_set() {
+    same_as_cpython(
+        "copy_and_set_of_a_set_give_a_new_set",
+        indoc! {"
+            s: set[str] = set()
+            for i in range(20):
+                s.add('k' + str(i))
+            for i in range(0, 20, 3):
+                s.remove('k' + str(i))
+            t = s.copy()
+            u = set(s)
+            print(s)
+            print(t)
+            print(u)
+            t.add('novo')
+            print(len(s), len(t), len(u), 'novo' in s)
+            vazio: set[int] = set()
+            print(vazio.copy(), set(vazio))
+        "},
+    );
+}
+
+#[test]
+fn a_set_of_a_list_takes_its_items_in_order() {
+    same_as_cpython(
+        "a_set_of_a_list_takes_its_items_in_order",
+        indoc! {"
+            xs = [3, 1, 3, 2, 17, 9, 1, 25]
+            print(set(xs))
+            nomes = ['bia', 'ana', 'bia', 'caio', 'davi', 'eva', 'ana']
+            s = set(nomes)
+            print(s, len(s))
+            vazia: list[str] = []
+            print(set(vazia))
+        "},
+    );
+}
+
+#[test]
+fn the_union_of_sets_runs_as_cpython_does() {
+    same_as_cpython(
+        "the_union_of_sets_runs_as_cpython_does",
+        indoc! {"
+            a: set[str] = set()
+            b: set[str] = set()
+            for i in range(12):
+                a.add('a' + str(i))
+                b.add('b' + str(i * 2))
+                b.add('a' + str(i * 3))
+            print(a | b)
+            print(b | a)
+            print(a | a)
+            c = a
+            a |= b
+            print(len(a), len(c))
+            c |= c
+            print(len(c))
+            vazio: set[str] = set()
+            print(vazio | vazio, len(vazio | b))
+        "},
+    );
+}
+
+/// A class of the program may define `|` too.
+#[test]
+fn a_class_defines_or_and_its_reflected_method() {
+    same_as_cpython(
+        "a_class_defines_or_and_its_reflected_method",
+        indoc! {"
+            class Bits:
+                v: int
+
+                def __init__(self, v: int) -> None:
+                    self.v = v
+
+                def __or__(self, other: 'Bits') -> 'Bits':
+                    print('or', self.v, other.v)
+                    return Bits(self.v + other.v)
+
+                def __ior__(self, other: 'Bits') -> 'Bits':
+                    print('ior', self.v, other.v)
+                    self.v = self.v * other.v
+                    return self
+
+            a = Bits(2)
+            b = Bits(3)
+            print((a | b).v)
+            a |= b
+            print(a.v)
+        "},
+    );
+}
