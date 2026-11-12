@@ -671,14 +671,38 @@ fn a_subclass_outside_the_accepted_form_is_unsupported() {
         (
             indoc! {"
                 class A:
-                    def f(self) -> int:
-                        return 1
+                    def f(self, x: int = 1) -> int:
+                        return x
 
                 class B(A):
-                    def f(self) -> int:
+                    def f(self, x: int = 1) -> int:
                         return 2
             "},
-            "a method that overrides a method of the base",
+            "an override of a method with defaults",
+        ),
+        (
+            indoc! {"
+                class A:
+                    def f(self, x: int) -> int:
+                        return x
+
+                class B(A):
+                    def f(self, x: int, y: int = 2) -> int:
+                        return y
+            "},
+            "an override of a method with defaults",
+        ),
+        (
+            indoc! {"
+                class A:
+                    def f(self, x: int) -> int:
+                        return x
+
+                class B(A):
+                    def f(self, x: int | None) -> int:
+                        return 2
+            "},
+            "an override with other parameters or result",
         ),
         (
             indoc! {"
@@ -1034,4 +1058,165 @@ fn a_call_tests_the_classes_that_the_program_makes() {
     assert_eq!(tests("f(B())\nf(C())"), one + 1);
     assert_eq!(tests("f(B())\nf(C())\nf(D())"), one + 2);
     assert_eq!(tests("f(D())"), one);
+}
+
+/// A method that a subclass overrides runs the body of the class of the
+/// object, through a value of the root, of a class in the middle and of a
+/// leaf. The middle class is made in one program and not in the other,
+/// and the root is never made.
+#[test]
+fn a_call_runs_the_method_of_the_class_of_the_object() {
+    for (name, middle) in [
+        ("a_call_runs_the_method_of_the_class_of_the_object", "B()"),
+        (
+            "a_call_runs_the_method_of_a_class_that_the_program_makes",
+            "C()",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                class A:
+                    def nome(self) -> str:
+                        return 'A'
+
+                    def fala(self) -> str:
+                        return 'sou ' + self.nome()
+
+                    def __str__(self) -> str:
+                        return '<' + self.nome() + '>'
+
+                class B(A):
+                    def nome(self) -> str:
+                        return 'B'
+
+                class C(B):
+                    def nome(self) -> str:
+                        return 'C de ' + super().nome()
+
+                class D(B):
+                    def fala(self) -> str:
+                        return 'D fala'
+
+                class E(A):
+                    pass
+
+                def pela_raiz(a: A) -> str:
+                    return a.nome() + ' ' + a.fala()
+
+                def pelo_meio(b: B) -> str:
+                    return b.nome() + ' ' + b.fala()
+
+                def pela_folha(c: C) -> str:
+                    return c.nome() + ' ' + c.fala()
+
+                meio = {middle}
+                raizes: list[A] = [meio, C(), D(), E()]
+                for a in raizes:
+                    print(pela_raiz(a), a)
+                meios: list[B] = [meio, C(), D()]
+                for b in meios:
+                    print(pelo_meio(b), b)
+                print(pela_folha(C()))
+            "},
+        );
+    }
+}
+
+/// An `__init__` of the base that calls a method that the subclass
+/// overrides runs the method of the subclass, which reads a field of the
+/// subclass that its `__init__` assigns before `super().__init__`.
+#[test]
+fn the_init_of_the_base_calls_a_method_of_the_subclass() {
+    same_as_cpython(
+        "the_init_of_the_base_calls_a_method_of_the_subclass",
+        indoc! {"
+            class Base:
+                texto: str
+
+                def __init__(self) -> None:
+                    self.texto = ''
+                    self.texto = self.descreve()
+
+                def descreve(self) -> str:
+                    return 'base'
+
+            class Filha(Base):
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+                    super().__init__()
+
+                def descreve(self) -> str:
+                    return 'filha ' + str(self.n) + ' ' + super().descreve()
+
+            print(Base().texto, Filha(3).texto)
+        "},
+    );
+}
+
+#[test]
+fn the_init_of_a_subclass_assigns_its_fields_before_an_escape_of_the_base() {
+    assert_eq!(
+        unsupported(indoc! {"
+            class Base:
+                texto: str
+
+                def __init__(self) -> None:
+                    self.texto = ''
+                    self.texto = self.descreve()
+
+                def descreve(self) -> str:
+                    return 'base'
+
+            class Filha(Base):
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    super().__init__()
+                    self.n = n
+
+                def descreve(self) -> str:
+                    return str(self.n)
+        "}),
+        "self before __init__ assigns each field"
+    );
+}
+
+/// The call tests each class that the program makes, with 8 and with 16
+/// classes.
+#[test]
+fn a_call_dispatches_among_many_classes() {
+    for count in [8, 16] {
+        let classes: String = (1..count)
+            .map(|i| {
+                formatdoc! {"
+                    class C{i}(C0):
+                        def valor(self) -> int:
+                            return {i}
+
+                "}
+            })
+            .collect();
+        let made: Vec<String> = (0..count).map(|i| format!("C{i}()")).collect();
+        same_as_cpython(
+            &format!("a_call_dispatches_among_{count}_classes"),
+            &formatdoc! {"
+                class C0:
+                    def valor(self) -> int:
+                        return 0
+
+                {classes}
+                def soma(objetos: list[C0]) -> int:
+                    total = 0
+                    for o in objetos:
+                        total = total * 3 + o.valor()
+                    return total
+
+                objetos: list[C0] = [{made}]
+                print(soma(objetos), soma(objetos[::-1]))
+            ", made = made.join(", ")},
+        );
+    }
 }

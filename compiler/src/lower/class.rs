@@ -380,7 +380,54 @@ impl<'a> Lowering<'a, '_> {
             for method in &mut methods {
                 method.func = Some(self.declare_method(method.def, class)?);
             }
-            self.classes.borrow_mut().get_mut(class).methods = methods;
+            self.classes.borrow_mut().get_mut(class).methods = methods.clone();
+            let base = self.classes.borrow().get(class).base;
+            for method in methods
+                .iter()
+                .filter(|method| method.def.name.as_str() != "__init__")
+            {
+                if let Some(overridden) = base.and_then(|base| self.method(base, &method.def.name))
+                {
+                    self.check_override(*method, overridden)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks that `method` may take the place of `overridden`, a method of
+    /// a class that the class of `method` descends from, in a call through
+    /// a value of that class. The call binds the arguments by the
+    /// parameters of `overridden`, so both have the same parameters, of
+    /// the same reps, without defaults, whose values CPython takes from
+    /// the method that runs.
+    fn check_override(&self, method: Method<'a>, overridden: Method<'a>) -> Result<(), Error> {
+        let funcs = self.funcs.borrow();
+        let (ours, theirs) = (funcs.get(method.func()), funcs.get(overridden.func()));
+        let names = |def: &ast::StmtFunctionDef| {
+            params_of(def)
+                .skip(1)
+                .map(|param| param.name().to_string())
+                .collect::<Vec<_>>()
+        };
+        let defaults =
+            |def: &ast::StmtFunctionDef| params_of(def).any(|param| param.default.is_some());
+        if defaults(method.def) || defaults(overridden.def) {
+            return Err(unsupported(
+                method.def,
+                "an override of a method with defaults",
+            ));
+        }
+        let ret = ours.ret == theirs.ret
+            || (ours.ret.class().is_some() && self.holds(theirs.ret, ours.ret));
+        if names(method.def) != names(overridden.def)
+            || ours.params.get(1..) != theirs.params.get(1..)
+            || !ret
+        {
+            return Err(unsupported(
+                method.def,
+                "an override with other parameters or result",
+            ));
         }
         Ok(())
     }
@@ -2100,19 +2147,6 @@ impl<'a> Lowering<'a, '_> {
                         && !is_conversion(&method.name) =>
                 {
                     return Err(unsupported(method, "this special method"));
-                }
-                // A call through a value of the base would run the method
-                // of the base.
-                ast::Stmt::FunctionDef(method)
-                    if method.name.as_str() != "__init__"
-                        && base.is_some_and(|base| {
-                            self.method(base, method.name.as_str()).is_some()
-                        }) =>
-                {
-                    return Err(unsupported(
-                        method,
-                        "a method that overrides a method of the base",
-                    ));
                 }
                 ast::Stmt::FunctionDef(method) => push_method(&mut methods, method)?,
                 _ => return Err(unsupported(stmt, "this statement in a class")),
