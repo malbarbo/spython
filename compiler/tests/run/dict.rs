@@ -566,6 +566,6 @@ fn a_comparison_of_dicts_of_two_types_is_unsupported() {
             b = {'x': 1.0}
             print(a == b)
         "}),
-        "a comparison of dicts of two types"
+        "a comparison of dicts or sets of two types"
     );
 }

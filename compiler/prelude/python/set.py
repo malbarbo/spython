@@ -8,6 +8,7 @@ slot before it jumps, as CPython does, so the items come out in the order of CPy
 from __spython_prelude__.intrinsics import (
     Hash,
     during_repr,
+    exact,
     hash_eq,
     hash_of,
     hash_shift,
@@ -280,6 +281,44 @@ class Set[T]:
     def iter(self) -> SetIter[T]:
         return SetIter(self)
 
+    def __eq__(self, other: object) -> bool:
+        """Returns `True` if `other` is a `set` with the same items, `False` otherwise."""
+        o = exact(self, other)
+        if o is None:
+            return False
+        if self.used != o.used:
+            return False
+        return self.issubset(o)
+
+    def __le__(self, other: Set[T]) -> bool:
+        return self.issubset(other)
+
+    def __lt__(self, other: Set[T]) -> bool:
+        if self.used >= other.used:
+            return False
+        return self.issubset(other)
+
+    def __ge__(self, other: Set[T]) -> bool:
+        return other.issubset(self)
+
+    def __gt__(self, other: Set[T]) -> bool:
+        if self.used <= other.used:
+            return False
+        return other.issubset(self)
+
+    def issubset(self, other: Set[T]) -> bool:
+        """Returns `True` if `other` has each item of the `set`, `False` otherwise. The item of
+        `other` is on the left of `==`."""
+        if self.used > other.used:
+            return False
+        i = 0
+        while i <= self.mask:
+            if item(self.states, i) == 1:
+                if other.find(item(self.keys, i), item(self.hashes, i)) < 0:
+                    return False
+            i += 1
+        return True
+
     def __or__(self, other: Set[T]) -> Set[T]:
         result = self.copy()
         if not same(self, other):
@@ -290,6 +329,103 @@ class Set[T]:
         self.merge(other)
         return self
 
+    def __and__(self, other: Set[T]) -> Set[T]:
+        """The items of both `set`s, as `set_intersection` gives them. The search goes over the
+        smaller `set` and looks for each item in the other one."""
+        if same(self, other):
+            return self.copy()
+        result: Set[T] = Set()
+        big = self
+        small = other
+        if other.used > self.used:
+            big = other
+            small = self
+        i = 0
+        while i <= small.mask:
+            if item(small.states, i) == 1:
+                key = item(small.keys, i)
+                h = item(small.hashes, i)
+                if big.find(key, h) >= 0:
+                    result.add_entry(key, h)
+            i += 1
+        return result
+
+    def __iand__(self, other: Set[T]) -> Set[T]:
+        """Keeps the items that `other` has. The `set` takes the table of the intersection, as
+        `set_intersection_update` does."""
+        result = self & other
+        self.keys = result.keys
+        self.hashes = result.hashes
+        self.states = result.states
+        self.fill = result.fill
+        self.used = result.used
+        self.mask = result.mask
+        return self
+
+    def __sub__(self, other: Set[T]) -> Set[T]:
+        """The items of the `set` that `other` does not have, as `set_difference` gives them. A
+        copy of a `set` with more than 4 times the items of `other` loses the items of `other`."""
+        if self.used // 4 > other.used:
+            result = self.copy()
+            result.remove_all(other)
+            return result
+        rest: Set[T] = Set()
+        i = 0
+        while i <= self.mask:
+            if item(self.states, i) == 1:
+                key = item(self.keys, i)
+                h = item(self.hashes, i)
+                if other.find(key, h) < 0:
+                    rest.add_entry(key, h)
+            i += 1
+        return rest
+
+    def __isub__(self, other: Set[T]) -> Set[T]:
+        self.remove_all(other)
+        return self
+
+    def remove_all(self, other: Set[T]) -> None:
+        """Removes the items of `other`, as `set_difference_update_internal` does. When `other`
+        has more than 8 times the items of the `set`, the items to remove are the ones of both."""
+        if same(self, other):
+            self.clear()
+            return
+        if other.used // 8 > self.used:
+            other = self & other
+        i = 0
+        while i <= other.mask:
+            if item(other.states, i) == 1:
+                self.discard_entry(item(other.keys, i), item(other.hashes, i))
+            i += 1
+        if self.fill - self.used > self.mask // 4:
+            self.resize(self.used * 2 if self.used > 50000 else self.used * 4)
+
+    def __xor__(self, other: Set[T]) -> Set[T]:
+        """The items of one `set` alone, as `set_symmetric_difference` gives them. The result
+        takes the items of `other`, and then each item of the `set` goes in or out of it."""
+        result: Set[T] = Set()
+        result.merge(other)
+        result.toggle_all(self)
+        return result
+
+    def __ixor__(self, other: Set[T]) -> Set[T]:
+        if same(self, other):
+            self.clear()
+        else:
+            self.toggle_all(other)
+        return self
+
+    def toggle_all(self, other: Set[T]) -> None:
+        """Removes each item of `other` that the `set` has, and puts in the others, as
+        `set_symmetric_difference_update_set` does."""
+        i = 0
+        while i <= other.mask:
+            if item(other.states, i) == 1:
+                key = item(other.keys, i)
+                h = item(other.hashes, i)
+                if not self.discard_entry(key, h):
+                    self.add_entry(key, h)
+            i += 1
 
 class SetIter[T]:
     """A `for` over a `set`, which follows `setiter_iternext` of CPython 3.13."""

@@ -136,14 +136,14 @@ impl Lowering<'_, '_> {
         site: Site,
     ) -> Result<Expr, Error> {
         let object = left.0.rep().class().is_some() || right.0.rep().class().is_some();
-        // CPython compares the items of two `dict`s of two types, and the
-        // `__eq__` of a copy reads only a `dict` of its own types.
+        // CPython compares the items of two `dict`s or `set`s of two types,
+        // and the `__eq__` of a copy reads only a value of its own types.
         if let (Some(a), Some(b)) = (left.0.rep().class(), right.0.rep().class())
             && a != b
             && self.copy_file(a).is_some()
             && self.copy_file(b).is_some()
         {
-            return Err(unsupported(c, "a comparison of dicts of two types"));
+            return Err(unsupported(c, "a comparison of dicts or sets of two types"));
         }
         if order_methods(op).is_some() && object {
             return self.special_order(c, op, left, right, site);
@@ -833,6 +833,8 @@ fn arith_methods(op: ast::Operator) -> Option<(&'static str, &'static str)> {
         ast::Operator::Mod => Some(("__mod__", "__rmod__")),
         ast::Operator::Pow => Some(("__pow__", "__rpow__")),
         ast::Operator::BitOr => Some(("__or__", "__ror__")),
+        ast::Operator::BitAnd => Some(("__and__", "__rand__")),
+        ast::Operator::BitXor => Some(("__xor__", "__rxor__")),
         _ => None,
     }
 }
@@ -883,6 +885,8 @@ fn operator_symbol(op: ast::Operator, augmented: bool) -> String {
         ast::Operator::Mod => "%",
         ast::Operator::Pow => "**",
         ast::Operator::BitOr => "|",
+        ast::Operator::BitAnd => "&",
+        ast::Operator::BitXor => "^",
         _ => unreachable!("an operator with a special method"),
     };
     if augmented {
@@ -905,6 +909,8 @@ fn inplace_method(op: ast::Operator) -> Option<&'static str> {
         ast::Operator::Mod => Some("__imod__"),
         ast::Operator::Pow => Some("__ipow__"),
         ast::Operator::BitOr => Some("__ior__"),
+        ast::Operator::BitAnd => Some("__iand__"),
+        ast::Operator::BitXor => Some("__ixor__"),
         _ => None,
     }
 }

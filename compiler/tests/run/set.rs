@@ -400,3 +400,145 @@ fn a_class_defines_or_and_its_reflected_method() {
         "},
     );
 }
+
+#[test]
+fn the_intersection_and_the_differences_of_sets_run_as_cpython_does() {
+    same_as_cpython(
+        "the_intersection_and_the_differences_of_sets_run_as_cpython_does",
+        indoc! {"
+            def faz(n: int, m: int, passo: int) -> set[str]:
+                s: set[str] = set()
+                for i in range(n, m, passo):
+                    s.add('x' + str(i))
+                return s
+
+            a = faz(0, 30, 1)
+            b = faz(10, 60, 2)
+            pequeno = faz(5, 8, 1)
+            grande = faz(0, 400, 1)
+            def mostra(x: set[str], y: set[str]) -> None:
+                print(x & y)
+                print(x - y)
+                print(x ^ y)
+
+            mostra(a, b)
+            mostra(b, a)
+            mostra(a, pequeno)
+            mostra(pequeno, grande)
+            mostra(grande, pequeno)
+            mostra(a, a)
+        "},
+    );
+}
+
+/// The augmented assignments change the `set` itself, and a `set` with
+/// itself on the right loses its items or keeps them, as in CPython.
+#[test]
+fn the_augmented_operators_of_sets_change_the_set() {
+    same_as_cpython(
+        "the_augmented_operators_of_sets_change_the_set",
+        indoc! {"
+            def faz(n: int, m: int) -> set[int]:
+                s: set[int] = set()
+                for i in range(n, m):
+                    s.add(i * 37 % 101)
+                return s
+
+            a = faz(0, 40)
+            b = a
+            a &= faz(20, 90)
+            print(a, len(b))
+            a -= faz(0, 5)
+            print(a, len(b))
+            a ^= faz(30, 50)
+            print(a, len(b))
+            a -= faz(0, 900)
+            print(a, len(b))
+            c = faz(0, 10)
+            c ^= c
+            print(c)
+            c = faz(0, 10)
+            c &= c
+            print(c)
+            c -= c
+            print(c)
+        "},
+    );
+}
+
+#[test]
+fn the_comparisons_of_sets_run_as_cpython_does() {
+    same_as_cpython(
+        "the_comparisons_of_sets_run_as_cpython_does",
+        indoc! {"
+            def faz(xs: list[str]) -> set[str]:
+                s: set[str] = set()
+                for x in xs:
+                    s.add(x)
+                return s
+
+            a = faz(['a', 'b'])
+            b = faz(['b', 'a', 'c'])
+            c = faz(['c', 'b', 'a'])
+            vazio: set[str] = set()
+            def compara(x: set[str], y: set[str]) -> None:
+                print(x == y, x != y, x < y, x <= y, x > y, x >= y)
+
+            compara(a, b)
+            compara(b, a)
+            compara(b, c)
+            compara(a, a)
+            compara(vazio, a)
+            compara(a, vazio)
+            print(a < b < c, a <= b <= c)
+            o: object = a
+            print(o == a, a == o, o == b, o == 1)
+            print({1, 2} == {2, 1}, {1.5} == {1.5}, {True} == {False})
+        "},
+    );
+}
+
+/// The item of the `set` on the left is on the left of `==` when a
+/// comparison of `set`s looks for it in the other one.
+#[test]
+fn the_comparison_of_sets_compares_items_as_cpython_does() {
+    same_as_cpython(
+        "the_comparison_of_sets_compares_items_as_cpython_does",
+        indoc! {"
+            class K:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __eq__(self, other: object) -> bool:
+                    if not isinstance(other, K):
+                        return False
+                    print('eq', self.n, other.n)
+                    return self.n % 10 == other.n % 10
+
+                def __hash__(self) -> int:
+                    return self.n % 10
+
+            a: set[K] = set()
+            b: set[K] = set()
+            for i in range(4):
+                a.add(K(i))
+                b.add(K(i + 10))
+            print(a == b)
+            print(a <= b)
+            print(len(a & b), len(a - b), len(a ^ b), len(a | b))
+        "},
+    );
+}
+
+#[test]
+fn a_comparison_of_sets_of_two_types_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            def f(a: set[int], b: set[str]) -> bool:
+                return a == b
+        "}),
+        "a comparison of dicts or sets of two types"
+    );
+}
