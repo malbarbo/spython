@@ -724,17 +724,9 @@ impl Lowering<'_, '_> {
             let left = ancestors
                 .into_iter()
                 .map(|left| is_exact(0, left))
-                .reduce(|a, b| Expr::Logic {
-                    op: LogicOp::Or,
-                    left: Box::new(a),
-                    right: Box::new(b),
-                })
+                .reduce(|a, b| Expr::logic(LogicOp::Or, a, b))
                 .expect("an ancestor on the left");
-            let cond = Expr::Logic {
-                op: LogicOp::And,
-                left: Box::new(is_exact(1, right)),
-                right: Box::new(left),
-            };
+            let cond = Expr::logic(LogicOp::And, is_exact(1, right), left);
             body.push(arm(cond, 1, right, method)?);
         }
         for class in &lefts {

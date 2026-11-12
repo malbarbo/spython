@@ -252,13 +252,6 @@ fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
     );
     assert_eq!(
         unsupported(indoc! {"
-            def f(s: str | None) -> str:
-                return s or 'a'
-        "}),
-        "operands of two types"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
             def f(self: str | None) -> None:
                 pass
         "}),

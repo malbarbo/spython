@@ -621,16 +621,6 @@ fn eq_outside_the_accepted_form_is_unsupported() {
         (
             indoc! {"
                 class P:
-                    def __bool__(self) -> bool:
-                        return False
-
-                x = P() or 1
-            "},
-            "an operand of and or or with __bool__ or __len__",
-        ),
-        (
-            indoc! {"
-                class P:
                     def __setitem__(self, i: int, v: int) -> int:
                         return 1
             "},

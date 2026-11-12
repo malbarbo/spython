@@ -1859,16 +1859,12 @@ impl<'a> Lowering<'a, '_> {
             })
             .collect::<Result<Vec<_>, Error>>()?
             .into_iter()
-            .reduce(|before, eq| Expr::Logic {
-                op: LogicOp::And,
-                left: Box::new(before),
-                right: Box::new(eq),
-            });
-        let body = Expr::Logic {
-            op: LogicOp::Or,
-            left: Box::new(Expr::Is(Box::new(own(class)), Box::new(other()))),
-            right: Box::new(same.unwrap_or(Expr::Bool(true))),
-        };
+            .reduce(|before, eq| Expr::logic(LogicOp::And, before, eq));
+        let body = Expr::logic(
+            LogicOp::Or,
+            Expr::Is(Box::new(own(class)), Box::new(other())),
+            same.unwrap_or(Expr::Bool(true)),
+        );
         self.define(func, true, vec![Stmt::Return(Some(body))]);
         Ok(func)
     }
@@ -1933,11 +1929,11 @@ impl<'a> Lowering<'a, '_> {
             rep: Rep::Object(class),
         };
         let mut body = vec![Stmt::If {
-            cond: Expr::Logic {
-                op: LogicOp::Or,
-                left: Box::new(Expr::IsNone(Box::new(param(0)))),
-                right: Box::new(Expr::IsNone(Box::new(param(1)))),
-            },
+            cond: Expr::logic(
+                LogicOp::Or,
+                Expr::IsNone(Box::new(param(0))),
+                Expr::IsNone(Box::new(param(1))),
+            ),
             then: vec![Stmt::Return(Some(Expr::Is(
                 Box::new(param(0)),
                 Box::new(param(1)),
@@ -1965,11 +1961,7 @@ impl<'a> Lowering<'a, '_> {
                     class: exact,
                 };
                 body.push(Stmt::If {
-                    cond: Expr::Logic {
-                        op: LogicOp::And,
-                        left: Box::new(is_exact(0)),
-                        right: Box::new(is_exact(1)),
-                    },
+                    cond: Expr::logic(LogicOp::And, is_exact(0), is_exact(1)),
                     then: vec![Stmt::Return(Some(generated_call(
                         eq,
                         vec![as_exact(0), as_exact(1)],

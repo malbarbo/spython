@@ -754,14 +754,22 @@ pub(crate) enum Expr {
     Truth(Box<Expr>),
     /// `not` on a `bool`, which may be the truth of another value.
     Not(Box<Expr>),
-    /// `and` or `or` on two values of the same rep, which gives one of
-    /// them. The right operand runs only when the truth of the left one
-    /// does not decide the result.
+    /// `and` or `or`, which gives the left value or the right one. `left`
+    /// runs first, and then `test`, the truth of the left value as a
+    /// `bool`, which reads the left value with [`Expr::LogicLeft`]. When
+    /// the test decides the result, `value` gives it from the left value,
+    /// and otherwise `right` runs and gives it. `value` and `right` have
+    /// the rep of the result.
     Logic {
         op: LogicOp,
         left: Box<Expr>,
+        test: Box<Expr>,
+        value: Box<Expr>,
         right: Box<Expr>,
     },
+    /// The left value of the [`Expr::Logic`] that encloses the expression,
+    /// a value of `rep`.
+    LogicLeft(Rep),
     /// `then if cond else else_`, with `then` and `else_` of the same rep.
     /// Only the value that `cond` picks runs.
     IfElse {
@@ -1267,6 +1275,17 @@ impl Rep {
 }
 
 impl Expr {
+    /// `left op right` on two `bool`s.
+    pub fn logic(op: LogicOp, left: Expr, right: Expr) -> Expr {
+        Expr::Logic {
+            op,
+            left: Box::new(left),
+            test: Box::new(Expr::LogicLeft(Rep::Bool)),
+            value: Box::new(Expr::LogicLeft(Rep::Bool)),
+            right: Box::new(right),
+        }
+    }
+
     pub fn rep(&self) -> Rep {
         match self {
             Expr::Str(_)
@@ -1344,8 +1363,8 @@ impl Expr {
             | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
             Expr::List { list, .. } => Rep::List(*list),
-            Expr::ChainLeft(rep) | Expr::ChainRight(rep) => *rep,
-            Expr::Logic { left, .. } => left.rep(),
+            Expr::ChainLeft(rep) | Expr::ChainRight(rep) | Expr::LogicLeft(rep) => *rep,
+            Expr::Logic { value, .. } => value.rep(),
             Expr::IfElse { then, .. } => then.rep(),
             Expr::After { value, .. }
             | Expr::DuringRepr { value, .. }

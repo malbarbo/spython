@@ -134,6 +134,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             vars: Vec::new(),
             target: None,
             chain: None,
+            logic: None,
         },
     };
     let start_ty = e.m.func_type(&[], &[]);
@@ -201,6 +202,9 @@ struct Code {
     /// The locals of the left and the right value of the test of the
     /// [`Expr::Chain`] that the emitter is in.
     chain: Option<(LocalIdx, LocalIdx)>,
+    /// The local of the left value of the [`Expr::Logic`] that the emitter
+    /// is in, and `None` for a left value of `None`.
+    logic: Option<LocalIdx>,
 }
 
 struct Loop {
@@ -256,6 +260,7 @@ impl Emitter<'_> {
             vars,
             target: None,
             chain: None,
+            logic: None,
         };
         let index = self.func_slots(id).index;
         let Some(site) = site else {
@@ -1452,7 +1457,18 @@ impl Emitter<'_> {
                 self.expr(f, object);
                 self.reprs.field(f, *class, *field, *rep);
             }
-            Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
+            Expr::Logic {
+                op,
+                left,
+                test,
+                value,
+                right,
+            } => self.logic(f, *op, left, (test, value), right),
+            Expr::LogicLeft(rep) => {
+                if let Some(local) = self.code.logic {
+                    self.reprs.load(f, *rep, local);
+                }
+            }
             Expr::IfElse { cond, then, else_ } => {
                 self.expr(f, cond);
                 let ty = self.reprs.value_type(then.rep());
@@ -1508,30 +1524,40 @@ impl Emitter<'_> {
 
     /// The left operand goes to a local, which gives both its truth and,
     /// when the truth decides the result, the result.
-    fn logic(&mut self, f: &mut FuncState, op: LogicOp, left: &Expr, right: &Expr) {
-        let rep = left.rep();
-        let left_local = f.temp(self.reprs.local_type(rep).expect("an operand has a value"));
+    fn logic(
+        &mut self,
+        f: &mut FuncState,
+        op: LogicOp,
+        left: &Expr,
+        (test, value): (&Expr, &Expr),
+        right: &Expr,
+    ) {
+        let local = self.reprs.local_type(left.rep()).map(|ty| f.temp(ty));
         self.expr(f, left);
-        f.ins().local_set(left_local);
-        self.reprs.load(f, rep, left_local);
-        self.reprs.truth(&mut self.m, f, rep);
-        f.if_(BlockType::Result(
-            self.reprs.value_type(rep).expect("an operand has a value"),
-        ));
-        match op {
-            LogicOp::And => {
-                self.expr(f, right);
-                f.else_();
-                self.reprs.load(f, rep, left_local);
-            }
-            LogicOp::Or => {
-                self.reprs.load(f, rep, left_local);
-                f.else_();
-                self.expr(f, right);
-            }
+        if let Some(local) = local {
+            f.ins().local_set(local);
         }
+        let outer = self.code.logic;
+        self.code.logic = local;
+        self.expr(f, test);
+        let rep = value.rep();
+        f.if_(
+            self.reprs
+                .value_type(rep)
+                .map_or(BlockType::Empty, BlockType::Result),
+        );
+        let (then, else_) = match op {
+            LogicOp::And => (right, value),
+            LogicOp::Or => (value, right),
+        };
+        self.expr(f, then);
+        f.else_();
+        self.expr(f, else_);
         f.end();
-        f.free(left_local);
+        self.code.logic = outer;
+        if let Some(local) = local {
+            f.free(local);
+        }
     }
 
     /// A chain stops at the first comparison that is false, and the operands

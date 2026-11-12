@@ -37,34 +37,82 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `and` or `or`, with each operand lowered by `operand`.
+    /// `and` or `or` where only the truth matters, with each operand
+    /// lowered by `operand` to a `bool`.
     fn bool_op(
         &self,
         b: &ast::ExprBoolOp,
         operand: impl Fn(&Self, &ast::Expr) -> Result<Expr, Error>,
     ) -> Result<Expr, Error> {
-        let op = match b.op {
-            ast::BoolOp::And => LogicOp::And,
-            ast::BoolOp::Or => LogicOp::Or,
-        };
+        let op = logic_op(b.op);
         let (first, rest) = b
             .values
             .split_first()
             .expect("a bool operator has operands");
         let first = operand(self, first)?;
-        let rep = first.rep();
-        // `a and b and c` gives the value of `(a and b) and c`, and
-        // evaluates the same operands.
         rest.iter().try_fold(first, |left, right| {
-            let lowered = operand(self, right)?;
-            if lowered.rep() != rep {
-                return Err(unsupported(b, "operands of two types"));
+            Ok(Expr::logic(op, left, operand(self, right)?))
+        })
+    }
+
+    /// `b`, the `and` or `or` of `expr`, as a value, which is one of the
+    /// operands. The result has the type that the checker gives `expr`.
+    fn bool_value(&self, expr: &ast::Expr, b: &ast::ExprBoolOp) -> Result<Expr, Error> {
+        let op = logic_op(b.op);
+        let (last, init) = b.values.split_last().expect("a bool operator has operands");
+        // `a and b and c` is `a and (b and c)`, which takes the truth of
+        // each operand once, as CPython does.
+        let value = init
+            .iter()
+            .rev()
+            .try_fold(self.expr(last)?, |right, left| {
+                self.logic_value(b, op, self.expr(left)?, right)
+            })?;
+        let rep = value.rep();
+        match self.rep_of(expr_shape(self.model(), expr)) {
+            Some(narrowed) if narrowed != rep && self.holds(rep, narrowed) => Ok(Expr::Narrow {
+                value: Box::new(value),
+                rep: narrowed,
+            }),
+            _ => Ok(value),
+        }
+    }
+
+    /// `left op right` at `b`, whose result holds the left value and the
+    /// right one. The left value that `or` gives is true, so it is not
+    /// `None`.
+    fn logic_value(
+        &self,
+        b: &ast::ExprBoolOp,
+        op: LogicOp,
+        left: Expr,
+        right: Expr,
+    ) -> Result<Expr, Error> {
+        let from = left.rep();
+        let picked = match (op, from) {
+            (LogicOp::Or, Rep::StrOrNone) => Rep::Str,
+            (LogicOp::Or, Rep::ObjectOrNone(class)) => Rep::Object(class),
+            (LogicOp::Or, Rep::ListOrNone(list)) => Rep::List(list),
+            _ => from,
+        };
+        let rep = self.join(picked, right.rep());
+        let value = if picked == from {
+            Expr::LogicLeft(from)
+        } else {
+            Expr::Narrow {
+                value: Box::new(Expr::LogicLeft(from)),
+                rep: picked,
             }
-            Ok(Expr::Logic {
-                op,
-                left: Box::new(left),
-                right: Box::new(lowered),
-            })
+        };
+        let (Some(value), Some(right)) = (self.coerce(value, rep), self.coerce(right, rep)) else {
+            return Err(unsupported(b, "operands of two types"));
+        };
+        Ok(Expr::Logic {
+            op,
+            left: Box::new(left),
+            test: Box::new(self.truth(Expr::LogicLeft(from), b)?),
+            value: Box::new(value),
+            right: Box::new(right),
         })
     }
 
@@ -109,7 +157,7 @@ impl<'a> Lowering<'a, '_> {
                 let right = self.expr(&b.right)?;
                 self.binary(b, b.op, (left, &*b.left), (right, &*b.right))
             }
-            ast::Expr::BoolOp(b) => self.bool_op(b, Self::logic_operand),
+            ast::Expr::BoolOp(b) => self.bool_value(expr, b),
             ast::Expr::If(i) => {
                 let cond = self.truth_of(&i.test)?;
                 let then = self.expr(&i.body)?;
@@ -837,35 +885,6 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// An operand of `and` or `or`, which has to have a truth.
-    fn logic_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
-        let lowered = self.expr(operand)?;
-        match lowered.rep() {
-            Rep::None => Err(unsupported(operand, "the truth of None")),
-            Rep::Uniform => Err(unsupported(operand, "the truth of a union")),
-            Rep::Object(class) | Rep::ObjectOrNone(class)
-                if self.descendants(class).into_iter().any(|class| {
-                    self.method(class, "__bool__").is_some()
-                        || self.method(class, "__len__").is_some()
-                }) =>
-            {
-                Err(unsupported(
-                    operand,
-                    "an operand of and or or with __bool__ or __len__",
-                ))
-            }
-            Rep::Int
-            | Rep::Float
-            | Rep::Bool
-            | Rep::Str
-            | Rep::StrOrNone
-            | Rep::Object(_)
-            | Rep::ObjectOrNone(_)
-            | Rep::List(_)
-            | Rep::ListOrNone(_) => Ok(lowered),
-        }
-    }
-
     /// The operand of an operator of `int`, which may be a `bool`.
     pub(super) fn int_operand(&self, operand: &ast::Expr) -> Result<Expr, Error> {
         self.int_value(self.expr(operand)?, operand)
@@ -911,6 +930,13 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
             operand,
             "an operator on a value that is not a number",
         )),
+    }
+}
+
+fn logic_op(op: ast::BoolOp) -> LogicOp {
+    match op {
+        ast::BoolOp::And => LogicOp::And,
+        ast::BoolOp::Or => LogicOp::Or,
     }
 }
 

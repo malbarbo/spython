@@ -122,27 +122,80 @@ fn and_and_or_of_two_types_take_the_truth_of_each_where_only_the_truth_matters()
     );
 }
 
+/// `and` and `or` give one of the operands, which may have two types,
+/// and take the truth of each operand once.
 #[test]
-fn and_of_operands_of_two_types_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
+fn and_and_or_of_two_types_give_one_of_the_operands() {
+    same_as_cpython(
+        "and_and_or_of_two_types_give_one_of_the_operands",
+        indoc! {"
+            class P:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __bool__(self) -> bool:
+                    print('bool', self.n)
+                    return self.n > 0
+
+                def __repr__(self) -> str:
+                    return f'P({self.n})'
+
+            def ou(s: str | None) -> str:
+                return s or 'vazio'
+
+            def zero(n: int | None) -> int:
+                return n or 0
+
+            def nome(p: P | None) -> P:
+                return p or P(9)
+
             t = True
-            print(t and 1)
-        "}),
-        "operands of two types"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
             n = 0
-            print('a' or n)
-        "}),
-        "operands of two types"
+            print(t and 1, t or 1, 'a' or n, n and 'a', n or 'b')
+            print(print(1) or 1, None and 2.5, 0.0 or None)
+            print(ou(None), ou(''), ou('x'))
+            print(zero(None), zero(0), zero(4))
+            print(nome(None), nome(P(1)))
+            print(P(0) and 1, P(2) and 1, P(0) or 'x', P(3) or 'x')
+            print(P(1) and P(0) and P(2), P(0) or P(-1) or 5)
+            print(1 and P(1) or 'nada')
+            xs = [1]
+            ys: list[int] | None = None
+            print(ys or xs, xs and [2] or ys)
+        "},
     );
+}
+
+/// The `ValueError` of a `__len__` in `and` or `or` points at the whole
+/// operator, as in CPython.
+#[test]
+fn an_error_in_the_truth_of_an_operand_of_and_raises_at_the_operator() {
+    same_as_cpython(
+        "an_error_in_the_truth_of_an_operand_of_and_raises_at_the_operator",
+        indoc! {"
+            class N:
+                def __len__(self) -> int:
+                    return -1
+
+            def f(x: N, y: int) -> int | N:
+                return y and   x    or   3
+
+            print(f(N(), 0))
+            print(f(N(), 1))
+        "},
+    );
+}
+
+#[test]
+fn and_of_a_list_and_another_type_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-        print(print(1) or 1)
-    "}),
-        "the truth of None"
+            xs = [1]
+            print(xs and 1)
+        "}),
+        "operands of two types"
     );
 }
 
