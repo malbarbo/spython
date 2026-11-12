@@ -41,10 +41,7 @@ def insert[T](xs: list[T], i: int, x: T) -> None:
     """Puts `x` before the item of `xs` at `i`, which goes from the end when it is negative. An
     index out of range puts `x` at the start or at the end, as a slice does."""
     n = len(xs)
-    if i < 0:
-        i = max(i + n, 0)
-    elif i > n:
-        i = n
+    i = slice_end(i, n)
     if n == list_capacity(xs):
         grow(xs, n + 1)
     copy_items(xs, i + 1, xs, i, n - i)
