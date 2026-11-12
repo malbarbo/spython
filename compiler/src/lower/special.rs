@@ -184,7 +184,7 @@ impl Lowering<'_, '_> {
         }
         let method = |class, name| self.method_func(class, name).map(|func| (func, false));
         self.dispatch_binary(
-            (left, right, Rep::Bool, site),
+            (name.to_owned(), left, right, Rep::Bool, site),
             &|class| method(class, name),
             (&|class| method(class, reflected), false),
             &|_, _| true,
@@ -209,7 +209,7 @@ impl Lowering<'_, '_> {
     ) -> Result<Expr, Error> {
         let (left_shape, right_shape) = (left.1.clone(), right.1.clone());
         self.dispatch_binary(
-            (left, right, Rep::Bool, site),
+            (format!("{op:?}"), left, right, Rep::Bool, site),
             &|class| self.eq_method(class, op),
             (&|class| self.eq_method(class, op), false),
             &|_, _| true,
@@ -286,7 +286,13 @@ impl Lowering<'_, '_> {
         let reps = [left.rep(), right.rep()];
         let site = self.site(node.range());
         self.dispatch_binary(
-            ((left, None), (right, None), ret, site),
+            (
+                operator_symbol(op, augmented),
+                (left, None),
+                (right, None),
+                ret,
+                site,
+            ),
             &|class| method(class, name),
             (&|class| method(class, reflected), true),
             &|left, right| method(right, reflected) != method(left, reflected),
@@ -681,10 +687,12 @@ impl Lowering<'_, '_> {
     /// the two objects have the same class, as CPython does for an
     /// arithmetic operator. `call` calls a method with an object and the
     /// other operand, and `rest` gives the code that runs when no object
-    /// has a method, with the two operands.
+    /// has a method, with the two operands. `tag` names the operator, and
+    /// the operators of one tag on two objects of the same reps share the
+    /// function.
     fn dispatch_binary(
         &self,
-        (left, right, ret, site): (Operand, Operand, Rep, Site),
+        (tag, left, right, ret, site): (String, Operand, Operand, Rep, Site),
         direct: MethodOf,
         (reflected, arith): (MethodOf, bool),
         first: &dyn Fn(ClassId, ClassId) -> bool,
@@ -720,6 +728,15 @@ impl Lowering<'_, '_> {
             return call(method, left.0, right.0, site);
         }
         let reps = [left.0.rep(), right.0.rep()];
+        // The classes of a uniform operand come from its type, so its
+        // function is not shared.
+        let key = (!reps.contains(&Rep::Uniform)).then_some((tag, reps, ret));
+        let cached = key
+            .as_ref()
+            .and_then(|key| self.dispatches.borrow().get(key).copied());
+        if let Some(func) = cached {
+            return Ok(generated_call(func, vec![left.0, right.0], ret, site));
+        }
         let operand = |i| operand_param(reps, i);
         let is_exact = |i, class| Expr::IsExact {
             value: Box::new(operand(i)),
@@ -775,6 +792,9 @@ impl Lowering<'_, '_> {
         }
         body.extend(rest(operand(0), operand(1))?);
         let func = self.generated(reps.to_vec(), ret, body);
+        if let Some(key) = key {
+            self.dispatches.borrow_mut().insert(key, func);
+        }
         Ok(generated_call(func, vec![left.0, right.0], ret, site))
     }
 

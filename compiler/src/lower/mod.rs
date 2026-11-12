@@ -79,6 +79,7 @@ pub(crate) fn lower(
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
+        dispatches: RefCell::new(HashMap::new()),
         prelude_params: RefCell::new(HashMap::new()),
         types: RefCell::new(Vec::new()),
         raises: Cell::new(false),
@@ -206,6 +207,10 @@ impl<'a, 'db> Unit<'a, 'db> {
     }
 }
 
+/// The operator of a binary function of [`Lowering::dispatches`], with the
+/// reps of its operands and of its result.
+type DispatchKey = (String, [Rep; 2], Rep);
+
 struct Lowering<'a, 'db> {
     /// The file of the code that the lowering is in.
     unit: Cell<&'a Unit<'a, 'db>>,
@@ -245,6 +250,10 @@ struct Lowering<'a, 'db> {
     /// that a call reached, with the names of its type variables, by its
     /// file and its name.
     prelude_params: RefCell<HashMap<(File, &'a str), Rc<PreludeParams>>>,
+    /// The function that tests the classes of two objects for a binary
+    /// operator, by the operator, the reps of the operands and the rep of
+    /// the result.
+    dispatches: RefCell<HashMap<DispatchKey, FuncId>>,
     /// The rep of each type variable of the copy of a generic function of
     /// the prelude whose signature or body the lowering is in.
     types: RefCell<Vec<(String, TypeArg)>>,
