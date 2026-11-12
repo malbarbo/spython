@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, StorageType, ValType};
 
 use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, ModuleState, TypeIdx};
-use crate::emit::runtime::host::Host;
+use crate::emit::runtime::host::{self, Host};
 
 /// The most code points in a `str`, the longest array that an `i32`
 /// length gives.
@@ -55,6 +55,11 @@ pub(in crate::emit) enum StrRepr {
         /// to the buffer of its captured output, and empties the buffer. A
         /// program that captures its output has it.
         captured: Option<FuncIdx>,
+        /// `(func (param (ref $Str)) (result i64))`, the `hash` of the
+        /// `str`, which the module gets at the first use.
+        hash: Option<FuncIdx>,
+        /// The address of [`Host::free`].
+        free: i32,
     },
 }
 
@@ -80,6 +85,8 @@ impl StrRepr {
             captured: host
                 .capture
                 .map(|capture| add_capture(m, array, capture.char)),
+            hash: None,
+            free: host.free,
         }
     }
 
@@ -256,6 +263,18 @@ impl StrRepr {
         match self {
             StrRepr::Ucs4 { array, .. } => {
                 f.ins().array_get(*array);
+            }
+        }
+    }
+
+    /// Pops a `str` and pushes its `hash`, an `i64`.
+    pub fn hash(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        match self {
+            StrRepr::Ucs4 {
+                array, hash, free, ..
+            } => {
+                let hash = *hash.get_or_insert_with(|| add_hash(m, *array, *free));
+                f.ins().call(hash);
             }
         }
     }
@@ -469,6 +488,50 @@ fn add_write(m: &mut ModuleState, host: &Host, array: TypeIdx) -> FuncIdx {
     f.end();
     f.end();
     f.ins().call(host.end_write);
+    m.add_func(ty, f.finish())
+}
+
+/// The function that gives the `hash` of a `str`. It copies the code
+/// points to the free memory at `free`, 4 bytes each, and `str_hash` reads
+/// them there.
+fn add_hash(m: &mut ModuleState, array: TypeIdx, free: i32) -> FuncIdx {
+    let builtin = m.builtin("str_hash");
+    let ty = m.func_type(&[array.ref_to(false)], &[ValType::I64]);
+    let mut f = FuncState::new(1);
+    let s = f.param(0);
+    let (len, i) = (f.local(ValType::I32), f.local(ValType::I32));
+    f.ins()
+        .local_get(s)
+        .array_len()
+        .local_tee(len)
+        .i32_const(2)
+        .i32_shl();
+    host::reserve(&mut f, free);
+    let done = f.block(BlockType::Empty);
+    let again = f.loop_(BlockType::Empty);
+    f.ins().local_get(i).local_get(len).i32_ge_u();
+    f.br_if(done);
+    f.ins()
+        .local_get(i)
+        .i32_const(2)
+        .i32_shl()
+        .local_get(s)
+        .local_get(i)
+        .array_get(array)
+        .i32_store(MemArg {
+            offset: u64::try_from(free).expect("a positive address"),
+            align: 2,
+            target: MemArgTarget::Memory(0),
+            ordering: None,
+        })
+        .local_get(i)
+        .i32_const(1)
+        .i32_add()
+        .local_set(i);
+    f.br(again);
+    f.end();
+    f.end();
+    f.ins().i32_const(free).local_get(len).call(builtin);
     m.add_func(ty, f.finish())
 }
 

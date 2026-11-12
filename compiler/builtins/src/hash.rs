@@ -2,6 +2,10 @@
 //!
 //! The notice of CPython is in `NOTICE`.
 
+use core::hash::Hasher;
+
+use siphasher::sip::SipHasher13;
+
 /// The number of bits of the modulus of the hash of a number.
 const BITS: u32 = 61;
 /// The hash of a number is its value modulo this prime, `2^61 - 1`.
@@ -46,6 +50,45 @@ pub fn float(x: f64) -> i64 {
     let e = e.rem_euclid(BITS as i32) as u32;
     h = ((h << e) & MODULUS) | h >> (BITS - e);
     let h = if negative { h.wrapping_neg() } else { h } as i64;
+    if h == -1 { -2 } else { h }
+}
+
+/// The hash of the `str` of the `len` code points at `code_points`, each
+/// in 4 bytes, the least significant first.
+///
+/// # Safety
+///
+/// `code_points` has to point to `4 * len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn str_hash(code_points: *const u8, len: usize) -> i64 {
+    let bytes = unsafe { core::slice::from_raw_parts(code_points, 4 * len) };
+    str(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c)))
+}
+
+/// The hash of the `str` of `code_points`, as `unicode_hash` of
+/// `Objects/unicodeobject.c` gives it with `PYTHONHASHSEED=0`. CPython
+/// takes the SipHash-1-3 of the bytes of its compact form, with 1, 2 or 4
+/// bytes per code point as the largest one needs, and a key of zeros. An
+/// empty `str` has 0.
+pub fn str(code_points: impl Iterator<Item = u32> + Clone) -> i64 {
+    let Some(max) = code_points.clone().max() else {
+        return 0;
+    };
+    let mut hasher = SipHasher13::new_with_keys(0, 0);
+    for c in code_points {
+        if max < 0x100 {
+            hasher.write(&[c as u8]);
+        } else if max < 0x10000 {
+            hasher.write(&(c as u16).to_le_bytes());
+        } else {
+            hasher.write(&c.to_le_bytes());
+        }
+    }
+    let h = hasher.finish() as i64;
     if h == -1 { -2 } else { h }
 }
 

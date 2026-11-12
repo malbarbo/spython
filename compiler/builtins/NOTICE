@@ -1,7 +1,7 @@
 The builtins in this crate go into every module that the compiler emits.
 Some of them are ports of code from the projects below, others call the
-crates `libm`, `fast-float2` and `ryu`, and others read tables made from
-the Unicode Character Database. Their licences ask for the notices that
+crates `libm`, `fast-float2`, `ryu` and `siphasher`, and others read
+tables made from the Unicode Character Database. Their licences ask for the notices that
 follow.
 
 musl
@@ -175,6 +175,17 @@ SHALL THE COPYRIGHT HOLDERS OR ANYONE DISTRIBUTING THE SOFTWARE BE LIABLE
 FOR ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+The siphasher crate
+===================
+
+`src/hash.rs` gives the `hash` of a `str` with the `siphasher` crate,
+version 1, of Frank Denis and the Rust Project Developers. The crate is
+under the MIT licence or the Apache licence 2.0, and this project takes the
+MIT licence of musl above.
+
+Copyright 2012-2016 The Rust Project Developers.
+Copyright 2016-2026 Frank Denis.
 
 Unicode Character Database
 ==========================

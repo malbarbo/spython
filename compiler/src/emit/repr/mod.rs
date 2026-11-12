@@ -1384,6 +1384,7 @@ impl Reprs {
                 let builtin = m.builtin("f64_hash");
                 f.ins().call(builtin);
             }
+            Rep::Str => self.str.hash(m, f),
             _ => unreachable!("the hash of {rep:?}"),
         }
     }

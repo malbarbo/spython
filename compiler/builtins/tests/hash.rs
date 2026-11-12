@@ -128,3 +128,40 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 }
+
+/// Compares the hash of a `str` with CPython on `str`s of 1, 2 and 4 bytes
+/// per code point, of each length up to 40, which covers each length of
+/// the last block of SipHash.
+#[test]
+fn the_hash_of_a_str_matches_cpython() {
+    let mut random = SplitMix64(2);
+    let mut strs = vec![String::new(), "a".to_owned(), "it's".to_owned()];
+    for max in [0x7f, 0xff, 0xffff, 0x10ffff] {
+        for len in 0..40 {
+            let s: String = (0..len)
+                .filter_map(|_| char::from_u32((random.next() % (max + 1)) as u32))
+                .collect();
+            strs.push(s);
+        }
+    }
+    let inputs: Vec<String> = strs
+        .iter()
+        .map(|s| {
+            s.chars()
+                .map(|c| format!("{:x}", c as u32))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    let want = cpython(
+        "import sys\n\
+         for line in sys.stdin:\n    \
+             print(hash(''.join(chr(int(c, 16)) for c in line.split())))",
+        inputs.iter().map(|line| format!("{line}\n")).collect(),
+    );
+    let got: Vec<i64> = strs
+        .iter()
+        .map(|s| builtins::hash::str(s.chars().map(|c| c as u32)))
+        .collect();
+    assert_same(&inputs, &got, &want);
+}

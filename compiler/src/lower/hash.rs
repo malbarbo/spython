@@ -10,7 +10,9 @@ impl Lowering<'_, '_> {
     /// The `hash` of `value` at `node`, as CPython gives it.
     pub(super) fn hash_value(&self, node: &impl Ranged, value: Expr) -> Result<Expr, Error> {
         match value.rep() {
-            Rep::Int | Rep::Bool | Rep::Float | Rep::None => Ok(Expr::Hash(Box::new(value))),
+            Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str => {
+                Ok(Expr::Hash(Box::new(value)))
+            }
             _ => Err(unsupported(node, "the hash of this type")),
         }
     }
