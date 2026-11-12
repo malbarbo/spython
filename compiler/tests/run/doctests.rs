@@ -2,13 +2,13 @@
 //! here in CPython.
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use engine::Level;
 use engine::check::check_source;
 use indoc::indoc;
 
-use super::{deno, output_within_limit, path, python_program, wasmtime};
+use super::{cpython_command, deno, output_within_limit, path, wasmtime};
 
 /// The runner of the `test` command of spython.
 const RUNNER: &str = include_str!("../../../engine/src/doctest_runner.py");
@@ -99,7 +99,7 @@ pub(super) fn runner(name: &str, file: &Path, source: &str, verbose: bool) -> Ou
     );
     let driver_path = path(name, "runner.py");
     std::fs::write(&driver_path, driver).expect("the driver written to disk");
-    let mut command = Command::new(python_program());
+    let mut command = cpython_command();
     command.arg(&driver_path);
     if verbose {
         command.arg("--verbose");

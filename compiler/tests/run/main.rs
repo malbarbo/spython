@@ -128,8 +128,17 @@ fn python(file: &Path) -> Output {
 
 /// The command that runs the program in `file`, as [`python`] says.
 fn python_command(file: &Path) -> Command {
-    let mut command = Command::new(python_program());
+    let mut command = cpython_command();
     command.arg(file);
+    command
+}
+
+/// A command that runs [`python_program`] with the key of `hash` fixed, so
+/// the order of a `set` of `str` is the same in each run and in the
+/// compiled program.
+fn cpython_command() -> Command {
+    let mut command = Command::new(python_program());
+    command.env("PYTHONHASHSEED", "0");
     command
 }
 
