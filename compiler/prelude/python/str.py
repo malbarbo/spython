@@ -554,10 +554,7 @@ def is_space(c: int) -> bool:
 def center(s: str, width: int, fillchar: str | None = None) -> str:
     fill = fill_code_point(fillchar)
     margin = width - len(s)
-    left = margin // 2
-    # CPython adds `margin & width & 1`.
-    if margin % 2 == 1 and width % 2 == 1:
-        left += 1
+    left = margin // 2 + (margin & width & 1)
     return pad(s, left, margin - left, fill)
 
 
