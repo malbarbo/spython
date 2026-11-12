@@ -33,10 +33,9 @@ Nenhum dos dois tem a representação uniforme que herança, uniões,
 tudo. Três revisões adversariais (técnica, de escopo e de risco)
 confirmaram que recomeçar sai mais barato.
 
-Os modelos vêm de três projetos vizinhos. Do jwonder vêm os objetos: o
-campo de classe na posição 0, os campos herdados como prefixo, as vtables
-como structs imutáveis de `funcref` e o cuidado com o colapso de tipos de
-mesma forma. Do backend Gleam vêm os erros a evitar, segundo a revisão
+Os modelos vêm de três projetos vizinhos. Do jwonder vêm os objetos: os
+campos herdados como prefixo, o rec group único, a chamada direta quando
+só um corpo é possível e o cuidado com o colapso de tipos de mesma forma. Do backend Gleam vêm os erros a evitar, segundo a revisão
 dele: identidade pelo nome impresso, um gerador com dezenas de campos, um
 arquivo de 6 mil linhas e decisões repetidas em vários lugares. Do sjava
 vem o processo, com as regras escritas antes do código e o plano revisado.
@@ -205,8 +204,8 @@ vêm da API pública do `ty`, sem mudança no fork.
 
 O `ty` estreita o tipo de uma variável pela atribuição. Depois de
 `q: Ponto = p`, ele diz que `q` é `Ponto3`. A representação e o despacho
-usam o tipo declarado, por `slot_shape`, e a chamada de método passa pela
-vtable.
+usam o tipo declarado, por `slot_shape`, e a chamada de método passa pelo
+despachante da classe declarada.
 
 O `ty` lê a anotação `float` como `int | float`. O gancho no fork desliga
 isso no código do aluno, e mantém nos stubs só nas anotações de parâmetro.
@@ -228,22 +227,23 @@ representação, como `i31.get_s`, `ref.i31` e `array.new_data`.
 
 ```
 compiler/src/emit/repr/
-  mod.rs      Reprs, a fachada
-  uniform.rs  vt_of, eq, hash, format e truthy, que passam por todos os tipos
-  object.rs   $Object, $Class, $VT, $Bool e $Undef
+  mod.rs      Reprs, a fachada, com os despachos de um valor uniforme
+  uniform.rs  as caixas de int, float e bool num (ref null eq)
   int.rs      enum IntRepr { I31 }
   float.rs    enum FloatRepr { F64 }
-  numeric.rs  as pontes entre int e float
   str.rs      enum StrRepr { Ucs4 }
+  list.rs     as listas, uma por tipo de item
+compiler/src/emit/layout.rs
+              os structs das classes, com o tipo exato de cada uma
 compiler/src/emit/runtime/
   exc.rs      $Exc, $Frame, a profundidade das chamadas e o traceback
   host.rs     a saída e o fim do programa, pelo host
 ```
 
-O layout das classes do aluno, com os structs, os slots da vtable e os
-globais de `$Class`, sai da tabela de classes da IR e fica em
-`emit/layout.rs`, como no jwonder. O significado de cada slot é decidido
-no lowering, e o número dele na emissão.
+O layout das classes do aluno sai da tabela de classes da IR e fica em
+`emit/layout.rs`, como no jwonder. Uma subclasse repete os campos da base
+como prefixo e é subtipo dela, e cada classe instanciada que tem
+subclasses ganha um tipo exato `final` com os mesmos campos.
 
 Uma representação nova de `int`, de `float` ou de `str` muda só o arquivo
 do tipo, e também `numeric.rs` quando o tipo é `int` ou `float`.
@@ -269,12 +269,12 @@ no CPython. Dentro de uma função, a leitura de uma global e a chamada de
 outra função sempre testam a flag, porque a função pode rodar antes da
 atribuição ou do `def`.
 
-A verdade de um valor é decidida pelo tipo estático: um `int` é
-verdadeiro quando não é 0, e um `str` quando não é vazio. `and` e `or`
-com operandos do mesmo tipo devolvem um dos operandos. Numa condição e
-no operando de `not`, só a verdade importa, e os operandos podem ter
-tipos diferentes. O despacho pela vtable só entra com as uniões e com o
-`__bool__` e o `__len__` das classes.
+A verdade de um valor é decidida pelo tipo estático. Um `int` é
+verdadeiro quando não é 0, um `str` quando não é vazio, e `None` é falso.
+Um objeto chama o `__bool__` da classe, ou na falta dele o `__len__`.
+Uma união testa o tipo do valor. `and` e `or` devolvem um dos operandos,
+que podem ter tipos diferentes, e tomam a verdade de cada operando uma
+vez, como o CPython.
 
 `+` e `-` de `int` rodam em `i32` e testam os 31 bits. `*` roda em `i64`,
 porque `65536 * 65536` dá 0 em `i32` e passaria no teste. `-x`, `abs` e
@@ -295,51 +295,16 @@ O(1). A conversão para UTF-8 só acontece na fronteira com o host, por
 strings do JS não tem bytes. Os caracteres isolados vêm de uma tabela,
 para `s[i]` não alocar.
 
-Os tipos do runtime ficam num único rec group.
-
-```wasm
-(rec
-  (type $Class (struct
-    (field $name (ref $Raw)) (field $module (ref $Raw))
-    (field $depth i32) (field $ancestors (ref $Classes))))
-  (type $Classes (array (ref $Class)))
-  (type $VT (sub (struct
-    (field $class (ref $Class))
-    (field $repr (ref $Repr)) (field $str (ref $Repr))
-    (field $eq (ref $Eq)) (field $hash (ref $Hash)))))
-  (type $Repr (func (param (ref null eq)) (result (ref $Str))))
-  (type $Eq (func (param (ref null eq) (ref null eq)) (result i32)))
-  (type $Hash (func (param (ref null eq)) (result i64)))
-  (type $Object (sub (struct (field $vt (ref $VT)))))
-  ;; $Str e $Raw vêm de StrRepr, e $Float vem de FloatRepr
-  (type $Bool (sub final $Object (struct (field $vt (ref $VT)) (field $value i32))))
-  (type $Undef (sub final $Object (struct (field $vt (ref $VT)))))
-  (type $Values (array (mut (ref null eq))))
-  (type $Exc (sub $Object (struct
-    (field $vt (ref $VT)) (field $args (ref $Values))
-    (field $tb (mut (ref null $Frame))) (field $ctx (mut (ref null $Exc))))))
-  (type $Frame (struct (field $site i32)
-                       (field $next (ref null $Frame)))))
-```
-
-Todo valor do heap descende de `$Object`, com a vtable no campo 0. Uma
-classe do usuário é um subtipo com os campos herdados como prefixo, e a
-vtable é uma struct imutável de `funcref`. `$Class` não tem vtable nem
-`$Str`, e assim os tipos não formam ciclo. O nome é o array cru, e
-`__name__` cria a `$Str` quando alguém pede. `ancestors` guarda só os
-ancestrais estritos, e `isinstance(x, K)`, com `c` a classe de `x`, é
-`c == K || (c.depth > K.depth && c.ancestors[K.depth] == K)`. Um
-`ref.test` contra um tipo do usuário nunca decide `isinstance`, porque
-tipos de mesma forma colapsam num só tipo wasm.
-
-`vt_of` devolve a vtable de qualquer valor uniforme. `null` dá a de
-`NoneType`, um `i31ref` dá a de `int`, um `$Object` dá o próprio campo, e
-uma `$Class` dá a de `type`. `type`, `isinstance`, `except`, `print`,
-`dict` e `set` passam por ela. `eq` e `hash` tratam a torre numérica antes
-da vtable, e `{1: 'a', True: 'b', 1.0: 'c'}` é `{1: 'c'}`. O hash dos
-números é o do CPython, módulo 2^61 − 1, inclusive o de `float`, porque a
-ordem de um `set` aparece no `print`. `format` e as f-strings passam por
-`int.__format__` e `float.__format__`.
+Os tipos do runtime e das classes ficam num único rec group, com cada
+classe depois da base. O objeto não tem cabeçalho, vtable nem id de
+classe. Uma chamada de método com um corpo só possível é direta. Com mais
+de um, um despachante por par (método, classe estática) testa o tipo
+exato do objeto com uma cadeia de `ref.test` e faz a chamada direta do
+corpo da classe. `isinstance(x, C)` é a mesma cadeia sobre as classes que
+descendem de `C`, e nenhum `ref.test` nem `ref.cast` nomeia um tipo sem
+`final`. O `print`, o `repr`, o `==` e a verdade de um valor uniforme
+testam os tipos builtin e depois os tipos exatos das classes. O `hash`
+vem com o `dict` e o `set`, na fatia 6b.
 
 Uma variável capturada e reatribuída fica numa célula. Uma closure é um
 par `$closure` com um `$code` por aridade, e o código é um campo imutável.
@@ -438,9 +403,9 @@ em Python, a partir da fatia 1. Os algoritmos numéricos, como o `repr` de
 e ligado ao módulo, como no gleam do sgleam. O [plano dos builtins
 numéricos](plano-builtins-numericos.md) descreve as três camadas.
 
-As classes, as vtables, os singletons e os literais ficam em globais
-`(mut (ref null T))`, preenchidos pela função de start e lidos com
-`ref.as_non_null`. Um global com alocação no inicializador custa caro no
+Os membros de Enum, as classes das exceções, os singletons e os literais
+ficam em globais `(mut (ref null T))`, preenchidos pela função de start e
+lidos com `ref.as_non_null`. Um global com alocação no inicializador custa caro no
 wasmtime. 100 globais `$Str` levaram 0,41 s para compilar, contra 0,09 s
 pelo start, e 400 levaram 15 s, contra 0,21 s. Um literal `str` vem de um
 segmento de dados por `array.new_data`, porque o V8 limita
@@ -465,7 +430,8 @@ uniformes guardados no runtime. As funções de módulo ficam numa tabela de
 É a busca tardia do Python. Com ela, `h = g` guardado antes de redefinir
 `f` faz `h()` chamar o `f` novo, e cada entrada compila só o próprio
 código. Uma classe redefinida é uma classe nova, e os objetos antigos
-continuam usáveis pela vtable deles. O checker do REPL rejeita a
+continuam usáveis por um id de classe imutável e pela tabela de funções,
+que o despachante de hoje não tem. O checker do REPL rejeita a
 redefinição de uma função com outra assinatura.
 
 O `Store` do wasmtime não libera instâncias, então na CLI a sessão do REPL
@@ -598,7 +564,25 @@ corpus.
   dataclass, o módulo tem 63,4 KiB. Cada tipo de item a mais custa então
   cerca de 14 KiB.
 - **6. Nível 4.** Classes com herança, `dict`,
-  `set`, compreensões, lambda e closures. É a fatia de maior risco.
+  `set`, compreensões, lambda e closures. É a fatia de maior risco. O
+  [plano da fatia](plano-fatia-6-classes.md) a divide em 6a, 6b e 6c. A
+  6a foi feita em 12/nov/2026. O compilador aceita classes com métodos,
+  herança simples com `super()`, `object` como tipo, `isinstance` e os
+  métodos especiais de operadores, de `len`, da verdade, de `in` e de
+  `[]`, com o método refletido de uma subclasse antes do direto, como no
+  CPython. A forma do jwonder, com uma vtable no campo 0, saiu pela medida
+  do plano da fatia, em que a cadeia de `ref.test` contra tipos exatos
+  vence a vtable no V8 com 2 a 16 corpos. Um nome com uma segunda `def`
+  chama a função da última `def` que rodou. Uma segunda `class` vale no
+  código do módulo, e uma chamada dela numa função é `Unsupported`, porque
+  o `ty` vê ali as duas classes. Um laço de 10^7 chamadas de um método com
+  quatro corpos, numa base e três subclasses, dá um módulo de 23,9 KiB e
+  mede o tempo do processo inteiro abaixo.
+
+  | Caso | wasmtime | deno | python3 |
+  |---|---:|---:|---:|
+  | 10^7 chamadas de um método com quatro corpos | 0,37 s | 0,37 s | 2,89 s |
+
 - **7. Imagens e programas interativos.**
 - **8. Nível 5 por partes**, até o corpus passar. Depois os inteiros
   grandes e a saída do RustPython.
@@ -647,8 +631,6 @@ O hello world leva hoje 141 ms no `main`, com o checker.
 - O tempo de compilar o runtime junto com cada programa. Se ele pesar na
   CLI, o runtime vira um módulo separado, com o `.cwasm` em cache, antes
   do REPL.
-- O despacho direto quando a classe do receptor é conhecida, por causa do
-  custo do `call_ref` no wasmtime.
 - O que mostrar no Safari, que não dá offsets na pilha. O traceback
   montado no desenrolar não depende deles, mas o trap de Stop e o estouro
   de pilha dependem do host.
