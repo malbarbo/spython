@@ -1366,13 +1366,19 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
         let class = receiver.rep().class().expect("an object");
+        let func = self.method_slot(class, method);
+        self.call_with(call, self.not_none(receiver, text, attr), method, func)
+    }
+
+    /// The function that a call of `method` through an object of `class`
+    /// calls, which finds the method of the exact class of the object.
+    pub(super) fn method_slot(&self, class: ClassId, method: Method<'a>) -> FuncId {
         let body = self.funcs.borrow().get(method.func()).clone();
         let params = std::iter::once(Rep::Object(class))
             .chain(body.params.iter().skip(1).copied())
             .collect();
         let key = Key::Method(method.def.name.to_string());
-        let func = self.slot(class, key, params, body.ret, body.defaults.clone());
-        self.call_with(call, self.not_none(receiver, text, attr), method, func)
+        self.slot(class, key, params, body.ret, body.defaults.clone())
     }
 
     /// The call `call` of `func`, a function with the parameters of
