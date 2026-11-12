@@ -21,6 +21,7 @@ mod float;
 mod functions;
 mod imports;
 mod int;
+mod isinstance;
 mod list;
 mod loops;
 mod math;

@@ -156,6 +156,9 @@ impl<'a> Lowering<'a, '_> {
         }
         let narrowed = match expr_shape(self.model(), node) {
             Some(Shape::None) => Rep::None,
+            // The checker gives an intersection, as `object & ~bool`, after
+            // a test that fails, and the rep of the variable holds it.
+            Some(Shape::Other(_)) => rep,
             shape => self
                 .rep_of(shape)
                 .ok_or_else(|| unsupported(node, "a variable of this type"))?,

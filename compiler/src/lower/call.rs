@@ -13,7 +13,7 @@ use super::class::generated_call;
 use super::expr::float_value;
 use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Expr, MinMaxOp, Place, Rep, Site};
+use crate::ir::{Binding, Expr, MinMaxOp, Place, Rep, Site};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -324,6 +324,73 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// `isinstance(x, t)` of a class of the program, or of `int`, `float`,
+    /// `bool`, `str`, `list` or `object`.
+    pub(super) fn isinstance(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let ([value, class], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
+            return Err(unsupported(call, "this call of isinstance"));
+        };
+        let lowered = self.expr(value)?;
+        let from = lowered.rep();
+        let Some(Shape::Class(id)) = expr_shape(self.model(), class) else {
+            return Err(unsupported(class, "isinstance with this class"));
+        };
+        let (rep, check) = if is_builtins(self.model().db(), id.file) {
+            let rep = match id.name.as_str() {
+                "object" => Some(from),
+                // A `bool` is an `int`, which a value narrowed to `int`
+                // would no longer write as `True`.
+                "int" if self.is_object_shape(value) => {
+                    return Err(unsupported(call, "isinstance of an object with int"));
+                }
+                "int" => instance_of(from, Rep::Int, &[Rep::Bool]),
+                "float" => instance_of(from, Rep::Float, &[]),
+                "bool" => instance_of(from, Rep::Bool, &[]),
+                "str" => instance_of(from, Rep::Str, &[]),
+                "list" => match from {
+                    Rep::List(_) => Some(from),
+                    Rep::ListOrNone(list) => Some(Rep::List(list)),
+                    _ => None,
+                },
+                _ => return Err(unsupported(class, "isinstance with this class")),
+            };
+            (rep, None)
+        } else {
+            let ast::Expr::Name(name) = class else {
+                return Err(unsupported(class, "isinstance with this class"));
+            };
+            let Some(target) = self.classes.borrow().ids.get(&id).copied() else {
+                return Err(unsupported(class, "isinstance with this class"));
+            };
+            let rep = match from {
+                Rep::Object(class) if self.descends(class, target) => Some(from),
+                Rep::ObjectOrNone(class) if self.descends(class, target) => {
+                    Some(Rep::Object(class))
+                }
+                Rep::Object(class) | Rep::ObjectOrNone(class) if self.descends(target, class) => {
+                    Some(Rep::Object(target))
+                }
+                Rep::Uniform => Some(Rep::Object(target)),
+                _ => None,
+            };
+            let check = self
+                .global_check(name)?
+                .map(|check| (Binding::Class(target), check));
+            (rep, check)
+        };
+        Ok(Expr::IsInstance {
+            value: Box::new(lowered),
+            rep,
+            check,
+        })
+    }
+
+    /// Returns `true` if the checker gives `node` the type `object`, `false`
+    /// otherwise.
+    fn is_object_shape(&self, node: &ast::Expr) -> bool {
+        matches!(expr_shape(self.model(), node), Some(Shape::Instance(class, _)) if self.is_object(&class))
+    }
+
     /// `float()`, which is `0.0`, or `float(x)` of a number.
     pub(super) fn float(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         match (&*call.arguments.args, &*call.arguments.keywords) {
@@ -477,6 +544,18 @@ impl<'a> Lowering<'a, '_> {
             _ => return None,
         };
         is_builtins(self.model().db(), file).then_some(name)
+    }
+}
+
+/// The rep that [`Expr::IsInstance`] tests for a value of `from` and the
+/// builtin type of the values of `rep`, whose values are also the values
+/// of `others`.
+fn instance_of(from: Rep, rep: Rep, others: &[Rep]) -> Option<Rep> {
+    match from {
+        _ if from == rep || others.contains(&from) => Some(from),
+        Rep::Uniform => Some(rep),
+        Rep::StrOrNone if rep == Rep::Str => Some(rep),
+        _ => None,
     }
 }
 

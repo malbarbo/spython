@@ -175,6 +175,7 @@ impl<'a> Lowering<'a, '_> {
                 Some("pow") => self.pow(call),
                 Some("round") => self.round(call),
                 Some("bool") => self.bool(call),
+                Some("isinstance") => self.isinstance(call),
                 Some("float") => self.float(call),
                 Some("int") => self.int(call),
                 Some("str") => self.str(call),

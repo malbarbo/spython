@@ -667,6 +667,24 @@ impl Reprs {
         }
     }
 
+    /// Pops a value of `from`, a union, and pushes the `bool` of whether it
+    /// is a value of `to`, as `isinstance` finds. A null is no object, and
+    /// a `bool` is an `int`.
+    pub fn is_instance(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
+        match (from, to) {
+            (Rep::Uniform, Rep::Int) => {
+                let bool = self.uniform.box_type(m, Rep::Bool);
+                let value = f.temp(self.uniform.val_type());
+                f.ins().local_tee(value);
+                self.has(m, f, from, to);
+                f.ins().local_get(value).ref_test(bool).i32_or();
+                f.free(value);
+            }
+            (Rep::Uniform, Rep::Object(class)) => self.test_class(f, class, false),
+            _ => self.has(m, f, from, to),
+        }
+    }
+
     /// The classes that are `class` or descend from it.
     fn descendants(&self, class: ClassId) -> Vec<ClassId> {
         (0..self.layout.classes())

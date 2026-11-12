@@ -1406,6 +1406,25 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.is_exact(f, *class);
             }
+            Expr::IsInstance { value, rep, check } => {
+                self.expr(f, value);
+                if let Some((binding, check)) = check {
+                    self.bound(f, *binding);
+                    self.raise_if_undefined(f, check);
+                }
+                let from = value.rep();
+                match rep {
+                    Some(rep) if *rep != from => {
+                        self.reprs.is_instance(&mut self.m, f, from, *rep);
+                    }
+                    _ => {
+                        if from != Rep::None {
+                            f.ins().drop();
+                        }
+                        f.ins().i32_const(i32::from(rep.is_some()));
+                    }
+                }
+            }
             Expr::AsExact { value, class } => {
                 self.expr(f, value);
                 self.reprs.as_exact(f, *class);

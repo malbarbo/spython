@@ -408,6 +408,18 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         class: ClassId,
     },
+    /// Whether `value` is an instance of a type, as a `bool`. `rep` is the
+    /// rep of `value`, whose values are all of the type, one of the types of
+    /// the union that `value` has, or `None` when no value of the rep of
+    /// `value` is of the type. A test of an object finds no object in a
+    /// null, and a test of an `int` finds a `bool` too. A read of the class
+    /// before its `class` statement raises the error of `check`, after
+    /// `value` runs.
+    IsInstance {
+        value: Box<Expr>,
+        rep: Option<Rep>,
+        check: Option<(Binding, Check)>,
+    },
     /// An object that [`Expr::IsExact`] finds of `class`, as a value of the
     /// class.
     AsExact {
@@ -1293,6 +1305,7 @@ impl Expr {
             | Expr::IsNone(_)
             | Expr::Is(..)
             | Expr::IsExact { .. }
+            | Expr::IsInstance { .. }
             | Expr::CodePointIs { .. }
             | Expr::IsClose { .. }
             | Expr::Truth(_)
