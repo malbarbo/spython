@@ -339,6 +339,15 @@ pub(crate) enum Expr {
         right: Box<Expr>,
         site: Site,
     },
+    /// `&`, `|` or `^` on two `int`s, or on two `bool`s when `rep` is
+    /// [`Rep::Bool`]. The result of two values of 31 bits fits in 31 bits,
+    /// so it raises nothing.
+    Bits {
+        op: BitOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        rep: Rep,
+    },
     /// An `int` read as a `float`, as an operand of an operator of `float`.
     IntAsFloat(Box<Expr>),
     /// `+`, `-` or `*` on two `float`s, which raises nothing.
@@ -1198,6 +1207,13 @@ pub(crate) enum ArithOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BitOp {
+    And,
+    Or,
+    Xor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FloatOp {
     Add,
     Sub,
@@ -1384,7 +1400,8 @@ impl Expr {
             | Expr::Expect { rep, .. }
             | Expr::Item { rep, .. }
             | Expr::ListIndex { rep, .. }
-            | Expr::Field { rep, .. } => *rep,
+            | Expr::Field { rep, .. }
+            | Expr::Bits { rep, .. } => *rep,
             Expr::Member { class, .. }
             | Expr::New { class, .. }
             | Expr::Empty(class)

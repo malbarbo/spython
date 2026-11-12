@@ -35,6 +35,27 @@ fn a_bool_is_an_int_in_an_operator() {
 }
 
 #[test]
+fn the_bit_operators_of_int_follow_python() {
+    same_as_cpython(
+        "the_bit_operators_of_int_follow_python",
+        indoc! {"
+            x = 12
+            y = -5
+            print(x & 10, x | 3, x ^ 5, y & 7, y | 2, y ^ -1, x & y)
+            print(1073741823 | -1073741824, -1073741824 & -1, 1073741823 ^ -1)
+            print(True & False, True | False, True ^ True, True & 3, 6 | False)
+            z = 7
+            z &= 5
+            z |= 8
+            z ^= 1
+            b = True
+            b &= False
+            print(z, b)
+        "},
+    );
+}
+
+#[test]
 fn the_comparisons_of_int_give_a_bool() {
     same_as_cpython(
         "the_comparisons_of_int_give_a_bool",

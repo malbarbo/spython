@@ -11,7 +11,7 @@ use crate::cpython::{
 };
 use crate::emit::module::{FuncIdx, FuncState, Ins, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
-use crate::ir::{ArithOp, Choice, CmpOp};
+use crate::ir::{ArithOp, BitOp, Choice, CmpOp};
 
 const MIN: i64 = -(1 << 30);
 const MAX: i64 = (1 << 30) - 1;
@@ -181,6 +181,20 @@ impl IntRepr {
                     ArithOp::Mod => modulo,
                 };
                 f.ins().call(*func);
+            }
+        }
+    }
+
+    /// Pops two `int`s, or two `bool`s, and pushes the result of `op`.
+    pub fn bits(&self, f: &mut FuncState, op: BitOp) {
+        match self {
+            IntRepr::I31 { .. } => {
+                let mut ins = f.ins();
+                match op {
+                    BitOp::And => ins.i32_and(),
+                    BitOp::Or => ins.i32_or(),
+                    BitOp::Xor => ins.i32_xor(),
+                };
             }
         }
     }

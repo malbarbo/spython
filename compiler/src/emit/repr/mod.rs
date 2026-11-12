@@ -21,7 +21,7 @@ use crate::cpython::{
     Message, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
-    ArithOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, ListId,
+    ArithOp, BitOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, ListId,
     ListType, Literal, MathFunc, MathFunc2, Rep, SiteFrame, UserClass,
 };
 use float::FloatRepr;
@@ -938,6 +938,11 @@ impl Reprs {
     /// Pops two `int`s and pushes the result of `op`.
     pub fn int_arith(&self, f: &mut FuncState, op: ArithOp) {
         self.int.arith(f, op);
+    }
+
+    /// Pops two `int`s, or two `bool`s, and pushes the result of `op`.
+    pub fn int_bits(&self, f: &mut FuncState, op: BitOp) {
+        self.int.bits(f, op);
     }
 
     /// Pops an `int` and pushes its absolute value.

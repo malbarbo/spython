@@ -7,7 +7,9 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 use super::class::generated_call;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ArithOp, ClassId, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
+use crate::ir::{
+    ArithOp, BitOp, ClassId, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep,
+};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -894,6 +896,24 @@ impl<'a> Lowering<'a, '_> {
             _ => {}
         }
         let floats = left.rep() == Rep::Float || right.rep() == Rep::Float;
+        if let Some(bit_op) = bit_op(op) {
+            if floats {
+                return Err(unsupported(node, "this operator"));
+            }
+            // `&`, `|` and `^` of two `bool`s give a `bool`.
+            let (left, right, rep) = if left.rep() == Rep::Bool && right.rep() == Rep::Bool {
+                (left, right, Rep::Bool)
+            } else {
+                let left = self.int_value(left, left_node)?;
+                (left, self.int_value(right, right_node)?, Rep::Int)
+            };
+            return Ok(Expr::Bits {
+                op: bit_op,
+                left: Box::new(left),
+                right: Box::new(right),
+                rep,
+            });
+        }
         if op == ast::Operator::Div {
             return Ok(Expr::Div {
                 op: DivOp::True { ints: !floats },
@@ -1082,6 +1102,15 @@ fn logic_op(op: ast::BoolOp) -> LogicOp {
     match op {
         ast::BoolOp::And => LogicOp::And,
         ast::BoolOp::Or => LogicOp::Or,
+    }
+}
+
+fn bit_op(op: ast::Operator) -> Option<BitOp> {
+    match op {
+        ast::Operator::BitAnd => Some(BitOp::And),
+        ast::Operator::BitOr => Some(BitOp::Or),
+        ast::Operator::BitXor => Some(BitOp::Xor),
+        _ => None,
     }
 }
 

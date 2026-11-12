@@ -985,6 +985,16 @@ impl Emitter<'_> {
                 self.expr(f, right);
                 self.at(f, *site, |e, f| e.reprs.int_arith(f, *op));
             }
+            Expr::Bits {
+                op,
+                left,
+                right,
+                rep: _,
+            } => {
+                self.expr(f, left);
+                self.expr(f, right);
+                self.reprs.int_bits(f, *op);
+            }
             Expr::IntAsFloat(operand) => {
                 self.expr(f, operand);
                 self.reprs.int_as_float(f);
