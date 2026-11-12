@@ -320,9 +320,7 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The list of the literal `list`, whose type the checker gives, as the
-    /// annotation of `xs: list[int] = [True]` does. Each item becomes a
-    /// value of the rep of the items, and a `bool` in a list of `int`s is
-    /// the `int` it is.
+    /// annotation of `xs: list[int] = [True]` does.
     fn list(&self, expr: &ast::Expr, list: &ast::ExprList) -> Result<Expr, Error> {
         let Some(Rep::List(id)) = self.rep_of(expr_shape(self.model(), expr)) else {
             return Err(unsupported(list, "a list of this type"));
@@ -331,20 +329,24 @@ impl<'a> Lowering<'a, '_> {
         let items = list
             .elts
             .iter()
-            .map(|elt| {
-                if elt.is_starred_expr() {
-                    return Err(unsupported(elt, "a starred item"));
-                }
-                let lowered = self.expr(elt)?;
-                let lowered = match (lowered.rep(), item) {
-                    (Rep::Bool, Rep::Int) => Expr::BoolAsInt(Box::new(lowered)),
-                    _ => lowered,
-                };
-                self.coerce(lowered, item)
-                    .ok_or_else(|| unsupported(elt, "an item of this type"))
-            })
+            .map(|elt| self.literal_item(elt, item))
             .collect::<Result<_, _>>()?;
         Ok(Expr::List { list: id, items })
+    }
+
+    /// `node`, an item of a literal, as a value of `rep`, the rep of the
+    /// items. A `bool` among `int`s is the `int` it is.
+    fn literal_item(&self, node: &ast::Expr, rep: Rep) -> Result<Expr, Error> {
+        if node.is_starred_expr() {
+            return Err(unsupported(node, "a starred item"));
+        }
+        let lowered = self.expr(node)?;
+        let lowered = match (lowered.rep(), rep) {
+            (Rep::Bool, Rep::Int) => Expr::BoolAsInt(Box::new(lowered)),
+            _ => lowered,
+        };
+        self.coerce(lowered, rep)
+            .ok_or_else(|| unsupported(node, "an item of this type"))
     }
 
     /// A literal of `dict`, an object of the copy of the class `Dict` of
@@ -369,20 +371,15 @@ impl<'a> Lowering<'a, '_> {
         let [_, key_rep, value_rep] = params[..] else {
             unreachable!("pend takes a key and a value");
         };
-        let lower = |node: &ast::Expr, rep: Rep| {
-            let lowered = self.expr(node)?;
-            let lowered = match (lowered.rep(), rep) {
-                (Rep::Bool, Rep::Int) => Expr::BoolAsInt(Box::new(lowered)),
-                _ => lowered,
-            };
-            self.coerce(lowered, rep)
-                .ok_or_else(|| unsupported(node, "an item of this type"))
-        };
         for item in &dict.items {
             let Some(key) = &item.key else {
                 return Err(unsupported(&item.value, "a starred item"));
             };
-            let args = vec![value, lower(key, key_rep)?, lower(&item.value, value_rep)?];
+            let args = vec![
+                value,
+                self.literal_item(key, key_rep)?,
+                self.literal_item(&item.value, value_rep)?,
+            ];
             value = generated_call(pend, args, object, site);
         }
         let done = self.method_func(class, "done").expect("Dict has done");
