@@ -384,33 +384,13 @@ impl Lowering<'_, '_> {
         let classes = self.descendants(class);
         let truths: Vec<Option<(&str, FuncId)>> = classes
             .iter()
-            .map(|class| {
-                ["__bool__", "__len__"].into_iter().find_map(|name| {
-                    let func = self.method(*class, name)?.func?;
-                    Some((name, func))
-                })
-            })
+            .map(|class| self.truth_method(*class))
             .collect();
         if truths.iter().all(Option::is_none) {
             return Ok(Err(value));
         }
         let site = self.site(node.range());
-        let truth = |truth: Option<(&str, FuncId)>, object: Expr| match truth {
-            None => Ok(Expr::Bool(true)),
-            Some((name, func)) => {
-                let sig = self.funcs.borrow().get(func).clone();
-                let receiver = *sig.params.first().expect("a method has self");
-                let call = generated_call(func, vec![widen(object, receiver)], sig.ret, site);
-                if name == "__bool__" {
-                    return Ok(call);
-                }
-                let len = self.prelude_call(node, "int", "length", vec![call])?;
-                Ok(Expr::Compare(
-                    Box::new(len),
-                    vec![(CmpOp::Ne, Expr::Int(0))],
-                ))
-            }
-        };
+        let truth = |truth, object| self.object_truth(node, truth, object, site);
         let first = truths.first().copied().flatten();
         let same = truths.iter().all(|truth| *truth == first);
         if same && let Rep::Object(_) = value.rep() {
@@ -453,6 +433,41 @@ impl Lowering<'_, '_> {
         }
         let func = self.generated(vec![value.rep()], Rep::Bool, body);
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
+    }
+
+    /// The method that gives the truth of an object of `class`, `__bool__`
+    /// or else `__len__`, with its name, and `None` when the class has
+    /// neither.
+    fn truth_method(&self, class: ClassId) -> Option<(&'static str, FuncId)> {
+        ["__bool__", "__len__"].into_iter().find_map(|name| {
+            let func = self.method(class, name)?.func?;
+            Some((name, func))
+        })
+    }
+
+    /// The truth of `object` at `site`, which calls `method`, the one of
+    /// [`Self::truth_method`]. An object without that method is true.
+    fn object_truth(
+        &self,
+        node: &impl Ranged,
+        method: Option<(&str, FuncId)>,
+        object: Expr,
+        site: Site,
+    ) -> Result<Expr, Error> {
+        let Some((name, func)) = method else {
+            return Ok(Expr::Bool(true));
+        };
+        let sig = self.funcs.borrow().get(func).clone();
+        let receiver = *sig.params.first().expect("a method has self");
+        let call = generated_call(func, vec![widen(object, receiver)], sig.ret, site);
+        if name == "__bool__" {
+            return Ok(call);
+        }
+        let len = self.prelude_call(node, "int", "length", vec![call])?;
+        Ok(Expr::Compare(
+            Box::new(len),
+            vec![(CmpOp::Ne, Expr::Int(0))],
+        ))
     }
 
     /// The call at `node` of the method `name` of the class of an object,
