@@ -1364,6 +1364,14 @@ impl Reprs {
         self.float.parse(m, f, &self.str);
     }
 
+    /// Pops an `int` mask that is not negative and a `hash`, and pushes the
+    /// bits of the `hash` that the mask keeps, as an `int`.
+    pub fn hash_slot(&self, f: &mut FuncState) {
+        self.int.as_i32(f);
+        f.ins().i64_extend_i32_u().i64_and().i32_wrap_i64();
+        self.int.small_as_int(f);
+    }
+
     /// Pops a value of `rep` and pushes its `hash`, an `i64`, as CPython
     /// gives it. `None` has no value to pop.
     pub fn hash(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {

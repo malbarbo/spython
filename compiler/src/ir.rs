@@ -715,6 +715,18 @@ pub(crate) enum Expr {
     /// The `hash` of a tuple whose items have the `hash`es of the values,
     /// as CPython gives it.
     HashTuple(Vec<Expr>),
+    /// The low bits of a `hash` that `mask`, an `int` of the form
+    /// 2^k - 1, keeps, as an `int`. A table of CPython starts its probe
+    /// there.
+    HashSlot {
+        hash: Box<Expr>,
+        mask: Box<Expr>,
+    },
+    /// A `hash` shifted right by 5 bits, without its sign, as the probe of
+    /// a table of CPython shifts it.
+    HashShift(Box<Expr>),
+    /// Whether two `hash`es are equal, as a `bool`.
+    HashEq(Box<Expr>, Box<Expr>),
     /// Whether a code point is in `set`, as a `bool`.
     CodePointIs {
         set: CodePointSet,
@@ -1319,6 +1331,7 @@ impl Expr {
             | Expr::CodePoint { .. }
             | Expr::CaseAt { .. }
             | Expr::DecimalValue(_)
+            | Expr::HashSlot { .. }
             | Expr::ListCapacity(_)
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
@@ -1342,7 +1355,7 @@ impl Expr {
             | Expr::Div { .. }
             | Expr::FloatPow { .. }
             | Expr::ParseFloat(_) => Rep::Float,
-            Expr::Hash(_) | Expr::HashTuple(_) => Rep::Hash,
+            Expr::Hash(_) | Expr::HashTuple(_) | Expr::HashShift(_) => Rep::Hash,
             Expr::Bool(_)
             | Expr::IsNone(_)
             | Expr::Is(..)
@@ -1350,6 +1363,7 @@ impl Expr {
             | Expr::IsInstance { .. }
             | Expr::CodePointIs { .. }
             | Expr::IsClose { .. }
+            | Expr::HashEq(..)
             | Expr::Truth(_)
             | Expr::Not(_)
             | Expr::Compare(..)

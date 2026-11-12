@@ -811,6 +811,7 @@ impl<'a> Ins<'a> {
         i32_xor();
         i64_const(value: i64);
         i64_add();
+        i64_and();
         i64_div_s();
         i64_div_u();
         i64_eq();
@@ -828,6 +829,7 @@ impl<'a> Ins<'a> {
         i64_rem_u();
         i64_rotl();
         i64_shl();
+        i64_shr_u();
         i64_sub();
         f64_const(value: Ieee64);
         f64_abs();

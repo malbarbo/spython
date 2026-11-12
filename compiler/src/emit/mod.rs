@@ -1360,6 +1360,20 @@ impl Emitter<'_> {
                 }
                 self.reprs.hash_tuple_end(f, items.len());
             }
+            Expr::HashSlot { hash, mask } => {
+                self.expr(f, hash);
+                self.expr(f, mask);
+                self.reprs.hash_slot(f);
+            }
+            Expr::HashShift(hash) => {
+                self.expr(f, hash);
+                f.ins().i64_const(5).i64_shr_u();
+            }
+            Expr::HashEq(a, b) => {
+                self.expr(f, a);
+                self.expr(f, b);
+                f.ins().i64_eq();
+            }
             Expr::DecimalValue(operand) => {
                 self.expr(f, operand);
                 self.reprs.decimal_value(&mut self.m, f);

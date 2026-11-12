@@ -13,6 +13,16 @@ class Hash:
 def hash_of[T](x: T) -> Hash:
     """The `hash` of `x`, as CPython gives it with `PYTHONHASHSEED=0`."""
 
+def hash_slot(h: Hash, mask: int) -> int:
+    """The bits of `h` that `mask` keeps, where `mask` is 2^k - 1 for a `k` below 31."""
+
+def hash_shift(h: Hash) -> Hash:
+    """`h` shifted right by 5 bits, with zeros in the 5 high bits, as the probe of a table of
+    CPython shifts it."""
+
+def hash_eq(a: Hash, b: Hash) -> bool:
+    """Returns `True` if `a` and `b` are the same `hash`, `False` otherwise."""
+
 def same[T](a: T, b: T) -> bool:
     """Returns `True` if `a` and `b` are the same object, `False` otherwise. A value of a type
     without a reference, as an `int`, is never the same object. Neither argument has an effect."""
