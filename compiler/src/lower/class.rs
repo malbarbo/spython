@@ -855,28 +855,22 @@ impl<'a> Lowering<'a, '_> {
 
     /// The comparison `c`, with `ops` and the lowered `operands`, where two
     /// operands may be objects of the same dataclass. The `__eq__` of the
-    /// class compares them, and `!=` is `not` of `==`, as in CPython.
+    /// class compares them.
     pub(super) fn dataclass_compare(
         &self,
         c: &ast::ExprCompare,
         ops: Vec<CmpOp>,
         operands: Vec<(Expr, &ast::Expr)>,
     ) -> Result<Expr, Error> {
-        let (Ok([op]), Ok([left, right])) =
-            (<[CmpOp; 1]>::try_from(ops), <[_; 2]>::try_from(operands))
-        else {
-            return Err(unsupported(c, "a chain of comparisons of dataclasses"));
-        };
-        if !matches!(op, CmpOp::Eq | CmpOp::Ne) {
-            return Err(unsupported(c, "an order of objects"));
-        }
-        let theirs = self.dataclasses_of(&right);
-        let mut shared = self.dataclasses_of(&left);
-        shared.retain(|class| theirs.contains(class));
-        let eq = self.dataclass_eq(left.0, right.0, shared, self.site(c.range()))?;
-        Ok(match op {
-            CmpOp::Ne => Expr::Not(Box::new(eq)),
-            _ => eq,
+        let what = (
+            "a chain of comparisons of dataclasses",
+            "an order of objects",
+        );
+        self.equality(c, (ops, operands), what, |left, right| {
+            let theirs = self.dataclasses_of(&right);
+            let mut shared = self.dataclasses_of(&left);
+            shared.retain(|class| theirs.contains(class));
+            self.dataclass_eq(left.0, right.0, shared, self.site(c.range()))
         })
     }
 

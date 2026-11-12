@@ -561,30 +561,47 @@ impl<'a> Lowering<'a, '_> {
 
     /// The comparison `c`, with `ops` and the lowered `operands`, where an
     /// operand is a list. `==` of the module `list` of the prelude compares
-    /// two lists of the same type, and `!=` is `not` of `==`, as in CPython.
+    /// two lists of the same type.
     fn list_compare(
         &self,
         c: &ast::ExprCompare,
         ops: Vec<CmpOp>,
         operands: Vec<(Expr, &ast::Expr)>,
     ) -> Result<Expr, Error> {
+        let what = ("a chain of comparisons of lists", "an order of lists");
+        self.equality(c, (ops, operands), what, |(left, _), (right, _)| {
+            let list = match (left.rep(), right.rep()) {
+                (a, b) if a.list().is_some() && a.list() == b.list() => a.list(),
+                (a, Rep::None) | (Rep::None, a) => a.list(),
+                _ => None,
+            }
+            .ok_or_else(|| unsupported(c, "a comparison of two types of list"))?;
+            let rep = Rep::ListOrNone(list);
+            let coerced = |value| coerce(value, rep).expect("a list or None");
+            self.list_call(c, "eq", vec![coerced(left), coerced(right)])
+        })
+    }
+
+    /// The comparison `c`, with `ops` and the lowered `operands`, which has
+    /// to be one `==` or `!=`, as `eq` gives it for the two operands. `!=`
+    /// is `not` of `==`, as in CPython. A chain and an order are the two
+    /// constructs of `what` that the compiler does not support.
+    pub(super) fn equality<'o>(
+        &self,
+        c: &ast::ExprCompare,
+        (ops, operands): (Vec<CmpOp>, Vec<(Expr, &'o ast::Expr)>),
+        (chain, order): (&str, &str),
+        eq: impl FnOnce((Expr, &'o ast::Expr), (Expr, &'o ast::Expr)) -> Result<Expr, Error>,
+    ) -> Result<Expr, Error> {
         let (Ok([op]), Ok([left, right])) =
             (<[CmpOp; 1]>::try_from(ops), <[_; 2]>::try_from(operands))
         else {
-            return Err(unsupported(c, "a chain of comparisons of lists"));
+            return Err(unsupported(c, chain));
         };
-        if !matches!(op, CmpOp::Eq | CmpOp::Ne) {
-            return Err(unsupported(c, "an order of lists"));
-        }
-        let list = match (left.0.rep(), right.0.rep()) {
-            (a, b) if a.list().is_some() && a.list() == b.list() => a.list(),
-            (a, Rep::None) | (Rep::None, a) => a.list(),
-            _ => None,
-        }
-        .ok_or_else(|| unsupported(c, "a comparison of two types of list"))?;
-        let rep = Rep::ListOrNone(list);
-        let coerced = |(value, _): (Expr, _)| coerce(value, rep).expect("a list or None");
-        let eq = self.list_call(c, "eq", vec![coerced(left), coerced(right)])?;
+        let eq = match op {
+            CmpOp::Eq | CmpOp::Ne => eq(left, right)?,
+            _ => return Err(unsupported(c, order)),
+        };
         Ok(match op {
             CmpOp::Ne => Expr::Not(Box::new(eq)),
             _ => eq,
