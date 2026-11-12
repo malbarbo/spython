@@ -44,6 +44,9 @@ pub(super) struct Classes<'a> {
     pub slots: Vec<Slot>,
     /// The place of each slot in `slots`.
     pub slot_ids: HashMap<(ClassId, Key), usize>,
+    /// The number of slots that [`Lowering::resolve_slots`] has defined,
+    /// which are the first ones of `slots`.
+    pub resolved: usize,
 }
 
 /// What a call through a value of a class calls.
@@ -64,7 +67,6 @@ pub(super) struct Slot {
     class: ClassId,
     key: Key,
     func: FuncId,
-    resolved: bool,
 }
 
 impl<'a> Classes<'a> {
@@ -949,12 +951,7 @@ impl<'a> Lowering<'a, '_> {
         let mut classes = self.classes.borrow_mut();
         let slot = classes.slots.len();
         classes.slot_ids.insert((class, key.clone()), slot);
-        classes.slots.push(Slot {
-            class,
-            key,
-            func,
-            resolved: false,
-        });
+        classes.slots.push(Slot { class, key, func });
         func
     }
 
@@ -964,30 +961,20 @@ impl<'a> Lowering<'a, '_> {
     /// that never runs, a slot of one function calls it in its place, and
     /// a slot of more functions tests the exact class of the object.
     pub(super) fn resolve_slots(&self) -> Result<bool, Error> {
-        let mut any = false;
-        let mut i = 0;
+        let start = self.classes.borrow().resolved;
         loop {
-            let next = self
-                .classes
-                .borrow()
-                .slots
-                .get(i)
-                .map(|slot| (slot.resolved, slot.class, slot.key.clone(), slot.func));
-            let Some((resolved, class, key, func)) = next else {
+            let next = {
+                let mut classes = self.classes.borrow_mut();
+                let next = classes
+                    .slots
+                    .get(classes.resolved)
+                    .map(|slot| (slot.class, slot.key.clone(), slot.func));
+                classes.resolved += usize::from(next.is_some());
+                next
+            };
+            let Some((class, key, func)) = next else {
                 break;
             };
-            if resolved {
-                i += 1;
-                continue;
-            }
-            any = true;
-            self.classes
-                .borrow_mut()
-                .slots
-                .get_mut(i)
-                .expect("a slot")
-                .resolved = true;
-            i += 1;
             let made: Vec<ClassId> = {
                 let classes = self.classes.borrow();
                 classes
@@ -1023,7 +1010,7 @@ impl<'a> Lowering<'a, '_> {
                 self.define(func, false, body);
             }
         }
-        Ok(any)
+        Ok(self.classes.borrow().resolved > start)
     }
 
     /// The class of the first parameter of `func`, a method.

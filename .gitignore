@@ -2,6 +2,7 @@
 /wasm/target
 /dist
 __pycache__/
+/TODO
 
 # The stepper, and the plans it comes from. They do not compile against the
 # current engine and no `mod` reaches them, so they stay out of the tree until
