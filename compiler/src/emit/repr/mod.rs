@@ -66,6 +66,8 @@ pub(crate) struct Reprs {
     /// `repr` of a value of a union.
     class_reprs: Vec<Option<FuncIdx>>,
     str_repr: Option<FuncIdx>,
+    /// The rep of the items of each type of list.
+    list_items: Vec<Rep>,
     /// The function that gives the `repr` of a list of each type, when the
     /// program writes one.
     list_reprs: Vec<Option<FuncIdx>>,
@@ -118,6 +120,7 @@ impl Reprs {
             class_strs: Vec::new(),
             class_reprs: Vec::new(),
             str_repr: None,
+            list_items: lists.iter().map(|list| list.item).collect(),
             list_reprs: Vec::new(),
             repr_stack: None,
         };
@@ -933,12 +936,13 @@ impl Reprs {
         self.list.set_len(f, list_index(rep));
     }
 
-    /// Pops a list of items of `item` and an `int`, not above its length,
-    /// and makes the list a list of that many items, without a reference
-    /// to the items past them.
-    pub fn list_truncate(&self, f: &mut FuncState, rep: Rep, item: Rep) {
+    /// Pops a list of `rep` and an `int`, not above its length, and makes
+    /// the list a list of that many items, without a reference to the items
+    /// past them.
+    pub fn list_truncate(&self, f: &mut FuncState, rep: Rep) {
         self.int.as_i32(f);
-        let null = match self.local_type(item) {
+        let item = self.list_items.get(list_index(rep));
+        let null = match self.local_type(*item.expect("a type of list of the program")) {
             Some(ValType::Ref(ty)) => Some(ty.heap_type),
             _ => None,
         };
