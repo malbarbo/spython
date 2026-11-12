@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use wasm_encoder::{BlockType, ConstExpr, HeapType, StorageType, ValType};
 
 use super::module::{
-    Composite, FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TypeIdx,
+    Composite, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState, TypeIdx,
 };
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
@@ -188,16 +188,17 @@ impl Reprs {
                 Literal::Int(_) => None,
             })
             .collect();
+        let mut ins = m.init_value();
         for (field, text) in fields.iter().zip(texts) {
             match (field, text) {
-                (Literal::Int(value), _) => self.int.init_literal(m, *value),
+                (Literal::Int(value), _) => self.int.init_literal(&mut ins, *value),
                 (Literal::Str(_), text) => {
                     let text = text.expect("the global of the text");
-                    Ins::new(&mut m.init).global_get(text).ref_as_non_null();
+                    ins.global_get(text).ref_as_non_null();
                 }
             }
         }
-        Ins::new(&mut m.init).struct_new(ty).global_set(global);
+        ins.struct_new(ty).global_set(global);
         global
     }
 

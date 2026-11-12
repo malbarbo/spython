@@ -96,10 +96,10 @@ impl IntRepr {
     }
 
     /// Adds to the code that `_start` runs first the push of `value`.
-    pub fn init_literal(&self, m: &mut ModuleState, value: i32) {
+    pub fn init_literal(&self, ins: &mut Ins, value: i32) {
         match self {
             IntRepr::I31 { .. } => {
-                Ins::new(&mut m.init).i32_const(value);
+                ins.i32_const(value);
             }
         }
     }

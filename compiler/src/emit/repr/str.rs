@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use wasm_encoder::{BlockType, ConstExpr, MemArg, MemArgTarget, StorageType, ValType};
 
-use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
+use crate::emit::module::{DataIdx, FuncIdx, FuncState, GlobalIdx, ModuleState, TypeIdx};
 use crate::emit::runtime::host::Host;
 
 /// The most code points in a `str`, the longest array that an `i32`
@@ -114,7 +114,7 @@ impl StrRepr {
                         m.global(array.ref_to(true), &ConstExpr::ref_null(array.heap_type()));
                     let len =
                         i32::try_from(s.chars().count()).expect("a literal shorter than 2^31");
-                    Ins::new(&mut m.init)
+                    m.init_value()
                         .i32_const(0)
                         .i32_const(len)
                         .array_new_data(array, data)
@@ -317,7 +317,7 @@ impl StrRepr {
 fn add_capture(m: &mut ModuleState, array: TypeIdx, char: FuncIdx) -> FuncIdx {
     let buffer = m.global(array.ref_to(true), &ConstExpr::ref_null(array.heap_type()));
     let len = m.global(ValType::I32, &ConstExpr::i32_const(0));
-    Ins::new(&mut m.init)
+    m.init_value()
         .i32_const(64)
         .array_new_default(array)
         .global_set(buffer);

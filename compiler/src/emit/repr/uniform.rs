@@ -5,7 +5,7 @@
 
 use wasm_encoder::{AbstractHeapType, BlockType, HeapType, RefType, StorageType, ValType};
 
-use super::super::module::{FuncState, GlobalIdx, Ins, ModuleState, TypeIdx};
+use super::super::module::{FuncState, GlobalIdx, ModuleState, TypeIdx};
 use crate::ir::Rep;
 
 pub(super) const EQ: HeapType = HeapType::Abstract {
@@ -130,7 +130,7 @@ impl UniformRepr {
                     ty.ref_to(true),
                     &wasm_encoder::ConstExpr::ref_null(ty.heap_type()),
                 );
-                Ins::new(&mut m.init)
+                m.init_value()
                     .i32_const(value)
                     .struct_new(ty)
                     .global_set(global);

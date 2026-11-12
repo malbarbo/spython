@@ -11,7 +11,7 @@ use crate::cpython::{
     exception::last_line,
 };
 use crate::emit::module::{
-    FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TagIdx, TypeIdx,
+    FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState, TagIdx, TypeIdx,
 };
 use crate::emit::repr::str::StrRepr;
 use crate::emit::runtime::host::{Capture, Host};
@@ -496,7 +496,7 @@ impl Exceptions {
         let texts = m.passive_data(texts);
         let numbers_len = i32::try_from(numbers.len() / 4).expect("fewer than 2^31 sites");
         let numbers = m.passive_data(numbers);
-        Ins::new(&mut m.init)
+        m.init_value()
             .i32_const(0)
             .i32_const(numbers_len)
             .array_new_data(self.sites, numbers)
@@ -637,7 +637,7 @@ fn class_global(
         class_type.ref_to(true),
         &ConstExpr::ref_null(class_type.heap_type()),
     );
-    let mut ins = Ins::new(&mut m.init);
+    let mut ins = m.init_value();
     ins.global_get(name).ref_as_non_null();
     match base {
         Some(base) => ins.global_get(base),

@@ -731,3 +731,12 @@ fn split_with_arguments_is_unsupported() {
         );
     }
 }
+
+#[test]
+fn more_literals_than_one_function_of_start_builds_keep_their_text() {
+    let source: String = (0..200).map(|i| format!("print('s{i}')\n")).collect();
+    same_as_cpython(
+        "more_literals_than_one_function_of_start_builds_keep_their_text",
+        &source,
+    );
+}

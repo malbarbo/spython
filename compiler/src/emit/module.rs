@@ -79,6 +79,11 @@ pub(crate) struct DataIdx(u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LocalIdx(u32);
 
+/// The most values that one function of the code before the program
+/// builds. Cranelift takes a time that grows as n^2.8 with the allocations
+/// in one function, as jwonder measured.
+const PER_INIT: usize = 64;
+
 pub(crate) struct ModuleState {
     types: TypeSection,
     type_count: u32,
@@ -97,8 +102,10 @@ pub(crate) struct ModuleState {
     exports: ExportSection,
     data: DataSection,
     data_count: u32,
-    /// The code `_start` runs before the program, which fills the globals.
-    pub init: Vec<u8>,
+    /// The code `_start` runs before the program, which fills the globals,
+    /// in pieces of at most [`PER_INIT`] values.
+    init: Vec<Vec<u8>>,
+    init_values: usize,
     /// The code of each function that runs the code of a Python frame, by
     /// the index of the function among the functions the module defines.
     frames: Vec<(usize, Vec<SiteRange>)>,
@@ -143,6 +150,7 @@ impl ModuleState {
             data: DataSection::new(),
             data_count: 0,
             init: Vec::new(),
+            init_values: 0,
             frames: Vec::new(),
             builtins: builtins::Linked::default(),
         }
@@ -284,6 +292,30 @@ impl ModuleState {
         self.frames
             .push(((index.0 - self.imported_funcs) as usize, sites));
         self.define(index, f.finish_with_prefix(prefix));
+    }
+
+    /// The sink for the code of a new value that `_start` builds before the
+    /// program, which ends with the value in a global.
+    pub fn init_value(&mut self) -> Ins<'_> {
+        if self.init_values.is_multiple_of(PER_INIT) {
+            self.init.push(Vec::new());
+        }
+        self.init_values += 1;
+        Ins::new(self.init.last_mut().expect("a piece of the code"))
+    }
+
+    /// Defines a function for each piece of the code before the program,
+    /// and returns the code that calls them in order.
+    pub fn take_init(&mut self) -> Vec<u8> {
+        let ty = self.func_type(&[], &[]);
+        let mut calls = Vec::new();
+        for piece in std::mem::take(&mut self.init) {
+            let mut f = FuncState::new(0);
+            f.code = piece;
+            let func = self.add_func(ty, f.finish());
+            Ins::new(&mut calls).call(func);
+        }
+        calls
     }
 
     pub fn add_func(&mut self, ty: TypeIdx, body: Function) -> FuncIdx {

@@ -136,7 +136,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         e.func(FuncId::new(i), func);
     }
     e.reprs.finish(&mut e.m, &program.sites);
-    let init = std::mem::take(&mut e.m.init);
+    let init = e.m.take_init();
     e.m.define_frame(start, f, &init);
     e.m.export_func("_start", start);
     e.m.finish(start)
