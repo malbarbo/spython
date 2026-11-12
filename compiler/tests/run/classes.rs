@@ -145,8 +145,93 @@ fn a_name_error_in_a_method_suggests_a_field_of_self() {
     );
 }
 
+/// Each path assigns each field before a read and before `self` goes
+/// elsewhere.
+#[test]
+fn init_assigns_the_fields_in_each_path() {
+    same_as_cpython(
+        "init_assigns_the_fields_in_each_path",
+        indoc! {"
+            def mostra(p: 'Ponto') -> None:
+                print('mostra', p.x, p.y, p.nome)
+
+            class Ponto:
+                x: int
+                y: int
+                nome: str
+
+                def __init__(self, x: int) -> None:
+                    if x > 0:
+                        self.x = x
+                        self.y = self.x * 2
+                    elif x < 0:
+                        self.y = -x
+                        self.x = self.y
+                    else:
+                        raise ValueError('zero')
+                    i = 0
+                    while i < 2:
+                        self.x += 1
+                        i += 1
+                    self.nome = 'p' + str(self.x)
+                    mostra(self)
+                    outro = self
+                    print(outro.nome)
+
+            Ponto(1)
+            Ponto(-3)
+            Ponto(0)
+        "},
+    );
+}
+
 #[test]
 fn a_field_that_init_may_not_assign_is_unsupported() {
+    let cases = [
+        indoc! {"
+            class Ponto:
+                x: int
+                y: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+                    if x > 0:
+                        self.y = x
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+                y: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+                    while x > 0:
+                        self.y = x
+                        x -= 1
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+                y: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+                    if x > 0:
+                        return
+                    self.y = x
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+        "},
+    ];
+    for source in cases {
+        assert_eq!(unsupported(source), "a field that __init__ may not assign");
+    }
+}
+
+#[test]
+fn a_read_of_a_field_before_its_assignment_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
             class Ponto:
@@ -156,30 +241,70 @@ fn a_field_that_init_may_not_assign_is_unsupported() {
                 def __init__(self, x: int) -> None:
                     self.x = x
                     if x > 0:
-                        self.y = x
-                    else:
-                        self.y = 0
+                        self.y = 1
+                    self.x = self.y
         "}),
-        "a field that __init__ does not assign before anything else"
+        "a field that __init__ may read before it assigns it"
     );
     assert_eq!(
         unsupported(indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x += x
+        "}),
+        "a field that __init__ may read before it assigns it"
+    );
+}
+
+#[test]
+fn self_before_each_field_has_a_value_is_unsupported() {
+    let cases = [
+        indoc! {"
+            def f(p: 'Ponto') -> None:
+                pass
+
             class Ponto:
                 x: int
                 y: int
 
                 def __init__(self, x: int) -> None:
                     self.x = x
-                    self.y = self.x
-        "}),
-        "a field that __init__ does not assign before anything else"
-    );
+                    f(self)
+                    self.y = x
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+                proximo: 'Ponto | None'
+
+                def __init__(self, x: int) -> None:
+                    outro = self
+                    self.x = x
+                    self.proximo = None
+        "},
+    ];
+    for source in cases {
+        assert_eq!(
+            unsupported(source),
+            "self before __init__ assigns each field"
+        );
+    }
+}
+
+#[test]
+fn an_assignment_to_the_receiver_of_init_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
             class Ponto:
                 x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+                    self = Ponto(1)
         "}),
-        "a field that __init__ does not assign before anything else"
+        "an assignment to self in __init__"
     );
 }
 

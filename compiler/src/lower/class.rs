@@ -17,6 +17,7 @@ use ty_python_semantic::types::lowering::{
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::{imported_name, names_in};
+use super::init::check_init;
 use super::{HashSet, Lowering, Scope, Sig, Vars, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
@@ -1496,8 +1497,8 @@ impl<'a> Lowering<'a, '_> {
     /// The name and the type of each field of `def`, a class without a
     /// decorator and without a base, together with the `def` of its
     /// `__init__`. `info` is what the checker gives for the class. Each
-    /// field has an annotation in the body, and the `__init__` assigns
-    /// each field first, with a value that does not read `self`.
+    /// field has an annotation in the body, and [`check_init`] proves that
+    /// the `__init__` assigns it.
     fn plain_form(
         &self,
         def: &'a ast::StmtClassDef,
@@ -1551,15 +1552,16 @@ impl<'a> Lowering<'a, '_> {
                 ),
             ));
         }
-        let assigned = init.map(assigned_first).unwrap_or_default();
-        if let Some(field) = dataclass_fields(def)
+        let fields: Vec<(&str, TextRange)> = dataclass_fields(def)
             .zip(&checked)
-            .find(|(_, (name, _))| !assigned.contains(&name.as_str()))
-        {
-            return Err(unsupported(
-                field.0,
-                "a field that __init__ does not assign before anything else",
-            ));
+            .map(|(node, (name, _))| (name.as_str(), node.range()))
+            .collect();
+        match (init, fields.first()) {
+            (Some(init), _) => check_init(init, &fields)?,
+            (None, Some((_, range))) => {
+                return Err(unsupported(range, "a field that __init__ may not assign"));
+            }
+            (None, None) => {}
         }
         Ok((checked, init))
     }
@@ -1629,39 +1631,6 @@ fn imports(stmt: &ast::Stmt, name: &str) -> bool {
             .any(|alias| imported_name(alias, true) == name),
         _ => false,
     }
-}
-
-/// The fields that `init`, an `__init__`, assigns in its first statements,
-/// each with a value that does not read `self`. No other code runs before
-/// them, so each one has its value before any read.
-fn assigned_first(init: &ast::StmtFunctionDef) -> Vec<&str> {
-    let Some(receiver) = init.parameters.args.first() else {
-        return Vec::new();
-    };
-    let receiver = receiver.name().as_str();
-    let mut assigned = Vec::new();
-    for (i, stmt) in init.body.iter().enumerate() {
-        match stmt {
-            ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
-            ast::Stmt::Assign(ast::StmtAssign { targets, value, .. })
-                if names_in(value)
-                    .iter()
-                    .all(|name| name.id.as_str() != receiver) =>
-            {
-                let [ast::Expr::Attribute(attr)] = &**targets else {
-                    break;
-                };
-                match &*attr.value {
-                    ast::Expr::Name(name) if name.id.as_str() == receiver => {
-                        assigned.push(attr.attr.as_str());
-                    }
-                    _ => break,
-                }
-            }
-            _ => break,
-        }
-    }
-    assigned
 }
 
 /// The object in the first parameter of a function of the compiler for an

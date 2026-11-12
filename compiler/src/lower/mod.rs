@@ -5,6 +5,7 @@ mod class;
 mod doctest;
 mod expr;
 mod flow;
+mod init;
 mod math;
 mod name_error;
 mod prelude;
