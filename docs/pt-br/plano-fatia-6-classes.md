@@ -422,6 +422,29 @@ O `hash` segue o do CPython 3.13, num `i64`.
 - Chaves iguais de tipos diferentes ficam com a primeira chave e o
   último valor. `{1: 'a', 1.0: 'b', True: 'c'}` escreve `{1: 'c'}`.
 
+O grupo G fez assim:
+
+- O `hash` é um `Rep::Hash`, um `i64` que só o prelude guarda. O prelude
+  o vê como a classe `Hash` dos intrínsecos, e `hash_of(x)` dá o `hash`
+  de `x` pela `Rep` de `x`.
+- O `hash` de `float` e de `str` vem de builtins em Rust, que um teste
+  nativo compara com o CPython. O de `str` usa o crate `siphasher` sobre
+  os pontos de código, com 1, 2 ou 4 bytes cada, como a forma compacta.
+  O `hash` da tupla de uma dataclass `frozen` sai em linha no módulo.
+- Um slot `Key::Hash` dá o `hash` de um objeto. A primeira classe da
+  cadeia que diz o `hash` decide. Um `__hash__` do corpo dá o dele, uma
+  dataclass `frozen` dá o dos campos, a que não é `frozen` tira o `hash`,
+  um Enum dá o do nome, e um corpo com `__eq__` sem `__hash__` tira o
+  `hash`.
+- O compilador recusa um `set` e uma chave de `dict` cujo tipo pode ter
+  um valor sem `hash`. Isso inclui `object`, porque um valor de `object`
+  pode ser um `dict`, um `set` ou uma lista.
+- O `hash` de um valor uniforme testa a classe exata contra cada classe
+  do programa que tem `hash`, e depois os tipos builtin.
+- Só o prelude chama `hash_of`, e nenhum programa cria um `dict` ou um
+  `set` antes do grupo H. Os testes que comparam a ordem de um `set` com o
+  CPython vêm com os grupos H e I.
+
 ### `dict` e `set`
 
 `dict` e `set` são classes genéricas do prelude, em Python, e o
