@@ -8,10 +8,12 @@ the growth of the table happens where it happens in CPython."""
 
 from __spython_prelude__.intrinsics import (
     Hash,
+    during_repr,
     hash_eq,
     hash_of,
     hash_shift,
     hash_slot,
+    in_repr,
     item,
     list_reserve,
     list_set_len,
@@ -62,6 +64,28 @@ class Dict[K, V]:
 
     def __setitem__(self, key: K, value: V) -> None:
         self.insert(key, hash_of(key), value)
+
+    def __repr__(self) -> str:
+        """The `repr` of the `dict`, which is also its `str`. A `dict` inside its own `repr` is
+        `{...}`, as in CPython."""
+        if in_repr(self):
+            return "{...}"
+        if self.used == 0:
+            return "{}"
+        return during_repr(self, self.items_repr())
+
+    def items_repr(self) -> str:
+        """The `repr` of a `dict` with items. The loop reads the entries again after each
+        `repr`, which may change the `dict`, as `dict_repr` does."""
+        parts: list[str] = []
+        i = 0
+        while i < len(self.keys):
+            if item(self.live, i):
+                key = item(self.keys, i)
+                value = item(self.values, i)
+                parts.append(repr(key) + ": " + repr(value))
+            i += 1
+        return "{" + ", ".join(parts) + "}"
 
     def clear(self) -> None:
         indices: list[int] = []

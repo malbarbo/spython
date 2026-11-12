@@ -521,6 +521,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "decimal_value" => arg().map(Expr::DecimalValue),
             "parse_float" => arg().map(Expr::ParseFloat),
             "hash_of" => return self.hash_value(call, *arg().expect("hash_of has an argument")),
+            "in_repr" => arg().map(Expr::InRepr),
+            "during_repr" => arg()
+                .zip(arg())
+                .map(|(object, value)| Expr::DuringRepr { object, value }),
             "hash_slot" => arg()
                 .zip(arg())
                 .map(|(hash, mask)| Expr::HashSlot { hash, mask }),

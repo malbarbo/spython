@@ -147,7 +147,7 @@ impl<'a> Classes<'a> {
                     .collect(),
                 str: slot(id, Key::Str),
                 repr: slot(id, Key::Repr),
-                repr_guard: class.kind.is_dataclass(),
+                repr_guard: class.kind.is_dataclass() || class.copy.is_some(),
             })
             .collect()
     }

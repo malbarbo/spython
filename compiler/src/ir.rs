@@ -133,7 +133,8 @@ pub(crate) struct UserClass {
     /// gives the `repr` of a uniform value.
     pub repr: Option<FuncId>,
     /// `true` when the `repr` of an object writes `...` for the object
-    /// inside its own `repr`, as the `repr` of a dataclass does.
+    /// inside its own `repr`, as the `repr` of a dataclass and of a `dict`
+    /// does.
     pub repr_guard: bool,
 }
 

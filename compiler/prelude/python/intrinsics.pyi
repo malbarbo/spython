@@ -23,6 +23,13 @@ def hash_shift(h: Hash) -> Hash:
 def hash_eq(a: Hash, b: Hash) -> bool:
     """Returns `True` if `a` and `b` are the same `hash`, `False` otherwise."""
 
+def in_repr[T](x: T) -> bool:
+    """Returns `True` if the `repr` of `x`, an object, runs, `False` otherwise."""
+
+def during_repr[T](x: T, text: str) -> str:
+    """`text`, which the program evaluates with `x`, an object, among the objects whose `repr`
+    runs."""
+
 def same[T](a: T, b: T) -> bool:
     """Returns `True` if `a` and `b` are the same object, `False` otherwise. A value of a type
     without a reference, as an `int`, is never the same object. Neither argument has an effect."""

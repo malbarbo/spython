@@ -309,3 +309,40 @@ fn a_dict_calls_hash_and_eq_of_a_key_as_cpython_does() {
         "},
     );
 }
+
+#[test]
+fn a_dict_writes_its_items_in_the_order_of_insertion() {
+    same_as_cpython(
+        "a_dict_writes_its_items_in_the_order_of_insertion",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass(frozen=True)
+            class Ponto:
+                x: int
+                y: int
+
+            vazio: dict[str, int] = {}
+            print(vazio, repr(vazio), str(vazio), f'{vazio}')
+            d = {'b': 1, 'a': 2, \"it's\": 3}
+            d['b'] = 4
+            print(d)
+            print(repr(d), str(d), f'<{d}>')
+            print([d, {'x': [1.5, -0.0]}])
+            aninhado: dict[int, dict[float, str | None]] = {1: {2.5: None}, 3: {}}
+            print(aninhado)
+            pontos = {Ponto(1, 2): 'p', Ponto(-1, 0): 'q'}
+            print(pontos)
+            u: dict[int | str | None, list[int] | None] = {None: None, 1: [1], 'um': []}
+            print(u)
+            f: dict[int, int] = {}
+            for i in range(30):
+                f[i * i % 17] = i
+            print(f)
+            o: dict[str, object] = {}
+            o['eu'] = o
+            o['x'] = d
+            print(o)
+        "},
+    );
+}
