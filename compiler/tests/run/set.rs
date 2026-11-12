@@ -181,3 +181,51 @@ fn a_comparison_that_changes_the_set_starts_the_search_again() {
         "},
     );
 }
+
+#[test]
+fn print_writes_a_set_as_cpython_does() {
+    same_as_cpython(
+        "print_writes_a_set_as_cpython_does",
+        indoc! {"
+            vazio: set[int] = set()
+            print(vazio, repr(vazio), str(vazio))
+            s = {3, 1, 2, -5, 100, 8}
+            print(s)
+            nomes: set[str] = set()
+            for nome in ['ana', \"it's\", 'bia', 'caio', 'davi', 'eva']:
+                nomes.add(nome)
+            print(nomes, repr(nomes) == str(nomes))
+            for i in range(30):
+                nomes.add('n' + str(i))
+            nomes.discard('ana')
+            print(nomes)
+            print([{1.5, -0.0}], {'k': {True}})
+            xs: set[int | str | None] = {1, 'a', None}
+            print(xs)
+        "},
+    );
+}
+
+/// A `set` inside its own `repr` is `set(...)`, through an item whose
+/// `repr` writes the `set`.
+#[test]
+fn a_set_inside_its_own_repr_is_written_with_dots() {
+    same_as_cpython(
+        "a_set_inside_its_own_repr_is_written_with_dots",
+        indoc! {"
+            class N:
+                def __eq__(self, other: object) -> bool:
+                    return isinstance(other, N)
+
+                def __hash__(self) -> int:
+                    return 1
+
+                def __repr__(self) -> str:
+                    return 'N' + repr(s)
+
+            s: set[N] = set()
+            s.add(N())
+            print(s)
+        "},
+    );
+}

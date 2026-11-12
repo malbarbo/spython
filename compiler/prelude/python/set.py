@@ -7,10 +7,12 @@ slot before it jumps, as CPython does, so the items come out in the order of CPy
 
 from __spython_prelude__.intrinsics import (
     Hash,
+    during_repr,
     hash_eq,
     hash_of,
     hash_shift,
     hash_slot,
+    in_repr,
     item,
     list_reserve,
     list_set_len,
@@ -220,3 +222,24 @@ class Set[T]:
         set_item(self.states, i, 2)
         self.used -= 1
         return True
+
+    def __repr__(self) -> str:
+        """The `repr` of the `set`, which is also its `str`. A `set` inside its own `repr` is
+        `set(...)`, as in CPython."""
+        if in_repr(self):
+            return "set(...)"
+        if self.used == 0:
+            return "set()"
+        return during_repr(self, self.items_repr())
+
+    def items_repr(self) -> str:
+        """The `repr` of a `set` with items. The `repr` of each item comes after the list of
+        the items, as in `set_repr`."""
+        items: list[T] = []
+        for i in range(self.mask + 1):
+            if item(self.states, i) == 1:
+                items.append(item(self.keys, i))
+        parts: list[str] = []
+        for x in items:
+            parts.append(repr(x))
+        return "{" + ", ".join(parts) + "}"
