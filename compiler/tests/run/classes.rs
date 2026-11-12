@@ -1325,3 +1325,27 @@ fn a_call_of_init_that_a_subclass_overrides_otherwise_is_unsupported() {
         "a call of __init__ that a subclass overrides otherwise"
     );
 }
+
+/// An annotation in `__init__` reads its value alone. A bare annotation
+/// of a field reads nothing, and a local may take a field that
+/// `__init__` assigned before.
+#[test]
+fn an_annotation_in_init_reads_its_value_alone() {
+    same_as_cpython(
+        "an_annotation_in_init_reads_its_value_alone",
+        indoc! {"
+            class A:
+                x: int
+                y: int
+
+                def __init__(self) -> None:
+                    self.x: int
+                    self.x = 1
+                    n: int = self.x
+                    self.y = n + 1
+
+            a = A()
+            print(a.x, a.y)
+        "},
+    );
+}

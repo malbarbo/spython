@@ -106,15 +106,11 @@ impl<'a> Check<'a> {
                     }
                 }
             }
+            // The lowering takes a name alone as the target, and an
+            // annotation without a value reads nothing.
             ast::Stmt::AnnAssign(a) => {
                 if let Some(value) = &a.value {
                     self.reads(value, &assigned)?;
-                }
-                match self.field_of(&a.target) {
-                    Some(field) if a.value.is_some() => {
-                        assigned.insert(field);
-                    }
-                    _ => self.reads(&a.target, &assigned)?,
                 }
             }
             // The update reads the field first.
