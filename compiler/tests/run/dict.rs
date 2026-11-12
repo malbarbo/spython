@@ -39,6 +39,17 @@ fn a_read_of_an_attribute_of_a_dict_is_unsupported() {
 }
 
 #[test]
+fn a_dict_literal_with_a_starred_item_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            a = {'a': 1}
+            b = {**a, 'b': 2}
+        "}),
+        "a starred item"
+    );
+}
+
+#[test]
 fn a_call_of_a_method_that_the_prelude_lacks_is_unsupported() {
     for (source, what) in [
         (
@@ -212,4 +223,89 @@ fn a_set_and_a_dict_key_without_a_hash_are_unsupported() {
     ] {
         assert_eq!(unsupported(source), "a parameter of this type", "{source}");
     }
+}
+
+#[test]
+fn a_dict_literal_with_len_and_subscripts_runs() {
+    same_as_cpython(
+        "a_dict_literal_with_len_and_subscripts_runs",
+        indoc! {"
+            def chave(s: str) -> str:
+                print('chave', s)
+                return s
+
+            def valor(n: int) -> int:
+                print('valor', n)
+                return n
+
+            d: dict[str, int] = {}
+            print(len(d))
+            d['a'] = 1
+            d['b'] = 2
+            d['a'] = 3
+            print(len(d), d['a'], d['b'])
+            e = {chave('x'): valor(1), chave('y'): valor(2), chave('x'): valor(3)}
+            print(len(e), e['x'], e['y'])
+            f: dict[int, str] = {}
+            for i in range(100):
+                f[i * 7] = str(i)
+            print(len(f), f[0], f[693], f[350])
+            g = {1: 'a', 1.0: 'b', True: 'c'}
+            print(len(g), g[1])
+            h = {1: 2, 3: 4, 5: 6, 7: 8, 9: 10, 11: 12, 13: 14}
+            print(len(h), h[13])
+            print(d['z'])
+        "},
+    );
+}
+
+/// The `hash` and `==` of a key run as in CPython: a literal takes the
+/// `hash` of each key after it evaluates every item, and a search puts the
+/// key of the `dict` on the left of `==`.
+#[test]
+fn a_dict_calls_hash_and_eq_of_a_key_as_cpython_does() {
+    same_as_cpython(
+        "a_dict_calls_hash_and_eq_of_a_key_as_cpython_does",
+        indoc! {"
+            from enum import Enum
+
+            class Cor(Enum):
+                AZUL = 1
+                VERDE = 2
+
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    print('ponto', x)
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    print('eq', self.x, isinstance(other, Ponto) and other.x)
+                    return isinstance(other, Ponto) and self.x == other.x
+
+                def __hash__(self) -> int:
+                    print('hash', self.x)
+                    return self.x % 2
+
+                def __repr__(self) -> str:
+                    return 'Ponto(' + str(self.x) + ')'
+
+            d = {Ponto(1): 'a', Ponto(3): 'b', Ponto(1): 'c'}
+            print(len(d))
+            print(d[Ponto(3)])
+            d[Ponto(5)] = 'd'
+            print(len(d))
+            cores = {Cor.AZUL: 1.5, Cor.VERDE: -0.0}
+            print(cores[Cor.VERDE], cores[Cor.AZUL])
+            n: dict[str | None, int] = {None: 1, 'a': 2}
+            print(n[None], n['a'])
+            u: dict[int | str, float] = {}
+            for i in range(20):
+                u[i] = i / 2
+                u[str(i)] = -i / 2
+            print(len(u), u[7], u['7'])
+            print(d[Ponto(7)])
+        "},
+    );
 }

@@ -1790,7 +1790,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// with the function that makes an empty object, calls the `__init__`
     /// with it and the arguments, and returns it. The function has no
     /// frame, and `None` stands for a class without `__init__`.
-    fn plain_init(&self, class: ClassId) -> Option<(&'a ast::StmtFunctionDef, FuncId)> {
+    pub(super) fn plain_init(&self, class: ClassId) -> Option<(&'a ast::StmtFunctionDef, FuncId)> {
         let init = self.method(class, "__init__")?;
         let (def, method) = (init.def, init.func());
         if let Some(func) = self.classes.borrow().get(class).init {

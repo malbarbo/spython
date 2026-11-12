@@ -211,6 +211,7 @@ impl<'a> Lowering<'a, '_> {
             }
             ast::Expr::Compare(c) => self.compare(c),
             ast::Expr::List(list) => self.list(expr, list),
+            ast::Expr::Dict(dict) => self.dict(expr, dict),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
                 if value.rep().class().is_some() {
@@ -344,6 +345,50 @@ impl<'a> Lowering<'a, '_> {
             })
             .collect::<Result<_, _>>()?;
         Ok(Expr::List { list: id, items })
+    }
+
+    /// A literal of `dict`, an object of the copy of the class `Dict` of
+    /// the prelude. Each key and each value runs in order, and then the
+    /// method `done` puts the items in the `dict`, as CPython does.
+    fn dict(&self, expr: &ast::Expr, dict: &ast::ExprDict) -> Result<Expr, Error> {
+        let rep = self.rep_of(expr_shape(self.model(), expr));
+        let Some(Rep::Object(class)) = rep.filter(|rep| {
+            rep.class()
+                .is_some_and(|class| self.copy_file(class).is_some())
+        }) else {
+            return Err(unsupported(dict, "a dict of this type"));
+        };
+        self.classes.borrow_mut().instantiated.insert(class);
+        let object = Rep::Object(class);
+        let (_, init) = self.plain_init(class).expect("Dict has __init__");
+        let site = self.site(expr.range());
+        let mut value = generated_call(init, Vec::new(), object, site);
+        if dict.items.is_empty() {
+            return Ok(value);
+        }
+        let pend = self.method_func(class, "pend").expect("Dict has pend");
+        let params = self.funcs.borrow().get(pend).params.clone();
+        let [_, key_rep, value_rep] = params[..] else {
+            unreachable!("pend takes a key and a value");
+        };
+        let lower = |node: &ast::Expr, rep: Rep| {
+            let lowered = self.expr(node)?;
+            let lowered = match (lowered.rep(), rep) {
+                (Rep::Bool, Rep::Int) => Expr::BoolAsInt(Box::new(lowered)),
+                _ => lowered,
+            };
+            self.coerce(lowered, rep)
+                .ok_or_else(|| unsupported(node, "an item of this type"))
+        };
+        for item in &dict.items {
+            let Some(key) = &item.key else {
+                return Err(unsupported(&item.value, "a starred item"));
+            };
+            let args = vec![value, lower(key, key_rep)?, lower(&item.value, value_rep)?];
+            value = generated_call(pend, args, object, site);
+        }
+        let done = self.method_func(class, "done").expect("Dict has done");
+        Ok(generated_call(done, vec![value], object, site))
     }
 
     /// Refuses the text `value` of the literal `node` when it may hold a

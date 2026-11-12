@@ -1,22 +1,207 @@
 """The class of `dict`, whose copy for the types of the keys and of the values is the class of a
-`dict` of the program."""
+`dict` of the program.
+
+The class follows the compact `dict` of CPython 3.13. Each entry has a `hash`, a key and a value,
+in the order of insertion. A table of indices gives the entry of each slot, -1 for an empty slot
+and -2 for the slot of a removed entry. A removed entry keeps its place until the table grows, so
+the growth of the table happens where it happens in CPython."""
+
+from __spython_prelude__.intrinsics import (
+    Hash,
+    hash_eq,
+    hash_of,
+    hash_shift,
+    hash_slot,
+    item,
+    list_reserve,
+    list_set_len,
+    same,
+    set_item,
+)
 
 
 class Dict[K, V]:
+    # The slots of the table. An empty list stands for the table of an empty `dict` of CPython,
+    # which takes no entry.
+    indices: list[int]
+    hashes: list[Hash]
     keys: list[K]
     values: list[V]
+    # Whether each entry is in the `dict`.
+    live: list[bool]
+    used: int
+    # How many entries the table takes before it grows.
+    usable: int
+    # Whether the table is one that CPython keeps for keys of `str` alone. A key of another type
+    # makes CPython move the entries to a new table.
+    unicode: bool
 
     def __init__(self) -> None:
+        indices: list[int] = []
+        hashes: list[Hash] = []
         keys: list[K] = []
         values: list[V] = []
+        live: list[bool] = []
+        self.indices = indices
+        self.hashes = hashes
         self.keys = keys
         self.values = values
+        self.live = live
+        self.used = 0
+        self.usable = 0
+        self.unicode = True
 
     def __len__(self) -> int:
-        return len(self.keys)
+        return self.used
+
+    def __getitem__(self, key: K) -> V:
+        ix = self.find(key, hash_of(key))
+        if ix < 0:
+            raise KeyError(key)
+        return item(self.values, ix)
+
+    def __setitem__(self, key: K, value: V) -> None:
+        self.insert(key, hash_of(key), value)
 
     def clear(self) -> None:
+        indices: list[int] = []
+        hashes: list[Hash] = []
         keys: list[K] = []
         values: list[V] = []
+        live: list[bool] = []
+        self.indices = indices
+        self.hashes = hashes
         self.keys = keys
         self.values = values
+        self.live = live
+        self.used = 0
+        self.usable = 0
+        self.unicode = True
+
+    def pend(self, key: K, value: V) -> Dict[K, V]:
+        """Keeps an item of a literal of `dict`, which [`done`] puts in the `dict` once each key
+        and each value of the literal has its value, as `BUILD_MAP` of CPython does."""
+        self.keys.append(key)
+        self.values.append(value)
+        return self
+
+    def done(self) -> Dict[K, V]:
+        """Puts in the `dict` the items that `pend` kept, in a table that CPython sizes for them,
+        and gives the `dict`."""
+        keys = self.keys
+        values = self.values
+        n = len(keys)
+        self.clear()
+        if n > 5:
+            unicode = True
+            for i in range(n):
+                if not isinstance(item(keys, i), str):
+                    unicode = False
+                    break
+            self.resize(min((n * 3 + 1) // 2, 131072), unicode)
+        for i in range(n):
+            key = item(keys, i)
+            self.insert(key, hash_of(key), item(values, i))
+        return self
+
+    def find(self, key: K, h: Hash) -> int:
+        """The index of the entry of `key`, whose `hash` is `h`, or -1 when the `dict` has no such
+        key. The key of the entry is on the left of `==`. A comparison that changes the table or
+        removes the entry starts the search again, as in CPython."""
+        indices = self.indices
+        size = len(indices)
+        if size == 0:
+            return -1
+        mask = size - 1
+        i = hash_slot(h, mask)
+        perturb = h
+        while True:
+            ix = item(indices, i)
+            if ix >= 0:
+                k = item(self.keys, ix)
+                if same(k, key):
+                    return ix
+                if hash_eq(item(self.hashes, ix), h):
+                    equal = k == key
+                    if not same(self.indices, indices) or not item(self.live, ix):
+                        return self.find(key, h)
+                    if equal:
+                        return ix
+            elif ix == -1:
+                return -1
+            perturb = hash_shift(perturb)
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+
+    def empty_slot(self, h: Hash) -> int:
+        """The first slot for `h` that holds no entry."""
+        indices = self.indices
+        size = len(indices)
+        mask = size - 1
+        i = hash_slot(h, mask)
+        perturb = h
+        while item(indices, i) >= 0:
+            perturb = hash_shift(perturb)
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+        return i
+
+    def insert(self, key: K, h: Hash, value: V) -> None:
+        """Puts `value` under `key`, whose `hash` is `h`. A key that the `dict` has keeps its first
+        object."""
+        if len(self.indices) == 0:
+            self.new_table(8, isinstance(key, str))
+        else:
+            ix = self.find(key, h)
+            if ix >= 0:
+                set_item(self.values, ix, value)
+                return
+            if self.unicode and not isinstance(key, str):
+                self.resize(self.used * 3, False)
+            if self.usable <= 0:
+                self.resize(self.used * 3, True)
+        set_item(self.indices, self.empty_slot(h), len(self.keys))
+        self.hashes.append(h)
+        self.keys.append(key)
+        self.values.append(value)
+        self.live.append(True)
+        self.usable -= 1
+        self.used += 1
+
+    def new_table(self, size: int, unicode: bool) -> None:
+        """Gives the `dict` an empty table of `size` slots, without entries."""
+        indices: list[int] = []
+        list_reserve(indices, size)
+        for i in range(size):
+            set_item(indices, i, -1)
+        list_set_len(indices, size)
+        hashes: list[Hash] = []
+        keys: list[K] = []
+        values: list[V] = []
+        live: list[bool] = []
+        self.indices = indices
+        self.hashes = hashes
+        self.keys = keys
+        self.values = values
+        self.live = live
+        self.usable = size * 2 // 3
+        self.unicode = unicode
+
+    def resize(self, minsize: int, unicode: bool) -> None:
+        """Moves the entries in the `dict` to a new table, whose size is the first power of 2 from
+        8 that is not below `minsize`, as `dictresize` does."""
+        size = 8
+        while size < minsize:
+            size *= 2
+        hashes = self.hashes
+        keys = self.keys
+        values = self.values
+        live = self.live
+        self.new_table(size, unicode and self.unicode)
+        for i in range(len(keys)):
+            if item(live, i):
+                h = item(hashes, i)
+                set_item(self.indices, self.empty_slot(h), len(self.keys))
+                self.hashes.append(h)
+                self.keys.append(item(keys, i))
+                self.values.append(item(values, i))
+                self.live.append(True)
+        self.usable -= len(self.keys)
