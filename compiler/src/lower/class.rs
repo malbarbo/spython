@@ -390,6 +390,9 @@ impl<'a> Lowering<'a, '_> {
                 method.func = Some(self.declare_method(method.def, class)?);
             }
             self.classes.borrow_mut().get_mut(class).methods = methods.clone();
+            for method in &methods {
+                self.check_special(class, *method)?;
+            }
             let base = self.classes.borrow().get(class).base;
             for method in methods
                 .iter()
@@ -436,6 +439,26 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(
                 method.def,
                 "an override with other parameters or result",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Refuses a special method of `class` whose parameters and result
+    /// differ from the ones that the operator gives and takes. `__eq__`
+    /// and `__ne__` take any value and give a `bool`.
+    fn check_special(&self, class: ClassId, method: Method<'a>) -> Result<(), Error> {
+        let name = method.def.name.as_str();
+        if !matches!(name, "__eq__" | "__ne__") {
+            return Ok(());
+        }
+        let funcs = self.funcs.borrow();
+        let sig = funcs.get(method.func());
+        let defaults = params_of(method.def).any(|param| param.default.is_some());
+        if defaults || sig.params != [Rep::Object(class), Rep::Uniform] || sig.ret != Rep::Bool {
+            return Err(unsupported(
+                method.def,
+                "an __eq__ or __ne__ other than (self, other: object) -> bool",
             ));
         }
         Ok(())
@@ -1576,11 +1599,21 @@ impl<'a> Lowering<'a, '_> {
     /// The dataclasses whose objects the lowered `operand`, with its node,
     /// may be.
     fn dataclasses_of(&self, (lowered, node): &(Expr, &ast::Expr)) -> Vec<ClassId> {
-        match lowered.rep() {
+        self.dataclasses_in(lowered.rep(), || expr_shape(self.model(), node))
+    }
+
+    /// The dataclasses whose objects a value of `rep` may be, where `shape`
+    /// gives the type of a uniform value.
+    pub(super) fn dataclasses_in(
+        &self,
+        rep: Rep,
+        shape: impl FnOnce() -> Option<Shape>,
+    ) -> Vec<ClassId> {
+        match rep {
             Rep::Object(class) | Rep::ObjectOrNone(class) if self.is_dataclass(class) => {
                 self.descendants(class)
             }
-            Rep::Uniform => self.uniform_dataclasses(expr_shape(self.model(), node)),
+            Rep::Uniform => self.uniform_dataclasses(shape()),
             _ => Vec::new(),
         }
     }
@@ -1667,7 +1700,7 @@ impl<'a> Lowering<'a, '_> {
     /// `left == right` at `site`, where both may be objects of the
     /// dataclasses `classes`. The `__eq__` of a class compares two objects
     /// of the class.
-    fn dataclass_eq(
+    pub(super) fn dataclass_eq(
         &self,
         left: Expr,
         right: Expr,
@@ -1768,6 +1801,19 @@ impl<'a> Lowering<'a, '_> {
         shape: Shape,
     ) -> Result<Expr, Error> {
         let rep = ours.rep();
+        if self.calls_eq(
+            (rep, || Some(shape.clone())),
+            (rep, || Some(shape.clone())),
+            CmpOp::Eq,
+        ) {
+            return self.special_eq(
+                node,
+                CmpOp::Eq,
+                (ours, Some(shape.clone())),
+                (theirs, Some(shape)),
+                site,
+            );
+        }
         if let Some(list) = rep.list() {
             let rep = Rep::ListOrNone(list);
             let coerced = |value| self.coerce(value, rep).expect("a list or None");
@@ -2255,7 +2301,7 @@ impl<'a> Lowering<'a, '_> {
                 // for an operator or a builtin yet.
                 ast::Stmt::FunctionDef(method)
                     if is_special(&method.name)
-                        && method.name.as_str() != "__init__"
+                        && !matches!(method.name.as_str(), "__init__" | "__eq__" | "__ne__")
                         && !is_conversion(&method.name) =>
                 {
                     return Err(unsupported(method, "this special method"));
@@ -2428,7 +2474,7 @@ fn own(class: ClassId) -> Expr {
 
 /// `object`, an object of a class, as a value of `rep`, an object of the
 /// class or of a class that it descends from.
-fn widen(object: Expr, rep: Rep) -> Expr {
+pub(super) fn widen(object: Expr, rep: Rep) -> Expr {
     if object.rep() == rep {
         return object;
     }
@@ -2448,7 +2494,7 @@ fn as_exact(exact: ClassId, class: ClassId) -> Expr {
 }
 
 /// The parameter at `i` of a function of the compiler, a value of `rep`.
-fn param(i: usize, rep: Rep) -> Expr {
+pub(super) fn param(i: usize, rep: Rep) -> Expr {
     Expr::Load {
         place: Place::Local(VarId::new(i)),
         rep,

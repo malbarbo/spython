@@ -499,6 +499,13 @@ impl<'a> Lowering<'a, '_> {
         }
         if operands
             .windows(2)
+            .zip(&ops)
+            .any(|(pair, op)| matches!(pair, [left, right] if self.calls_eq_of(left, right, *op)))
+        {
+            return self.special_compare(c, ops, operands);
+        }
+        if operands
+            .windows(2)
             .any(|pair| matches!(pair, [left, right] if self.share_dataclass(left, right)))
         {
             return self.dataclass_compare(c, ops, operands);

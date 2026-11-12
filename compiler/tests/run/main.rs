@@ -32,6 +32,7 @@ mod print;
 mod raise;
 mod recursion;
 mod repr;
+mod special;
 mod str;
 mod union;
 mod vars;
