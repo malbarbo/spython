@@ -205,27 +205,27 @@ impl<'a> Lowering<'a, '_> {
             .then(|| self.dataclass_decorator(def))
             .transpose()?;
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        let mut methods = Vec::new();
-        let (kind, checked, fields, members) = if let Some(frozen) = frozen {
-            methods = self.dataclass_form(def, &info)?;
+        let (kind, checked, fields, members, methods) = if let Some(frozen) = frozen {
+            let methods = self.dataclass_form(def, &info)?;
             let checked = info
                 .dataclass_fields
                 .expect("a dataclass that the checker knows")
                 .into_iter()
                 .map(|field| (field.name, field.shape))
                 .collect();
-            (Kind::Dataclass { frozen }, checked, Vec::new(), Vec::new())
+            let kind = Kind::Dataclass { frozen };
+            (kind, checked, Vec::new(), Vec::new(), methods)
         } else if def.arguments.is_none() && info.mro.len() == 2 {
-            let checked;
-            (checked, methods) = self.plain_form(def, &info)?;
-            (Kind::Plain, checked, Vec::new(), Vec::new())
+            let (checked, methods) = self.plain_form(def, &info)?;
+            (Kind::Plain, checked, Vec::new(), Vec::new(), methods)
         } else {
-            let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
+            let (members, methods) =
+                self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
             let value = members
                 .first()
                 .map_or(Rep::Int, |member| member.value.rep());
             let fields = vec![("name".to_owned(), Rep::Str), ("value".to_owned(), value)];
-            (Kind::Enum, Vec::new(), fields, members)
+            (Kind::Enum, Vec::new(), fields, members, methods)
         };
         let mut classes = self.classes.borrow_mut();
         let id = ClassId::new(classes.list.len());
@@ -363,15 +363,19 @@ impl<'a> Lowering<'a, '_> {
     /// for the first default that is an object of a dataclass.
     pub(super) fn class_body(&self, def: &ast::StmtClassDef) -> Result<Vec<Stmt>, Error> {
         let class = self.class_of(def)?;
-        let (fields, defaults) = {
+        let (kind, fields, defaults) = {
             let classes = self.classes.borrow();
             let declared = classes.get(class);
-            if declared.kind == Kind::Enum {
-                return Ok(Vec::new());
-            }
-            (declared.fields.clone(), declared.defaults.clone())
+            (
+                declared.kind,
+                declared.fields.clone(),
+                declared.defaults.clone(),
+            )
         };
         let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
+        if kind == Kind::Enum {
+            namespace.push("_generate_next_value_".to_owned());
+        }
         if def.body.iter().any(ast::Stmt::is_ann_assign_stmt) {
             namespace.push("__annotations__".to_owned());
         }
@@ -438,6 +442,17 @@ impl<'a> Lowering<'a, '_> {
         let mut fields = fields.iter().zip(defaults);
         for stmt in &def.body {
             match stmt {
+                // A member of an `Enum` joins the namespace.
+                ast::Stmt::Assign(member) => {
+                    if let [ast::Expr::Name(name)] = &*member.targets {
+                        self.scope
+                            .borrow_mut()
+                            .as_mut()
+                            .expect("the scope of the class body")
+                            .namespace
+                            .push(name.id.to_string());
+                    }
+                }
                 ast::Stmt::AnnAssign(node) => {
                     let ((name, rep), var) = fields.next().expect("a field of the class");
                     if let (Some(value), Some(var)) = (node.value.as_deref(), var) {
@@ -1095,6 +1110,10 @@ impl<'a> Lowering<'a, '_> {
         class.known == Some(KnownClass::Object)
     }
 
+    pub(super) fn is_enum(&self, class: ClassId) -> bool {
+        self.classes.borrow().get(class).kind == Kind::Enum
+    }
+
     pub(super) fn is_dataclass(&self, class: ClassId) -> bool {
         self.classes.borrow().get(class).kind.is_dataclass()
     }
@@ -1355,15 +1374,15 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
-    /// The members of `def` in the order of the class, when `def` has the
-    /// form of an `Enum` that the compiler takes. `mro` and `checked` are
-    /// what the checker gives for the class.
+    /// The members of `def` in the order of the class, together with its
+    /// methods, when `def` has the form of an `Enum` that the compiler
+    /// takes. `mro` and `checked` are what the checker gives for the class.
     fn enum_members(
         &self,
-        def: &ast::StmtClassDef,
+        def: &'a ast::StmtClassDef,
         mro: &[CheckerClass],
         checked: Option<&[(String, Shape)]>,
-    ) -> Result<Vec<Member>, Error> {
+    ) -> Result<(Vec<Member>, Vec<Method<'a>>), Error> {
         let is_enum = mro.len() == 3
             && mro
                 .get(1)
@@ -1382,10 +1401,19 @@ impl<'a> Lowering<'a, '_> {
             ));
         }
         let mut members: Vec<Member> = Vec::new();
+        let mut methods = Vec::new();
         // CPython gives `auto()` the greatest value before it, plus 1.
         let mut greatest: Option<i32> = None;
         for (i, stmt) in def.body.iter().enumerate() {
             let (target, value) = match stmt {
+                // The class `Enum` defines the special methods.
+                ast::Stmt::FunctionDef(method) if is_special(&method.name) => {
+                    return Err(unsupported(method, "a special method in an Enum"));
+                }
+                ast::Stmt::FunctionDef(method) => {
+                    push_method(&mut methods, method)?;
+                    continue;
+                }
                 ast::Stmt::Pass(_) => continue,
                 ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => continue,
                 ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => continue,
@@ -1457,7 +1485,7 @@ impl<'a> Lowering<'a, '_> {
                 "an Enum whose values the checker computes otherwise",
             ));
         }
-        Ok(members)
+        Ok((members, methods))
     }
 
     /// Returns `true` if `expr` reads the class `known` of the standard

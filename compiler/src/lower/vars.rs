@@ -218,6 +218,15 @@ impl<'a> Lowering<'a, '_> {
         {
             return Err(unsupported(name, "a name near a name of the class"));
         }
+        // An object of an `Enum` has attributes such as `_value_` that the
+        // compiler does not list.
+        if name.id.starts_with('_')
+            && let Some(scope) = self.scope.borrow().as_ref()
+            && let Some((_, Rep::Object(class))) = scope.vars.find("self")
+            && self.is_enum(class)
+        {
+            return Err(unsupported(name, "a name with _ in a method of an Enum"));
+        }
         // The suggestion of `self.x` depends on whether `__init__` has
         // assigned the field `x` yet.
         if let Some(scope) = self.scope.borrow().as_ref()

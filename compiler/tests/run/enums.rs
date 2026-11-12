@@ -443,3 +443,60 @@ fn an_enum_outside_the_accepted_form_has_its_own_message() {
         assert_eq!(unsupported(source), what, "{source}");
     }
 }
+
+#[test]
+fn an_enum_calls_its_methods() {
+    same_as_cpython(
+        "an_enum_calls_its_methods",
+        indoc! {"
+            from enum import Enum, auto
+
+            def f(x: int) -> int:
+                print('default', x)
+                return 10 // x
+
+            class Cor(Enum):
+                VERMELHO = auto()
+                VERDE = auto()
+                AZUL = auto()
+
+                def proxima(self) -> 'Cor':
+                    if self == Cor.VERMELHO:
+                        return Cor.VERDE
+                    elif self == Cor.VERDE:
+                        return Cor.AZUL
+                    return Cor.VERMELHO
+
+                def peso(self, fator: int = f(2)) -> int:
+                    return self.value * fator
+
+                def nome(self) -> str:
+                    return self.name.lower()
+
+            c = Cor.AZUL.proxima()
+            print(c, c.proxima().nome(), c.peso(), Cor.AZUL.peso(fator=3))
+
+            class Ruim(Enum):
+                A = 1
+
+                def m(self, x: int = f(0)) -> int:
+                    return x
+        "},
+    );
+}
+
+#[test]
+fn a_special_method_in_an_enum_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            from enum import Enum
+
+            class Cor(Enum):
+                A = 1
+
+                def __str__(self) -> str:
+                    return 'cor'
+        "}),
+        "a special method in an Enum"
+    );
+}
