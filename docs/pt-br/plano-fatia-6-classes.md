@@ -188,7 +188,7 @@ subclasse. Um `__init__` da base que deixa `self` escapar só é aceito
 quando toda subclasse dela atribui os próprios campos antes de chamar
 `super().__init__`. Assim um método sobrescrito que a base chama nunca
 lê um campo da subclasse sem valor. Um campo que a análise não prova é
-`Unsupported` (decisão pendente 3).
+`Unsupported` (decisão 3).
 
 ### Representação
 
@@ -284,37 +284,46 @@ identidade fica para a fatia 8, quando um campo opcional na raiz da
 hierarquia pode guardá-lo só onde o programa o usa, como o jwonder faz
 com o `$monitor`.
 
-As sondagens `dispatch.wat` e `funcref.wat` do jwonder foram refeitas
-aqui sem o `wasm-opt`, como o spython emite, com mais formas e com 4, 8
-e 16 classes. O tempo é por chamada, com 10^8 chamadas, no wasmtime 48 e
-no deno, com as classes em rodízio e, nas linhas marcadas, em ordem
-aleatória.
+O alvo de desempenho é o V8, e as medidas abaixo são do deno. O
+wasmtime roda os testes e a CLI, e os números dele ficam como nota.
 
-| Forma | 4 classes | 8 classes | 16 classes | 16, aleatória |
-|---|---:|---:|---:|---:|
-| chamada direta, sem despacho | 4 / 0,9 | | | |
-| cadeia de `ref.test`, tipos `final` | 9 / 2,0 | 11 / 2,8 | 15 / 5,5 | 15 / 5,3 |
-| cadeia de `ref.test`, tipos sem `final` | 27 / 2,4 | 106 / 4,0 | 670 / 9,4 | 641 / 9,9 |
-| vtable, a forma do jwonder | 43 / 2,2 | 44 / 5,2 | 45 / 5,3 | 44 / 16 |
-| id `i32` no objeto e `call_indirect` | 8 / 2,4 | 8 / 5,2 | 8 / 5,0 | 19 / 15 |
-| id `i32` no objeto e `br_table` | 6 / 2,2 | 6 / 2,1 | 6 / 2,4 | 20 / 7,3 |
+A sondagem `dispatch.wat` do jwonder foi refeita aqui sem o `wasm-opt`,
+como o spython emite. O gerador `gen.py` monta um ponto de chamada
+`x.m()` num laço de 10^8 voltas, com uma base e N − 1 subclasses, cada
+uma com o próprio corpo. No rodízio, o receptor segue o ciclo fixo das
+classes. No LCG, um array de 1024 objetos de classes sorteadas é lido
+pelo índice que um gerador congruencial linear dá a cada chamada, e
+nenhuma sequência se repete. O tempo é em nanossegundos por chamada, o
+melhor de 5 execuções, e todas as formas devolvem a mesma soma.
 
-Cada célula dá os nanossegundos no wasmtime e no deno. A sondagem
-`funcref.wat` do jwonder explica a linha da vtable. Tirar um `funcref`
-de dentro de uma struct do heap de GC custa cerca de 35 ns no wasmtime.
-O V8 só põe em linha um `call_ref` num ponto quase monomórfico, e com 8
-classes em ordem aleatória a vtable também é a pior forma no deno.
+| N | Padrão | cadeia em linha | cadeia em função | id em linha | id em função | vtable |
+|---|---|---:|---:|---:|---:|---:|
+| 2 | rodízio | 1,4 | 1,4 | 1,4 | 1,5 | 1,8 |
+| 4 | rodízio | 1,9 | 2,0 | 1,8 | 1,8 | 2,8 |
+| 8 | rodízio | 2,5 | 2,5 | 2,2 | 2,1 | 5,4 |
+| 16 | rodízio | 3,3 | 5,2 | 2,2 | 4,0 | 5,9 |
+| 2 | LCG | 6,9 | 7,2 | 7,2 | 7,3 | 8,3 |
+| 4 | LCG | 10,5 | 10,5 | 10,0 | 10,2 | 11,9 |
+| 8 | LCG | 13,0 | 13,1 | 14,6 | 14,1 | 19,8 |
+| 16 | LCG | 14,1 | 13,9 | 15,1 | 14,9 | 19,9 |
 
-O teste contra um tipo sem `final` cresce com o número de tipos no
-wasmtime e chega a 670 ns com 16 classes. Por isso o plano nunca testa um
-tipo sem `final`. Com os tipos exatos, a cadeia é a melhor forma no
-wasmtime até 16 classes em ordem aleatória. O id com `br_table` ganha no
-rodízio, mas perde em ordem aleatória no wasmtime. Acima de 16 corpos
-num ponto de chamada, um id `i32` imutável na raiz da hierarquia e um
-`br_table` para chamadas diretas ficam melhores. O id em pré-ordem dá
-também o `isinstance` por intervalo, a proposta B do jwonder. O limite é
-uma constante, e nenhum programa do corpus chega perto dele (decisão
-pendente 2).
+A cadeia testa os tipos exatos `final`. O id é um campo `i32` imutável
+na raiz, com um `br_table` para chamadas diretas. A vtable é a forma do
+jwonder, e o corpo dela nem faz o cast que a ponte do jwonder faria. No
+LCG, cerca de 6 ns de cada célula são o sorteio e a falha de previsão.
+
+- A vtable perde em todos os casos, de 15% a 50% no LCG. O V8 só põe em
+  linha um `call_ref` num ponto quase monomórfico.
+- A cadeia e o id empatam, com 10% para um lado ou para o outro, e o id
+  custa um campo em todo objeto.
+- A cadeia numa função custa o mesmo que em linha até 8 corpos. Com 16
+  num padrão previsível, o V8 deixa de pôr a função em linha.
+- Um teste contra um tipo sem `final` custa o dobro do teste `final` no
+  V8 com 16 classes, e chega a 670 ns no wasmtime. Por isso o plano nunca
+  testa um tipo sem `final`.
+
+O compilador emite a cadeia num despachante por par (método, classe
+estática), sem cabeçalho no objeto (decisão 2).
 
 O que a fatia leva do jwonder:
 
@@ -346,7 +355,8 @@ depois do quadro da linha que usa o operador, com as marcas do CPython.
 - `print`, `str` e f-string sem formato chamam `__str__`, e na falta dele
   `__repr__`. `repr` chama `__repr__`. Uma classe comum sem nenhum dos
   dois escreve `<__main__.Conta object at 0x...>` no CPython, com um
-  endereço que muda a cada execução (decisão pendente 4).
+  endereço que muda a cada execução. O compilador escreve
+  `<__main__.Conta object>`, sem endereço (decisão 4).
 - `print` escreve cada argumento e cada separador assim que os converte,
   como o CPython. Um `__str__` que lança no segundo argumento deixa o
   primeiro escrito. Isso muda o `print` de lista da fatia 5, que montava
@@ -391,14 +401,17 @@ O `hash` segue o do CPython 3.13, num `i64`.
   2^61 − 1 nunca entra.
 - `float` segue `_Py_HashDouble`, num builtin em Rust. `inf` dá 314159.
   O `hash` de `nan` vem da identidade do objeto desde o CPython 3.10, e
-  um `float` sem caixa não tem identidade (decisão pendente 8).
+  um `float` sem caixa não tem identidade. O compilador dá 0 ao `hash` de
+  `nan`, e um `nan` nunca é igual a outro valor num contêiner, nem a ele
+  mesmo. Cada `nan` inserido num `set` vira um item novo, e `n in {n}` dá
+  `False` (decisão 8).
 - `bool` é 0 ou 1. `None` é 4238894112, uma constante desde o 3.12.
 - `str` segue o SipHash-1-3 sobre os bytes da forma compacta do CPython,
   com 1, 2 ou 4 bytes por caractere, e 0 para o `str` vazio. O CPython
   sorteia a chave a cada execução, e a ordem de um `set[str]` muda de uma
   execução para outra. Com `PYTHONHASHSEED=0`, a chave são 16 bytes zero.
   O compilador usa essa chave, e os testes rodam o CPython com essa
-  variável (decisão pendente 5). O SipHash vem de um crate testado.
+  variável (decisão 5). O SipHash vem de um crate testado.
 - Um membro de Enum tem o `hash` do nome.
 - Uma dataclass `frozen` tem o `hash` da tupla dos campos, pelo xxHash
   que o CPython usa nas tuplas.
@@ -413,7 +426,7 @@ O `hash` segue o do CPython 3.13, num `i64`.
 
 `dict` e `set` são classes genéricas do prelude, em Python, e o
 compilador faz uma cópia de cada uma por `Rep` das variáveis de tipo,
-como faz com as funções de lista (decisão pendente 6). Elas guardam os
+como faz com as funções de lista (decisão 6). Elas guardam os
 dados em listas do prelude, e assim usam o que a fatia 5 já testou.
 
 O mecanismo de hoje não basta, e a parte 6b começa por ele:
@@ -455,18 +468,17 @@ O que o CPython faz e a cópia segue:
 
 Um valor de função tem uma `Rep` por assinatura, `Func(sig)`, com as
 `Rep` dos parâmetros e do resultado, e a anotação `Callable[[int], int]`
-dá a mesma `Rep`. O valor é uma struct `final` com o índice da função
-numa tabela e as variáveis capturadas em campos imutáveis. A chamada lê
-o índice e faz `call_indirect`, que custa 8 ns no wasmtime e de 2,4 a 15
-ns no deno, conforme o ponto de chamada (decisão pendente 7). O código
-recebe a struct como primeiro parâmetro e faz o cast para a struct da
-própria função, que é `final`.
+dá a mesma `Rep`. O valor é uma struct `final` com a função num campo
+`funcref` imutável e as variáveis capturadas em campos imutáveis. A
+chamada lê o campo e faz `call_ref`. A sondagem `funcref.wat` do jwonder
+mede 2,1 ns no V8 para essa forma, contra 2,5 ns de um índice numa
+tabela com `call_indirect` (decisão 7). O código recebe a struct como
+primeiro parâmetro e faz o cast para a struct da própria função, que é
+`final`.
 
 - A chamada de um valor de função fica numa função só do emissor, para
-  trocar o `call_indirect` por `call_ref` num campo `funcref` quando o
-  navegador entrar, se a medida no V8 pedir.
-- A tabela é a mesma que o REPL vai usar para as funções de cada
-  entrada, e cada função dela recebe a struct como primeiro parâmetro.
+  trocar de forma se outra medida pedir. No wasmtime, o `call_ref` custa
+  cerca de 41 ns, e o `call_indirect` 7 ns.
 - O nome de uma função do módulo vira um objeto só, criado uma vez num
   global, por `def`, porque o nível 4 aceita a segunda definição.
 - Um `lambda` e um `def` dentro de uma função capturam as variáveis que
@@ -616,7 +628,7 @@ Cada linha é um commit, e cada commit passa pelo portão rápido.
 **6c. J. Funções como valores**
 
 53. `compiler: compile the name of a function as a value`, com a
-    `Rep::Func`, a anotação `Callable` e a tabela
+    `Rep::Func` e a anotação `Callable`
 54. `compiler: call a value of a function type`
 55. `compiler: compile a lambda that captures no variable`
 56. `compiler: capture the variables of the enclosing function`, com a
@@ -696,7 +708,8 @@ de `str`.
   uma cópia do prelude, num default ou num doctest tem de entrar no
   conjunto. Um erro faz o despachante chamar o corpo errado.
 - **Um tipo sem `final` num teste.** Um `ref.test` que escapa da regra
-  custa centenas de nanossegundos no wasmtime sem mudar nenhuma saída.
+  custa o dobro no V8, e centenas de nanossegundos no wasmtime, sem
+  mudar nenhuma saída.
   Um teste do emissor confere que nenhum `ref.test` nem `ref.cast` nomeia
   um tipo que não é `final`.
 - **O tempo de compilação.** O Cranelift cresce como n^2,8 com as
@@ -712,12 +725,13 @@ de `str`.
 
 ## Em aberto
 
-- Acima de 16 corpos num ponto de chamada, o id `i32` imutável na raiz e
-  o `br_table`. O teste de 16 classes mede o ponto de troca.
+- Um id `i32` imutável na raiz e o `br_table`, se um programa tiver
+  muitos corpos num ponto de chamada. A medida empata com a cadeia até 16.
+  O id em pré-ordem daria também o `isinstance` por intervalo, a proposta
+  B do jwonder.
 - O REPL, com o id de classe e a tabela de funções para as classes de
   entradas posteriores.
-- A troca do `call_indirect` por `call_ref` no navegador, se a medida no
-  V8 pedir, e a especialização pelo código de um argumento função.
+- A especialização pelo código de um argumento função.
 - O `hash` de identidade, quando a fatia 8 aceitar `set` de uma classe
   sem `__eq__`.
 
@@ -758,15 +772,22 @@ CPython, um do escopo e um da fidelidade ao jwonder.
 
 ## Decisões
 
-O usuário decide estes pontos, uma pergunta por vez.
+O usuário decidiu estes pontos em 12/nov/2026, uma pergunta por vez.
 
-1. A divisão da fatia em 6a, 6b e 6c, nessa ordem.
-2. O despacho pela cadeia de `ref.test` contra tipos exatos `final` até
-   16 corpos, e um id com `br_table` acima disso, no lugar da vtable do
-   jwonder.
+1. A fatia se divide em 6a, 6b e 6c, nessa ordem.
+2. O alvo de desempenho é o V8, e o wasmtime fica para os testes e a
+   CLI. O despacho é a cadeia de `ref.test` contra tipos exatos `final`,
+   num despachante por par (método, classe estática), sem cabeçalho no
+   objeto. O usuário pediu a sondagem refeita com o despachante em linha
+   e em função, com o id e com um padrão que não se repete, antes de
+   decidir.
 3. Um campo que a análise não prova atribuído é `Unsupported`.
-4. O `print` de um objeto sem `__str__` e sem `__repr__`.
-5. O `hash` de `str` com a chave de `PYTHONHASHSEED=0`.
-6. `dict` e `set` como classes genéricas do prelude, em Python.
-7. A chamada de um valor de função por `call_indirect`.
-8. O `hash` de `nan`.
+4. O `print`, o `str`, o `repr` e a f-string de um objeto sem `__str__`
+   e sem `__repr__` escrevem `<__main__.Conta object>`, sem endereço.
+5. O `hash` de `str` é o SipHash-1-3 com a chave de `PYTHONHASHSEED=0`,
+   e os testes rodam o CPython com essa variável.
+6. `dict` e `set` são classes genéricas do prelude, em Python.
+7. Um valor de função guarda a função num campo `funcref`, e a chamada é
+   `call_ref`.
+8. O `hash` de `nan` é 0, e um `nan` nunca é igual num contêiner, a
+   mesma divergência da decisão 4 da fatia 5.
