@@ -173,6 +173,10 @@ pub(super) struct Declared<'a> {
     /// dataclass, or for each parameter of the `__init__` of a class of
     /// [`Kind::Plain`], once a call needs it.
     pub init: Option<FuncId>,
+    /// The `__init__` of a dataclass, which assigns each field of an object
+    /// of the class or of a subclass, once a call of `super().__init__`
+    /// needs it.
+    pub reinit: Option<FuncId>,
     /// The methods of the class, in the order of the body.
     pub methods: Vec<Method<'a>>,
     /// The function `__eq__` of a dataclass, once a comparison needs it.
@@ -300,6 +304,7 @@ impl<'a> Lowering<'a, '_> {
             own_str: None,
             own_repr: None,
             init: None,
+            reinit: None,
             methods,
             eq: None,
             eq_or_none: None,
@@ -1464,7 +1469,8 @@ impl<'a> Lowering<'a, '_> {
     /// The call `call` of the method of `attr`, whose object is `sup`,
     /// which is `super()`. The method comes from the base of the class of
     /// the method that the call is in, and the call goes to it directly,
-    /// with the object of `self`. The `__init__` of `object` does nothing.
+    /// with the object of `self`. The `__init__` of a dataclass assigns the
+    /// fields of the base, and the `__init__` of `object` does nothing.
     pub(super) fn super_call(
         &self,
         call: &ast::ExprCall,
@@ -1483,9 +1489,90 @@ impl<'a> Lowering<'a, '_> {
         let object = param(0, Rep::Object(class));
         match base.and_then(|base| self.method(base, attr.attr.as_str())) {
             Some(method) => self.call_with(call, object, method, method.func()),
-            None if attr.attr.as_str() == "__init__" => Ok(Expr::None),
+            None if attr.attr.as_str() == "__init__" => match base {
+                Some(base) if self.is_dataclass(base) => self.dataclass_reinit(call, object, base),
+                _ => Ok(Expr::None),
+            },
             None => Err(unsupported(attr, "this attribute of super()")),
         }
+    }
+
+    /// The call `call` of the `__init__` of `class`, a dataclass, with
+    /// `object` as `self`.
+    fn dataclass_reinit(
+        &self,
+        call: &ast::ExprCall,
+        object: Expr,
+        class: ClassId,
+    ) -> Result<Expr, Error> {
+        // The struct of a frozen dataclass keeps its fields immutable.
+        if self.classes.borrow().get(class).kind != (Kind::Dataclass { frozen: false }) {
+            return Err(unsupported(call, "super().__init__ of a frozen dataclass"));
+        }
+        let func = self.reinit(class);
+        let sig = self.funcs.borrow().get(func).clone();
+        let names: Vec<String> = self
+            .classes
+            .borrow()
+            .get(class)
+            .fields
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let bindings = self.bindings_by_name(call, &names)?;
+        let mut rest = sig.clone();
+        rest.params.remove(0);
+        rest.defaults.remove(0);
+        let (args, order) = self.arguments(call, &rest, Some(&bindings))?;
+        let order = order.map(|order| {
+            std::iter::once(0)
+                .chain(order.into_iter().map(|arg| arg + 1))
+                .collect()
+        });
+        Ok(Expr::Call {
+            func,
+            args: std::iter::once(widen(object, Rep::Object(class)))
+                .chain(args)
+                .collect(),
+            order,
+            rep: Rep::None,
+            site: self.call_site(func, call),
+            check: None,
+        })
+    }
+
+    /// The function [`Declared::reinit`] of `class`.
+    fn reinit(&self, class: ClassId) -> FuncId {
+        if let Some(func) = self.classes.borrow().get(class).reinit {
+            return func;
+        }
+        let (reps, defaults): (Vec<Rep>, Vec<Option<VarId>>) = {
+            let classes = self.classes.borrow();
+            let declared = classes.get(class);
+            let reps = declared.fields.iter().map(|(_, rep)| *rep);
+            let defaults = declared.defaults.iter().copied();
+            std::iter::once((Rep::Object(class), None))
+                .chain(reps.zip(defaults))
+                .unzip()
+        };
+        let mut body: Vec<Stmt> = reps
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, rep)| Stmt::SetField {
+                object: param(0, Rep::Object(class)),
+                class,
+                field: u32::try_from(i - 1).expect("a field of a struct"),
+                value: param(i, *rep),
+            })
+            .collect();
+        body.push(Stmt::Return(Some(Expr::None)));
+        // The function assigns the fields and raises nothing.
+        let func = self.reserve_with(reps, Rep::None, defaults, false);
+        self.define(func, false, body);
+        self.classes.borrow_mut().get_mut(class).reinit = Some(func);
+        func
     }
 
     /// The class and the `def` of the method of the program whose code

@@ -1270,3 +1270,59 @@ fn an_assignment_to_a_str_field_changes_the_field() {
         "},
     );
 }
+
+/// `super().__init__` in a method of a dataclass assigns the fields of the
+/// base, with their defaults, and evaluates the arguments in order.
+#[test]
+fn super_init_assigns_the_fields_of_a_dataclass_base() {
+    same_as_cpython(
+        "super_init_assigns_the_fields_of_a_dataclass_base",
+        indoc! {"
+            from dataclasses import dataclass
+
+            def show(n: int) -> int:
+                print('arg', n)
+                return n
+
+            @dataclass
+            class A:
+                x: int
+                z: str = 'z'
+
+            @dataclass
+            class B(A):
+                y: int = 0
+
+                def reset(self) -> None:
+                    super().__init__(show(0))
+
+                def keyword(self) -> None:
+                    super().__init__(z=str(show(1)), x=show(2))
+
+            b = B(1, 'a', 2)
+            b.reset()
+            print(b)
+            b.keyword()
+            print(b)
+        "},
+    );
+}
+
+#[test]
+fn super_init_of_a_frozen_dataclass_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass(frozen=True)
+            class A:
+                x: int
+
+            @dataclass(frozen=True)
+            class B(A):
+                def reset(self) -> None:
+                    super().__init__(0)
+        "}),
+        "super().__init__ of a frozen dataclass"
+    );
+}
