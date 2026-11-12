@@ -51,9 +51,9 @@ macro_rules! classes {
 
 // The builtins have more classes. An exception group, `KeyboardInterrupt`
 // and `SystemExit` do not end the program with the usual traceback,
-// `KeyError` writes the `repr` of its argument, `SyntaxError` and the
-// classes that derive from it write the place of the error, and the three
-// errors of Unicode take five arguments.
+// `SyntaxError` and the classes that derive from it write the place of the
+// error, and the three errors of Unicode take five arguments. The text of a
+// `KeyError` is the `repr` of its argument, which CPython writes.
 classes! {
     BaseException: None,
     GeneratorExit: Some(BaseException),
@@ -70,6 +70,7 @@ classes! {
     ModuleNotFoundError: Some(ImportError),
     LookupError: Some(Exception),
     IndexError: Some(LookupError),
+    KeyError: Some(LookupError),
     MemoryError: Some(Exception),
     NameError: Some(Exception),
     UnboundLocalError: Some(NameError),
@@ -173,7 +174,11 @@ for name in sys.argv[1:]:
             .iter()
             .map(|class| {
                 let base = class.base().map_or("object", Class::name);
-                let lines = ["", "", "a b"].map(|text| last_line(*class, text));
+                let texts = match class {
+                    Class::KeyError => ["", "''", "'a b'"],
+                    _ => ["", "", "a b"],
+                };
+                let lines = texts.map(|text| last_line(*class, text));
                 format!("{}|{base}|{}", class.name(), lines.join("|"))
             })
             .collect();
@@ -187,6 +192,6 @@ for name in sys.argv[1:]:
             assert_eq!(Class::of(class.name()), Some(*class));
         }
         assert_eq!(Class::of("spython"), None);
-        assert_eq!(Class::of("KeyError"), None);
+        assert_eq!(Class::of("BaseExceptionGroup"), None);
     }
 }

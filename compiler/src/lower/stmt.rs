@@ -495,7 +495,8 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// `raise C`, `raise C()` or `raise C(text)` of a class of the builtins,
-    /// with a `str` as the text.
+    /// with a `str` as the text. A `KeyError` takes a value of any type,
+    /// and its text is the `repr` of the value.
     fn raise(&self, r: &ast::StmtRaise) -> Result<Stmt, Error> {
         let (Some(exc), None) = (r.exc.as_deref(), &r.cause) else {
             return Err(unsupported(r, "this raise"));
@@ -518,6 +519,10 @@ impl<'a> Lowering<'a, '_> {
         };
         let arg = match args {
             [] => None,
+            [arg] if class == Class::KeyError => {
+                let value = self.expr(arg)?;
+                Some(self.repr_of(value, arg.range())?)
+            }
             [arg] => Some(self.exception_arg(arg)?),
             _ => return Err(unsupported(exc, "a raise with these arguments")),
         };

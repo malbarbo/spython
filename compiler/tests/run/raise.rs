@@ -62,6 +62,25 @@ fn a_raise_names_each_class_as_cpython_does() {
     }
 }
 
+/// CPython writes the `repr` of the argument of a `KeyError`.
+#[test]
+fn a_key_error_writes_the_repr_of_its_argument() {
+    for (name, raise) in [
+        ("str", "raise KeyError('a')"),
+        ("quote", "raise KeyError(\"it's\")"),
+        ("empty", "raise KeyError('')"),
+        ("int", "raise KeyError(-3)"),
+        ("none", "raise KeyError(None)"),
+        ("call", "raise KeyError()"),
+        ("class", "raise KeyError"),
+    ] {
+        same_as_cpython(
+            &format!("a_key_error_writes_the_repr_of_its_argument_{name}"),
+            &format!("print('before')\n{raise}\n"),
+        );
+    }
+}
+
 #[test]
 fn a_raise_evaluates_its_argument_before_it_raises() {
     same_as_cpython(
@@ -92,7 +111,7 @@ fn a_raise_evaluates_its_argument_before_it_raises() {
 #[test]
 fn each_raise_outside_what_the_compiler_covers_has_its_own_message() {
     assert_eq!(
-        unsupported("raise KeyError('a')\n"),
+        unsupported("raise KeyboardInterrupt('a')\n"),
         "a raise of this exception"
     );
     assert_eq!(
