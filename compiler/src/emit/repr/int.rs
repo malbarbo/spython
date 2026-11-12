@@ -130,6 +130,16 @@ impl IntRepr {
         }
     }
 
+    /// Pops an `i64` and pushes it as an `int`, which the `check` stops
+    /// outside 31 bits.
+    pub fn i64_as_int(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { check, .. } => {
+                f.ins().call(*check);
+            }
+        }
+    }
+
     /// Pops an `i32` that fits in an `int` and pushes it as an `int`.
     pub fn small_as_int(&self, _f: &mut FuncState) {
         match self {

@@ -340,6 +340,22 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// `hash` of a value, as CPython gives it. CPython raises `TypeError`
+    /// for a value without a `hash`, and the compiler refuses its type, as
+    /// it does for a key of a `dict`.
+    pub(super) fn hash(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let arg = one_arg(call, "this call of hash")?;
+        if !expr_shape(self.model(), arg).is_some_and(|shape| self.hashable(&shape)) {
+            return Err(unsupported(arg, "hash of this type"));
+        }
+        let value = self.expr(arg)?;
+        let site = self.site(call.range());
+        Ok(Expr::HashAsInt {
+            value: Box::new(self.hash_value(arg, value, site)?),
+            site,
+        })
+    }
+
     /// `min` or `max` of two or more values of one type. An `int` and a
     /// `bool` are two types here, because the result keeps its type.
     pub(super) fn min_max(&self, call: &ast::ExprCall, op: MinMaxOp) -> Result<Expr, Error> {

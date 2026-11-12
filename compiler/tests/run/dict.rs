@@ -2,7 +2,7 @@
 
 use indoc::indoc;
 
-use super::{same_as_cpython, unsupported};
+use super::{same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn a_function_with_a_dict_and_a_set_runs() {
@@ -223,6 +223,85 @@ fn a_set_and_a_dict_key_without_a_hash_are_unsupported() {
     ] {
         assert_eq!(unsupported(source), "a parameter of this type", "{source}");
     }
+}
+
+#[test]
+fn hash_of_a_value_runs_as_cpython_does() {
+    same_as_cpython(
+        "hash_of_a_value_runs_as_cpython_does",
+        indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    return isinstance(other, Ponto) and self.x == other.x
+
+                def __hash__(self) -> int:
+                    return self.x
+
+            def h(x: int | float | None) -> int:
+                return hash(x)
+
+            print(hash(0), hash(7), hash(-1), hash(-2), hash(1073741823), hash(-1073741824))
+            print(hash(True), hash(False), hash(2.0), hash(-1.0), hash(-0.0), h(-1), h(3.0))
+            print(hash(Ponto(5)), hash(Ponto(-1)), hash(Ponto(-7)))
+        "},
+    );
+}
+
+#[test]
+fn an_error_of_hash_in_hash_has_the_traceback_of_cpython() {
+    same_as_cpython(
+        "an_error_of_hash_in_hash_has_the_traceback_of_cpython",
+        indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    return isinstance(other, Ponto) and self.x == other.x
+
+                def __hash__(self) -> int:
+                    return 10 // self.x
+
+            print(hash(Ponto(5)))
+            print(hash(Ponto(0)))
+        "},
+    );
+}
+
+#[test]
+fn hash_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "hash_outside_31_bits_stops_the_program",
+        indoc! {"
+            print(hash(3))
+            print(hash('abc'))
+        "},
+        "3\n",
+        2,
+        "    print(hash('abc'))\n          ~~~~^^^^^^^\n",
+        "-4594863902769663758",
+    );
+}
+
+#[test]
+fn hash_of_a_value_without_a_hash_is_unsupported() {
+    let source = indoc! {"
+        from dataclasses import dataclass
+
+        @dataclass
+        class Ponto:
+            x: int
+
+        print(hash(Ponto(1)))
+    "};
+    assert_eq!(unsupported(source), "hash of this type");
 }
 
 #[test]

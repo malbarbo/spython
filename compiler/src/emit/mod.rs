@@ -1370,6 +1370,10 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.hash(&mut self.m, f, value.rep());
             }
+            Expr::HashAsInt { value, site } => {
+                self.expr(f, value);
+                self.at(f, *site, |e, f| e.reprs.i64_as_int(f));
+            }
             Expr::HashTuple(items) => {
                 self.reprs.hash_tuple_start(f);
                 for item in items {

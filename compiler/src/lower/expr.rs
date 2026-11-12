@@ -274,6 +274,7 @@ impl<'a> Lowering<'a, '_> {
                 Some("print") => self.print(call),
                 Some("len") => self.len(call),
                 Some("abs") => self.abs(call),
+                Some("hash") => self.hash(call),
                 Some("pow") => self.pow(call),
                 Some("round") => self.round(call),
                 Some("bool") => self.bool(call),

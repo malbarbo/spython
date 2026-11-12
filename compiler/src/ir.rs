@@ -727,6 +727,12 @@ pub(crate) enum Expr {
     ParseFloat(Box<Expr>),
     /// The `hash` of the value, as CPython gives it.
     Hash(Box<Expr>),
+    /// A `hash` as an `int`, for the builtin `hash`. A `hash` outside 31
+    /// bits stops the program at the site.
+    HashAsInt {
+        value: Box<Expr>,
+        site: Site,
+    },
     /// The `hash` of a tuple whose items have the `hash`es of the values,
     /// as CPython gives it.
     HashTuple(Vec<Expr>),
@@ -1354,6 +1360,7 @@ impl Expr {
             | Expr::CaseAt { .. }
             | Expr::DecimalValue(_)
             | Expr::HashSlot { .. }
+            | Expr::HashAsInt { .. }
             | Expr::ListCapacity(_)
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)

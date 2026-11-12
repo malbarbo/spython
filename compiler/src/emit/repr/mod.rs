@@ -940,6 +940,12 @@ impl Reprs {
         self.int.arith(f, op);
     }
 
+    /// Pops an `i64` and pushes it as an `int`. A value outside the range
+    /// of an `int` stops the program.
+    pub fn i64_as_int(&self, f: &mut FuncState) {
+        self.int.i64_as_int(f);
+    }
+
     /// Pops two `int`s, or two `bool`s, and pushes the result of `op`.
     pub fn int_bits(&self, f: &mut FuncState, op: BitOp) {
         self.int.bits(f, op);
