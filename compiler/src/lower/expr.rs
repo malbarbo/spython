@@ -127,6 +127,10 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::List(list) => self.list(expr, list),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
+                if value.rep().class().is_some() {
+                    let index = self.expr(&sub.slice)?;
+                    return self.special_getitem(sub, value, index);
+                }
                 if let Rep::List(list) = value.rep() {
                     if let ast::Expr::Slice(slice) = &*sub.slice {
                         return self.list_slice(sub, value, slice);
@@ -466,6 +470,13 @@ impl<'a> Lowering<'a, '_> {
         {
             let sub = self.expr(left)?;
             let s = self.expr(right)?;
+            if s.rep().class().is_some() {
+                let is_in = self.special_contains(c, sub, s)?;
+                return Ok(match op {
+                    ast::CmpOp::In => is_in,
+                    _ => Expr::Not(Box::new(is_in)),
+                });
+            }
             if s.rep().list().is_some() {
                 let is_in = self.list_in(c, sub, (s, right))?;
                 return Ok(match op {

@@ -455,6 +455,99 @@ impl Lowering<'_, '_> {
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
     }
 
+    /// The call at `node` of the method `name` of the class of an object,
+    /// with `args` in the order that they run. `params` has the parameter
+    /// of each argument, and the object goes to the parameter 0, `self`.
+    fn call_special(
+        &self,
+        node: &impl Ranged,
+        name: &str,
+        args: Vec<Expr>,
+        params: &[usize],
+    ) -> Result<Expr, Error> {
+        let object = params
+            .iter()
+            .position(|param| *param == 0)
+            .and_then(|at| args.get(at))
+            .expect("the object among the arguments");
+        let Rep::Object(class) = object.rep() else {
+            return Err(unsupported(node, "an operation on an object of a union"));
+        };
+        let method = self
+            .method(class, name)
+            .ok_or_else(|| unsupported(node, "this operation on an object"))?;
+        let func = self.method_slot(class, method);
+        let sig = self.funcs.borrow().get(func).clone();
+        let args = args
+            .into_iter()
+            .zip(params)
+            .map(|(arg, param)| {
+                let rep = *sig
+                    .params
+                    .get(*param)
+                    .expect("a parameter of each argument");
+                self.coerce(arg, rep)
+                    .ok_or_else(|| unsupported(node, "an argument of this type"))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let mut order = vec![0; params.len()];
+        for (arg, param) in params.iter().enumerate() {
+            *order
+                .get_mut(*param)
+                .expect("an argument of each parameter") =
+                u32::try_from(arg).expect("fewer than 2^32 arguments");
+        }
+        let in_order = params.iter().enumerate().all(|(arg, param)| arg == *param);
+        Ok(Expr::Call {
+            func,
+            args,
+            order: (!in_order).then_some(order),
+            rep: sig.ret,
+            site: Some(self.site(node.range())),
+            check: None,
+        })
+    }
+
+    /// `x in container` of `c`, where `container` is an object, which calls
+    /// `__contains__` of its class. `x` runs first.
+    pub(super) fn special_contains(
+        &self,
+        c: &ast::ExprCompare,
+        x: Expr,
+        container: Expr,
+    ) -> Result<Expr, Error> {
+        self.call_special(c, "__contains__", vec![x, container], &[1, 0])
+    }
+
+    /// `object[index]` of `sub`, which calls `__getitem__` of the class of
+    /// the object.
+    pub(super) fn special_getitem(
+        &self,
+        sub: &ast::ExprSubscript,
+        object: Expr,
+        index: Expr,
+    ) -> Result<Expr, Error> {
+        self.call_special(sub, "__getitem__", vec![object, index], &[0, 1])
+    }
+
+    /// `object[index] = value` of `target`, which calls `__setitem__` of the
+    /// class of the object. The value runs first, then the object and then
+    /// the index, as in CPython.
+    pub(super) fn special_setitem(
+        &self,
+        target: &ast::ExprSubscript,
+        value: Expr,
+        object: Expr,
+        index: Expr,
+    ) -> Result<Expr, Error> {
+        self.call_special(
+            target,
+            "__setitem__",
+            vec![value, object, index],
+            &[2, 0, 1],
+        )
+    }
+
     /// `-operand` of `u`, an object, which calls `__neg__` of its class.
     pub(super) fn special_neg(&self, u: &ast::ExprUnaryOp, operand: Expr) -> Result<Expr, Error> {
         let Rep::Object(class) = operand.rep() else {

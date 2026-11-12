@@ -450,6 +450,9 @@ impl<'a> Lowering<'a, '_> {
     /// value, and each of them gives a `bool`. The method of an arithmetic
     /// operator takes one value, and `__neg__`, `__len__` and `__bool__`
     /// take none. `__len__` gives an `int`, and `__bool__` a `bool`.
+    /// `__contains__` takes a value and gives a `bool`, `__getitem__`
+    /// takes a key, and `__setitem__` takes a key and a value and gives
+    /// `None`.
     fn check_special(&self, class: ClassId, method: Method<'a>) -> Result<(), Error> {
         let name = method.def.name.as_str();
         let funcs = self.funcs.borrow();
@@ -473,6 +476,20 @@ impl<'a> Lowering<'a, '_> {
         let other = match name {
             "__eq__" | "__ne__" => Some(Rep::Uniform),
             "__lt__" | "__le__" | "__gt__" | "__ge__" => None,
+            "__contains__" | "__getitem__" | "__setitem__" => {
+                let (count, ret) = match name {
+                    "__contains__" => (2, Some(Rep::Bool)),
+                    "__getitem__" => (2, None),
+                    _ => (3, Some(Rep::None)),
+                };
+                if defaults || sig.params.len() != count || ret.is_some_and(|ret| sig.ret != ret) {
+                    return Err(unsupported(
+                        method.def,
+                        "a __contains__, __getitem__ or __setitem__ of another form",
+                    ));
+                }
+                return Ok(());
+            }
             _ if COMPILED_SPECIAL.contains(&name) => {
                 if defaults || sig.params.len() != 2 {
                     return Err(unsupported(
@@ -2542,6 +2559,9 @@ const COMPILED_SPECIAL: &[&str] = &[
     "__neg__",
     "__len__",
     "__bool__",
+    "__contains__",
+    "__getitem__",
+    "__setitem__",
     "__iadd__",
     "__isub__",
     "__imul__",

@@ -104,6 +104,12 @@ impl<'a> Lowering<'a, '_> {
                     return Err(unsupported(a, "this target"));
                 };
                 let container = self.expr(&target.value)?;
+                if container.rep().class().is_some() {
+                    let index = self.expr(&target.slice)?;
+                    let value = self.expr(&a.value)?;
+                    let call = self.special_setitem(target, value, container, index)?;
+                    return Ok(Some(Stmt::Expr(call)));
+                }
                 match container.rep() {
                     // A builder of the prelude is a `str` that its code
                     // writes one code point at a time.

@@ -530,6 +530,48 @@ fn an_exception_in_len_has_the_frame_of_the_method() {
     }
 }
 
+/// `in` calls `__contains__`, `[]` calls `__getitem__`, and `[]=` calls
+/// `__setitem__` after it runs the value, the object and the index, in
+/// this order.
+#[test]
+fn in_and_the_subscript_call_the_special_methods() {
+    same_as_cpython(
+        "in_and_the_subscript_call_the_special_methods",
+        indoc! {"
+            class Grade:
+                itens: list[int]
+
+                def __init__(self, n: int) -> None:
+                    self.itens = []
+                    for _ in range(n):
+                        self.itens.append(0)
+
+                def __getitem__(self, i: int) -> int:
+                    print('get', i)
+                    return self.itens[i]
+
+                def __setitem__(self, i: int, v: int) -> None:
+                    print('set', i, v)
+                    self.itens[i] = v
+
+                def __contains__(self, v: int) -> bool:
+                    print('contains')
+                    return v in self.itens
+
+
+            def f(n: int) -> int:
+                print('f', n)
+                return n
+
+
+            g = Grade(3)
+            g[f(1)] = f(5)
+            print(g[1], g[f(0)], 5 in g, 7 in g, 5 not in g)
+            g[5] = 1
+        "},
+    );
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [
@@ -585,6 +627,14 @@ fn eq_outside_the_accepted_form_is_unsupported() {
                 x = P() or 1
             "},
             "an operand of and or or with __bool__ or __len__",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __setitem__(self, i: int, v: int) -> int:
+                        return 1
+            "},
+            "a __contains__, __getitem__ or __setitem__ of another form",
         ),
         (
             indoc! {"
