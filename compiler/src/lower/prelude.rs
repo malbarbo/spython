@@ -8,7 +8,9 @@ use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
 use ty_python_semantic::types::lowering::{DefId, Shape, function_info};
 
-use super::{Loaded, Lowering, Sig, TypeArg, Unit, coerce, unsupported};
+use std::rc::Rc;
+
+use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, coerce, unsupported};
 use crate::Error;
 use crate::cpython::names;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, ListId, Rep, Site};
@@ -192,10 +194,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
         (defaults, count): (bool, &str),
     ) -> Result<Option<(FuncId, Vec<Expr>)>, Error> {
         let reps: Vec<Rep> = given.iter().map(Expr::rep).collect();
-        let Some((func, shapes)) = self.prelude_for(node, unit, name, &reps)? else {
+        let Some((func, params)) = self.prelude_for(node, unit, name, &reps)? else {
             return Ok(None);
         };
-        let args = self.prelude_args(node, (func, &shapes), given, (defaults, count))?;
+        let args = self.prelude_args(node, (func, &params.0), given, (defaults, count))?;
         Ok(Some((func, args)))
     }
 
@@ -307,7 +309,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     /// The function `name` of `unit`, a module of the prelude, for a call
     /// at `node` with arguments of `args`, with the declared type of each
-    /// parameter. A generic function gives the copy for the reps that the
+    /// parameter and the names of its type variables. A generic function gives the copy for the reps that the
     /// arguments give to its type variables. `None` when the module has no
     /// such function.
     fn prelude_for(
@@ -316,13 +318,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         unit: &'a Unit<'a, 'db>,
         name: &str,
         args: &[Rep],
-    ) -> Result<Option<(FuncId, Vec<Shape>)>, Error> {
+    ) -> Result<Option<(FuncId, Rc<PreludeParams>)>, Error> {
         let Some((name, def)) = unit.defs.get_key_value(name) else {
             return Ok(None);
         };
         let key = (unit.file, *name);
         let cached = self.prelude_params.borrow().get(&key).cloned();
-        let (shapes, names) = match cached {
+        let params = match cached {
             Some(params) => params,
             None => {
                 let info =
@@ -334,17 +336,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     .flat_map(|params| &params.type_params)
                     .map(|param| param.name().to_string())
                     .collect();
-                let params = (shapes, names);
+                let params = Rc::new((shapes, names));
                 self.prelude_params.borrow_mut().insert(key, params.clone());
                 params
             }
         };
-        let types = type_map(&names, &shapes, args, |list| self.list_arg(list))
+        let (shapes, names) = &*params;
+        let types = type_map(names, shapes, args, |list| self.list_arg(list))
             .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
         let func = self
             .prelude_copy(unit.file, name, types)?
             .expect("a function of the module");
-        Ok(Some((func, shapes)))
+        Ok(Some((func, params)))
     }
 
     /// The function `name` of the module of the prelude in `file`, which

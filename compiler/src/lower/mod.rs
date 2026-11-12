@@ -13,6 +13,7 @@ mod vars;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use ruff_db::files::File;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
@@ -228,7 +229,7 @@ struct Lowering<'a, 'db> {
     /// The declared type of each parameter of each function of the prelude
     /// that a call reached, with the names of its type variables, by its
     /// file and its name.
-    prelude_params: RefCell<HashMap<(File, &'a str), PreludeParams>>,
+    prelude_params: RefCell<HashMap<(File, &'a str), Rc<PreludeParams>>>,
     /// The rep of each type variable of the copy of a generic function of
     /// the prelude whose signature or body the lowering is in.
     types: RefCell<Vec<(String, TypeArg)>>,
