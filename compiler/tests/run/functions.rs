@@ -487,6 +487,35 @@ fn a_second_def_replaces_the_function_of_the_name() {
     );
 }
 
+/// A call of a name with two `def`s runs each argument once, binds it by
+/// the parameters of the function that runs, and keeps the frames of the
+/// traceback.
+#[test]
+fn a_call_of_a_name_with_two_defs_binds_by_the_def_that_ran() {
+    same_as_cpython(
+        "a_call_of_a_name_with_two_defs_binds_by_the_def_that_ran",
+        indoc! {"
+            def mostra(n: int) -> int:
+                print('arg', n)
+                return n
+
+            def divide(a: int, b: int = 1) -> int:
+                return a // b
+
+            def usa(x: int) -> int:
+                return divide(mostra(x), b=mostra(2))
+
+            print(usa(7))
+
+            def divide(a: int, b: int = 0) -> int:
+                return b // a
+
+            print(usa(3))
+            print(usa(0))
+        "},
+    );
+}
+
 /// A `def` in each branch of an `if` gives the name the function of the
 /// branch that ran.
 #[test]

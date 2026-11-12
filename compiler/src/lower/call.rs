@@ -9,11 +9,11 @@ use ty_python_semantic::types::lowering::{
     ArgBinding, CallTarget, Shape, call_bindings, call_target, expr_shape,
 };
 
-use super::class::generated_call;
+use super::class::{generated_call, param};
 use super::expr::float_value;
 use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Binding, CmpOp, Expr, FuncId, MinMaxOp, Place, Rep, Site, VarId};
+use crate::ir::{Binding, CmpOp, Expr, FuncId, MinMaxOp, Place, Rep, Site, Stmt, VarId};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -110,7 +110,9 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// `call` of `name`, a name with the functions `defs`, which calls the
-    /// one at the place that the global `current` holds.
+    /// one at the place that the global `current` holds. The arguments run
+    /// once, and a generated function takes them with the place and calls
+    /// the function there, which binds them by its own parameters.
     fn redefined_call(
         &self,
         call: &ast::ExprCall,
@@ -118,17 +120,27 @@ impl<'a> Lowering<'a, '_> {
         current: VarId,
         defs: &[FuncId],
     ) -> Result<Expr, Error> {
-        let mut calls = defs
+        let values = call
+            .arguments
+            .iter_source_order()
+            .map(|arg| self.expr(arg.value()))
+            .collect::<Result<Vec<_>, Error>>()?;
+        let reps: Vec<Rep> = values.iter().map(Expr::rep).collect();
+        let value = |i: usize, _: &ast::Expr| {
+            let rep = *reps.get(i).expect("an argument of the call");
+            Ok(param(i + 1, rep))
+        };
+        let calls = defs
             .iter()
             .map(|func| {
                 let sig = self.funcs.borrow().get(*func).clone();
-                let (args, order) = self.arguments(call, &sig, None)?;
+                let (args, order) = self.arguments_with(call, &sig, None, &value)?;
                 Ok(Expr::Call {
                     func: *func,
                     args,
                     order,
                     rep: sig.ret,
-                    site: self.call_site(*func, call),
+                    site: Some(Site::NONE),
                     check: None,
                 })
             })
@@ -140,30 +152,35 @@ impl<'a> Lowering<'a, '_> {
                 "a call of a name whose functions give two types",
             ));
         }
-        // The first read of the global raises `NameError` before any `def`
-        // of the name runs.
-        let mut check = self.global_check(name)?;
-        let last = calls.pop().expect("a name with two defs");
-        Ok(calls
+        let mut body: Vec<Stmt> = calls
             .into_iter()
             .enumerate()
-            .rev()
-            .fold(last, |else_, (place, then)| {
-                let current = Expr::Load {
-                    place: Place::Global(current),
-                    rep: Rep::Int,
-                    check: if place == 0 { check.take() } else { None },
-                };
-                let place = i32::try_from(place).expect("few defs");
-                Expr::IfElse {
-                    cond: Box::new(Expr::Compare(
-                        Box::new(current),
-                        vec![(CmpOp::Eq, Expr::Int(place))],
-                    )),
-                    then: Box::new(then),
-                    else_: Box::new(else_),
-                }
-            }))
+            .map(|(place, call)| Stmt::If {
+                cond: Expr::Compare(
+                    Box::new(param(0, Rep::Int)),
+                    vec![(
+                        CmpOp::Eq,
+                        Expr::Int(i32::try_from(place).expect("few defs")),
+                    )],
+                ),
+                then: vec![Stmt::Return(Some(call))],
+                else_: Vec::new(),
+            })
+            .collect();
+        body.push(Stmt::Unreachable);
+        let params = std::iter::once(Rep::Int)
+            .chain(reps.iter().copied())
+            .collect();
+        let func = self.generated(params, rep, body);
+        // The read of the global raises `NameError` before any `def` of the
+        // name runs, and before the arguments, as in CPython.
+        let current = Expr::Load {
+            place: Place::Global(current),
+            rep: Rep::Int,
+            check: self.global_check(name)?,
+        };
+        let args = std::iter::once(current).chain(values).collect();
+        Ok(generated_call(func, args, rep, self.site(call.range())))
     }
 
     /// The arguments of `call` in the order of the call, and the argument
