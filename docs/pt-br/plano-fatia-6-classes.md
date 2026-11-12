@@ -431,14 +431,18 @@ dados em listas do prelude, e assim usam o que a fatia 5 já testou.
 
 O mecanismo de hoje não basta, e a parte 6b começa por ele:
 
-- `Rep::Dict(id)` e `Rep::Set(id)`, com uma tabela que guarda as cópias
-  pelos `TypeArg` das variáveis de tipo, criadas quando a lowering as
-  pede, como os `ListId`, com os campos substituídos;
-- o `type_map` liga as variáveis de tipo pelo receptor `self`, além dos
-  parâmetros `list[T]` de hoje;
+- a cópia de `Dict[K, V]` e de `Set[T]`, do prelude, é uma classe do
+  programa, e um `dict` é um `Rep::Object` dela. Uma tabela guarda as
+  cópias pelos `TypeArg` das variáveis de tipo, e o primeiro uso cria a
+  cópia, como cria um `ListId`, com os campos substituídos. Assim o
+  `len`, o `in`, o `[]`, o `==` e o `print` passam pelos métodos
+  especiais da fatia 6a;
+- uma chamada declara cada método da cópia com os tipos dela, e um
+  método que o programa não chama não entra no módulo;
 - `d.get(k)` chega pelo nome do método, como `method_call` já faz com
   `str` e com lista, porque o `ty` resolve o método no `dict` do
-  typeshed;
+  typeshed. A chamada vai direto ao método, sem despacho;
+- só o código do prelude lê um campo da cópia;
 - o `for` sobre um `dict` e sobre um `set` é uma forma do compilador,
   com um índice nas listas da cópia, porque `__iter__` fica para a 8;
 - o `hash` de uma chave `Uniform` passa por um despacho uniforme.
@@ -591,8 +595,9 @@ Cada linha é um commit, e cada commit passa pelo portão rápido.
 **6b. F. O mecanismo**
 
 31. `compiler: copy a generic prelude class for the reps of its types`,
-    com a tabela das cópias
-32. `compiler: bind the type variables of a copy by its receiver`
+    com a tabela das cópias e os métodos declarados na primeira chamada
+32. Saiu. A cópia já dá os tipos aos seus métodos, e nenhuma função
+    fora da classe recebe um `dict`.
 33. `compiler: route a method of dict and set to the prelude class`
 
 **6b. G. O `hash`**
