@@ -111,9 +111,14 @@ impl<'a> Classes<'a> {
 
     /// The classes of the IR.
     pub fn into_ir(self) -> Vec<UserClass> {
+        let slot = |id: usize, key: Key| {
+            let slot = *self.slot_ids.get(&(ClassId::new(id), key))?;
+            Some(self.slots.get(slot).expect("a slot").func)
+        };
         self.list
             .into_iter()
-            .map(|class| UserClass {
+            .enumerate()
+            .map(|(id, class)| UserClass {
                 ordered: class.ordered,
                 base: class.base,
                 fields: class.fields.into_iter().map(|(_, rep)| rep).collect(),
@@ -124,8 +129,8 @@ impl<'a> Classes<'a> {
                     .into_iter()
                     .map(|member| vec![Literal::Str(member.name), member.value])
                     .collect(),
-                str: class.str,
-                repr: class.repr,
+                str: slot(id, Key::Str),
+                repr: slot(id, Key::Repr),
                 repr_guard: class.kind.is_dataclass(),
             })
             .collect()
@@ -157,12 +162,6 @@ pub(super) struct Declared<'a> {
     /// member of an `Enum` has `name` and `value`.
     pub fields: Vec<(String, Rep)>,
     pub members: Vec<Member>,
-    /// The function that gives the `str` of a value of the class, once a
-    /// conversion needs it. An object of a subclass has its own `str`.
-    pub str: Option<FuncId>,
-    /// The function that gives the `repr` of a value of the class, once a
-    /// conversion needs it.
-    pub repr: Option<FuncId>,
     /// The `str` that the compiler writes for an object of exactly the
     /// class, as the one of a member of an `Enum`.
     pub own_str: Option<FuncId>,
@@ -299,8 +298,6 @@ impl<'a> Lowering<'a, '_> {
             nodes: Vec::new(),
             fields,
             members,
-            str: None,
-            repr: None,
             own_str: None,
             own_repr: None,
             init: None,
@@ -920,32 +917,12 @@ impl<'a> Lowering<'a, '_> {
         Ok((u32::try_from(field).expect("fewer than 2^32 fields"), *rep))
     }
 
-    /// The function that gives the `str` of a value of `class`. An object
-    /// of a subclass may have its own.
-    pub(super) fn class_str(&self, class: ClassId) -> Result<FuncId, Error> {
-        let func = self.slot(
-            class,
-            Key::Str,
-            vec![Rep::Object(class)],
-            Rep::Str,
-            Vec::new(),
-        );
-        self.classes.borrow_mut().get_mut(class).str = Some(func);
-        Ok(func)
-    }
-
-    /// The function that gives the `repr` of a value of `class`. An object
-    /// of a subclass may have its own.
-    pub(super) fn class_repr(&self, class: ClassId) -> Result<FuncId, Error> {
-        let func = self.slot(
-            class,
-            Key::Repr,
-            vec![Rep::Object(class)],
-            Rep::Str,
-            Vec::new(),
-        );
-        self.classes.borrow_mut().get_mut(class).repr = Some(func);
-        Ok(func)
+    /// The function that gives the `repr` of a value of `class` when
+    /// `repr` is `true`, and the one that gives the `str` otherwise. An
+    /// object of a subclass may have its own.
+    pub(super) fn class_conversion(&self, class: ClassId, repr: bool) -> FuncId {
+        let key = if repr { Key::Repr } else { Key::Str };
+        self.slot(class, key, vec![Rep::Object(class)], Rep::Str, Vec::new())
     }
 
     /// The function that a call of `key` through a value of `class` calls,
@@ -1705,11 +1682,7 @@ impl<'a> Lowering<'a, '_> {
         if let Some(func) = *self.classes.borrow_mut().get_mut(class).or_none(repr) {
             return Ok(func);
         }
-        let convert = if repr {
-            self.class_repr(class)?
-        } else {
-            self.class_str(class)?
-        };
+        let convert = self.class_conversion(class, repr);
         let param = || param(0, Rep::ObjectOrNone(class));
         let body = vec![Stmt::Return(Some(Expr::IfElse {
             cond: Box::new(Expr::IsNone(Box::new(param()))),

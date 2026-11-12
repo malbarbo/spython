@@ -1065,7 +1065,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     fn uniform_reprs(&self) -> Result<Option<FuncId>, Error> {
         let count = self.classes.borrow().list.len();
         for i in 0..count {
-            self.class_repr(ClassId::new(i))?;
+            self.class_conversion(ClassId::new(i), true);
         }
         self.prelude_named("str", "repr_of")
     }

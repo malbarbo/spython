@@ -267,11 +267,11 @@ impl<'a> Lowering<'a, '_> {
                         self.list_repr_func(list)?;
                     }
                     Rep::Object(class) | Rep::ObjectOrNone(class) => {
-                        self.class_str(class)?;
+                        self.class_conversion(class, false);
                     }
                     Rep::Uniform => {
                         for class in self.classes_in(expr_shape(self.model(), arg)) {
-                            self.class_str(class)?;
+                            self.class_conversion(class, false);
                         }
                     }
                     _ => {}
