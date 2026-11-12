@@ -118,7 +118,7 @@ impl Reprs {
             list_reprs: Vec::new(),
             repr_stack: None,
         };
-        let mut composites: Vec<Composite> = classes
+        let structs: Vec<Composite> = classes
             .iter()
             .map(|class| {
                 Layout::class_struct(class, |rep| {
@@ -131,27 +131,49 @@ impl Reprs {
                 })
             })
             .collect();
+        let mut composites = Vec::new();
+        for i in 0..classes.len() {
+            let class = ClassId::new(i);
+            let base = reprs
+                .layout
+                .base(class)
+                .map(|base| reprs.layout.class(base));
+            composites.push((i, base, !reprs.layout.is_open(class)));
+        }
+        for i in 0..classes.len() {
+            let class = ClassId::new(i);
+            if reprs.layout.is_open(class) {
+                composites.push((i, Some(reprs.layout.class(class)), true));
+            }
+        }
+        let mut composites: Vec<(&Composite, Option<TypeIdx>, bool)> = composites
+            .into_iter()
+            .map(|(i, base, is_final)| (structs.get(i).expect("a class"), base, is_final))
+            .collect();
+        let mut others = Vec::new();
         for (list, &(_, items)) in lists.iter().zip(&list_types) {
             let item = reprs.local_type(list.item).expect("an item has a value");
-            composites.extend(ListRepr::composites(items, item));
+            others.extend(ListRepr::composites(items, item));
         }
         let node = reprs.layout.repr_node();
         let guarded = classes.iter().any(|class| class.repr_guard);
         if guarded {
             let object = reprs.uniform.val_type();
-            composites.push(Composite::Struct(vec![
+            others.push(Composite::Struct(vec![
                 (StorageType::Val(object), false),
                 (StorageType::Val(node.ref_to(true)), false),
             ]));
         }
+        composites.extend(others.iter().map(|composite| (composite, None, true)));
         let mut group = m.rec_group(&composites);
         if guarded {
             let top = m.global(node.ref_to(true), &ConstExpr::ref_null(node.heap_type()));
             reprs.repr_stack = Some((group.pop().expect("the node of the stack"), top));
         }
         let listed: Vec<TypeIdx> = list_types.iter().flat_map(|(a, b)| [*a, *b]).collect();
-        let group_lists = group.split_off(classes.len());
+        let group_lists = group.split_off(reprs.layout.class_types());
         debug_assert_eq!(group_lists, listed, "the lists in their rec group");
+        group.truncate(classes.len());
         debug_assert_eq!(
             group,
             (0..classes.len())
@@ -271,15 +293,22 @@ impl Reprs {
         f.end();
         let boxes = self.uniform.boxes(m).into_iter();
         let str = self.str.type_index().heap_type();
+        // Each test names the exact type of a class, so an object of a
+        // subclass goes to its own class.
         let objects = classes
             .into_iter()
-            .map(|class| (Rep::Object(class), self.class(class).heap_type()));
+            .map(|class| (Rep::Object(class), self.layout.exact(class).heap_type()));
         let tests: Vec<(Rep, HeapType)> = boxes.chain([(Rep::Str, str)]).chain(objects).collect();
         for (rep, ty) in tests {
             f.ins().local_get(value).ref_test(ty);
             f.if_(BlockType::Empty);
             f.ins().local_get(value);
-            self.narrow(m, &mut f, Rep::Uniform, rep);
+            match rep {
+                Rep::Object(_) => {
+                    f.ins().ref_cast(ty, false);
+                }
+                rep => self.narrow(m, &mut f, Rep::Uniform, rep),
+            }
             on(self, m, &mut f, rep);
             f.ins().return_();
             f.end();
@@ -300,12 +329,25 @@ impl Reprs {
     /// Pops a value for each field of `class` and pushes a new object of
     /// `class` with them. A value of each rep is a value of its field.
     pub fn new_object(&self, f: &mut FuncState, class: ClassId) {
-        f.ins().struct_new(self.class(class));
+        f.ins().struct_new(self.layout.exact(class));
     }
 
     /// Pushes a new object of `class` whose fields have no value.
     pub fn empty_object(&self, f: &mut FuncState, class: ClassId) {
-        f.ins().struct_new_default(self.class(class));
+        f.ins().struct_new_default(self.layout.exact(class));
+    }
+
+    /// Pops an object and pushes the `bool` of whether its class is
+    /// exactly `class`.
+    pub fn is_exact(&self, f: &mut FuncState, class: ClassId) {
+        f.ins().ref_test(self.layout.exact(class).heap_type());
+    }
+
+    /// Pops an object whose class is exactly `class` and pushes it as a
+    /// reference to the exact type of the class.
+    pub fn as_exact(&self, f: &mut FuncState, class: ClassId) {
+        f.ins()
+            .ref_cast(self.layout.exact(class).heap_type(), false);
     }
 
     /// Pops an object of `class` and a value of the field at `field`, and
@@ -526,7 +568,10 @@ impl Reprs {
             }
             // An object is an `eq`, and null is `None`.
             (Rep::Object(_) | Rep::ObjectOrNone(_), Rep::Uniform) => {}
-            (Rep::Object(a), Rep::ObjectOrNone(b)) if a == b => {}
+            // The struct of a class is a subtype of the struct of its base.
+            (Rep::Object(a), Rep::Object(b) | Rep::ObjectOrNone(b))
+            | (Rep::ObjectOrNone(a), Rep::ObjectOrNone(b))
+                if self.layout.descends(a, b) => {}
             (Rep::None, Rep::ObjectOrNone(class)) => {
                 f.ins().ref_null(self.class(class).heap_type());
             }
@@ -566,7 +611,7 @@ impl Reprs {
             // An object may be null.
             (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => {}
             (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
-                f.ins().ref_cast(self.class(class).heap_type(), true);
+                self.cast_class(f, class);
             }
             (Rep::Uniform, Rep::Str | Rep::StrOrNone) => {
                 f.ins()
@@ -608,10 +653,55 @@ impl Reprs {
             }
             // An object may be null.
             (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
-                f.ins().ref_test_nullable(self.class(class).heap_type());
+                self.test_class(f, class);
             }
             _ => unreachable!("a test of {from:?} for {to:?}"),
         }
+    }
+
+    /// The classes that are `class` or descend from it.
+    fn descendants(&self, class: ClassId) -> Vec<ClassId> {
+        (0..self.layout.classes())
+            .map(ClassId::new)
+            .filter(|other| self.layout.descends(*other, class))
+            .collect()
+    }
+
+    /// Pops a uniform value and pushes the `bool` of whether it is null or
+    /// an object of `class` or of a class that descends from it. Each test
+    /// names an exact type.
+    fn test_class(&self, f: &mut FuncState, class: ClassId) {
+        let classes = self.descendants(class);
+        if let [only] = *classes {
+            f.ins()
+                .ref_test_nullable(self.layout.exact(only).heap_type());
+            return;
+        }
+        let value = f.temp(self.uniform.val_type());
+        f.ins().local_tee(value).ref_is_null();
+        for class in classes {
+            f.ins()
+                .local_get(value)
+                .ref_test(self.layout.exact(class).heap_type())
+                .i32_or();
+        }
+        f.free(value);
+    }
+
+    /// Pops a uniform value that is null or an object of `class` or of a
+    /// class that descends from it, and pushes it as a reference to the
+    /// struct of `class`. Each cast names an exact type.
+    fn cast_class(&self, f: &mut FuncState, class: ClassId) {
+        if !self.layout.is_open(class) {
+            f.ins().ref_cast(self.layout.exact(class).heap_type(), true);
+            return;
+        }
+        let done = f.block(BlockType::Result(self.class(class).ref_to(true)));
+        for class in self.descendants(class) {
+            f.br_on_cast(done, self.layout.exact(class));
+        }
+        f.ins().unreachable();
+        f.end();
     }
 
     /// Pops a value of `rep` and pushes the `bool` of whether it is `None`.
@@ -1427,7 +1517,7 @@ impl Reprs {
         let mut f = FuncState::new(2);
         let (a, b) = (f.param(0), f.param(1));
         for &(class, eq) in eqs {
-            let heap = self.class(class).heap_type();
+            let heap = self.layout.exact(class).heap_type();
             f.ins()
                 .local_get(a)
                 .ref_test(heap)
@@ -1436,8 +1526,7 @@ impl Reprs {
                 .i32_and();
             f.if_(BlockType::Empty);
             for value in [a, b] {
-                f.ins().local_get(value);
-                self.narrow(m, &mut f, Rep::Uniform, Rep::Object(class));
+                f.ins().local_get(value).ref_cast(heap, false);
             }
             f.ins().call(eq).return_();
             f.end();

@@ -561,3 +561,177 @@ fn a_conversion_with_parameters_is_unsupported() {
         "a conversion with these parameters"
     );
 }
+
+/// A subclass has the fields of its base first, takes the methods of the
+/// base, and takes the `__init__` of the base when it has none.
+#[test]
+fn a_subclass_takes_the_fields_and_the_methods_of_its_base() {
+    same_as_cpython(
+        "a_subclass_takes_the_fields_and_the_methods_of_its_base",
+        indoc! {"
+            class Animal:
+                nome: str
+                patas: int
+
+                def __init__(self, nome: str, patas: int) -> None:
+                    self.nome = nome
+                    self.patas = patas
+
+                def descricao(self) -> str:
+                    return self.nome + ' com ' + str(self.patas) + ' patas'
+
+            class Cachorro(Animal):
+                raca: str
+
+                def __init__(self, nome: str, raca: str) -> None:
+                    self.nome = nome
+                    self.patas = 4
+                    self.raca = raca
+
+                def late(self) -> str:
+                    return self.nome + ' late'
+
+            class Gato(Animal):
+                pass
+
+            class Filhote(Cachorro):
+                nome: str
+
+            c = Cachorro('Rex', 'vira-lata')
+            g = Gato('Mia', 4)
+            f = Filhote('Bob', 'poodle')
+            print(c.descricao(), c.late(), c.raca)
+            print(g.descricao(), f.late(), f.descricao(), f.raca)
+            c.patas = 3
+            print(c.descricao())
+        "},
+    );
+}
+
+/// An object of a subclass writes its own class, through a value of its
+/// class, of the base and of `object`. CPython writes the address too.
+#[test]
+fn an_object_of_a_subclass_writes_its_own_class() {
+    let output = run(
+        "an_object_of_a_subclass_writes_its_own_class",
+        indoc! {"
+            class A:
+                def nome(self) -> str:
+                    return str(self)
+
+            class B(A):
+                pass
+
+            class C:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __repr__(self) -> str:
+                    return 'C(' + str(self.x) + ')'
+
+            class D(C):
+                pass
+
+            def mostra(x: object) -> None:
+                print(x)
+
+            def uniao(n: int) -> A | int:
+                if n > 0:
+                    return B()
+                return n
+
+            print(A(), B(), A().nome(), B().nome())
+            print(repr(B()), f'{B()}', [D(1), D(2)])
+            print(C(1), D(2), str(D(3)))
+            mostra(B())
+            mostra(D(4))
+            print(uniao(1), uniao(0))
+        "},
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        indoc! {"
+            <__main__.A object> <__main__.B object> <__main__.A object> <__main__.B object>
+            <__main__.B object> <__main__.B object> [C(1), C(2)]
+            C(1) C(2) C(3)
+            <__main__.B object>
+            C(4)
+            <__main__.B object> 0
+        "}
+    );
+}
+
+#[test]
+fn a_subclass_outside_the_accepted_form_is_unsupported() {
+    for (source, what) in [
+        (
+            indoc! {"
+                class A:
+                    def f(self) -> int:
+                        return 1
+
+                class B(A):
+                    def f(self) -> int:
+                        return 2
+            "},
+            "a method that overrides a method of the base",
+        ),
+        (
+            indoc! {"
+                class A:
+                    x: int
+
+                    def __init__(self) -> None:
+                        self.x = 1
+
+                class B(A):
+                    y: int
+            "},
+            "a field that __init__ may not assign",
+        ),
+        (
+            indoc! {"
+                class A:
+                    x: int
+
+                    def __init__(self) -> None:
+                        self.x = 1
+
+                class B(A):
+                    def __init__(self) -> None:
+                        print(self.x)
+                        self.x = 2
+            "},
+            "a field that __init__ may read before it assigns it",
+        ),
+        (
+            indoc! {"
+                from enum import Enum
+
+                class A(Enum):
+                    pass
+
+                class B(A):
+                    X = 1
+            "},
+            "an Enum as a base",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
+                @dataclass
+                class A:
+                    x: int
+
+                class B(A):
+                    pass
+            "},
+            "a dataclass as a base",
+        ),
+    ] {
+        assert_eq!(unsupported(source), what, "{source}");
+    }
+}

@@ -112,6 +112,9 @@ pub(crate) struct ClassId(u32);
 pub(crate) struct UserClass {
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
+    /// The class that the class extends, which comes before it. The
+    /// fields of the base are the first fields of the class.
+    pub base: Option<ClassId>,
     /// The rep of each field of an object of the class, in order.
     pub fields: Vec<Rep>,
     /// `true` when the program assigns the fields of an object.
@@ -391,6 +394,18 @@ pub(crate) enum Expr {
     /// A new object of `class`, a class with [`UserClass::unset`], whose
     /// fields get their values from the `__init__` of the class.
     Empty(ClassId),
+    /// Whether an object is an object of `class` and of no class that
+    /// descends from it, as a `bool`.
+    IsExact {
+        value: Box<Expr>,
+        class: ClassId,
+    },
+    /// An object that [`Expr::IsExact`] finds of `class`, as a value of the
+    /// class.
+    AsExact {
+        value: Box<Expr>,
+        class: ClassId,
+    },
     /// A new list of the type `list`, with a value of the rep of its items
     /// for each item, which the program evaluates in order.
     List {
@@ -1269,6 +1284,7 @@ impl Expr {
             Expr::Bool(_)
             | Expr::IsNone(_)
             | Expr::Is(..)
+            | Expr::IsExact { .. }
             | Expr::CodePointIs { .. }
             | Expr::IsClose { .. }
             | Expr::Truth(_)
@@ -1288,6 +1304,7 @@ impl Expr {
             Expr::Member { class, .. }
             | Expr::New { class, .. }
             | Expr::Empty(class)
+            | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
             Expr::List { list, .. } => Rep::List(*list),
             Expr::Logic { left, .. } => left.rep(),

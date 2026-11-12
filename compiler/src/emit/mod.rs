@@ -1374,6 +1374,14 @@ impl Emitter<'_> {
                 self.reprs.new_object(f, *class);
             }
             Expr::Empty(class) => self.reprs.empty_object(f, *class),
+            Expr::IsExact { value, class } => {
+                self.expr(f, value);
+                self.reprs.is_exact(f, *class);
+            }
+            Expr::AsExact { value, class } => {
+                self.expr(f, value);
+                self.reprs.as_exact(f, *class);
+            }
             Expr::List { list, items } => {
                 let array = self.reprs.begin_literal(f, *list, items.len());
                 for (i, item) in items.iter().enumerate() {

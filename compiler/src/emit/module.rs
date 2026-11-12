@@ -191,38 +191,42 @@ impl ModuleState {
         self.next_type()
     }
 
-    /// The types of `composites`, in one rec group, so no two of them are
-    /// the same type. A type can refer to a type of the group by
-    /// [`Self::next_type_index`] plus the place of the type.
-    pub fn rec_group(&mut self, composites: &[Composite]) -> Vec<TypeIdx> {
-        if composites.is_empty() {
+    /// The types of `types`, in one rec group, so no two of them are the
+    /// same type. A type can refer to a type of the group by
+    /// [`Self::next_type_index`] plus the place of the type. Each type has
+    /// its supertype, which comes before it, and is final when its `bool`
+    /// is `true`.
+    pub fn rec_group(&mut self, types: &[(&Composite, Option<TypeIdx>, bool)]) -> Vec<TypeIdx> {
+        if types.is_empty() {
             return Vec::new();
         }
         let field = |&(element_type, mutable): &(StorageType, bool)| FieldType {
             element_type,
             mutable,
         };
-        self.types.ty().rec(composites.iter().map(|composite| {
-            let inner = match composite {
-                Composite::Struct(fields) => CompositeInnerType::Struct(StructType {
-                    fields: fields.iter().map(field).collect(),
-                }),
-                Composite::Array(element_type, mutable) => {
-                    CompositeInnerType::Array(ArrayType(field(&(*element_type, *mutable))))
+        self.types
+            .ty()
+            .rec(types.iter().map(|&(composite, base, is_final)| {
+                let inner = match composite {
+                    Composite::Struct(fields) => CompositeInnerType::Struct(StructType {
+                        fields: fields.iter().map(field).collect(),
+                    }),
+                    Composite::Array(element_type, mutable) => {
+                        CompositeInnerType::Array(ArrayType(field(&(*element_type, *mutable))))
+                    }
+                };
+                SubType {
+                    is_final,
+                    supertype_idxs: base.map(TypeIdx::index).into_iter().collect(),
+                    composite_type: CompositeType {
+                        inner,
+                        shared: false,
+                        descriptor: None,
+                        describes: None,
+                    },
                 }
-            };
-            SubType {
-                is_final: true,
-                supertype_idxs: Vec::new(),
-                composite_type: CompositeType {
-                    inner,
-                    shared: false,
-                    descriptor: None,
-                    describes: None,
-                },
-            }
-        }));
-        composites.iter().map(|_| self.next_type()).collect()
+            }));
+        types.iter().map(|_| self.next_type()).collect()
     }
 
     /// The index the next type will have.
@@ -561,6 +565,27 @@ impl FuncState {
     pub fn br_if(&mut self, target: Label) {
         let depth = self.depth(target);
         self.raw().br_if(depth);
+    }
+
+    /// Goes to `target` with the reference on the stack when it is null or
+    /// a reference to `to`, and leaves it there otherwise.
+    pub fn br_on_cast(&mut self, target: Label, to: TypeIdx) {
+        let depth = self.depth(target);
+        let any = RefType {
+            nullable: true,
+            heap_type: HeapType::Abstract {
+                shared: false,
+                ty: wasm_encoder::AbstractHeapType::Eq,
+            },
+        };
+        self.raw().br_on_cast(
+            depth,
+            any,
+            RefType {
+                nullable: true,
+                heap_type: to.heap_type(),
+            },
+        );
     }
 
     fn open(&mut self) -> Label {
