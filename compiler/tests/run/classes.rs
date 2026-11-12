@@ -735,3 +735,143 @@ fn a_subclass_outside_the_accepted_form_is_unsupported() {
         assert_eq!(unsupported(source), what, "{source}");
     }
 }
+
+/// `super().__init__(...)` assigns the fields of the base, and
+/// `super().m()` calls the method of the base, in two levels.
+#[test]
+fn super_calls_the_method_of_the_base() {
+    same_as_cpython(
+        "super_calls_the_method_of_the_base",
+        indoc! {"
+            class Animal:
+                nome: str
+
+                def __init__(self, nome: str) -> None:
+                    print('Animal', nome)
+                    self.nome = nome
+
+                def fala(self) -> str:
+                    return self.nome + ' faz barulho'
+
+            class Cachorro(Animal):
+                raca: str
+
+                def __init__(self, nome: str, raca: str = 'vira-lata') -> None:
+                    super().__init__(nome)
+                    self.raca = raca
+
+                def late(self) -> str:
+                    return super().fala() + ' e late'
+
+            class Filhote(Cachorro):
+                idade: int
+
+                def __init__(self, nome: str, idade: int) -> None:
+                    self.idade = idade
+                    super().__init__(nome, raca='poodle')
+
+                def chora(self) -> str:
+                    return super().late() + ', ' + super().fala()
+
+            class Vazio:
+                def __init__(self) -> None:
+                    super().__init__()
+
+            class Outro(Vazio):
+                pass
+
+            f = Filhote('Bob', 1)
+            print(f.nome, f.raca, f.idade)
+            print(f.chora())
+            print(Cachorro('Rex').late())
+            Outro()
+        "},
+    );
+}
+
+/// An exception in the method of the base has the frame of the call
+/// through `super()`.
+#[test]
+fn an_exception_through_super_has_the_frames_of_both_methods() {
+    same_as_cpython(
+        "an_exception_through_super_has_the_frames_of_both_methods",
+        indoc! {"
+            class A:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = 10 // x
+
+            class B(A):
+                def __init__(self, x: int) -> None:
+                    super().__init__(x)
+
+            print(B(2).x)
+            B(0)
+        "},
+    );
+}
+
+#[test]
+fn super_outside_the_accepted_form_is_unsupported() {
+    for (source, what) in [
+        (
+            indoc! {"
+                class A:
+                    x: int
+
+                    def __init__(self) -> None:
+                        self.x = 1
+
+                class B(A):
+                    y: int
+
+                    def __init__(self) -> None:
+                        super().__init__()
+                        print(super().__init__)
+                        self.y = 2
+            "},
+            "self before __init__ assigns each field",
+        ),
+        (
+            indoc! {"
+                class A:
+                    x: int
+
+                    def __init__(self) -> None:
+                        self.x = 1
+                        print(self)
+
+                class B(A):
+                    y: int
+
+                    def __init__(self) -> None:
+                        super().__init__()
+                        self.y = 2
+            "},
+            "self before __init__ assigns each field",
+        ),
+        (
+            indoc! {"
+                class A:
+                    def g(self) -> str:
+                        return super().__repr__()
+            "},
+            "this attribute of super()",
+        ),
+        (
+            indoc! {"
+                class A:
+                    def f(self) -> int:
+                        return 1
+
+                class B(A):
+                    def g(self) -> int:
+                        return super(B, self).f()
+            "},
+            "super with arguments",
+        ),
+    ] {
+        assert_eq!(unsupported(source), what, "{source}");
+    }
+}

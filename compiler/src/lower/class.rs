@@ -17,7 +17,7 @@ use ty_python_semantic::types::lowering::{
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::{imported_name, names_in};
-use super::init::check_init;
+use super::init::{Base, check_init};
 use super::{HashSet, Lowering, Scope, Sig, Vars, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
@@ -114,6 +114,9 @@ pub(super) struct Declared<'a> {
     pub kind: Kind,
     /// The class of the program that the class extends.
     pub base: Option<ClassId>,
+    /// `true` when the `__init__` of a class of [`Kind::Plain`], its own
+    /// or the one that it takes, lets `self` escape.
+    pub init_escapes: bool,
     /// The fields of a dataclass or of a class of [`Kind::Plain`].
     pub checked: Checked,
     /// The name and the rep of each field of an object of the class. A
@@ -234,6 +237,7 @@ impl<'a> Lowering<'a, '_> {
             Some(_) => None,
             None => self.program_base(def, &info)?,
         };
+        let mut init_escapes = false;
         let (kind, checked, fields, members, methods) = if let Some(frozen) = frozen {
             let methods = self.dataclass_form(def, &info)?;
             let checked = info
@@ -245,7 +249,8 @@ impl<'a> Lowering<'a, '_> {
             let kind = Kind::Dataclass { frozen };
             (kind, checked, Vec::new(), Vec::new(), methods)
         } else if base.is_some() || (def.arguments.is_none() && info.mro.len() == 2) {
-            let (checked, methods) = self.plain_form(def, &info, base)?;
+            let (checked, methods, escapes) = self.plain_form(def, &info, base)?;
+            init_escapes = escapes;
             (Kind::Plain, checked, Vec::new(), Vec::new(), methods)
         } else {
             let (members, methods) =
@@ -263,6 +268,7 @@ impl<'a> Lowering<'a, '_> {
             ordered: false,
             kind,
             base,
+            init_escapes,
             checked,
             fields,
             members,
@@ -1130,6 +1136,17 @@ impl<'a> Lowering<'a, '_> {
         receiver: Expr,
         method: Method<'a>,
     ) -> Result<Expr, Error> {
+        let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
+        self.call_with(call, self.not_none(receiver, text, attr), method)
+    }
+
+    /// The call `call` of `method` with `receiver`, an object, as `self`.
+    fn call_with(
+        &self,
+        call: &ast::ExprCall,
+        receiver: Expr,
+        method: Method<'a>,
+    ) -> Result<Expr, Error> {
         let func = method.func();
         let sig = self.funcs.borrow().get(func).clone();
         let names: Vec<&str> = params_of(method.def)
@@ -1141,9 +1158,8 @@ impl<'a> Lowering<'a, '_> {
         rest.params.remove(0);
         rest.defaults.remove(0);
         let (args, order) = self.arguments(call, &rest, Some(&bindings))?;
-        let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
         let self_rep = *sig.params.first().expect("a method has self");
-        let receiver = widen(self.not_none(receiver, text, attr), self_rep);
+        let receiver = widen(receiver, self_rep);
         let order = order.map(|order| {
             std::iter::once(0)
                 .chain(order.into_iter().map(|arg| arg + 1))
@@ -1157,6 +1173,54 @@ impl<'a> Lowering<'a, '_> {
             site: self.call_site(func, call),
             check: None,
         })
+    }
+
+    /// The call `call` of the method of `attr`, whose object is `sup`,
+    /// which is `super()`. The method comes from the base of the class of
+    /// the method that the call is in, and the call goes to it directly,
+    /// with the object of `self`. The `__init__` of `object` does nothing.
+    pub(super) fn super_call(
+        &self,
+        call: &ast::ExprCall,
+        attr: &ast::ExprAttribute,
+        sup: &ast::ExprCall,
+    ) -> Result<Expr, Error> {
+        if !sup.arguments.is_empty() {
+            return Err(unsupported(sup, "super with arguments"));
+        }
+        let (class, _) = self
+            .enclosing_method(call)
+            .ok_or_else(|| unsupported(sup, "super() outside a method"))?;
+        let base = self.classes.borrow().get(class).base;
+        // `super()` reads the first variable of the frame, which no
+        // method assigns, as `check_self` tells.
+        let object = param(0, Rep::Object(class));
+        match base.and_then(|base| self.method(base, attr.attr.as_str())) {
+            Some(method) => self.call_with(call, object, method),
+            None if attr.attr.as_str() == "__init__" => Ok(Expr::None),
+            None => Err(unsupported(attr, "this attribute of super()")),
+        }
+    }
+
+    /// The class and the `def` of the method of the program whose code
+    /// `node` is in, when the lowering is in the code of that method.
+    fn enclosing_method(&self, node: &impl Ranged) -> Option<(ClassId, &'a ast::StmtFunctionDef)> {
+        if self.in_prelude() {
+            return None;
+        }
+        let classes = self.classes.borrow();
+        let (class, method) = classes.list.iter().enumerate().find_map(|(i, declared)| {
+            declared
+                .methods
+                .iter()
+                .find(|method| method.def.range().contains_range(node.range()))
+                .map(|method| (ClassId::new(i), method.def))
+        })?;
+        let scope = self.scope.borrow();
+        let scope = scope.as_ref()?;
+        // The code of an example of a docstring is in the range of the
+        // `def` too.
+        (scope.doctest.is_none() && scope.name == method.name.as_str()).then_some((class, method))
     }
 
     /// The bindings of the checker for the arguments of `call`, with the
@@ -1863,13 +1927,14 @@ impl<'a> Lowering<'a, '_> {
     /// decorator, with `base` or without a base, together with its methods.
     /// `info` is what the checker gives for the class. Each field has an
     /// annotation in the body of the class or of a class that it descends
-    /// from, and [`check_init`] proves that the `__init__` assigns it.
+    /// from, and [`check_init`] proves that the `__init__` assigns it. The
+    /// third value tells whether the `__init__` lets `self` escape.
     fn plain_form(
         &self,
         def: &'a ast::StmtClassDef,
         info: &ClassInfo,
         base: Option<ClassId>,
-    ) -> Result<(Checked, Vec<Method<'a>>), Error> {
+    ) -> Result<(Checked, Vec<Method<'a>>, bool), Error> {
         if def.type_params.is_some() {
             return Err(unsupported(def, "a generic class"));
         }
@@ -1962,16 +2027,23 @@ impl<'a> Lowering<'a, '_> {
         let init = methods
             .iter()
             .find(|method| method.def.name.as_str() == "__init__");
+        let base_escapes = base.is_some_and(|base| self.classes.borrow().get(base).init_escapes);
+        // The `__init__` of `object` assigns nothing and lets nothing
+        // escape.
+        let base = Base {
+            fields: fields.get(..inherited).unwrap_or_default(),
+            escapes: base_escapes,
+        };
         // A class without `__init__` takes the one of its base, which
         // assigns the fields of the base alone.
-        match (init, fields.get(inherited)) {
-            (Some(init), _) => check_init(init.def, &fields)?,
+        let escapes = match (init, fields.get(inherited)) {
+            (Some(init), _) => check_init(init.def, &fields, base)?,
             (None, Some((_, range))) => {
                 return Err(unsupported(range, "a field that __init__ may not assign"));
             }
-            (None, None) => {}
-        }
-        Ok((checked, methods))
+            (None, None) => base_escapes,
+        };
+        Ok((checked, methods, escapes))
     }
 
     /// Returns `true` if `expr` reads the function `dataclass` of the

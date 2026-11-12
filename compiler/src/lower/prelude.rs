@@ -77,6 +77,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
         call: &ast::ExprCall,
         attr: &ast::ExprAttribute,
     ) -> Result<Expr, Error> {
+        if let ast::Expr::Call(sup) = &*attr.value
+            && self.builtin_name(&sup.func).as_deref() == Some("super")
+        {
+            return self.super_call(call, attr, sup);
+        }
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
         if let Rep::Object(class) = receiver.rep()

@@ -3,6 +3,7 @@
 //! assignment of Java does. A field without a value raises
 //! `AttributeError` in CPython, and the struct has no such state.
 
+use std::cell::Cell;
 use std::collections::HashSet;
 
 use ruff_python_ast as ast;
@@ -12,15 +13,31 @@ use ruff_text_size::{Ranged, TextRange};
 use super::unsupported;
 use crate::Error;
 
+/// What `super().__init__(...)` does in an `__init__`, which calls the
+/// `__init__` of the base, or the one of `object` without a base.
+#[derive(Clone, Copy)]
+pub(super) struct Base<'f> {
+    /// The fields that the `__init__` of the base assigns, which are the
+    /// first fields of the subclass.
+    pub fields: &'f [(&'f str, TextRange)],
+    /// `true` when the `__init__` of the base lets `self` escape, where a
+    /// method of the subclass may read a field of the subclass.
+    pub escapes: bool,
+}
+
 /// Checks that `init` assigns each field of `fields`, each with the node
 /// of its annotation, in every path, before a read of the field and
 /// before `self` escapes. `self` escapes in an argument, in an assignment
-/// to another variable or field, and in any use other than the read or
-/// the assignment of a field.
+/// to another variable or field, in `super()`, and in any use other than
+/// the read or the assignment of a field. `super().__init__(...)` as a
+/// statement assigns the fields of `base`, and lets `self` escape when the
+/// `__init__` of the base does. Returns `true` if `self` may escape,
+/// `false` otherwise.
 pub(super) fn check_init(
     init: &ast::StmtFunctionDef,
     fields: &[(&str, TextRange)],
-) -> Result<(), Error> {
+    base: Base,
+) -> Result<bool, Error> {
     let receiver = init
         .parameters
         .args
@@ -28,15 +45,24 @@ pub(super) fn check_init(
         .expect("a method with self")
         .name()
         .as_str();
-    let check = Check { receiver, fields };
+    let check = Check {
+        receiver,
+        fields,
+        base,
+        escaped: Cell::new(false),
+    };
     let after = check.body(&init.body, Some(HashSet::new()))?;
-    check.all_assigned(after.as_ref())
+    check.all_assigned(after.as_ref())?;
+    Ok(check.escaped.get())
 }
 
 struct Check<'a> {
     /// The name of the first parameter of `__init__`.
     receiver: &'a str,
     fields: &'a [(&'a str, TextRange)],
+    base: Base<'a>,
+    /// Whether `self` escaped somewhere.
+    escaped: Cell<bool>,
 }
 
 /// The fields that have a value at a point of the code, and `None` at a
@@ -56,7 +82,20 @@ impl<'a> Check<'a> {
             return Ok(None);
         };
         match stmt {
-            ast::Stmt::Expr(e) => self.reads(&e.value, &assigned)?,
+            ast::Stmt::Expr(e) => match super_init(&e.value) {
+                Some(call) => {
+                    self.reads_all(call, &assigned)?;
+                    if self.base.escapes {
+                        let own = self
+                            .fields
+                            .get(self.base.fields.len()..)
+                            .unwrap_or_default();
+                        self.escapes_with(call.range(), &assigned, own)?;
+                    }
+                    assigned.extend(self.base.fields.iter().map(|(name, _)| *name));
+                }
+                None => self.reads(&e.value, &assigned)?,
+            },
             ast::Stmt::Assign(a) => {
                 self.reads(&a.value, &assigned)?;
                 for target in &a.targets {
@@ -166,10 +205,33 @@ impl<'a> Check<'a> {
         reads.error.map_or(Ok(()), Err)
     }
 
+    /// Checks each argument of `call` with the fields in `assigned`.
+    fn reads_all(&self, call: &'a ast::ExprCall, assigned: &HashSet<&'a str>) -> Result<(), Error> {
+        for arg in &call.arguments.args {
+            self.reads(arg, assigned)?;
+        }
+        for keyword in &call.arguments.keywords {
+            self.reads(&keyword.value, assigned)?;
+        }
+        Ok(())
+    }
+
     /// Checks that `self` may escape at `range`, with the fields in
     /// `assigned`.
     fn escapes(&self, range: TextRange, assigned: &HashSet<&str>) -> Result<(), Error> {
-        if self.fields.iter().all(|(name, _)| assigned.contains(name)) {
+        self.escapes_with(range, assigned, self.fields)
+    }
+
+    /// Checks that `self` may escape at `range` where a method may read
+    /// `fields`, with the fields in `assigned`.
+    fn escapes_with(
+        &self,
+        range: TextRange,
+        assigned: &HashSet<&str>,
+        fields: &[(&str, TextRange)],
+    ) -> Result<(), Error> {
+        self.escaped.set(true);
+        if fields.iter().all(|(name, _)| assigned.contains(name)) {
             Ok(())
         } else {
             Err(unsupported(
@@ -226,6 +288,10 @@ impl<'a> Visitor<'a> for Reads<'_, 'a> {
                     ));
                 }
             }
+            // `super()` reads `self` without its name.
+            ast::Expr::Call(call) if is_super(call) => {
+                self.error = self.check.escapes(call.range(), self.assigned).err();
+            }
             ast::Expr::Name(name) if name.id.as_str() == self.check.receiver => {
                 let checked = if name.ctx.is_load() {
                     self.check.escapes(name.range(), self.assigned)
@@ -269,7 +335,29 @@ impl<'a> Visitor<'a> for Uses<'_> {
             ast::Expr::Name(name) if name.id.as_str() == self.receiver => {
                 self.found.get_or_insert(name.range());
             }
+            ast::Expr::Call(call) if is_super(call) => {
+                self.found.get_or_insert(call.range());
+            }
             expr => walk_expr(self, expr),
         }
+    }
+}
+
+/// Returns `true` if `call` is `super()`, `false` otherwise.
+fn is_super(call: &ast::ExprCall) -> bool {
+    matches!(&*call.func, ast::Expr::Name(name) if name.id.as_str() == "super")
+}
+
+/// The call of `expr`, when `expr` is `super().__init__(...)`.
+fn super_init(expr: &ast::Expr) -> Option<&ast::ExprCall> {
+    let ast::Expr::Call(call) = expr else {
+        return None;
+    };
+    let ast::Expr::Attribute(attr) = &*call.func else {
+        return None;
+    };
+    match &*attr.value {
+        ast::Expr::Call(sup) if attr.attr.as_str() == "__init__" && is_super(sup) => Some(call),
+        _ => None,
     }
 }
