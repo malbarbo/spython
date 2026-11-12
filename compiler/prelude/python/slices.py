@@ -40,12 +40,11 @@ def step_bound(bound: int | None, n: int, negative: bool, missing: int) -> int:
 
 def step_of(step: int | None) -> int:
     """The step of a slice, 1 when it is missing."""
-    k = 1
-    if step is not None:
-        k = step
-    if k == 0:
+    if step is None:
+        return 1
+    if step == 0:
         raise ValueError("slice step cannot be zero")
-    return k
+    return step
 
 
 def step_start(start: int | None, n: int, k: int) -> int:
