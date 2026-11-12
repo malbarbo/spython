@@ -93,12 +93,25 @@ pub(crate) fn lower(
     let mut funcs: Vec<Func> = Vec::new();
     lowering.lower_queue(&mut funcs)?;
     // The `repr` of a uniform value may meet a `str` or an object of any
-    // class, whose functions go to the end of the queue.
+    // class, whose functions go to the end of the queue. The function of a
+    // call through a value of a class waits for every call of a class,
+    // and its code may convert another object.
     let mut str_repr = None;
-    if lowering.uniform_repr.get() {
-        str_repr = lowering.uniform_reprs()?;
+    loop {
+        if lowering.uniform_repr.get() && str_repr.is_none() {
+            str_repr = Some(lowering.uniform_reprs()?);
+        }
+        let resolved = lowering.resolve_slots()?;
         lowering.lower_queue(&mut funcs)?;
+        if !resolved && (str_repr.is_some() || !lowering.uniform_repr.get()) {
+            break;
+        }
     }
+    debug_assert!(
+        lowering.lowered.borrow().is_empty(),
+        "a function without code"
+    );
+    let str_repr = str_repr.flatten();
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
         func.ordered = *ordered;
@@ -782,6 +795,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let scope = self.scope.take().expect("the scope of the function");
         Ok(Func {
+            alias: None,
             ordered: false,
             frame: !self.in_prelude(),
             params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
@@ -862,12 +876,37 @@ impl<'a, 'db> Lowering<'a, 'db> {
             })
             .collect();
         let func = Func {
+            alias: None,
             ordered: false,
             frame,
             params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
             vars,
             ret: sig.ret,
             body,
+        };
+        self.lowered.borrow_mut().insert(id.index(), func);
+    }
+
+    /// Makes `id`, a function of [`Self::reserve`], call `target` in its
+    /// place.
+    fn alias(&self, id: FuncId, target: FuncId) {
+        let sig = self.funcs.borrow().get(id).clone();
+        let func = Func {
+            alias: Some(target),
+            ordered: false,
+            frame: false,
+            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
+            vars: sig
+                .params
+                .iter()
+                .map(|rep| Var {
+                    rep: *rep,
+                    flagged: false,
+                    ordered: false,
+                })
+                .collect(),
+            ret: sig.ret,
+            body: Vec::new(),
         };
         self.lowered.borrow_mut().insert(id.index(), func);
     }
@@ -965,13 +1004,31 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// Lowers the functions of the queue after the ones in `funcs`. The
     /// lowering of a function may declare another one, which goes to the
     /// end of the queue.
+    /// A function that the compiler writes and has no code yet, as the
+    /// function of a slot, keeps its place with an empty function until
+    /// the code comes.
     fn lower_queue(&self, funcs: &mut Vec<Func>) -> Result<(), Error> {
+        for (i, func) in funcs.iter_mut().enumerate() {
+            if let Some(lowered) = self.lowered.borrow_mut().remove(&i) {
+                *func = lowered;
+            }
+        }
         while funcs.len() < self.funcs.borrow().sigs.len() {
             let id = FuncId::new(funcs.len());
             let lowered = self.lowered.borrow_mut().remove(&id.index());
+            let has_def = self.funcs.borrow().get(id).def.is_some();
             funcs.push(match lowered {
                 Some(func) => func,
-                None => self.func(id)?,
+                None if has_def => self.func(id)?,
+                None => Func {
+                    alias: None,
+                    ordered: false,
+                    frame: false,
+                    params: 0,
+                    vars: Vec::new(),
+                    ret: Rep::None,
+                    body: Vec::new(),
+                },
             });
         }
         Ok(())

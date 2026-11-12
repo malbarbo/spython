@@ -150,6 +150,11 @@ pub(crate) struct ListType {
 }
 
 pub(crate) struct Func {
+    /// The function that a call of this one calls in its place, with the
+    /// same arguments, when this one has no code of its own. The first
+    /// parameter of the other one may be of a class that this one's
+    /// descends from.
+    pub alias: Option<FuncId>,
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
     /// `false` for a function of the prelude, which has no frame in a
@@ -218,6 +223,9 @@ pub(crate) enum Stmt {
     },
     Break,
     Continue,
+    /// Code that the program never runs, as a call of a method on an
+    /// object of a class that the program never makes.
+    Unreachable,
     /// Runs an example of a docstring. What the body writes to the standard
     /// output goes to a buffer, and an exception of the body ends the body
     /// and nothing else, unless its class is [`Class::Limit`]. After the

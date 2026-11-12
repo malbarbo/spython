@@ -37,10 +37,13 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
                 .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
         })
         .collect();
-    let funcs: Vec<FuncSlots> = program
+    let mut funcs: Vec<Option<FuncSlots>> = program
         .funcs
         .iter()
         .map(|func| {
+            if func.alias.is_some() {
+                return None;
+            }
             let params: Vec<ValType> = func
                 .vars
                 .iter()
@@ -49,14 +52,27 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
                 .collect();
             let results: Vec<ValType> = reprs.value_type(func.ret).into_iter().collect();
             let ty = m.func_type(&params, &results);
-            FuncSlots {
+            Some(FuncSlots {
                 index: m.reserve(ty),
                 // No `def` binds a function of the prelude.
                 defined: func
                     .frame
                     .then(|| m.global(ValType::I32, &ConstExpr::i32_const(0))),
-            }
+            })
         })
+        .collect();
+    for (i, func) in program.funcs.iter().enumerate() {
+        if let Some(alias) = func.alias {
+            let slots = *funcs
+                .get(alias.index())
+                .and_then(Option::as_ref)
+                .expect("a function with code of its own");
+            *funcs.get_mut(i).expect("a function of the program") = Some(slots);
+        }
+    }
+    let funcs: Vec<FuncSlots> = funcs
+        .into_iter()
+        .map(|slots| slots.expect("the slots of each function"))
         .collect();
     let index = |func: Option<FuncId>| {
         func.map(|func| {
@@ -134,7 +150,9 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     }
     e.reprs.end_module(&mut f, site);
     for (i, func) in program.funcs.iter().enumerate() {
-        e.func(FuncId::new(i), func);
+        if func.alias.is_none() {
+            e.func(FuncId::new(i), func);
+        }
     }
     e.reprs.finish(&mut e.m, &program.sites);
     let init = e.m.take_init();
@@ -196,6 +214,7 @@ struct Slots<I> {
     defined: Option<I>,
 }
 
+#[derive(Clone, Copy)]
 struct FuncSlots {
     index: FuncIdx,
     /// The global that is not 0 once the `def` has run, as the flag of a
@@ -353,6 +372,9 @@ impl Emitter<'_> {
                 else_,
                 site,
             } => self.for_range(f, *var, [start, stop, step], (body, else_), *site),
+            Stmt::Unreachable => {
+                f.ins().unreachable();
+            }
             Stmt::Break => {
                 let target = self.code.loops.last().expect("a break in a loop").break_;
                 f.br(target);
@@ -884,11 +906,17 @@ impl Emitter<'_> {
             .expect("a class of the program")
     }
 
+    /// The function that a call of `func` runs, which is the one that
+    /// `func` names as its alias, when it has one.
     fn program_func(&self, func: FuncId) -> &Func {
-        self.program
-            .funcs
-            .get(func.index())
-            .expect("a function of the program")
+        let get = |func: FuncId| {
+            self.program
+                .funcs
+                .get(func.index())
+                .expect("a function of the program")
+        };
+        let found = get(func);
+        found.alias.map_or(found, get)
     }
 
     /// Pushes the value of `expr`, and nothing when its rep is `None`.

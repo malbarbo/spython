@@ -1,8 +1,10 @@
 //! The classes without a decorator.
 
-use indoc::indoc;
+use std::path::Path;
 
-use super::{run, same_as_cpython, unsupported};
+use indoc::{formatdoc, indoc};
+
+use super::{compile, run, same_as_cpython, unsupported};
 
 #[test]
 fn a_class_with_fields_and_init_makes_objects() {
@@ -944,4 +946,92 @@ fn an_object_of_a_subclass_is_a_value_of_its_base() {
             print(d.pet.late())
         "},
     );
+}
+
+/// The number of `ref.test`s in `module`, after a check that no test and
+/// no cast names a type that is not final.
+fn tests_on_final_types(module: &compiler::Module) -> usize {
+    use wasmparser::{HeapType, Operator, Parser, Payload, UnpackedIndex};
+
+    let mut open = Vec::new();
+    let mut types = 0;
+    let mut tests = 0;
+    let named = |heap: HeapType| match heap {
+        HeapType::Concrete(UnpackedIndex::Module(index)) => Some(index),
+        _ => None,
+    };
+    for payload in Parser::new(0).parse_all(&module.bytes) {
+        match payload.expect("a valid module") {
+            Payload::TypeSection(reader) => {
+                for group in reader {
+                    for ty in group.expect("a rec group").types() {
+                        if !ty.is_final {
+                            open.push(types);
+                        }
+                        types += 1;
+                    }
+                }
+            }
+            Payload::CodeSectionEntry(body) => {
+                let mut ops = body.get_operators_reader().expect("the code");
+                while !ops.eof() {
+                    let heap = match ops.read().expect("an instruction") {
+                        Operator::RefTestNonNull { hty } | Operator::RefTestNullable { hty } => {
+                            tests += 1;
+                            Some(hty)
+                        }
+                        Operator::RefCastNonNull { hty } | Operator::RefCastNullable { hty } => {
+                            Some(hty)
+                        }
+                        Operator::BrOnCast { to_ref_type, .. }
+                        | Operator::BrOnCastFail { to_ref_type, .. } => {
+                            Some(to_ref_type.heap_type())
+                        }
+                        _ => None,
+                    };
+                    if let Some(index) = heap.and_then(named) {
+                        assert!(!open.contains(&index), "a test of the open type {index}");
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    tests
+}
+
+/// A call through a value of a class has a test for each class that the
+/// program makes, and none for a class that it never makes.
+#[test]
+fn a_call_tests_the_classes_that_the_program_makes() {
+    let program = |made: &str| {
+        formatdoc! {"
+            class A:
+                def nome(self) -> str:
+                    return 'a'
+
+            class B(A):
+                pass
+
+            class C(A):
+                pass
+
+            class D(C):
+                pass
+
+            def f(x: A) -> None:
+                print(x, x.nome())
+
+            {made}
+        "}
+    };
+    let tests = |made: &str| {
+        let module =
+            compile(&program(made), Path::new("tests.py")).expect("the program to compile");
+        tests_on_final_types(&module)
+    };
+    let one = tests("f(B())");
+    assert_eq!(tests("f(B())\nf(C())"), one + 1);
+    assert_eq!(tests("f(B())\nf(C())\nf(D())"), one + 2);
+    assert_eq!(tests("f(D())"), one);
 }

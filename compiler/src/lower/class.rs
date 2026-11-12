@@ -35,6 +35,35 @@ pub(super) struct Classes<'a> {
     /// The class of each class of the checker.
     pub ids: HashMap<CheckerClass, ClassId>,
     pub list: Vec<Declared<'a>>,
+    /// The classes whose objects the program makes, in a call of the class
+    /// or as the members of an `Enum`.
+    pub instantiated: HashSet<ClassId>,
+    /// The calls of a method through a value of a class, which wait for
+    /// the classes that the program makes.
+    pub slots: Vec<Slot>,
+    /// The place of each slot in `slots`.
+    pub slot_ids: HashMap<(ClassId, Key), usize>,
+}
+
+/// What a call through a value of a class calls.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(super) enum Key {
+    /// A method of the program, by its name.
+    Method(String),
+    /// The `str` of the object.
+    Str,
+    /// The `repr` of the object.
+    Repr,
+}
+
+/// The function that a call of `key` through a value of `class` calls,
+/// which [`Lowering::resolve_slots`] defines once the lowering knows the
+/// classes that the program makes.
+pub(super) struct Slot {
+    class: ClassId,
+    key: Key,
+    func: FuncId,
+    resolved: bool,
 }
 
 impl<'a> Classes<'a> {
@@ -284,6 +313,9 @@ impl<'a> Lowering<'a, '_> {
             repr_or_none: None,
             defaults: Vec::new(),
         });
+        if kind == Kind::Enum && !classes.get(id).members.is_empty() {
+            classes.instantiated.insert(id);
+        }
         classes.names.insert(name.to_owned(), id);
         classes.ids.insert(info.id, id);
         Ok(())
@@ -749,56 +781,141 @@ impl<'a> Lowering<'a, '_> {
     /// The function that gives the `str` of a value of `class`. An object
     /// of a subclass may have its own.
     pub(super) fn class_str(&self, class: ClassId) -> Result<FuncId, Error> {
-        if let Some(func) = self.classes.borrow().get(class).str {
-            return Ok(func);
-        }
-        self.conversion_of(
+        let func = self.slot(
             class,
-            |declared| &mut declared.str,
-            |class| self.exact_str(class),
-        )
+            Key::Str,
+            vec![Rep::Object(class)],
+            Rep::Str,
+            Vec::new(),
+        );
+        self.classes.borrow_mut().get_mut(class).str = Some(func);
+        Ok(func)
     }
 
     /// The function that gives the `repr` of a value of `class`. An object
     /// of a subclass may have its own.
     pub(super) fn class_repr(&self, class: ClassId) -> Result<FuncId, Error> {
-        if let Some(func) = self.classes.borrow().get(class).repr {
-            return Ok(func);
-        }
-        self.conversion_of(
+        let func = self.slot(
             class,
-            |declared| &mut declared.repr,
-            |class| self.exact_repr(class),
-        )
+            Key::Repr,
+            vec![Rep::Object(class)],
+            Rep::Str,
+            Vec::new(),
+        );
+        self.classes.borrow_mut().get_mut(class).repr = Some(func);
+        Ok(func)
     }
 
-    /// The function that gives a `str` for a value of `class`, with the
-    /// function that `exact` gives for the class of the object, which goes
-    /// to the place that `cache` gives. A field of the class may hold an
-    /// object of the class, whose conversion finds the function there.
-    fn conversion_of(
+    /// The function that a call of `key` through a value of `class` calls,
+    /// with a parameter of each rep of `params`, the first an object of
+    /// `class`, the global of each default in `defaults`, and a result of
+    /// `ret`. The first call reserves it.
+    fn slot(
         &self,
         class: ClassId,
-        cache: for<'d> fn(&'d mut Declared<'a>) -> &'d mut Option<FuncId>,
-        exact: impl Fn(ClassId) -> Result<FuncId, Error>,
-    ) -> Result<FuncId, Error> {
-        let classes = self.descendants(class);
-        let params = vec![Rep::Object(class)];
-        let func = if let [only] = *classes {
-            exact(only)?
+        key: Key,
+        params: Vec<Rep>,
+        ret: Rep,
+        defaults: Vec<Option<VarId>>,
+    ) -> FuncId {
+        if let Some(&slot) = self.classes.borrow().slot_ids.get(&(class, key.clone())) {
+            return self.classes.borrow().slots.get(slot).expect("a slot").func;
+        }
+        let defaults = if defaults.is_empty() {
+            params.iter().map(|_| None).collect()
         } else {
-            let func = self.reserve(params.clone(), Rep::Str);
-            *cache(self.classes.borrow_mut().get_mut(class)) = Some(func);
-            let arms = classes
-                .into_iter()
-                .map(|class| Ok((class, exact(class)?)))
-                .collect::<Result<Vec<_>, Error>>()?;
-            let body = self.dispatch_body(class, arms, &params, Rep::Str);
-            self.define(func, false, body);
-            func
+            defaults
         };
-        *cache(self.classes.borrow_mut().get_mut(class)) = Some(func);
-        Ok(func)
+        let func = self.reserve_with(params, ret, defaults, true);
+        let mut classes = self.classes.borrow_mut();
+        let slot = classes.slots.len();
+        classes.slot_ids.insert((class, key.clone()), slot);
+        classes.slots.push(Slot {
+            class,
+            key,
+            func,
+            resolved: false,
+        });
+        func
+    }
+
+    /// Defines the function of each slot that waits, with the function
+    /// that each class that the program makes has for the call, and
+    /// returns `true` if a slot waited. A slot without a class gives code
+    /// that never runs, a slot of one function calls it in its place, and
+    /// a slot of more functions tests the exact class of the object.
+    pub(super) fn resolve_slots(&self) -> Result<bool, Error> {
+        let mut any = false;
+        let mut i = 0;
+        loop {
+            let next = self
+                .classes
+                .borrow()
+                .slots
+                .get(i)
+                .map(|slot| (slot.resolved, slot.class, slot.key.clone(), slot.func));
+            let Some((resolved, class, key, func)) = next else {
+                break;
+            };
+            if resolved {
+                i += 1;
+                continue;
+            }
+            any = true;
+            self.classes
+                .borrow_mut()
+                .slots
+                .get_mut(i)
+                .expect("a slot")
+                .resolved = true;
+            i += 1;
+            let made: Vec<ClassId> = {
+                let classes = self.classes.borrow();
+                classes
+                    .descendants(class)
+                    .into_iter()
+                    .filter(|class| classes.instantiated.contains(class))
+                    .collect()
+            };
+            let arms = made
+                .into_iter()
+                .map(|exact| {
+                    let body = match &key {
+                        Key::Method(name) => self
+                            .method(exact, name)
+                            .expect("a method of a class that descends from the class of the call")
+                            .func(),
+                        Key::Str => self.exact_str(exact)?,
+                        Key::Repr => self.exact_repr(exact)?,
+                    };
+                    Ok((exact, body))
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            let sig = self.funcs.borrow().get(func).clone();
+            let Some(&(_, first)) = arms.first() else {
+                self.define(func, false, vec![Stmt::Unreachable]);
+                continue;
+            };
+            let receiver = self.receiver(first);
+            if arms.iter().all(|(_, body)| *body == first) && self.descends(class, receiver) {
+                self.alias(func, first);
+            } else {
+                let body = self.dispatch_body(class, arms, &sig.params, sig.ret);
+                self.define(func, false, body);
+            }
+        }
+        Ok(any)
+    }
+
+    /// The class of the first parameter of `func`, a method.
+    fn receiver(&self, func: FuncId) -> ClassId {
+        self.funcs
+            .borrow()
+            .get(func)
+            .params
+            .first()
+            .and_then(|rep| rep.class())
+            .expect("a method has self")
     }
 
     /// The code of a function with `params`, the first an object of
@@ -1057,6 +1174,9 @@ impl<'a> Lowering<'a, '_> {
         class: ClassId,
     ) -> Result<Expr, Error> {
         let kind = self.classes.borrow().get(class).kind;
+        if kind != Kind::Enum {
+            self.classes.borrow_mut().instantiated.insert(class);
+        }
         match kind {
             Kind::Enum => return Err(unsupported(call, "a call of this class")),
             Kind::Plain => return self.construct_plain(call, name, class),
@@ -1139,17 +1259,25 @@ impl<'a> Lowering<'a, '_> {
         method: Method<'a>,
     ) -> Result<Expr, Error> {
         let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
-        self.call_with(call, self.not_none(receiver, text, attr), method)
+        let class = receiver.rep().class().expect("an object");
+        let body = self.funcs.borrow().get(method.func()).clone();
+        let params = std::iter::once(Rep::Object(class))
+            .chain(body.params.iter().skip(1).copied())
+            .collect();
+        let key = Key::Method(method.def.name.to_string());
+        let func = self.slot(class, key, params, body.ret, body.defaults.clone());
+        self.call_with(call, self.not_none(receiver, text, attr), method, func)
     }
 
-    /// The call `call` of `method` with `receiver`, an object, as `self`.
+    /// The call `call` of `func`, a function with the parameters of
+    /// `method`, with `receiver`, an object, as `self`.
     fn call_with(
         &self,
         call: &ast::ExprCall,
         receiver: Expr,
         method: Method<'a>,
+        func: FuncId,
     ) -> Result<Expr, Error> {
-        let func = method.func();
         let sig = self.funcs.borrow().get(func).clone();
         let names: Vec<&str> = params_of(method.def)
             .skip(1)
@@ -1198,7 +1326,7 @@ impl<'a> Lowering<'a, '_> {
         // method assigns, as `check_self` tells.
         let object = param(0, Rep::Object(class));
         match base.and_then(|base| self.method(base, attr.attr.as_str())) {
-            Some(method) => self.call_with(call, object, method),
+            Some(method) => self.call_with(call, object, method, method.func()),
             None if attr.attr.as_str() == "__init__" => Ok(Expr::None),
             None => Err(unsupported(attr, "this attribute of super()")),
         }
