@@ -491,6 +491,34 @@ O que o CPython faz e a cópia segue:
 - `for k, v in d.items()` é uma forma do `for`, sem tupla. `d.items()`
   fora do `for` é `Unsupported` até a fatia 8.
 
+O grupo H fez assim:
+
+- A classe `Dict` do prelude guarda os índices da tabela, os `hash`es, as
+  chaves, os valores e se cada entrada está viva. Uma entrada removida
+  fica no seu lugar até a tabela crescer, e a tabela cresce onde o
+  CPython faz crescer, inclusive na troca da tabela só de `str` por uma
+  geral. Assim as mensagens de mudança dentro do `for` saem como no
+  CPython.
+- A literal cria o `dict`, guarda cada chave e cada valor na ordem com
+  `pend`, e `done` põe os itens numa tabela do tamanho que o CPython dá,
+  como `BUILD_MAP`. O `hash` de cada chave vem depois de todos os itens.
+- O `KeyError` ganhou uma classe. Seu texto é o `repr` do argumento, e o
+  prelude escreve `raise KeyError(key)`.
+- O tipo de `d.get(k, x)` e de `d.pop(k, x)` depende de `x`. A chamada vai
+  a `get_or` e a `pop_or`, métodos genéricos que a lowering copia pelo tipo
+  de `x`, e um `None` literal vai a `get_or_none` e a `pop_or_none`.
+- O `for` guarda o seu lugar num objeto de `DictIter`, outra classe do
+  prelude, cujo `next` segue `dictiter_iternextkey`.
+- O `repr` de um `dict` dentro dele mesmo escreve `{...}`, pela pilha dos
+  objetos cujo `repr` roda, a mesma das dataclasses.
+- `__eq__` segue `dict_equal`. Uma cópia fica fora das classes de um valor
+  uniforme, e o emissor compara dois valores uniformes de uma cópia com o
+  `__eq__` dela. Sem isso, o tipo de `dict[str, object]` mudava conforme
+  as cópias criadas antes dele.
+- A comparação de dois `dict`s de tipos diferentes, como `dict[str, int]`
+  e `dict[str, float]`, é `Unsupported`. Dentro de `object`, ela dá
+  `False` mesmo quando o CPython dá `True`.
+
 ### Funções como valores
 
 Um valor de função tem uma `Rep` por assinatura, `Func(sig)`, com as
@@ -634,6 +662,10 @@ Cada linha é um commit, e cada commit passa pelo portão rápido.
 40. `compiler: hash a uniform value`
 
 **6b. H. O `dict`**
+
+O grupo começou por dois commits que o plano não tinha,
+`compiler: raise KeyError with the repr of its argument` e
+`compiler: add the intrinsics hash_slot, hash_shift and hash_eq`.
 
 41. `compiler: compile a dict literal, len, [] and []=`
 42. `compiler: write a dict in print, repr and str`
