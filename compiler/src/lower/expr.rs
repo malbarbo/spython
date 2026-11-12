@@ -33,7 +33,7 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn truth(&self, lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
         match self.special_truth(node, lowered)? {
             Ok(truth) => Ok(truth),
-            Err(lowered) => truth(lowered, node),
+            Err(lowered) => Ok(truth(lowered)),
         }
     }
 
@@ -842,7 +842,7 @@ impl<'a> Lowering<'a, '_> {
         let lowered = self.expr(operand)?;
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
-            Rep::StrOrNone | Rep::Uniform => Err(unsupported(operand, "the truth of a union")),
+            Rep::Uniform => Err(unsupported(operand, "the truth of a union")),
             Rep::Object(class) | Rep::ObjectOrNone(class)
                 if self.descendants(class).into_iter().any(|class| {
                     self.method(class, "__bool__").is_some()
@@ -858,6 +858,7 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Float
             | Rep::Bool
             | Rep::Str
+            | Rep::StrOrNone
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
@@ -924,23 +925,15 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
     }
 }
 
-/// The truth of `lowered`, the value of `node`, as a `bool`, for a value
-/// that calls no special method.
-fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
+/// The truth of `lowered` as a `bool`, for a value that calls no special
+/// method.
+fn truth(lowered: Expr) -> Expr {
     match lowered.rep() {
-        Rep::Bool => Ok(lowered),
+        Rep::Bool => lowered,
         // An object of a class without `__bool__` and `__len__` is true,
         // and an object or `None` is true when it is an object. A list or
         // `None` is true when it is a list with items.
-        Rep::Int
-        | Rep::Float
-        | Rep::Str
-        | Rep::Object(_)
-        | Rep::ObjectOrNone(_)
-        | Rep::List(_)
-        | Rep::ListOrNone(_) => Ok(Expr::Truth(Box::new(lowered))),
-        Rep::None => Err(unsupported(node, "the truth of None")),
-        Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "the truth of a union")),
+        _ => Expr::Truth(Box::new(lowered)),
     }
 }
 

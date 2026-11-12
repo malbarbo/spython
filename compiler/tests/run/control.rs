@@ -36,12 +36,18 @@ fn not_takes_the_truth_of_an_int_or_a_str() {
 }
 
 #[test]
-fn not_of_none_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-        print(not print(1))
-    "}),
-        "the truth of None"
+fn none_is_false() {
+    same_as_cpython(
+        "none_is_false",
+        indoc! {"
+            print(not print(1), bool(print(0)))
+            if print(2):
+                print(3)
+            else:
+                print(4)
+            while print(5):
+                print(6)
+        "},
     );
 }
 
@@ -201,17 +207,6 @@ fn a_condition_takes_the_truth_of_an_int_or_a_str() {
             if n - 1:
                 print(n - 1)
         "},
-    );
-}
-
-#[test]
-fn a_condition_of_none_is_unsupported() {
-    assert_eq!(
-        unsupported(indoc! {"
-            if print(1):
-                print(2)
-        "}),
-        "the truth of None"
     );
 }
 

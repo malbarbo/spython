@@ -50,6 +50,9 @@ pub(crate) struct Reprs {
     /// `repr` of a value of a union. A module that gives none goes without
     /// it.
     repr_uniform: Option<FuncIdx>,
+    /// `(func (param (ref null eq)) (result i32))`, which gives the truth
+    /// of a value of a union, true for an object.
+    truth_uniform: Option<FuncIdx>,
     /// `(func (param (ref null eq)) (result i32))`, which tells whether
     /// the `repr` of an object runs.
     in_repr: Option<FuncIdx>,
@@ -105,6 +108,7 @@ impl Reprs {
             list: ListRepr::new(m, &list_types),
             write_uniform: None,
             repr_uniform: None,
+            truth_uniform: None,
             compare_uniform: None,
             uniform_eqs: HashMap::new(),
             in_repr: None,
@@ -795,13 +799,39 @@ impl Reprs {
         f.ins().i32_const(i32::from(value));
     }
 
-    /// Pops a value of `rep` and pushes its truth as a `bool`.
-    pub fn truth(&self, f: &mut FuncState, rep: Rep) {
+    /// Pops a value of `rep` and pushes its truth as a `bool`. `None` is
+    /// false, and an object of a union is true.
+    pub fn truth(&mut self, m: &mut ModuleState, f: &mut FuncState, rep: Rep) {
         match rep {
             Rep::Int => self.int.truth(f),
             Rep::Bool => {}
             Rep::Str => self.str.truth(f),
             Rep::Float => self.float.truth(f),
+            Rep::None => {
+                f.ins().i32_const(0);
+            }
+            Rep::StrOrNone => {
+                let value = f.temp(self.str.val_type(true));
+                f.ins().local_tee(value).ref_is_null();
+                f.if_(BlockType::Result(ValType::I32));
+                f.ins().i32_const(0);
+                f.else_();
+                f.ins().local_get(value);
+                self.str.truth(f);
+                f.end();
+                f.free(value);
+            }
+            Rep::Uniform => {
+                let func = match self.truth_uniform {
+                    Some(func) => func,
+                    None => {
+                        let func = self.add_truth_uniform(m);
+                        self.truth_uniform = Some(func);
+                        func
+                    }
+                };
+                f.ins().call(func);
+            }
             Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 f.ins().ref_is_null().i32_eqz();
             }
@@ -810,8 +840,31 @@ impl Reprs {
                 f.ins().i32_const(0).i32_ne();
             }
             Rep::ListOrNone(list) => self.list.truth(f, list.index()),
-            Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("the truth of {rep:?}"),
         }
+    }
+
+    /// Defines the function that gives the truth of a value of a union,
+    /// after the test of its type.
+    fn add_truth_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        let ty = m.func_type(&[self.uniform.val_type()], &[ValType::I32]);
+        let mut f = FuncState::new(1);
+        let value = f.param(0);
+        f.ins().local_get(value).ref_is_null();
+        f.if_(BlockType::Empty);
+        f.ins().i32_const(0).return_();
+        f.end();
+        let str = (Rep::Str, self.str.type_index().heap_type());
+        for (rep, ty) in self.uniform.boxes(m).into_iter().chain([str]) {
+            f.ins().local_get(value).ref_test(ty);
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value);
+            self.narrow(m, &mut f, Rep::Uniform, rep);
+            self.truth(m, &mut f, rep);
+            f.ins().return_();
+            f.end();
+        }
+        f.ins().i32_const(1);
+        m.add_func(ty, f.finish())
     }
 
     /// Pops an `int`, a `float` or a `bool`, as `rep` says, and pushes its

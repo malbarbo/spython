@@ -369,15 +369,18 @@ impl Lowering<'_, '_> {
         self.prelude_call(call, "int", "length", vec![len])
     }
 
-    /// The truth of `value`, an object or an object or `None`, at `node`,
-    /// as a `bool`, and `None` when no class of the object has `__bool__`
-    /// or `__len__`. An object calls the `__bool__` of its class, or else
+    /// The truth of `value`, an object, an object or `None` or a value of
+    /// a union, at `node`, as a `bool`, and `None` when no class of the
+    /// value has `__bool__` or `__len__`. An object calls the `__bool__` of its class, or else
     /// its `__len__`, which gives `False` for 0. `None` is false.
     pub(super) fn special_truth(
         &self,
         node: &impl Ranged,
         value: Expr,
     ) -> Result<Result<Expr, Expr>, Error> {
+        if value.rep() == Rep::Uniform {
+            return self.uniform_truth(node, value);
+        }
         let Some(class) = value.rep().class() else {
             return Ok(Err(value));
         };
@@ -432,6 +435,45 @@ impl Lowering<'_, '_> {
             body.push(Stmt::Unreachable);
         }
         let func = self.generated(vec![value.rep()], Rep::Bool, body);
+        Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
+    }
+
+    /// The truth of `value`, a value of a union, at `node`, and `None` when
+    /// no class of the program has `__bool__` or `__len__`. An object of a
+    /// class with one of them calls it, and the rest of the values take
+    /// the truth of their type.
+    fn uniform_truth(&self, node: &impl Ranged, value: Expr) -> Result<Result<Expr, Expr>, Error> {
+        let methods: Vec<_> = self
+            .all_classes()
+            .filter_map(|class| Some((class, self.truth_method(class)?)))
+            .collect();
+        if methods.is_empty() {
+            return Ok(Err(value));
+        }
+        let site = self.site(node.range());
+        let uniform = || param(0, Rep::Uniform);
+        let mut body = Vec::new();
+        for (class, method) in methods {
+            let object = Expr::AsExact {
+                value: Box::new(uniform()),
+                class,
+            };
+            body.push(Stmt::If {
+                cond: Expr::IsExact {
+                    value: Box::new(uniform()),
+                    class,
+                },
+                then: vec![Stmt::Return(Some(self.object_truth(
+                    node,
+                    Some(method),
+                    object,
+                    site,
+                )?))],
+                else_: Vec::new(),
+            });
+        }
+        body.push(Stmt::Return(Some(Expr::Truth(Box::new(uniform())))));
+        let func = self.generated(vec![Rep::Uniform], Rep::Bool, body);
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
     }
 

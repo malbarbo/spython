@@ -1690,6 +1690,11 @@ impl<'a> Lowering<'a, '_> {
         self.classes.borrow().get(class).kind.is_dataclass()
     }
 
+    /// The classes of the program, in the order of their ids.
+    pub(super) fn all_classes(&self) -> impl Iterator<Item = ClassId> + use<> {
+        (0..self.classes.borrow().list.len()).map(ClassId::new)
+    }
+
     /// The class of each object that a value of `shape` may be.
     pub(super) fn classes_in(&self, shape: Option<Shape>) -> Vec<ClassId> {
         let mut found = Vec::new();
@@ -1700,7 +1705,7 @@ impl<'a> Lowering<'a, '_> {
     fn add_classes_in(&self, shape: Option<Shape>, found: &mut Vec<ClassId>) {
         match shape {
             Some(Shape::Instance(class, _)) if self.is_object(&class) => {
-                found.extend((0..self.classes.borrow().list.len()).map(ClassId::new));
+                found.extend(self.all_classes());
             }
             // A value of a class may be an object of a subclass.
             Some(Shape::Instance(class, _) | Shape::EnumMember(class, _)) => {

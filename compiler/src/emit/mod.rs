@@ -1383,7 +1383,7 @@ impl Emitter<'_> {
             }
             Expr::Truth(operand) => {
                 self.expr(f, operand);
-                self.reprs.truth(f, operand.rep());
+                self.reprs.truth(&mut self.m, f, operand.rep());
             }
             Expr::Not(operand) => {
                 self.expr(f, operand);
@@ -1514,7 +1514,7 @@ impl Emitter<'_> {
         self.expr(f, left);
         f.ins().local_set(left_local);
         self.reprs.load(f, rep, left_local);
-        self.reprs.truth(f, rep);
+        self.reprs.truth(&mut self.m, f, rep);
         f.if_(BlockType::Result(
             self.reprs.value_type(rep).expect("an operand has a value"),
         ));

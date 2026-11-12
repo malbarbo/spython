@@ -255,7 +255,7 @@ fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
             def f(s: str | None) -> str:
                 return s or 'a'
         "}),
-        "the truth of a union"
+        "operands of two types"
     );
     assert_eq!(
         unsupported(indoc! {"
@@ -374,5 +374,94 @@ fn a_list_as_an_object_is_unsupported() {
             f([1, 2])
         "}),
         "an argument of this type"
+    );
+}
+
+/// A `str` or `None` is true when it is a `str` with characters, and a
+/// value of a union takes the truth of its type, which for an object may
+/// call `__bool__` or `__len__`.
+#[test]
+fn the_truth_of_a_union_is_the_truth_of_its_value() {
+    same_as_cpython(
+        "the_truth_of_a_union_is_the_truth_of_its_value",
+        indoc! {"
+            from dataclasses import dataclass
+
+            class Vazia:
+                def __len__(self) -> int:
+                    return 0
+
+            class Cheia:
+                def __bool__(self) -> bool:
+                    print('bool')
+                    return True
+
+            class Filha(Vazia):
+                pass
+
+            @dataclass
+            class P:
+                x: int
+
+            def diz(nome: str, x: object) -> None:
+                print(nome, 'sim' if x else 'não', bool(x), not x)
+
+            def talvez(s: str | None) -> None:
+                if s:
+                    print('com', s)
+                elif not s:
+                    print('sem', repr(s))
+
+            def numero(n: int | float) -> None:
+                assert n, 'zero'
+                print(n)
+
+            diz('0', 0)
+            diz('3', 3)
+            diz('0.0', 0.0)
+            diz('-1.5', -1.5)
+            diz('False', False)
+            diz('True', True)
+            diz('vazio', '')
+            diz('a', 'a')
+            diz('None', None)
+            diz('Vazia', Vazia())
+            diz('Filha', Filha())
+            diz('Cheia', Cheia())
+            diz('P', P(0))
+            talvez(None)
+            talvez('')
+            talvez('ab')
+            s: str | None = 'x'
+            while s:
+                print(s)
+                s = None
+            numero(2)
+            numero(0.5)
+            numero(0)
+        "},
+    );
+}
+
+/// The `ValueError` of a negative `__len__` goes through the truth of a
+/// value of a union.
+#[test]
+fn a_negative_len_in_the_truth_of_a_union_raises() {
+    same_as_cpython(
+        "a_negative_len_in_the_truth_of_a_union_raises",
+        indoc! {"
+            class Negativa:
+                def __len__(self) -> int:
+                    return -1
+
+            def diz(x: int | Negativa) -> None:
+                if x:
+                    print('sim')
+                else:
+                    print('não')
+
+            diz(1)
+            diz(Negativa())
+        "},
     );
 }
