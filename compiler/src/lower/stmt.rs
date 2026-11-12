@@ -41,17 +41,37 @@ impl<'a> Lowering<'a, '_> {
                 ast::Stmt::For(f) => lowered.extend(self.for_(f)?),
                 _ => lowered.extend(self.stmt(stmt)?),
             }
+            if let ast::Stmt::FunctionDef(def) = stmt
+                && self.scope.borrow().is_none()
+            {
+                lowered.extend(self.bind_current(def));
+            }
         }
         Ok(lowered)
+    }
+
+    /// The assignment of the place of `def` among the `def`s of its name to
+    /// the global that tells which function the name has, when the name has
+    /// more than one `def`.
+    fn bind_current(&self, def: &ast::StmtFunctionDef) -> Option<Stmt> {
+        let func = self.def_func(def);
+        let funcs = self.funcs.borrow();
+        let (current, defs) = funcs.redefined.get(def.name.as_str())?;
+        let place = defs.iter().position(|other| *other == func);
+        let place = i32::try_from(place.expect("a def of the name")).expect("few defs");
+        Some(Stmt::Assign {
+            targets: vec![Place::Global(*current)],
+            value: Expr::Int(place),
+        })
     }
 
     /// The assignment of the default of each parameter of `def`, which the
     /// `def` evaluates once, in the order of the parameters.
     fn defaults(&self, def: &ast::StmtFunctionDef) -> Result<Vec<Stmt>, Error> {
-        let Some(id) = self.funcs.borrow().names.get(def.name.as_str()).copied() else {
+        if !self.funcs.borrow().names.contains_key(def.name.as_str()) {
             return Ok(Vec::new());
-        };
-        self.default_values(def, id)
+        }
+        self.default_values(def, self.def_func(def))
     }
 
     /// The assignment of the default of each parameter of `def`, the
@@ -238,13 +258,7 @@ impl<'a> Lowering<'a, '_> {
                 if self.scope.borrow().is_some() {
                     return Err(unsupported(def, "a def in a function"));
                 }
-                let id = *self
-                    .funcs
-                    .borrow()
-                    .names
-                    .get(def.name.as_str())
-                    .expect("a declared function");
-                Ok(Some(Stmt::Def(id)))
+                Ok(Some(Stmt::Def(self.def_func(def))))
             }
             ast::Stmt::ClassDef(def) => Ok(Some(Stmt::Class(self.class_of(def)?))),
             ast::Stmt::Return(r) => self.return_(r).map(Some),

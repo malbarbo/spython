@@ -338,8 +338,13 @@ struct Lists {
 #[derive(Default)]
 struct Funcs<'a, 'db> {
     ids: HashMap<DefId, FuncId>,
-    /// The function that each name of the module binds.
+    /// The function that each name of the module binds, the last one for a
+    /// name with more than one `def`.
     names: HashMap<String, FuncId>,
+    /// The functions of each name with more than one `def`, in the order
+    /// of the code, with the global that holds the place of the function
+    /// that the name has now.
+    redefined: HashMap<String, (VarId, Vec<FuncId>)>,
     sigs: Vec<Sig<'a, 'db>>,
     /// Whether the program asks which globals got a value first, by the id
     /// of the function.
@@ -610,9 +615,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
             return Err(unsupported(def, "a name of a class and of a function"));
         }
         let mut funcs = self.funcs.borrow_mut();
-        if funcs.names.contains_key(name) {
-            return Err(unsupported(def, "two functions of the same name"));
-        }
         let mut vars = self.vars.borrow_mut();
         let defaults = params_of(def)
             .zip(&params)
@@ -636,8 +638,31 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 types: Vec::new(),
             },
         );
-        funcs.names.insert(name.to_owned(), func);
+        if let Some(first) = funcs.names.insert(name.to_owned(), func) {
+            let (_, defs) = funcs.redefined.entry(name.to_owned()).or_insert_with(|| {
+                let current = vars.add_unnamed(Rep::Int);
+                vars.get_mut(current).flagged = true;
+                (current, vec![first])
+            });
+            defs.push(func);
+        }
         Ok(())
+    }
+
+    /// The function of `def`, a `def` of the module.
+    fn def_func(&self, def: &ast::StmtFunctionDef) -> FuncId {
+        let funcs = self.funcs.borrow();
+        let name = def.name.as_str();
+        let last = *funcs.names.get(name).expect("a declared function");
+        funcs
+            .redefined
+            .get(name)
+            .and_then(|(_, defs)| {
+                defs.iter()
+                    .copied()
+                    .find(|func| funcs.get(*func).def.is_some_and(|d| std::ptr::eq(d, def)))
+            })
+            .unwrap_or(last)
     }
 
     /// The id of `def`, a function of the file that the lowering is in,

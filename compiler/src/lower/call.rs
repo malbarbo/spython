@@ -13,7 +13,7 @@ use super::class::generated_call;
 use super::expr::float_value;
 use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
-use crate::ir::{Binding, Expr, MinMaxOp, Place, Rep, Site};
+use crate::ir::{Binding, CmpOp, Expr, FuncId, MinMaxOp, Place, Rep, Site, VarId};
 
 impl<'a> Lowering<'a, '_> {
     /// A call of a function of the module, with positional arguments.
@@ -45,6 +45,20 @@ impl<'a> Lowering<'a, '_> {
                 return self.construct(call, name, class);
             }
         }
+        // A name with more than one `def` has the function of the last `def`
+        // that ran, which the checker knows only in the code of the module.
+        let redefined = self.funcs.borrow().redefined.get(callee).cloned();
+        if let Some((current, defs)) = redefined {
+            let known = match &target {
+                Some(CallTarget::Function(def)) if self.scope.borrow().is_none() => {
+                    self.funcs.borrow().ids.get(def).copied()
+                }
+                _ => None,
+            };
+            if known.is_none() {
+                return self.redefined_call(call, name, current, &defs);
+            }
+        }
         let (func, bindings) = match target {
             Some(CallTarget::Function(def)) if Some(def.file) == self.intrinsics => {
                 return self.intrinsic(call, &def.name);
@@ -65,6 +79,11 @@ impl<'a> Lowering<'a, '_> {
             _ => (self.funcs.borrow().names.get(callee).copied(), None),
         };
         let Some(func) = func else {
+            // The checker sees each class of a name with two classes in a
+            // function, which may run when the name has either one.
+            if self.classes.borrow().names.contains_key(callee) {
+                return Err(unsupported(call, "a call of a name of two classes"));
+            }
             return Err(unsupported(
                 call,
                 "a call of a function that the module does not define",
@@ -88,6 +107,63 @@ impl<'a> Lowering<'a, '_> {
             site: self.call_site(func, call),
             check,
         })
+    }
+
+    /// `call` of `name`, a name with the functions `defs`, which calls the
+    /// one at the place that the global `current` holds.
+    fn redefined_call(
+        &self,
+        call: &ast::ExprCall,
+        name: &ast::ExprName,
+        current: VarId,
+        defs: &[FuncId],
+    ) -> Result<Expr, Error> {
+        let mut calls = defs
+            .iter()
+            .map(|func| {
+                let sig = self.funcs.borrow().get(*func).clone();
+                let (args, order) = self.arguments(call, &sig, None)?;
+                Ok(Expr::Call {
+                    func: *func,
+                    args,
+                    order,
+                    rep: sig.ret,
+                    site: self.call_site(*func, call),
+                    check: None,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let rep = calls.first().expect("a name with defs").rep();
+        if calls.iter().any(|call| call.rep() != rep) {
+            return Err(unsupported(
+                call,
+                "a call of a name whose functions give two types",
+            ));
+        }
+        // The first read of the global raises `NameError` before any `def`
+        // of the name runs.
+        let mut check = self.global_check(name)?;
+        let last = calls.pop().expect("a name with two defs");
+        Ok(calls
+            .into_iter()
+            .enumerate()
+            .rev()
+            .fold(last, |else_, (place, then)| {
+                let current = Expr::Load {
+                    place: Place::Global(current),
+                    rep: Rep::Int,
+                    check: if place == 0 { check.take() } else { None },
+                };
+                let place = i32::try_from(place).expect("few defs");
+                Expr::IfElse {
+                    cond: Box::new(Expr::Compare(
+                        Box::new(current),
+                        vec![(CmpOp::Eq, Expr::Int(place))],
+                    )),
+                    then: Box::new(then),
+                    else_: Box::new(else_),
+                }
+            }))
     }
 
     /// The arguments of `call` in the order of the call, and the argument

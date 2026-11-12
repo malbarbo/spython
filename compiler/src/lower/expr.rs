@@ -136,7 +136,9 @@ impl<'a> Lowering<'a, '_> {
                 None => match expr {
                     ast::Expr::Name(name) => self.load(name),
                     ast::Expr::Attribute(attr) => match &*attr.value {
-                        ast::Expr::Name(name) if let Some(class) = self.class_named(name) => {
+                        ast::Expr::Name(name)
+                            if let Some(class) = self.class_named(&attr.value, name) =>
+                        {
                             self.class_attribute(attr, name, class)
                         }
                         value => match self.rep_of(expr_shape(self.model(), value)) {

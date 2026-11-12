@@ -456,3 +456,131 @@ fn each_call_outside_what_the_compiler_covers_has_its_own_message() {
         "a call of a function that the module does not define"
     );
 }
+
+/// A name with a second `def` calls the function of the last `def` that
+/// ran, in the code of the module and in a function.
+#[test]
+fn a_second_def_replaces_the_function_of_the_name() {
+    same_as_cpython(
+        "a_second_def_replaces_the_function_of_the_name",
+        indoc! {"
+            def area(lado: int) -> int:
+                return lado * lado
+
+            def dobro(lado: int) -> int:
+                return 2 * area(lado)
+
+            print(area(3), dobro(3))
+
+            def area(lado: int, altura: int = 2) -> int:
+                return lado * altura
+
+            print(area(3), area(3, 4), dobro(3))
+            for i in range(2):
+                print(area(i + 1), dobro(i))
+
+                def area(lado: int, altura: int = 5) -> int:
+                    return lado + altura
+
+            print(area(1), dobro(1))
+        "},
+    );
+}
+
+/// A `def` in each branch of an `if` gives the name the function of the
+/// branch that ran.
+#[test]
+fn a_call_of_a_name_with_defs_in_branches_calls_the_one_that_ran() {
+    same_as_cpython(
+        "a_call_of_a_name_with_defs_in_branches_calls_the_one_that_ran",
+        indoc! {"
+            def antes() -> int:
+                return f(1)
+
+            def f(x: int) -> int:
+                return x
+
+            def f(x: int) -> int:
+                return x + 1
+
+            print(antes())
+
+            def sim(n: int) -> bool:
+                return n > 0
+
+            if sim(0):
+                def g(x: int) -> int:
+                    return x
+            else:
+                def g(x: int) -> int:
+                    return -x
+            print(g(1))
+        "},
+    );
+}
+
+/// A call before any `def` of a name with two raises `NameError`.
+#[test]
+fn a_call_before_the_defs_of_a_name_raises_name_error() {
+    same_as_cpython(
+        "a_call_before_the_defs_of_a_name_raises_name_error",
+        indoc! {"
+            def antes() -> int:
+                return f(1)
+
+            def g() -> int:
+                return 0
+
+            print(g())
+            print(antes())
+
+            def f(x: int) -> int:
+                return x
+
+            def f(x: int) -> int:
+                return x + 1
+        "},
+    );
+}
+
+/// The `NameError` of a name near a name with two `def`s suggests it once
+/// one of them ran.
+#[test]
+fn a_name_near_a_name_with_two_defs_suggests_it() {
+    same_as_cpython(
+        "a_name_near_a_name_with_two_defs_suggests_it",
+        indoc! {"
+            def area(x: int) -> int:
+                return x
+
+            def area(x: int) -> int:
+                return 2 * x
+
+            def errada() -> int:
+                return aera(1)
+
+            print(area(1))
+            print(errada())
+
+            def aera(x: int) -> int:
+                return x
+        "},
+    );
+}
+
+#[test]
+fn a_call_in_a_function_of_defs_with_two_types_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            def f() -> int:
+                return 1
+
+            def g() -> None:
+                print(f())
+
+            def f() -> str:
+                return 'a'
+        "}),
+        "a call of a name whose functions give two types"
+    );
+}

@@ -1220,3 +1220,58 @@ fn a_call_dispatches_among_many_classes() {
         );
     }
 }
+
+/// A second `class` of a name gives the name a new class, and the code of
+/// the module after it builds objects of the new class.
+#[test]
+fn a_second_class_replaces_the_class_of_the_name() {
+    same_as_cpython(
+        "a_second_class_replaces_the_class_of_the_name",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class P:
+                x: int
+
+            p = P(1)
+            print(p.x, p)
+
+            class P:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def dobro(self) -> int:
+                    return 2 * self.x
+
+                def __repr__(self) -> str:
+                    return f'P({self.x})'
+
+            class Q(P):
+                pass
+
+            q = P(3)
+            print(q, q.dobro(), Q(4).dobro(), isinstance(Q(1), P))
+            print(p.x, p)
+        "},
+    );
+}
+
+#[test]
+fn a_call_of_a_name_of_two_classes_in_a_function_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            class P:
+                pass
+
+            def novo() -> None:
+                P()
+
+            class P:
+                pass
+        "}),
+        "a call of a name of two classes"
+    );
+}

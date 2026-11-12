@@ -30,7 +30,8 @@ use crate::ir::{
 /// The classes of the module.
 #[derive(Default)]
 pub(super) struct Classes<'a> {
-    /// The class that each name of the module binds.
+    /// The class that each name of the module binds, the first one for a
+    /// name with more than one `class`.
     pub names: HashMap<String, ClassId>,
     /// The class of each class of the checker.
     pub ids: HashMap<CheckerClass, ClassId>,
@@ -257,9 +258,6 @@ impl<'a> Lowering<'a, '_> {
         if self.imports.borrow().ids.contains_key(name) {
             return Err(unsupported(&def.name, "a name of an import and of a class"));
         }
-        if self.classes.borrow().names.contains_key(name) {
-            return Err(unsupported(&def.name, "two classes of the same name"));
-        }
         // A decorator other than `dataclass` may make the class something
         // else, which the checker does not describe.
         let frozen = (!def.decorator_list.is_empty())
@@ -312,7 +310,10 @@ impl<'a> Lowering<'a, '_> {
         if kind == Kind::Enum && !classes.get(id).members.is_empty() {
             classes.instantiated.insert(id);
         }
-        classes.names.insert(name.to_owned(), id);
+        // The first `class` of a name runs before the others, since a class
+        // in an `if` or a `while` is unsupported, so the name has a value
+        // once the first one has.
+        classes.names.entry(name.to_owned()).or_insert(id);
         classes.ids.insert(info.id, id);
         Ok(())
     }
@@ -578,10 +579,10 @@ impl<'a> Lowering<'a, '_> {
         }
         let classes = self.classes.borrow();
         classes
-            .names
-            .get(def.name.as_str())
-            .copied()
-            .filter(|id| std::ptr::eq(classes.get(*id).def, def))
+            .list
+            .iter()
+            .position(|declared| std::ptr::eq(declared.def, def))
+            .map(ClassId::new)
             .ok_or_else(|| unsupported(def, "a class in an if or a while"))
     }
 
@@ -1982,9 +1983,10 @@ impl<'a> Lowering<'a, '_> {
         Ok(func)
     }
 
-    /// The class that `name` reads, and `None` when it reads no class of
-    /// the module.
-    pub(super) fn class_named(&self, name: &ast::ExprName) -> Option<ClassId> {
+    /// The class that `value`, the name `name`, reads, and `None` when it
+    /// reads no class of the module or when the checker sees more than one
+    /// class in it.
+    pub(super) fn class_named(&self, value: &ast::Expr, name: &ast::ExprName) -> Option<ClassId> {
         let id = name.id.as_str();
         if self
             .scope
@@ -1994,7 +1996,23 @@ impl<'a> Lowering<'a, '_> {
         {
             return None;
         }
-        self.classes.borrow().names.get(id).copied()
+        let classes = self.classes.borrow();
+        let named = classes.names.get(id).copied()?;
+        match expr_shape(self.model(), value) {
+            Some(Shape::Class(class)) => classes.ids.get(&class).copied(),
+            // The checker sees each class of a name with two classes in a
+            // function.
+            _ if classes
+                .list
+                .iter()
+                .filter(|c| c.def.name.as_str() == id)
+                .count()
+                > 1 =>
+            {
+                None
+            }
+            _ => Some(named),
+        }
     }
 
     /// Refuses an annotation of `annotations` that reads a class before its
@@ -2314,12 +2332,9 @@ impl<'a> Lowering<'a, '_> {
             return Ok(None);
         };
         let classes = self.classes.borrow();
-        let Some(&base) = classes.names.get(name.id.as_str()) else {
+        let Some(&base) = info.mro.get(1).and_then(|class| classes.ids.get(class)) else {
             return Ok(None);
         };
-        if info.mro.get(1).and_then(|class| classes.ids.get(class)) != Some(&base) {
-            return Err(unsupported(name, "this base"));
-        }
         match (classes.get(base).kind, frozen) {
             (Kind::Plain, None) => Ok(Some(base)),
             (Kind::Dataclass { frozen: theirs }, Some(ours)) if theirs == ours => Ok(Some(base)),

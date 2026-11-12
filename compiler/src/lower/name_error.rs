@@ -30,12 +30,15 @@ impl<'a> Lowering<'a, '_> {
             .names()
             .into_iter()
             .map(|(id, global)| (Binding::Global(id), global.to_owned()))
-            .chain(
-                funcs
-                    .names
-                    .iter()
-                    .map(|(func, id)| (Binding::Func(*id), func.clone())),
-            )
+            .chain(funcs.names.iter().map(|(func, id)| {
+                // A name with more than one `def` has a value once its
+                // global has one.
+                let binding = match funcs.redefined.get(func) {
+                    Some((current, _)) => Binding::Global(*current),
+                    None => Binding::Func(*id),
+                };
+                (binding, func.clone())
+            }))
             .filter(|(_, name)| !name.starts_with(RESERVED_PREFIX))
             .chain(
                 imports
