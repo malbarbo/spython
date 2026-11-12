@@ -12,3 +12,6 @@ class Set[T]:
     def __len__(self) -> int:
         return len(self.items)
 
+    def clear(self) -> None:
+        items: list[T] = []
+        self.items = items

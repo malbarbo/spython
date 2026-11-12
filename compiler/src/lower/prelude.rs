@@ -13,7 +13,7 @@ use std::rc::Rc;
 use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, unsupported};
 use crate::Error;
 use crate::cpython::names;
-use crate::ir::{Case, CodePointSet, Expr, FuncId, ListId, Rep, Site};
+use crate::ir::{Case, ClassId, CodePointSet, Expr, FuncId, ListId, Rep, Site};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -84,6 +84,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
+        if let Some(class) = receiver.rep().class()
+            && let Some(file) = self.copy_file(class)
+        {
+            return self.copy_method_call(call, attr, receiver, (class, file));
+        }
         if let Rep::Object(class) = receiver.rep()
             && let Some(method) = self.method(class, name)
         {
@@ -117,6 +122,46 @@ impl<'a, 'db> Lowering<'a, 'db> {
             None => None,
         }
         .ok_or_else(|| unsupported(call, "a call of this method"))?;
+        let site = self.call_site(func, call);
+        Ok(self.prelude_call_of(func, args, site))
+    }
+
+    /// The call of the method of `attr` through `receiver`, an object of
+    /// `class`, a copy of a generic class of the prelude in `file`. The call
+    /// takes the method of the class directly, with the arguments as a
+    /// call of a method of a builtin type takes them.
+    fn copy_method_call(
+        &self,
+        call: &ast::ExprCall,
+        attr: &ast::ExprAttribute,
+        receiver: Expr,
+        (class, file): (ClassId, File),
+    ) -> Result<Expr, Error> {
+        let name = attr.attr.as_str();
+        let method = self
+            .method(class, name)
+            .ok_or_else(|| unsupported(call, "a call of this method"))?;
+        if !call.arguments.keywords.is_empty() {
+            return Err(unsupported(
+                call,
+                "a call of a method with keyword arguments",
+            ));
+        }
+        let text = format!("'NoneType' object has no attribute '{name}'");
+        let mut given = vec![self.not_none(receiver, text, attr)];
+        for arg in &call.arguments.args {
+            given.push(self.expr(arg)?);
+        }
+        let func = method.func.expect("a declared method");
+        let unit = self.prelude_unit_of(file);
+        let info = function_info(unit.model, method.def).expect("a method of the prelude");
+        let shapes: Vec<Shape> = info.params.into_iter().map(|param| param.shape).collect();
+        let args = self.prelude_args(
+            call,
+            (func, &shapes),
+            given,
+            (true, "a call of this method with these arguments"),
+        )?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
     }
@@ -740,5 +785,17 @@ mod tests {
             one
         );
         assert!(len("a: dict[str, int], b: dict[int, int]", "len(a) + len(b)") > one);
+    }
+
+    #[test]
+    fn a_call_of_a_method_of_a_dict_calls_the_method_of_the_copy() {
+        assert_eq!(
+            funcs(indoc! {"
+                def f(d: dict[str, int], e: dict[str, int]) -> None:
+                    d.clear()
+                    e.clear()
+            "}),
+            2
+        );
     }
 }

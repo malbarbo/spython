@@ -15,3 +15,8 @@ class Dict[K, V]:
     def __len__(self) -> int:
         return len(self.keys)
 
+    def clear(self) -> None:
+        keys: list[K] = []
+        values: list[V] = []
+        self.keys = keys
+        self.values = values

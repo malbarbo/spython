@@ -737,6 +737,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
         func
     }
 
+    /// The file of the generic class of the prelude that `class` copies,
+    /// and `None` for a class of the program.
+    pub(super) fn copy_file(&self, class: ClassId) -> Option<File> {
+        Some(self.classes.borrow().get(class).copy.as_ref()?.file)
+    }
+
     /// The function of [`Self::method`], once the lowering declares it.
     pub(super) fn method_func(&self, class: ClassId, name: &str) -> Option<FuncId> {
         self.method(class, name)?.func

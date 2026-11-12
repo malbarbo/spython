@@ -17,6 +17,11 @@ fn a_function_with_a_dict_and_a_set_runs() {
             def aninhado(d: dict[str, dict[int, float]]) -> int:
                 return len(d)
 
+            def limpa(d: dict[str, int], s: set[int] | None) -> None:
+                d.clear()
+                if s is not None:
+                    s.clear()
+
             print('ok')
         "},
     );
@@ -31,4 +36,26 @@ fn a_read_of_an_attribute_of_a_dict_is_unsupported() {
         "}),
         "this attribute of an object"
     );
+}
+
+#[test]
+fn a_call_of_a_method_that_the_prelude_lacks_is_unsupported() {
+    for (source, what) in [
+        (
+            indoc! {"
+                def f(d: dict[str, int]) -> None:
+                    d.setdefault('a', 1)
+            "},
+            "a call of this method",
+        ),
+        (
+            indoc! {"
+                def f(s: set[int]) -> None:
+                    s.add(1)
+            "},
+            "a call of this method",
+        ),
+    ] {
+        assert_eq!(unsupported(source), what, "{source}");
+    }
 }
