@@ -461,9 +461,7 @@ impl Reprs {
     /// Pushes the value of `rep` that `local` holds.
     pub fn load(&self, f: &mut FuncState, rep: Rep, local: LocalIdx) {
         f.ins().local_get(local);
-        if matches!(rep, Rep::Str | Rep::List(_)) {
-            f.ins().ref_as_non_null();
-        }
+        non_null(f, rep);
     }
 
     /// A global that holds a value of `rep`. Until the first `global.set`,
@@ -490,9 +488,7 @@ impl Reprs {
     /// Pushes the value of `rep` that `global` holds.
     pub fn load_global(&self, f: &mut FuncState, rep: Rep, global: GlobalIdx) {
         f.ins().global_get(global);
-        if matches!(rep, Rep::Str | Rep::List(_)) {
-            f.ins().ref_as_non_null();
-        }
+        non_null(f, rep);
     }
 
     /// Pops a value of `from` and pushes it as a value of `to`, a rep that
@@ -1013,9 +1009,7 @@ impl Reprs {
     pub fn list_item(&self, f: &mut FuncState, list: Rep, rep: Rep) {
         self.list.item(f, list_index(list));
         // An array holds an item in the form of a local.
-        if matches!(rep, Rep::Str | Rep::List(_)) {
-            f.ins().ref_as_non_null();
-        }
+        non_null(f, rep);
     }
 
     /// Pops the array of the items of a list, an index of [`Self::index_of`]
@@ -1591,4 +1585,12 @@ impl Reprs {
 /// The index of the type of a list of `rep`.
 fn list_index(rep: Rep) -> usize {
     rep.list().expect("a list").index()
+}
+
+/// Pops a value of `rep` in the form of a local and pushes it in the form
+/// of [`Reprs::value_type`], which is non-null for a `str` and a list.
+fn non_null(f: &mut FuncState, rep: Rep) {
+    if matches!(rep, Rep::Str | Rep::List(_)) {
+        f.ins().ref_as_non_null();
+    }
 }
