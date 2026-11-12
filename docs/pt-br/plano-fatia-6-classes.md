@@ -519,6 +519,35 @@ O grupo H fez assim:
   e `dict[str, float]`, é `Unsupported`. Dentro de `object`, ela dá
   `False` mesmo quando o CPython dá `True`.
 
+O grupo I fez assim:
+
+- A classe `Set` do prelude guarda a tabela em três listas, com o item, o
+  `hash` e o estado de cada slot, que está vazio, em uso ou é de um item
+  removido. A busca, a inserção, o crescimento e `set_merge` seguem o
+  `setobject.c`. Um programa rodou a classe no CPython, com as
+  intrínsecas trocadas por funções de Python, e conferiu a ordem de
+  milhares de `set`s aleatórios contra a dos `set`s do CPython.
+- Uma comparação que tira o item do slot ou troca a tabela recomeça a
+  busca, como no CPython. Um item sem referência, como um `int`, não tem
+  `__eq__` que mude o `set`, e `same(k, k)` diz se o item tem referência.
+- A literal põe os itens na ordem do código, como `BUILD_SET`. O CPython
+  compila uma literal de mais de 2 constantes, e o iterável constante de
+  um `for`, como um `frozenset`. Ele refaz o `frozenset` na ordem dos
+  slots quando guarda a constante, e de novo quando cria o code object, se
+  algum item é um `str` que outro objeto já internou. Essa última regra
+  depende das palavras que o CPython interna na partida, e por isso o
+  compilador não segue o `frozenset`. A literal `{5, 3, 40, -2, 17}` sai
+  em outra ordem que a do CPython.
+- `set(xs)` põe os itens de uma lista em ordem, e `set(s)` e `s.copy()`
+  passam por `set_merge`. Outro iterável é `Unsupported`.
+- `|`, `&` e `^` chamam `__or__`, `__and__` e `__xor__` e os métodos
+  refletidos, e uma classe do programa pode defini-los também. `|=`,
+  `&=`, `-=` e `^=` mudam o próprio `set`, como no CPython.
+- O `for` guarda o seu lugar num objeto de `SetIter`, cujo `next` segue
+  `setiter_iternext`.
+- O checker dá `set[int | float]` a `set(xs)` de uma lista de `float`s, e
+  a chamada é `Unsupported`.
+
 ### Funções como valores
 
 Um valor de função tem uma `Rep` por assinatura, `Func(sig)`, com as

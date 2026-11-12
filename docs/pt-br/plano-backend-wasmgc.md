@@ -583,6 +583,26 @@ corpus.
   |---|---:|---:|---:|
   | 10^7 chamadas de um método com quatro corpos | 0,37 s | 0,37 s | 2,89 s |
 
+  A 6b fez `dict` e `set` em 12/nov/2026, como classes genéricas do
+  prelude em Python, que seguem o `dict` compacto e o `setobject.c` do
+  CPython 3.13 e dão os itens na ordem do CPython. A exceção é a literal
+  de `set` de mais de 2 constantes, que o CPython compila como um
+  `frozenset`. Cada `dict[K, V]` e cada `set[T]` é uma cópia das classes,
+  e uma segunda cópia acrescenta 17,3 KiB ao módulo num `dict` e 16,3 KiB
+  num `set`. O tempo do processo inteiro, com 10^6 inserções e 10^6
+  buscas, está abaixo.
+
+  | Caso | deno | python3 |
+  |---|---:|---:|
+  | `dict[int, int]` | 0,31 s | 0,46 s |
+  | `set[int]` | 0,16 s | 0,35 s |
+  | `set[str]` | 1,51 s | 1,07 s |
+
+  O `set[str]` perde para o CPython. No perfil do V8, a busca e a
+  inserção do `Set` levam 32% do tempo e o `str_hash` leva 10%. Cada slot
+  guarda o item, o `hash` e o estado em três arrays, e o CPython guarda
+  a chave e o `hash` juntos, com o estado na própria chave.
+
 - **7. Imagens e programas interativos.**
 - **8. Nível 5 por partes**, até o corpus passar. Depois os inteiros
   grandes e a saída do RustPython.
