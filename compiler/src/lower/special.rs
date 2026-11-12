@@ -394,17 +394,19 @@ impl Lowering<'_, '_> {
     }
 
     /// The truth of `value`, an object, an object or `None` or a value of
-    /// a union, at `node`, as a `bool`, and `Err` with `value` back when
-    /// no class of the value has `__bool__` or `__len__`. An object calls
+    /// a union, at `node`, as a `bool`, where `shape` gives the type of a
+    /// value of a union, and `Err` with `value` back when no class of the
+    /// value has `__bool__` or `__len__`. An object calls
     /// the `__bool__` of its class, or else its `__len__`, which gives
     /// `False` for 0. `None` is false.
     pub(super) fn special_truth(
         &self,
         node: &impl Ranged,
         value: Expr,
+        shape: impl FnOnce() -> Option<Shape>,
     ) -> Result<Result<Expr, Expr>, Error> {
         if value.rep() == Rep::Uniform {
-            return self.uniform_truth(node, value);
+            return self.uniform_truth(node, value, shape());
         }
         let Some(class) = value.rep().class() else {
             return Ok(Err(value));
@@ -451,14 +453,19 @@ impl Lowering<'_, '_> {
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
     }
 
-    /// The truth of `value`, a value of a union, at `node`, and `Err` with
-    /// `value` back when no class of the program has `__bool__` or
-    /// `__len__`. An object of a
-    /// class with one of them calls it, and the rest of the values take
-    /// the truth of their type.
-    fn uniform_truth(&self, node: &impl Ranged, value: Expr) -> Result<Result<Expr, Expr>, Error> {
+    /// The truth of `value`, a value of a union of `shape`, at `node`, and
+    /// `Err` with `value` back when no class of the union has `__bool__`
+    /// or `__len__`. An object of a class with one of them calls it, and
+    /// the rest of the values take the truth of their type.
+    fn uniform_truth(
+        &self,
+        node: &impl Ranged,
+        value: Expr,
+        shape: Option<Shape>,
+    ) -> Result<Result<Expr, Expr>, Error> {
         let methods: Vec<_> = self
-            .all_classes()
+            .uniform_classes(shape, |class| self.truth_method(class).is_some())
+            .into_iter()
             .filter_map(|class| Some((class, self.truth_method(class)?)))
             .collect();
         if methods.is_empty() {

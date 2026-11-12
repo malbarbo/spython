@@ -458,3 +458,32 @@ fn a_negative_len_in_the_truth_of_a_union_raises() {
         "},
     );
 }
+
+/// The truth of a value of a union in `and` and `or` calls the `__len__`
+/// of a subclass of a class in the union.
+#[test]
+fn the_truth_of_a_union_in_and_or_calls_len_of_a_subclass() {
+    same_as_cpython(
+        "the_truth_of_a_union_in_and_or_calls_len_of_a_subclass",
+        indoc! {"
+            class Base:
+                pass
+
+            class Vazia(Base):
+                def __len__(self) -> int:
+                    print('len')
+                    return 0
+
+            def ou(x: int | Base) -> int | Base:
+                return x or 7
+
+            def e(x: int | Base) -> bool:
+                if x and True:
+                    return True
+                return False
+
+            print(ou(0), ou(3), isinstance(ou(Vazia()), int), isinstance(ou(Base()), Base))
+            print(e(0), e(3), e(Vazia()), e(Base()))
+        "},
+    );
+}

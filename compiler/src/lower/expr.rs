@@ -25,13 +25,20 @@ impl<'a> Lowering<'a, '_> {
                 operand,
                 ..
             }) => Ok(Expr::Not(Box::new(self.truth_of(operand)?))),
-            _ => self.truth(self.expr(expr)?, expr),
+            _ => self.truth(self.expr(expr)?, expr, expr),
         }
     }
 
-    /// The truth of `lowered`, the value of `node`, as a `bool`.
-    pub(super) fn truth(&self, lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
-        match self.special_truth(node, lowered)? {
+    /// The truth of `lowered`, the value of `operand`, at `node`, as a
+    /// `bool`.
+    pub(super) fn truth(
+        &self,
+        lowered: Expr,
+        operand: &ast::Expr,
+        node: &impl Ranged,
+    ) -> Result<Expr, Error> {
+        let shape = || expr_shape(self.model(), operand);
+        match self.special_truth(node, lowered, shape)? {
             Ok(truth) => Ok(truth),
             Err(lowered) => Ok(truth(lowered)),
         }
@@ -66,7 +73,7 @@ impl<'a> Lowering<'a, '_> {
             .iter()
             .rev()
             .try_fold(self.expr(last)?, |right, left| {
-                self.logic_value(b, op, self.expr(left)?, right)
+                self.logic_value(b, op, (self.expr(left)?, left), right)
             })?;
         let rep = value.rep();
         match self.rep_of(expr_shape(self.model(), expr)) {
@@ -78,14 +85,14 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `left op right` at `b`, whose result holds the left value and the
-    /// right one. The left value that `or` gives is true, so it is not
+    /// `left op right` at `b`, where `left` comes with its node, whose
+    /// result holds the left value and the right one. The left value that `or` gives is true, so it is not
     /// `None`.
     fn logic_value(
         &self,
         b: &ast::ExprBoolOp,
         op: LogicOp,
-        left: Expr,
+        (left, left_node): (Expr, &ast::Expr),
         right: Expr,
     ) -> Result<Expr, Error> {
         let from = left.rep();
@@ -112,7 +119,7 @@ impl<'a> Lowering<'a, '_> {
         Ok(Expr::Logic {
             op,
             left: Box::new(left),
-            test: Box::new(self.truth(Expr::LogicLeft(from), b)?),
+            test: Box::new(self.truth(Expr::LogicLeft(from), left_node, b)?),
             value: Box::new(value),
             right: Box::new(right),
         })

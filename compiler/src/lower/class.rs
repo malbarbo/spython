@@ -1782,7 +1782,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// The classes that a uniform value of `shape` may be and that `keep`
     /// takes, in the order of their ids.
-    fn uniform_classes(
+    pub(super) fn uniform_classes(
         &self,
         shape: Option<Shape>,
         keep: impl Fn(ClassId) -> bool,
