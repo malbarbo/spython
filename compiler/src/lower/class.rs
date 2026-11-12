@@ -85,16 +85,22 @@ impl<'a> Classes<'a> {
     pub fn has_attribute(&self, class: ClassId, name: &str) -> bool {
         let declared = self.get(class);
         declared.fields.iter().any(|(field, _)| field == name)
-            || self.chain(class).any(|class| {
-                self.get(class)
-                    .methods
-                    .iter()
-                    .any(|method| method.def.name.as_str() == name)
-            })
+            || self
+                .chain(class)
+                .any(|class| self.own_method(class, name).is_some())
             || (name == "__annotations__" && !declared.fields.is_empty())
             || names::OBJECT_ATTRIBUTES.binary_search(&name).is_ok()
             || (declared.kind.is_dataclass()
                 && names::DATACLASS_ATTRIBUTES.binary_search(&name).is_ok())
+    }
+
+    /// The method `name` that the body of `class` defines.
+    pub fn own_method(&self, class: ClassId, name: &str) -> Option<Method<'a>> {
+        self.get(class)
+            .methods
+            .iter()
+            .find(|method| method.def.name.as_str() == name)
+            .copied()
     }
 
     /// `class` and then each class that it descends from, in order.
@@ -554,14 +560,14 @@ impl<'a> Lowering<'a, '_> {
     /// class has a method of the name.
     pub(super) fn method(&self, class: ClassId, name: &str) -> Option<Method<'a>> {
         let classes = self.classes.borrow();
-        classes.chain(class).find_map(|class| {
-            classes
-                .get(class)
-                .methods
-                .iter()
-                .find(|method| method.def.name.as_str() == name)
-                .copied()
-        })
+        classes
+            .chain(class)
+            .find_map(|class| classes.own_method(class, name))
+    }
+
+    /// The function of [`Self::method`], once the lowering declares it.
+    pub(super) fn method_func(&self, class: ClassId, name: &str) -> Option<FuncId> {
+        self.method(class, name)?.func
     }
 
     /// The classes that are `class` or descend from it.
@@ -1126,13 +1132,7 @@ impl<'a> Lowering<'a, '_> {
     fn conversion(&self, class: ClassId, name: &str) -> Result<Option<FuncId>, Error> {
         // The decorator of each dataclass writes its own `__repr__`.
         let method = if name == "__repr__" && self.is_dataclass(class) {
-            self.classes
-                .borrow()
-                .get(class)
-                .methods
-                .iter()
-                .find(|method| method.def.name.as_str() == name)
-                .copied()
+            self.classes.borrow().own_method(class, name)
         } else {
             self.method(class, name)
         };

@@ -22,7 +22,7 @@ impl Lowering<'_, '_> {
     /// method is the one of `object`, which compares the identity of the
     /// objects.
     fn eq_method(&self, class: ClassId, op: CmpOp) -> Option<(FuncId, bool)> {
-        let method = |name| self.method(class, name).and_then(|method| method.func);
+        let method = |name| self.method_func(class, name);
         match op {
             CmpOp::Ne => method("__ne__")
                 .map(|func| (func, false))
@@ -182,11 +182,7 @@ impl Lowering<'_, '_> {
         {
             return Err(unsupported(c, "an order of objects of a union"));
         }
-        let method = |class, name| {
-            self.method(class, name)
-                .and_then(|method| method.func)
-                .map(|func| (func, false))
-        };
+        let method = |class, name| self.method_func(class, name).map(|func| (func, false));
         self.dispatch_binary(
             (left, right, Rep::Bool, site),
             &|class| method(class, name),
@@ -254,11 +250,7 @@ impl Lowering<'_, '_> {
         }) {
             return Err(unsupported(node, "an operator on an object of a union"));
         }
-        let method = |class, name| {
-            self.method(class, name)
-                .and_then(|method| method.func)
-                .map(|func| (func, false))
-        };
+        let method = |class, name| self.method_func(class, name).map(|func| (func, false));
         let lefts = self.classes_of(left.rep(), || None);
         let rights = self.classes_of(right.rep(), || None);
         let rets = lefts
@@ -317,7 +309,7 @@ impl Lowering<'_, '_> {
         (left, left_node): (Expr, &impl Ranged),
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
-        let method = |class, name| self.method(class, name).and_then(|method| method.func);
+        let method = |class, name| self.method_func(class, name);
         let name = inplace_method(op);
         let lefts = self.classes_of(left.rep(), || None);
         let inplace = |class| name.and_then(|name| method(class, name));
@@ -510,7 +502,7 @@ impl Lowering<'_, '_> {
     /// neither.
     fn truth_method(&self, class: ClassId) -> Option<(&'static str, FuncId)> {
         ["__bool__", "__len__"].into_iter().find_map(|name| {
-            let func = self.method(class, name)?.func?;
+            let func = self.method_func(class, name)?;
             Some((name, func))
         })
     }
