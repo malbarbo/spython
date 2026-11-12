@@ -136,6 +136,15 @@ impl Lowering<'_, '_> {
         site: Site,
     ) -> Result<Expr, Error> {
         let object = left.0.rep().class().is_some() || right.0.rep().class().is_some();
+        // CPython compares the items of two `dict`s of two types, and the
+        // `__eq__` of a copy reads only a `dict` of its own types.
+        if let (Some(a), Some(b)) = (left.0.rep().class(), right.0.rep().class())
+            && a != b
+            && self.copy_file(a).is_some()
+            && self.copy_file(b).is_some()
+        {
+            return Err(unsupported(c, "a comparison of dicts of two types"));
+        }
         if order_methods(op).is_some() && object {
             return self.special_order(c, op, left, right, site);
         }

@@ -10,10 +10,11 @@ use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_inf
 
 use std::rc::Rc;
 
+use super::class::{generated_call, param};
 use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, unsupported};
 use crate::Error;
 use crate::cpython::names;
-use crate::ir::{Case, ClassId, CodePointSet, Expr, FuncId, ListId, Rep, Site};
+use crate::ir::{Case, ClassId, CodePointSet, Expr, FuncId, ListId, Rep, Site, Stmt};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -378,6 +379,36 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .is_some_and(|def| def.type_params.is_some())
     }
 
+    /// `other`, a value of any rep, as an object of `class` when its class
+    /// is exactly `class`, and `None` otherwise, as an object or `None`.
+    fn exact_of(&self, class: ClassId, other: Expr) -> Expr {
+        let rep = Rep::ObjectOrNone(class);
+        let other = self.coerce(other, Rep::Uniform).expect("a value as object");
+        let found = Expr::AsExact {
+            value: Box::new(param(0, Rep::Uniform)),
+            class,
+        };
+        let body = vec![
+            Stmt::If {
+                cond: Expr::IsExact {
+                    value: Box::new(param(0, Rep::Uniform)),
+                    class,
+                },
+                then: vec![Stmt::Return(Some(
+                    self.coerce(found, rep)
+                        .expect("an object as an object or None"),
+                ))],
+                else_: Vec::new(),
+            },
+            Stmt::Return(Some(
+                self.coerce(Expr::None, rep)
+                    .expect("None as an object or None"),
+            )),
+        ];
+        let func = self.generated(vec![Rep::Uniform], rep, body);
+        generated_call(func, vec![other], rep, Site::NONE)
+    }
+
     /// The module of the prelude in `file`.
     pub(super) fn prelude_unit_of(&self, file: File) -> &'a Unit<'a, 'db> {
         self.prelude
@@ -581,6 +612,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "decimal_value" => arg().map(Expr::DecimalValue),
             "parse_float" => arg().map(Expr::ParseFloat),
             "hash_of" => return self.hash_value(call, *arg().expect("hash_of has an argument")),
+            "exact" => {
+                let class = arg().and_then(|x| x.rep().class());
+                return Ok(self.exact_of(
+                    class.expect("exact of an object"),
+                    *arg().expect("exact has two arguments"),
+                ));
+            }
             "in_repr" => arg().map(Expr::InRepr),
             "during_repr" => arg()
                 .zip(arg())

@@ -9,6 +9,7 @@ the growth of the table happens where it happens in CPython."""
 from __spython_prelude__.intrinsics import (
     Hash,
     during_repr,
+    exact,
     hash_eq,
     hash_of,
     hash_shift,
@@ -64,6 +65,27 @@ class Dict[K, V]:
 
     def __setitem__(self, key: K, value: V) -> None:
         self.insert(key, hash_of(key), value)
+
+    def __eq__(self, other: object) -> bool:
+        """Returns `True` if `other` is a `dict` with the same keys, each with an equal value,
+        `False` otherwise. Each value of this `dict` is on the left of `==`, as in `dict_equal`."""
+        o = exact(self, other)
+        if o is None:
+            return False
+        if self.used != o.used:
+            return False
+        i = 0
+        while i < len(self.keys):
+            if item(self.live, i):
+                value = item(self.values, i)
+                ix = o.find(item(self.keys, i), item(self.hashes, i))
+                if ix < 0:
+                    return False
+                found = item(o.values, ix)
+                if not (same(value, found) or value == found):
+                    return False
+            i += 1
+        return True
 
     def __contains__(self, key: K) -> bool:
         return self.find(key, hash_of(key)) >= 0

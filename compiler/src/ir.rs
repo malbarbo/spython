@@ -136,6 +136,11 @@ pub(crate) struct UserClass {
     /// inside its own `repr`, as the `repr` of a dataclass and of a `dict`
     /// does.
     pub repr_guard: bool,
+    /// The `__eq__` of a copy of a generic class of the prelude, which
+    /// compares two objects of the class that are uniform values. The
+    /// lowering of a `==` of uniform values knows only the classes of the
+    /// program, since a later type may make a new copy.
+    pub copy_eq: Option<FuncId>,
 }
 
 /// A type of list of the program, which the rep of its items tells apart.

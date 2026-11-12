@@ -23,6 +23,10 @@ def hash_shift(h: Hash) -> Hash:
 def hash_eq(a: Hash, b: Hash) -> bool:
     """Returns `True` if `a` and `b` are the same `hash`, `False` otherwise."""
 
+def exact[T](x: T, other: object) -> T | None:
+    """`other` as a value of the type of `x`, an object, when the class of `other` is exactly the
+    class of `x`, and `None` otherwise. `x` has no effect."""
+
 def in_repr[T](x: T) -> bool:
     """Returns `True` if the `repr` of `x`, an object, runs, `False` otherwise."""
 

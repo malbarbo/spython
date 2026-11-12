@@ -98,6 +98,14 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         index(program.str_repr),
     );
     reprs.set_list_reprs(program.lists.iter().map(|list| index(list.repr)).collect());
+    reprs.set_copy_eqs(
+        program
+            .classes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, class)| Some((ClassId::new(i), index(class.copy_eq)?)))
+            .collect(),
+    );
     // The flag of each name that an import binds, as the flag of a `def`.
     let imports = program
         .imports

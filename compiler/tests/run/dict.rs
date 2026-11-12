@@ -518,3 +518,54 @@ fn a_for_over_the_items_of_a_dict_with_one_name_is_unsupported() {
         "this target"
     );
 }
+
+#[test]
+fn equal_and_not_equal_of_dicts_run() {
+    same_as_cpython(
+        "equal_and_not_equal_of_dicts_run",
+        indoc! {"
+            class Valor:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __eq__(self, other: object) -> bool:
+                    print('eq', self.n)
+                    return isinstance(other, Valor) and self.n == other.n
+
+            a = {'x': 1, 'y': 2}
+            b = {'y': 2, 'x': 1}
+            c = {'x': 1, 'y': 3}
+            print(a == b, a != b, a == c, a != c, a == a)
+            b.pop('x')
+            print(a == b)
+            b['x'] = 1
+            print(a == b, b)
+            vazio: dict[str, int] = {}
+            print(vazio == vazio.copy(), a == vazio)
+            print([a, c] == [b, c], [a] == [c])
+            o: object = a
+            print(o == b, o == c, o == 1)
+            u: int | dict[str, int] = a
+            print(u == b, u == 3, u != c)
+            v = {1: Valor(1), 2: Valor(2)}
+            w = {2: Valor(2), 1: Valor(1)}
+            print(v == w)
+            f = {'n': float('nan')}
+            print(f == f)
+        "},
+    );
+}
+
+#[test]
+fn a_comparison_of_dicts_of_two_types_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            a = {'x': 1}
+            b = {'x': 1.0}
+            print(a == b)
+        "}),
+        "a comparison of dicts of two types"
+    );
+}

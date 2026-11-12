@@ -99,15 +99,17 @@ pub(crate) fn lower(
     // The `repr` of a uniform value may meet a `str` or an object of any
     // class, whose functions go to the end of the queue. The function of a
     // call through a value of a class waits for every call of a class,
-    // and its code may convert another object.
+    // and its code may convert another object. The code of the `__eq__` of
+    // a copy may make another copy.
     let mut str_repr = None;
     loop {
         if lowering.uniform_repr.get() && str_repr.is_none() {
             str_repr = Some(lowering.uniform_reprs()?);
         }
         let resolved = lowering.resolve_slots()?;
+        let eqs = lowering.declare_copy_eqs();
         lowering.lower_queue(&mut funcs)?;
-        if !resolved && (str_repr.is_some() || !lowering.uniform_repr.get()) {
+        if !resolved && !eqs && (str_repr.is_some() || !lowering.uniform_repr.get()) {
             break;
         }
     }

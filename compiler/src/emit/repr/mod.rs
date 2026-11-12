@@ -78,6 +78,9 @@ pub(crate) struct Reprs {
     /// `repr` of a value of a union.
     class_reprs: Vec<Option<FuncIdx>>,
     str_repr: Option<FuncIdx>,
+    /// The `__eq__` of each copy of a generic class of the prelude, which
+    /// takes the object and a uniform value.
+    copy_eqs: Vec<(ClassId, FuncIdx)>,
     /// The rep of the items of each type of list.
     list_items: Vec<Rep>,
     /// The function that gives the `repr` of a list of each type, when the
@@ -129,6 +132,7 @@ impl Reprs {
             class_strs: Vec::new(),
             class_reprs: Vec::new(),
             str_repr: None,
+            copy_eqs: Vec::new(),
             list_items: lists.iter().map(|list| list.item).collect(),
             list_reprs: Vec::new(),
             repr_stack: None,
@@ -248,6 +252,12 @@ impl Reprs {
     pub fn set_reprs(&mut self, classes: Vec<Option<FuncIdx>>, str: Option<FuncIdx>) {
         self.class_reprs = classes;
         self.str_repr = str;
+    }
+
+    /// Takes the `__eq__` of each copy of a generic class of the prelude
+    /// whose objects the program makes.
+    pub fn set_copy_eqs(&mut self, eqs: Vec<(ClassId, FuncIdx)>) {
+        self.copy_eqs = eqs;
     }
 
     /// Takes the function that gives the `repr` of a list of each type, for
@@ -1818,6 +1828,28 @@ impl Reprs {
         f.ins().return_();
         f.end();
         f.free(strs);
+        // Two objects of a copy, as two `dict`s of the same types, compare
+        // with the `__eq__` of the copy.
+        for &(class, eq) in &self.copy_eqs {
+            let heap = self.layout.exact(class).heap_type();
+            f.ins()
+                .local_get(a)
+                .ref_test(heap)
+                .local_get(b)
+                .ref_test(heap)
+                .i32_and();
+            f.if_(BlockType::Empty);
+            f.ins()
+                .local_get(a)
+                .ref_cast(heap, false)
+                .local_get(b)
+                .call(eq)
+                .i32_eqz()
+                .i32_const(unordered)
+                .i32_mul()
+                .return_();
+            f.end();
+        }
         // An object is equal to itself alone.
         let boxes = self.uniform.boxes(m);
         for value in [a, b] {

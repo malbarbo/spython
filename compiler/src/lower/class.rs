@@ -151,6 +151,16 @@ impl<'a> Classes<'a> {
                 str: slot(id, Key::Str),
                 repr: slot(id, Key::Repr),
                 repr_guard: class.kind.is_dataclass() || class.copy.is_some(),
+                copy_eq: class
+                    .copy
+                    .as_ref()
+                    .and_then(|_| {
+                        class
+                            .methods
+                            .iter()
+                            .find(|method| method.def.name.as_str() == "__eq__")
+                    })
+                    .and_then(|method| method.func),
             })
             .collect()
     }
@@ -2055,10 +2065,36 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// `__eq__` or `__ne__`, in the order of their ids.
     pub(super) fn uniform_eq_classes(&self, shape: Option<Shape>) -> Vec<ClassId> {
         self.uniform_classes(shape, |class| {
-            self.is_dataclass(class)
-                || self.method(class, "__eq__").is_some()
-                || self.method(class, "__ne__").is_some()
+            // The emitter compares two objects of a copy, whose `__eq__`
+            // comes in `Self::declare_copy_eqs`.
+            self.copy_file(class).is_none()
+                && (self.is_dataclass(class)
+                    || self.method(class, "__eq__").is_some()
+                    || self.method(class, "__ne__").is_some())
         })
+    }
+
+    /// Declares the `__eq__` of each copy of a generic class of the prelude
+    /// whose objects the program makes, which two uniform values of the
+    /// copy call. Returns `true` if it declares a function, `false`
+    /// otherwise.
+    pub(super) fn declare_copy_eqs(&self) -> bool {
+        let mut declared = false;
+        for class in self.all_classes() {
+            let waits = {
+                let classes = self.classes.borrow();
+                classes.get(class).copy.is_some()
+                    && classes.instantiated.contains(&class)
+                    && classes
+                        .own_method(class, "__eq__")
+                        .is_some_and(|method| method.func.is_none())
+            };
+            if waits {
+                self.method(class, "__eq__");
+                declared = true;
+            }
+        }
+        declared
     }
 
     /// The classes that a uniform value of `shape` may be and that `keep`
