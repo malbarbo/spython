@@ -911,3 +911,50 @@ fn inplace_method(op: ast::Operator) -> Option<&'static str> {
 fn operand_param(reps: [Rep; 2], i: usize) -> Expr {
     param(i, if i == 0 { reps[0] } else { reps[1] })
 }
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_ast as ast;
+
+    use super::{arith_methods, inplace_method, order_methods};
+    use crate::ir::CmpOp;
+    use crate::lower::class::COMPILED_SPECIAL;
+
+    /// A class may define each method that an operator calls, so the list
+    /// of the class has every name of the tables of the operators.
+    #[test]
+    fn compiled_special_has_each_method_of_an_operator() {
+        let operators = [
+            ast::Operator::Add,
+            ast::Operator::Sub,
+            ast::Operator::Mult,
+            ast::Operator::MatMult,
+            ast::Operator::Div,
+            ast::Operator::Mod,
+            ast::Operator::Pow,
+            ast::Operator::LShift,
+            ast::Operator::RShift,
+            ast::Operator::BitOr,
+            ast::Operator::BitXor,
+            ast::Operator::BitAnd,
+            ast::Operator::FloorDiv,
+        ];
+        let orders = [
+            CmpOp::Eq,
+            CmpOp::Ne,
+            CmpOp::Lt,
+            CmpOp::Le,
+            CmpOp::Gt,
+            CmpOp::Ge,
+        ];
+        let names = operators
+            .into_iter()
+            .filter_map(arith_methods)
+            .chain(orders.into_iter().filter_map(order_methods))
+            .flat_map(|(name, reflected)| [name, reflected])
+            .chain(operators.into_iter().filter_map(inplace_method));
+        for name in names {
+            assert!(COMPILED_SPECIAL.contains(&name), "{name}");
+        }
+    }
+}

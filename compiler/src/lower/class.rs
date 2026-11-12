@@ -2574,7 +2574,7 @@ fn push_method<'a>(
 
 /// The special methods other than `__init__`, `__str__` and `__repr__`
 /// that an operator or a builtin calls.
-const COMPILED_SPECIAL: &[&str] = &[
+pub(super) const COMPILED_SPECIAL: &[&str] = &[
     "__eq__",
     "__ne__",
     "__lt__",
