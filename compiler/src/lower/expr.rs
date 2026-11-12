@@ -646,6 +646,9 @@ impl<'a> Lowering<'a, '_> {
         (left, left_node): (Expr, &impl Ranged),
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
+        if left.rep().class().is_some() || right.rep().class().is_some() {
+            return self.special_arith(node, op, left, right);
+        }
         match (op, left.rep(), right.rep()) {
             (ast::Operator::Add, Rep::List(a), Rep::List(b)) if a == b => {
                 return self.list_call(node, "concat", vec![left, right]);
@@ -789,6 +792,9 @@ impl<'a> Lowering<'a, '_> {
                 }) => int_literal(u, i.as_i64().map(|i| -i)),
                 operand => {
                     let lowered = self.expr(operand)?;
+                    if lowered.rep().class().is_some() {
+                        return self.special_neg(u, lowered);
+                    }
                     if lowered.rep() == Rep::Float {
                         return Ok(Expr::FloatNeg(Box::new(lowered)));
                     }

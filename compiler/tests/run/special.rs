@@ -283,6 +283,100 @@ fn a_comparison_calls_the_method_of_a_subclass_on_the_right_first() {
     );
 }
 
+/// An arithmetic operator calls the method of the left object, or else
+/// the reflected method of the right object, which comes first for a
+/// subclass with a reflected method of its own.
+#[test]
+fn the_arithmetic_operators_call_the_special_methods() {
+    same_as_cpython(
+        "the_arithmetic_operators_call_the_special_methods",
+        indoc! {"
+            class V:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __add__(self, other: 'V') -> 'V':
+                    print('add', self.x, other.x)
+                    return V(self.x + other.x)
+
+                def __sub__(self, other: 'V') -> 'V':
+                    return V(self.x - other.x)
+
+                def __mul__(self, k: int) -> 'V':
+                    return V(self.x * k)
+
+                def __rmul__(self, k: int) -> 'V':
+                    print('rmul', self.x)
+                    return V(self.x * k)
+
+                def __truediv__(self, k: int) -> float:
+                    return self.x / k
+
+                def __floordiv__(self, k: int) -> int:
+                    return self.x // k
+
+                def __mod__(self, k: int) -> int:
+                    return self.x % k
+
+                def __pow__(self, k: int) -> int:
+                    return self.x * k * 10
+
+                def __neg__(self) -> 'V':
+                    return V(-self.x)
+
+                def __radd__(self, other: object) -> 'V':
+                    print('radd', self.x)
+                    if isinstance(other, V):
+                        return V(self.x + other.x)
+                    return V(self.x)
+
+                def __repr__(self) -> str:
+                    return 'V(' + str(self.x) + ')'
+
+
+            class W(V):
+                def __radd__(self, other: object) -> 'V':
+                    print('W.radd', self.x)
+                    return V(-self.x)
+
+
+            class U(V):
+                pass
+
+
+            a = V(1)
+            b = V(2)
+            print(a + b, b - a, a * 3, 3 * a, a / 2, b // 2, b % 2, b ** 3, -a)
+            print(1 + a, 1 + W(5), a + W(5), a + U(7))
+            print(a + b + V(10), -(a + b))
+        "},
+    );
+}
+
+/// The traceback has the frame of the method after the frame of the line
+/// of the operator.
+#[test]
+fn an_exception_in_add_has_the_frame_of_the_method() {
+    same_as_cpython(
+        "an_exception_in_add_has_the_frame_of_the_method",
+        indoc! {"
+            class Nota:
+                valor: int
+
+                def __init__(self, valor: int) -> None:
+                    self.valor = valor
+
+                def __radd__(self, other: int) -> int:
+                    return other // self.valor
+
+            print(1 + Nota(1))
+            print(2 + Nota(0))
+        "},
+    );
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [
@@ -312,6 +406,22 @@ fn eq_outside_the_accepted_form_is_unsupported() {
                         return True
             "},
             "a method of an order other than (self, other) -> bool",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __add__(self, other: int, x: int = 0) -> int:
+                        return 1
+            "},
+            "a method of an operator other than (self, other)",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __matmul__(self, other: int) -> int:
+                        return 1
+            "},
+            "this special method",
         ),
         (
             indoc! {"

@@ -191,34 +191,9 @@ impl Lowering<'_, '_> {
             &|class| method(class, name),
             &|class| method(class, reflected),
             &|_, _| true,
-            &|(func, _), object, other, site| self.call_order(c, func, object, other, site),
+            &|(func, _), object, other, site| self.call_operator(c, func, object, other, site),
             &|_, _| Ok(vec![Stmt::Unreachable]),
         )
-    }
-
-    /// The call of `func`, a method of an order, with `object` as `self`
-    /// and `other` as the other operand.
-    fn call_order(
-        &self,
-        c: &ast::ExprCompare,
-        func: FuncId,
-        object: Expr,
-        other: Expr,
-        site: Site,
-    ) -> Result<Expr, Error> {
-        let params = self.funcs.borrow().get(func).params.clone();
-        let (Some(receiver), Some(param)) = (params.first(), params.get(1)) else {
-            unreachable!("a method of an order has self and other");
-        };
-        let other = self
-            .coerce(other, *param)
-            .ok_or_else(|| unsupported(c, "an order with an operand of this type"))?;
-        Ok(generated_call(
-            func,
-            vec![widen(object, *receiver), other],
-            Rep::Bool,
-            site,
-        ))
     }
 
     /// `left op right`, for `op` `==` or `!=`, at `site`, as CPython finds
@@ -254,6 +229,99 @@ impl Lowering<'_, '_> {
                 }))])
             },
         )
+    }
+
+    /// `left op right` of an arithmetic operator at `node`, where an
+    /// operand is an object, as CPython finds it. The reflected method of
+    /// the right object, as `__radd__` for `+`, comes first when its class
+    /// descends from the class of the left object and has a reflected
+    /// method other than the one of the left class. Then comes the method
+    /// of the left object, as `__add__`, and then the reflected method of
+    /// the right object. The checker proves that one of them has the
+    /// method.
+    pub(super) fn special_arith(
+        &self,
+        node: &impl Ranged,
+        op: ast::Operator,
+        left: Expr,
+        right: Expr,
+    ) -> Result<Expr, Error> {
+        let (name, reflected) =
+            arith_methods(op).ok_or_else(|| unsupported(node, "this operator on an object"))?;
+        if [left.rep(), right.rep()].iter().any(|rep| {
+            !matches!(rep, Rep::Object(_)) && rep.class().is_some() || *rep == Rep::Uniform
+        }) {
+            return Err(unsupported(node, "an operator on an object of a union"));
+        }
+        let method = |class, name| {
+            self.method(class, name)
+                .and_then(|method| method.func)
+                .map(|func| (func, false))
+        };
+        let lefts = self.classes_of(left.rep(), || None);
+        let rights = self.classes_of(right.rep(), || None);
+        let ret = lefts
+            .iter()
+            .filter_map(|class| method(*class, name))
+            .chain(rights.iter().filter_map(|class| method(*class, reflected)))
+            .map(|(func, _)| self.funcs.borrow().get(func).ret)
+            .reduce(|a, b| self.join(a, b))
+            .ok_or_else(|| unsupported(node, "this operator on an object"))?;
+        let site = self.site(node.range());
+        self.dispatch_binary(
+            ((left, None), (right, None), ret, site),
+            &|class| method(class, name),
+            &|class| method(class, reflected),
+            &|left, right| method(right, reflected) != method(left, reflected),
+            &|(func, _), object, other, site| {
+                let call = self.call_operator(node, func, object, other, site)?;
+                Ok(self.coerce(call, ret).expect("the join holds every result"))
+            },
+            &|_, _| Ok(vec![Stmt::Unreachable]),
+        )
+    }
+
+    /// `-operand` of `u`, an object, which calls `__neg__` of its class.
+    pub(super) fn special_neg(&self, u: &ast::ExprUnaryOp, operand: Expr) -> Result<Expr, Error> {
+        let Rep::Object(class) = operand.rep() else {
+            return Err(unsupported(u, "an operator on an object of a union"));
+        };
+        let method = self
+            .method(class, "__neg__")
+            .ok_or_else(|| unsupported(u, "this operator on an object"))?;
+        let func = self.method_slot(class, method);
+        let ret = self.funcs.borrow().get(func).ret;
+        Ok(generated_call(
+            func,
+            vec![operand],
+            ret,
+            self.site(u.range()),
+        ))
+    }
+
+    /// The call of `func`, the method of an operator at `node`, with
+    /// `object` as `self` and `other` as the other operand.
+    fn call_operator(
+        &self,
+        node: &impl Ranged,
+        func: FuncId,
+        object: Expr,
+        other: Expr,
+        site: Site,
+    ) -> Result<Expr, Error> {
+        let sig = self.funcs.borrow().get(func).clone();
+        let (Some(receiver), Some(param)) = (sig.params.first(), sig.params.get(1)) else {
+            unreachable!("a method of an operator has self and other");
+        };
+        let other = self
+            .coerce(other, *param)
+            .ok_or_else(|| unsupported(node, "an operator with an operand of this type"))?;
+        Ok(generated_call(
+            func,
+            vec![widen(object, *receiver), other],
+            sig.ret,
+            site,
+        ))
     }
 
     /// The value of a binary operator on `left` and `right`, a value of
@@ -345,10 +413,19 @@ impl Lowering<'_, '_> {
             };
             body.push(arm(cond, 1, right, method)?);
         }
-        for (i, classes, method) in [(0, &lefts, direct), (1, &rights, reflected)] {
-            for class in classes {
-                if let Some(method) = method(*class) {
-                    body.push(arm(is_exact(i, *class), i, *class, method)?);
+        for class in &lefts {
+            if let Some(method) = direct(*class) {
+                body.push(arm(is_exact(0, *class), 0, *class, method)?);
+            }
+        }
+        // The method of the left object decides when every object that the
+        // left operand may be has one.
+        let decided =
+            matches!(reps[0], Rep::Object(_)) && lefts.iter().all(|left| direct(*left).is_some());
+        if !decided {
+            for class in &rights {
+                if let Some(method) = reflected(*class) {
+                    body.push(arm(is_exact(1, *class), 1, *class, method)?);
                 }
             }
         }
@@ -402,5 +479,21 @@ fn order_methods(op: CmpOp) -> Option<(&'static str, &'static str)> {
         CmpOp::Gt => Some(("__gt__", "__lt__")),
         CmpOp::Ge => Some(("__ge__", "__le__")),
         CmpOp::Eq | CmpOp::Ne => None,
+    }
+}
+
+/// The method that the arithmetic operator `op` calls on the left object
+/// and the reflected one that it calls on the right object, and `None`
+/// for an operator that the compiler does not call on an object.
+fn arith_methods(op: ast::Operator) -> Option<(&'static str, &'static str)> {
+    match op {
+        ast::Operator::Add => Some(("__add__", "__radd__")),
+        ast::Operator::Sub => Some(("__sub__", "__rsub__")),
+        ast::Operator::Mult => Some(("__mul__", "__rmul__")),
+        ast::Operator::Div => Some(("__truediv__", "__rtruediv__")),
+        ast::Operator::FloorDiv => Some(("__floordiv__", "__rfloordiv__")),
+        ast::Operator::Mod => Some(("__mod__", "__rmod__")),
+        ast::Operator::Pow => Some(("__pow__", "__rpow__")),
+        _ => None,
     }
 }

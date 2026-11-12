@@ -447,17 +447,33 @@ impl<'a> Lowering<'a, '_> {
     /// Refuses a special method of `class` whose parameters and result
     /// differ from the ones that the operator gives and takes. `__eq__`
     /// and `__ne__` take any value, and the methods of an order take one
-    /// value. Each gives a `bool`.
+    /// value, and each of them gives a `bool`. The method of an arithmetic
+    /// operator takes one value, and `__neg__` takes none.
     fn check_special(&self, class: ClassId, method: Method<'a>) -> Result<(), Error> {
         let name = method.def.name.as_str();
-        let other = match name {
-            "__eq__" | "__ne__" => Some(Rep::Uniform),
-            "__lt__" | "__le__" | "__gt__" | "__ge__" => None,
-            _ => return Ok(()),
-        };
         let funcs = self.funcs.borrow();
         let sig = funcs.get(method.func());
         let defaults = params_of(method.def).any(|param| param.default.is_some());
+        if name == "__neg__" {
+            if defaults || sig.params.len() != 1 {
+                return Err(unsupported(method.def, "a __neg__ other than (self)"));
+            }
+            return Ok(());
+        }
+        let other = match name {
+            "__eq__" | "__ne__" => Some(Rep::Uniform),
+            "__lt__" | "__le__" | "__gt__" | "__ge__" => None,
+            _ if COMPILED_SPECIAL.contains(&name) => {
+                if defaults || sig.params.len() != 2 {
+                    return Err(unsupported(
+                        method.def,
+                        "a method of an operator other than (self, other)",
+                    ));
+                }
+                return Ok(());
+            }
+            _ => return Ok(()),
+        };
         let params = match (&*sig.params, other) {
             ([object, _], None) => *object == Rep::Object(class),
             ([object, param], Some(other)) => *object == Rep::Object(class) && *param == other,
@@ -2336,16 +2352,8 @@ impl<'a> Lowering<'a, '_> {
                 // for an operator or a builtin yet.
                 ast::Stmt::FunctionDef(method)
                     if is_special(&method.name)
-                        && !matches!(
-                            method.name.as_str(),
-                            "__init__"
-                                | "__eq__"
-                                | "__ne__"
-                                | "__lt__"
-                                | "__le__"
-                                | "__gt__"
-                                | "__ge__"
-                        )
+                        && method.name.as_str() != "__init__"
+                        && !COMPILED_SPECIAL.contains(&method.name.as_str())
                         && !is_conversion(&method.name) =>
                 {
                     return Err(unsupported(method, "this special method"));
@@ -2497,6 +2505,32 @@ fn push_method<'a>(
     });
     Ok(())
 }
+
+/// The special methods other than `__init__`, `__str__` and `__repr__`
+/// that an operator or a builtin calls.
+const COMPILED_SPECIAL: &[&str] = &[
+    "__eq__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "__add__",
+    "__radd__",
+    "__sub__",
+    "__rsub__",
+    "__mul__",
+    "__rmul__",
+    "__truediv__",
+    "__rtruediv__",
+    "__floordiv__",
+    "__rfloordiv__",
+    "__mod__",
+    "__rmod__",
+    "__pow__",
+    "__rpow__",
+    "__neg__",
+];
 
 /// Returns `true` if `name` is the name of a special method, as `__eq__`
 /// is, `false` otherwise.
