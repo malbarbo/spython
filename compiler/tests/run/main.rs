@@ -33,6 +33,7 @@ mod print;
 mod raise;
 mod recursion;
 mod repr;
+mod set;
 mod special;
 mod str;
 mod union;

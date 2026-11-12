@@ -7,7 +7,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 use super::class::generated_call;
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
+use crate::ir::{ArithOp, ClassId, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
 
 /// The range of an `int`, which has to fit in 31 bits.
 const INT_MIN: i64 = -(1 << 30);
@@ -212,6 +212,7 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Compare(c) => self.compare(c),
             ast::Expr::List(list) => self.list(expr, list),
             ast::Expr::Dict(dict) => self.dict(expr, dict),
+            ast::Expr::Set(set) => self.set(expr, set),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
                 if value.rep().class().is_some() {
@@ -281,6 +282,7 @@ impl<'a> Lowering<'a, '_> {
                 Some("repr") => self.repr(call),
                 Some("ord") => self.ord(call),
                 Some("chr") => self.chr(call),
+                Some("set") => self.set_call(call),
                 Some("min") => self.min_max(call, MinMaxOp::Min),
                 Some("max") => self.min_max(call, MinMaxOp::Max),
                 _ => match self.math_member(&call.func) {
@@ -353,13 +355,9 @@ impl<'a> Lowering<'a, '_> {
     /// the prelude. Each key and each value runs in order, and then the
     /// method `done` puts the items in the `dict`, as CPython does.
     fn dict(&self, expr: &ast::Expr, dict: &ast::ExprDict) -> Result<Expr, Error> {
-        let rep = self.rep_of(expr_shape(self.model(), expr));
-        let Some(Rep::Object(class)) = rep.filter(|rep| {
-            rep.class()
-                .is_some_and(|class| self.copy_file(class).is_some())
-        }) else {
-            return Err(unsupported(dict, "a dict of this type"));
-        };
+        let class = self
+            .copy_of(expr)
+            .ok_or_else(|| unsupported(dict, "a dict of this type"))?;
         let object = Rep::Object(class);
         let site = self.site(expr.range());
         let mut value = self.new_copy(class, Vec::new(), site);
@@ -384,6 +382,52 @@ impl<'a> Lowering<'a, '_> {
         }
         let done = self.method_func(class, "done").expect("Dict has done");
         Ok(generated_call(done, vec![value], object, site))
+    }
+
+    /// A literal of `set`, an object of the copy of the class `Set` of the
+    /// prelude. The items run in order, and then the method `done` puts
+    /// them in the `set`, as `BUILD_SET` does.
+    fn set(&self, expr: &ast::Expr, set: &ast::ExprSet) -> Result<Expr, Error> {
+        let class = self
+            .copy_of(expr)
+            .ok_or_else(|| unsupported(set, "a set of this type"))?;
+        let site = self.site(expr.range());
+        let done = self.method_func(class, "done").expect("Set has done");
+        let params = self.funcs.borrow().get(done).params.clone();
+        let [_, Rep::List(list)] = params[..] else {
+            unreachable!("done takes a list");
+        };
+        let item = self.list_item(list);
+        let items = set
+            .elts
+            .iter()
+            .map(|elt| self.literal_item(elt, item))
+            .collect::<Result<_, _>>()?;
+        let args = vec![
+            self.new_copy(class, Vec::new(), site),
+            Expr::List { list, items },
+        ];
+        Ok(generated_call(done, args, Rep::Object(class), site))
+    }
+
+    /// A call of `set`, which makes an empty `set` of the type that the
+    /// checker gives.
+    fn set_call(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let expr = ast::Expr::Call(call.clone());
+        let class = self
+            .copy_of(&expr)
+            .ok_or_else(|| unsupported(call, "a set of this type"))?;
+        if !call.arguments.is_empty() {
+            return Err(unsupported(call, "a call of set with arguments"));
+        }
+        Ok(self.new_copy(class, Vec::new(), self.site(call.range())))
+    }
+
+    /// The copy of a generic class of the prelude whose object `expr` gives,
+    /// and `None` for an `expr` of another type.
+    fn copy_of(&self, expr: &ast::Expr) -> Option<ClassId> {
+        let class = self.rep_of(expr_shape(self.model(), expr))?.class()?;
+        self.copy_file(class).map(|_| class)
     }
 
     /// Refuses the text `value` of the literal `node` when it may hold a

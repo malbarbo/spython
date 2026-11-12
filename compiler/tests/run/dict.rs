@@ -62,7 +62,7 @@ fn a_call_of_a_method_that_the_prelude_lacks_is_unsupported() {
         (
             indoc! {"
                 def f(s: set[int]) -> None:
-                    s.add(1)
+                    s.pop()
             "},
             "a call of this method",
         ),
