@@ -1389,6 +1389,17 @@ impl Reprs {
                 f.ins().call(builtin);
             }
             Rep::Str => self.str.hash(m, f),
+            Rep::StrOrNone => {
+                let value = f.temp(self.str.val_type(true));
+                f.ins().local_tee(value).ref_is_null();
+                f.if_(BlockType::Result(ValType::I64));
+                f.ins().i64_const(NONE_HASH);
+                f.else_();
+                f.ins().local_get(value).ref_as_non_null();
+                self.str.hash(m, f);
+                f.end();
+                f.free(value);
+            }
             _ => unreachable!("the hash of {rep:?}"),
         }
     }

@@ -59,3 +59,135 @@ fn a_call_of_a_method_that_the_prelude_lacks_is_unsupported() {
         assert_eq!(unsupported(source), what, "{source}");
     }
 }
+
+/// An item of a `set` and a key of a `dict` may be of any type with a
+/// `hash`, and an object of a class may be in one when each class that
+/// descends from its class has a `hash`.
+#[test]
+fn a_set_and_a_dict_of_a_type_with_a_hash_run() {
+    same_as_cpython(
+        "a_set_and_a_dict_of_a_type_with_a_hash_run",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum, auto
+
+            class Cor(Enum):
+                AZUL = auto()
+                VERDE = auto()
+
+            @dataclass(frozen=True)
+            class No:
+                valor: int
+                nome: str | None
+                cor: Cor
+                proximo: 'No | None'
+
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    return isinstance(other, Ponto) and self.x == other.x
+
+                def __hash__(self) -> int:
+                    return self.x
+
+            class Ponto3(Ponto):
+                pass
+
+            def tamanho(
+                a: set[int],
+                b: set[float],
+                c: set[bool],
+                d: set[str | None],
+                e: set[Cor],
+                f: set[No],
+                g: dict[Ponto, list[int]],
+            ) -> int:
+                return len(a) + len(b) + len(c) + len(d) + len(e) + len(f) + len(g)
+
+            print('ok')
+        "},
+    );
+}
+
+/// CPython raises `TypeError` when it takes the `hash` of an object
+/// without one, and the compiler refuses the type of a `set` or of a key
+/// of a `dict` of an object without a `hash`.
+#[test]
+fn a_set_and_a_dict_key_without_a_hash_are_unsupported() {
+    for source in [
+        indoc! {"
+            def f(s: set[list[int]]) -> None:
+                pass
+        "},
+        indoc! {"
+            def f(d: dict[list[int], int]) -> None:
+                pass
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    return isinstance(other, Ponto) and self.x == other.x
+
+            def f(s: set[Ponto]) -> None:
+                pass
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+            def f(s: set[Ponto]) -> None:
+                pass
+        "},
+        indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __hash__(self) -> int:
+                    return self.x
+
+            class Ponto3(Ponto):
+                def __eq__(self, other: object) -> bool:
+                    return False
+
+            def f(s: set[Ponto]) -> None:
+                pass
+        "},
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Ponto:
+                x: int
+
+            def f(d: dict[Ponto, int]) -> None:
+                pass
+        "},
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass(frozen=True)
+            class Ponto:
+                xs: list[int]
+
+            def f(s: set[Ponto]) -> None:
+                pass
+        "},
+    ] {
+        assert_eq!(unsupported(source), "a parameter of this type", "{source}");
+    }
+}

@@ -985,13 +985,21 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 self.prelude_class(unit, &class.name, args).map(Rep::Object)
             }
+            // CPython raises `TypeError` for a key without a `hash` when
+            // it runs, and the compiler refuses the type.
             Shape::Dict(key, value) => {
                 let unit = self.prelude_unit("dict")?;
+                if !self.hashable(self.rep_of(Some((*key).clone()))?) {
+                    return None;
+                }
                 self.prelude_class(unit, "Dict", vec![*key, *value])
                     .map(Rep::Object)
             }
             Shape::Set(item) => {
                 let unit = self.prelude_unit("set")?;
+                if !self.hashable(self.rep_of(Some((*item).clone()))?) {
+                    return None;
+                }
                 self.prelude_class(unit, "Set", vec![*item])
                     .map(Rep::Object)
             }

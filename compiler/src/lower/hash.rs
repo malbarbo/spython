@@ -1,6 +1,8 @@
 //! The `hash` of a value, which the tables of `dict` and `set` in the
 //! prelude ask for.
 
+use std::collections::HashSet;
+
 use ruff_text_size::Ranged;
 
 use super::class::{Kind, generated_call, param};
@@ -26,7 +28,7 @@ impl Lowering<'_, '_> {
     /// The `hash` of `value` at `node`, as CPython gives it.
     pub(super) fn hash_value(&self, node: &impl Ranged, value: Expr) -> Result<Expr, Error> {
         match value.rep() {
-            Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str => {
+            Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str | Rep::StrOrNone => {
                 Ok(Expr::Hash(Box::new(value)))
             }
             Rep::Object(class) => Ok(generated_call(
@@ -57,6 +59,46 @@ impl Lowering<'_, '_> {
                 Ok(generated_call(func, vec![value], Rep::Hash, Site::NONE))
             }
             _ => Err(unsupported(node, "the hash of this type")),
+        }
+    }
+
+    /// Returns `true` if each value of `rep` has a `hash`, `false`
+    /// otherwise. An object of a class has one when each class that
+    /// descends from its class has one, and a frozen dataclass needs one
+    /// for each field.
+    pub(super) fn hashable(&self, rep: Rep) -> bool {
+        self.hashable_in(rep, &mut HashSet::new())
+    }
+
+    /// [`Self::hashable`], where `seen` holds the dataclasses whose fields
+    /// the test already takes, as the ones that a field of a dataclass of
+    /// its own class reaches again.
+    fn hashable_in(&self, rep: Rep, seen: &mut HashSet<ClassId>) -> bool {
+        match rep {
+            Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str | Rep::StrOrNone => true,
+            Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                let classes = self.classes.borrow().descendants(class);
+                classes
+                    .into_iter()
+                    .all(|class| match self.hash_source(class) {
+                        Source::Method(_) | Source::Name(_) => true,
+                        Source::Fields(owner) => {
+                            let fields: Vec<Rep> = {
+                                let classes = self.classes.borrow();
+                                classes
+                                    .get(owner)
+                                    .fields
+                                    .iter()
+                                    .map(|(_, rep)| *rep)
+                                    .collect()
+                            };
+                            !seen.insert(owner)
+                                || fields.into_iter().all(|rep| self.hashable_in(rep, seen))
+                        }
+                        Source::Unhashable | Source::Identity => false,
+                    })
+            }
+            Rep::Uniform | Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash => false,
         }
     }
 
