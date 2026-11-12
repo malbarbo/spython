@@ -346,3 +346,64 @@ fn a_dict_writes_its_items_in_the_order_of_insertion() {
         "},
     );
 }
+
+#[test]
+fn in_get_pop_clear_and_copy_of_a_dict_run() {
+    same_as_cpython(
+        "in_get_pop_clear_and_copy_of_a_dict_run",
+        indoc! {"
+            def padrao() -> int:
+                print('padrao')
+                return -1
+
+            d = {'a': 1, 'b': 2, 'c': 3}
+            print('a' in d, 'z' in d, 'a' not in d)
+            print(d.get('a'), d.get('z'), d.get('z', None), d.get('b', 0), d.get('z', padrao()))
+            x = d.get('z', 'nada')
+            print(x)
+            print(d.pop('b'), d, len(d))
+            print(d.pop('b', 7), d.pop('b', None), d.pop('c', None), d)
+            e = d.copy()
+            e['n'] = 9
+            print(d, e)
+            muitos: dict[int, str] = {}
+            for i in range(40):
+                muitos[i] = str(i)
+            for i in range(0, 40, 3):
+                muitos.pop(i)
+            print(muitos.copy())
+            for i in range(0, 40, 2):
+                muitos.pop(i, '')
+            copia = muitos.copy()
+            copia[100] = 'cem'
+            print(copia, len(copia))
+            d.clear()
+            print(d, len(d), d.get('a'))
+            d['q'] = 5
+            print(d)
+            vazio: dict[str, int] = {}
+            print(vazio.copy(), vazio.pop('a', 0))
+            f = {1.5: 'x'}
+            print(f.pop(1.5))
+            f.pop(2.5)
+        "},
+    );
+}
+
+#[test]
+fn a_pop_of_a_missing_key_raises_key_error_with_its_repr() {
+    same_as_cpython(
+        "a_pop_of_a_missing_key_raises_key_error_with_its_repr",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass(frozen=True)
+            class Ponto:
+                x: int
+
+            d = {Ponto(1): \"it's\"}
+            print(d[Ponto(1)])
+            print(d.pop(Ponto(2)))
+        "},
+    );
+}

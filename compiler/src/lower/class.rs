@@ -51,6 +51,9 @@ pub(super) struct Classes<'a> {
     /// The copy of each generic class of the prelude, by the file and the
     /// name of the class and what each of its type variables stands for.
     pub copies: HashMap<(File, String, Vec<TypeArg>), ClassId>,
+    /// The function of each generic method of a copy, by the copy, the
+    /// name of the method and what each of its type variables stands for.
+    pub generic_methods: HashMap<(ClassId, String, Vec<TypeArg>), FuncId>,
 }
 
 /// What a call through a value of a class calls.
@@ -699,10 +702,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         };
         let copy = self.classes.borrow().get(owner).copy.clone();
         match copy {
-            Some(copy) if method.func.is_none() => Some(Method {
-                func: Some(self.declare_copy_method(owner, copy, method.def)),
-                ..method
-            }),
+            // A generic method waits for the types of a call.
+            Some(copy) if method.func.is_none() && method.def.type_params.is_none() => {
+                Some(Method {
+                    func: Some(self.declare_copy_method(owner, copy, method.def)),
+                    ..method
+                })
+            }
             _ => Some(method),
         }
     }
@@ -716,25 +722,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         copy: ClassCopy,
         def: &'a ast::StmtFunctionDef,
     ) -> FuncId {
-        let unit = self.prelude_unit_of(copy.file);
-        let outer = self.unit.replace(unit);
-        let outer_types = self.types.replace(copy.types.clone());
-        let signature = self.signature(def, Some(class));
-        self.types.replace(outer_types);
-        self.unit.set(outer);
-        // The prelude joins a type variable only with `None`, which every
-        // rep joins.
-        let (_, params, ret) = signature.expect("a method of the prelude with a signature");
-        let sig = Sig {
-            unit,
-            def: Some(def),
-            defaults: params.iter().map(|_| None).collect(),
-            doctest: None,
-            params,
-            ret,
-            types: copy.types,
-        };
-        let func = self.funcs.borrow_mut().add_generated(sig, true);
+        let func = self.copy_method_func(class, copy.file, copy.types, def);
         let mut classes = self.classes.borrow_mut();
         let method = classes
             .get_mut(class)
@@ -744,6 +732,81 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .expect("a method of the class");
         method.func = Some(func);
         func
+    }
+
+    /// The function of `def`, a method of `class`, a copy of a generic
+    /// class of the prelude in `file`, with `types` for its type variables.
+    /// A parameter with a default holds `None` for it, as in a function of
+    /// the prelude.
+    fn copy_method_func(
+        &self,
+        class: ClassId,
+        file: File,
+        types: Vec<(String, TypeArg)>,
+        def: &'a ast::StmtFunctionDef,
+    ) -> FuncId {
+        let unit = self.prelude_unit_of(file);
+        let outer = self.unit.replace(unit);
+        let outer_types = self.types.replace(types.clone());
+        let signature = self.signature(def, Some(class));
+        self.types.replace(outer_types);
+        self.unit.set(outer);
+        // The prelude joins a type variable only with `None`, which every
+        // rep joins, or with another type variable.
+        let (_, params, ret) = signature.expect("a method of the prelude with a signature");
+        let sig = Sig {
+            unit,
+            def: Some(def),
+            defaults: params.iter().map(|_| None).collect(),
+            doctest: None,
+            params,
+            ret,
+            types,
+        };
+        self.funcs.borrow_mut().add_generated(sig, true)
+    }
+
+    /// The function of `def`, a generic method of `class`, a copy of a
+    /// generic class of the prelude, whose own type variables stand for
+    /// what `args` gives in order. The first call with these types declares
+    /// it.
+    pub(super) fn generic_copy_method(
+        &self,
+        class: ClassId,
+        def: &'a ast::StmtFunctionDef,
+        args: Vec<TypeArg>,
+    ) -> FuncId {
+        let key = (class, def.name.to_string(), args.clone());
+        if let Some(&func) = self.classes.borrow().generic_methods.get(&key) {
+            return func;
+        }
+        let copy = self
+            .classes
+            .borrow()
+            .get(class)
+            .copy
+            .clone()
+            .expect("a copy of a class of the prelude");
+        let mut types = copy.types;
+        types.extend(
+            def.type_params
+                .iter()
+                .flat_map(|params| &params.type_params)
+                .map(|param| param.name().to_string())
+                .zip(args),
+        );
+        let func = self.copy_method_func(class, copy.file, types, def);
+        self.classes.borrow_mut().generic_methods.insert(key, func);
+        func
+    }
+
+    /// A new object of `class`, a copy of a generic class of the prelude
+    /// whose `__init__` takes no argument, which may run out of memory at
+    /// `site`.
+    pub(super) fn new_copy(&self, class: ClassId, site: Site) -> Expr {
+        self.classes.borrow_mut().instantiated.insert(class);
+        let (_, init) = self.plain_init(class).expect("a copy with __init__");
+        generated_call(init, Vec::new(), Rep::Object(class), site)
     }
 
     /// The file of the generic class of the prelude that `class` copies,
@@ -1790,7 +1853,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// with the function that makes an empty object, calls the `__init__`
     /// with it and the arguments, and returns it. The function has no
     /// frame, and `None` stands for a class without `__init__`.
-    pub(super) fn plain_init(&self, class: ClassId) -> Option<(&'a ast::StmtFunctionDef, FuncId)> {
+    fn plain_init(&self, class: ClassId) -> Option<(&'a ast::StmtFunctionDef, FuncId)> {
         let init = self.method(class, "__init__")?;
         let (def, method) = (init.def, init.func());
         if let Some(func) = self.classes.borrow().get(class).init {

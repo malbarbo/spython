@@ -65,6 +65,70 @@ class Dict[K, V]:
     def __setitem__(self, key: K, value: V) -> None:
         self.insert(key, hash_of(key), value)
 
+    def __contains__(self, key: K) -> bool:
+        return self.find(key, hash_of(key)) >= 0
+
+    def get(self, key: K) -> V | None:
+        ix = self.find(key, hash_of(key))
+        if ix < 0:
+            return None
+        return item(self.values, ix)
+
+    def get_or[D](self, key: K, default: D) -> V | D:
+        ix = self.find(key, hash_of(key))
+        if ix < 0:
+            return default
+        return item(self.values, ix)
+
+    def get_or_none(self, key: K) -> V | None:
+        return self.get(key)
+
+    def pop(self, key: K) -> V:
+        ix = self.remove(key)
+        if ix < 0:
+            raise KeyError(key)
+        return item(self.values, ix)
+
+    def pop_or[D](self, key: K, default: D) -> V | D:
+        ix = self.remove(key)
+        if ix < 0:
+            return default
+        return item(self.values, ix)
+
+    def pop_or_none(self, key: K) -> V | None:
+        ix = self.remove(key)
+        if ix < 0:
+            return None
+        return item(self.values, ix)
+
+    def copy(self) -> Dict[K, V]:
+        """A new `dict` with the items of this one. A table with few removed entries goes to
+        the copy as it is, and the copy of another one has a new table, as in CPython."""
+        new: Dict[K, V] = Dict()
+        if self.used == 0:
+            return new
+        if self.used >= len(self.keys) * 2 // 3:
+            new.indices = self.indices.copy()
+            new.hashes = self.hashes.copy()
+            new.keys = self.keys.copy()
+            new.values = self.values.copy()
+            new.live = self.live.copy()
+            new.used = self.used
+            new.usable = self.usable
+            new.unicode = self.unicode
+            return new
+        n = self.used
+        if n > 5:
+            new.resize((n * 3 + 1) // 2, self.unicode)
+        i = 0
+        while i < len(self.keys):
+            if item(self.live, i):
+                new.insert(item(self.keys, i), item(self.hashes, i), item(self.values, i))
+                if n != self.used:
+                    raise RuntimeError("dict mutated during update")
+            i += 1
+        return new
+
     def __repr__(self) -> str:
         """The `repr` of the `dict`, which is also its `str`. A `dict` inside its own `repr` is
         `{...}`, as in CPython."""
@@ -155,6 +219,32 @@ class Dict[K, V]:
                 return -1
             perturb = hash_shift(perturb)
             i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+
+    def remove(self, key: K) -> int:
+        """Removes the entry of `key` and gives its index, or -1 when the `dict` has no such key.
+        The value of the entry stays in its place. An empty `dict` takes no `hash` of the key, as
+        in CPython."""
+        if self.used == 0:
+            return -1
+        h = hash_of(key)
+        ix = self.find(key, h)
+        if ix >= 0:
+            set_item(self.indices, self.slot_of(h, ix), -2)
+            set_item(self.live, ix, False)
+            self.used -= 1
+        return ix
+
+    def slot_of(self, h: Hash, ix: int) -> int:
+        """The slot of the entry at `ix`, whose `hash` is `h`."""
+        indices = self.indices
+        size = len(indices)
+        mask = size - 1
+        i = hash_slot(h, mask)
+        perturb = h
+        while item(indices, i) != ix:
+            perturb = hash_shift(perturb)
+            i = (i * 5 + 1 + hash_slot(perturb, mask)) % size
+        return i
 
     def empty_slot(self, h: Hash) -> int:
         """The first slot for `h` that holds no entry."""

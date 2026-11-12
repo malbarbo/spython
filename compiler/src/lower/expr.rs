@@ -358,11 +358,9 @@ impl<'a> Lowering<'a, '_> {
         }) else {
             return Err(unsupported(dict, "a dict of this type"));
         };
-        self.classes.borrow_mut().instantiated.insert(class);
         let object = Rep::Object(class);
-        let (_, init) = self.plain_init(class).expect("Dict has __init__");
         let site = self.site(expr.range());
-        let mut value = generated_call(init, Vec::new(), object, site);
+        let mut value = self.new_copy(class, site);
         if dict.items.is_empty() {
             return Ok(value);
         }

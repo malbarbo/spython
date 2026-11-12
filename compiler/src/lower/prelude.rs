@@ -6,7 +6,7 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
-use ty_python_semantic::types::lowering::{DefId, Shape, function_info};
+use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_info};
 
 use std::rc::Rc;
 
@@ -138,7 +138,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         (class, file): (ClassId, File),
     ) -> Result<Expr, Error> {
         let name = attr.attr.as_str();
-        let method = self
+        let mut method = self
             .method(class, name)
             .ok_or_else(|| unsupported(call, "a call of this method"))?;
         if !call.arguments.keywords.is_empty() {
@@ -147,12 +147,36 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 "a call of a method with keyword arguments",
             ));
         }
+        // A call with one more argument goes to the method that takes a
+        // default, as `get_or` for `get`, and a default of `None` to the
+        // method without it, as `get_or_none`, since a type variable never
+        // stands for `None`.
+        let mut args = &call.arguments.args[..];
+        if args.len() >= method.def.parameters.args.len() {
+            let none = match args {
+                [rest @ .., ast::Expr::NoneLiteral(_)] => self
+                    .method(class, &format!("{name}_or_none"))
+                    .map(|method| (rest, method)),
+                _ => None,
+            };
+            if let Some((rest, with_none)) = none {
+                (args, method) = (rest, with_none);
+            } else if let Some(with_default) = self.method(class, &format!("{name}_or")) {
+                method = with_default;
+            }
+        }
         let text = format!("'NoneType' object has no attribute '{name}'");
         let mut given = vec![self.not_none(receiver, text, attr)];
-        for arg in &call.arguments.args {
+        for arg in args {
             given.push(self.expr(arg)?);
         }
-        let func = method.func.expect("a declared method");
+        let func = match method.func {
+            Some(func) => func,
+            None => {
+                let args = self.method_type_args(call, method.def)?;
+                self.generic_copy_method(class, method.def, args)
+            }
+        };
         let unit = self.prelude_unit_of(file);
         let info = function_info(unit.model, method.def).expect("a method of the prelude");
         let shapes: Vec<Shape> = info.params.into_iter().map(|param| param.shape).collect();
@@ -164,6 +188,42 @@ impl<'a, 'db> Lowering<'a, 'db> {
         )?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
+    }
+
+    /// What each type variable of `def`, a generic method of a copy of a
+    /// generic class of the prelude, stands for in `call`. A type variable
+    /// stands for the type of the argument of the parameter that it
+    /// annotates.
+    fn method_type_args(
+        &self,
+        call: &ast::ExprCall,
+        def: &ast::StmtFunctionDef,
+    ) -> Result<Vec<TypeArg>, Error> {
+        let params = def
+            .type_params
+            .iter()
+            .flat_map(|params| &params.type_params);
+        params
+            .map(|param| {
+                let name = param.name().as_str();
+                let arg = def
+                    .parameters
+                    .args
+                    .iter()
+                    .skip(1)
+                    .zip(&call.arguments.args)
+                    .find_map(|(param, arg)| match param.parameter.annotation.as_deref() {
+                        Some(ast::Expr::Name(annotation)) if annotation.id.as_str() == name => {
+                            Some(arg)
+                        }
+                        _ => None,
+                    })
+                    .expect("a type variable of a method that a parameter takes");
+                expr_shape(self.model(), arg)
+                    .and_then(|shape| self.type_arg(shape))
+                    .ok_or_else(|| unsupported(arg, "an argument of this type"))
+            })
+            .collect()
     }
 
     /// A call of `def`, a generic function of the prelude, from the code of

@@ -44,6 +44,16 @@ impl<'a> Lowering<'a, '_> {
             if let Some(class) = class {
                 return self.construct(call, name, class);
             }
+            // The prelude makes an object of a copy of its own generic
+            // class, whose type gives the copy.
+            if self.in_prelude()
+                && call.arguments.is_empty()
+                && let Some(Rep::Object(class)) =
+                    self.rep_of(expr_shape(self.model(), &ast::Expr::Call(call.clone())))
+                && self.copy_file(class).is_some()
+            {
+                return Ok(self.new_copy(class, self.site(call.range())));
+            }
         }
         // A name with more than one `def` has the function of the last `def`
         // that ran, which the checker knows only in the code of the module.
