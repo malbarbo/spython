@@ -8,6 +8,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 use super::class::{generated_call, param, widen};
 use super::{Lowering, unsupported};
 use crate::Error;
+use crate::cpython::Class;
 use crate::ir::{ClassId, CmpOp, Expr, FuncId, LogicOp, Rep, Site, Stmt};
 
 /// A lowered operand, with the type that the checker gives it.
@@ -189,7 +190,7 @@ impl Lowering<'_, '_> {
         self.dispatch_binary(
             (left, right, Rep::Bool, site),
             &|class| method(class, name),
-            &|class| method(class, reflected),
+            (&|class| method(class, reflected), false),
             &|_, _| true,
             &|(func, _), object, other, site| self.call_operator(c, func, object, other, site),
             &|_, _| Ok(vec![Stmt::Unreachable]),
@@ -214,7 +215,7 @@ impl Lowering<'_, '_> {
         self.dispatch_binary(
             (left, right, Rep::Bool, site),
             &|class| self.eq_method(class, op),
-            &|class| self.eq_method(class, op),
+            (&|class| self.eq_method(class, op), false),
             &|_, _| true,
             &|method, object, other, site| Ok(self.call_eq(method, object, other, site)),
             &|v, w| {
@@ -242,7 +243,7 @@ impl Lowering<'_, '_> {
     pub(super) fn special_arith(
         &self,
         node: &impl Ranged,
-        op: ast::Operator,
+        (op, augmented): (ast::Operator, bool),
         left: Expr,
         right: Expr,
     ) -> Result<Expr, Error> {
@@ -272,17 +273,36 @@ impl Lowering<'_, '_> {
         let ret = self
             .join_all(rets)
             .ok_or_else(|| unsupported(node, "methods of an operator with results of two types"))?;
+        let message = |class: ClassId| {
+            let name = self.classes.borrow().get(class).def.name.to_string();
+            format!(
+                "unsupported operand type(s) for {}: '{name}' and '{name}'",
+                operator_symbol(op, augmented)
+            )
+        };
+        // CPython skips the reflected method of an object of the class of
+        // the left object, so an object of a class with the reflected
+        // method alone raises `TypeError` with an object of its class.
+        let same: Vec<_> = lefts
+            .into_iter()
+            .filter(|class| {
+                rights.contains(class)
+                    && method(*class, name).is_none()
+                    && method(*class, reflected).is_some()
+            })
+            .collect();
+        let reps = [left.rep(), right.rep()];
         let site = self.site(node.range());
         self.dispatch_binary(
             ((left, None), (right, None), ret, site),
             &|class| method(class, name),
-            &|class| method(class, reflected),
+            (&|class| method(class, reflected), true),
             &|left, right| method(right, reflected) != method(left, reflected),
             &|(func, _), object, other, site| {
                 let call = self.call_operator(node, func, object, other, site)?;
                 Ok(self.coerce(call, ret).expect("the join holds every result"))
             },
-            &|_, _| Ok(vec![Stmt::Unreachable]),
+            &|_, _| Ok(same_class_error(&same, reps, message)),
         )
     }
 
@@ -302,7 +322,7 @@ impl Lowering<'_, '_> {
         let lefts = self.classes_of(left.rep(), || None);
         let inplace = |class| name.and_then(|name| method(class, name));
         if !lefts.iter().any(|class| inplace(*class).is_some()) {
-            return self.binary(node, op, (left, left_node), (right, right_node));
+            return self.binary(node, (op, true), (left, left_node), (right, right_node));
         }
         let Rep::Object(class) = left.rep() else {
             return Err(unsupported(node, "an operator on an object of a union"));
@@ -329,7 +349,7 @@ impl Lowering<'_, '_> {
         let rest = if lefts.iter().all(|left| inplace(*left).is_some()) {
             None
         } else {
-            Some(self.special_arith(node, op, operand(0), operand(1))?)
+            Some(self.special_arith(node, (op, true), operand(0), operand(1))?)
         };
         let ret = self
             .join_all(
@@ -662,14 +682,16 @@ impl Lowering<'_, '_> {
     /// reflected method of the right object comes first when its class is
     /// a proper subclass of the class of the left object and `first` takes
     /// the two classes. Then comes the method of the left object, and then
-    /// the reflected method of the right object. `call` calls a method with
-    /// an object and the other operand, and `rest` gives the code that runs
-    /// when no object has a method, with the two operands.
+    /// the reflected method of the right object, which `arith` skips when
+    /// the two objects have the same class, as CPython does for an
+    /// arithmetic operator. `call` calls a method with an object and the
+    /// other operand, and `rest` gives the code that runs when no object
+    /// has a method, with the two operands.
     fn dispatch_binary(
         &self,
         (left, right, ret, site): (Operand, Operand, Rep, Site),
-        direct: &dyn Fn(ClassId) -> Option<(FuncId, bool)>,
-        reflected: &dyn Fn(ClassId) -> Option<(FuncId, bool)>,
+        direct: MethodOf,
+        (reflected, arith): (MethodOf, bool),
         first: &dyn Fn(ClassId, ClassId) -> bool,
         call: &dyn Fn((FuncId, bool), Expr, Expr, Site) -> Result<Expr, Error>,
         rest: &dyn Fn(Expr, Expr) -> Result<Vec<Stmt>, Error>,
@@ -747,7 +769,12 @@ impl Lowering<'_, '_> {
         if !decided {
             for class in &rights {
                 if let Some(method) = reflected(*class) {
-                    body.push(arm(is_exact(1, *class), 1, *class, method)?);
+                    let mut cond = is_exact(1, *class);
+                    if arith && lefts.contains(class) {
+                        let other = Expr::Not(Box::new(is_exact(0, *class)));
+                        cond = Expr::logic(LogicOp::And, cond, other);
+                    }
+                    body.push(arm(cond, 1, *class, method)?);
                 }
             }
         }
@@ -819,6 +846,60 @@ fn arith_methods(op: ast::Operator) -> Option<(&'static str, &'static str)> {
         ast::Operator::Mod => Some(("__mod__", "__rmod__")),
         ast::Operator::Pow => Some(("__pow__", "__rpow__")),
         _ => None,
+    }
+}
+
+/// The method that a binary operator calls on an object of a class, with
+/// whether the value is the `not` of the result of the method.
+type MethodOf<'f> = &'f dyn Fn(ClassId) -> Option<(FuncId, bool)>;
+
+/// The code that raises the `TypeError` of an arithmetic operator on two
+/// objects of the same class among `classes`, the two parameters of
+/// `reps` of a generated function, where `message` gives the text for a
+/// class.
+fn same_class_error(
+    classes: &[ClassId],
+    reps: [Rep; 2],
+    message: impl Fn(ClassId) -> String,
+) -> Vec<Stmt> {
+    let is_exact = |i: usize, class| Expr::IsExact {
+        value: Box::new(param(i, if i == 0 { reps[0] } else { reps[1] })),
+        class,
+    };
+    let mut body: Vec<Stmt> = classes
+        .iter()
+        .map(|class| Stmt::If {
+            cond: Expr::logic(LogicOp::And, is_exact(0, *class), is_exact(1, *class)),
+            then: vec![Stmt::Raise {
+                class: Class::TypeError,
+                arg: Some(Expr::Str(message(*class))),
+                site: Site::NONE,
+            }],
+            else_: Vec::new(),
+        })
+        .collect();
+    body.push(Stmt::Unreachable);
+    body
+}
+
+/// The symbol of the operator `op` in the message of its `TypeError`, of
+/// the augmented assignment when `augmented` is true.
+fn operator_symbol(op: ast::Operator, augmented: bool) -> String {
+    let symbol = match op {
+        ast::Operator::Pow if !augmented => return "** or pow()".to_owned(),
+        ast::Operator::Add => "+",
+        ast::Operator::Sub => "-",
+        ast::Operator::Mult => "*",
+        ast::Operator::Div => "/",
+        ast::Operator::FloorDiv => "//",
+        ast::Operator::Mod => "%",
+        ast::Operator::Pow => "**",
+        _ => unreachable!("an operator with a special method"),
+    };
+    if augmented {
+        format!("{symbol}=")
+    } else {
+        symbol.to_owned()
     }
 }
 

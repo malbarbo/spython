@@ -377,6 +377,42 @@ fn an_exception_in_add_has_the_frame_of_the_method() {
     );
 }
 
+/// An arithmetic operator skips the reflected method of the right object
+/// when the two objects have the same class, and raises `TypeError` when
+/// the left one has no method.
+#[test]
+fn an_operator_on_two_objects_of_the_same_class_skips_the_reflected_method() {
+    for (name, operation) in [
+        ("add", "print(x + y)"),
+        ("pow", "print(x ** y)"),
+        ("iadd", "x += y"),
+    ] {
+        same_as_cpython(
+            &format!("an_operator_on_two_objects_of_the_same_class_{name}"),
+            &formatdoc! {"
+                class A:
+                    pass
+
+                class B(A):
+                    def __radd__(self, other: A) -> 'B':
+                        return self
+
+                    def __rpow__(self, other: A) -> int:
+                        return 2
+
+                    def __repr__(self) -> str:
+                        return 'B()'
+
+                def f(x: A, y: B) -> None:
+                    {operation}
+
+                print(A() + B(), A() ** B())
+                f(B(), B())
+            "},
+        );
+    }
+}
+
 /// `+=` calls `__iadd__` when the class of the object on the left has
 /// it, and takes the value of `+` otherwise. The target gets the result.
 #[test]

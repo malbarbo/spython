@@ -333,7 +333,12 @@ impl<'a> Lowering<'a, '_> {
         };
         let left = self.expr(base)?;
         let right = self.expr(exp)?;
-        self.binary(call, ast::Operator::Pow, (left, base), (right, exp))
+        self.binary(
+            call,
+            (ast::Operator::Pow, false),
+            (left, base),
+            (right, exp),
+        )
     }
 
     /// `round(x)` or `round(x, None)` of a number, which gives an `int`,

@@ -159,7 +159,7 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::BinOp(b) => {
                 let left = self.expr(&b.left)?;
                 let right = self.expr(&b.right)?;
-                self.binary(b, b.op, (left, &*b.left), (right, &*b.right))
+                self.binary(b, (b.op, false), (left, &*b.left), (right, &*b.right))
             }
             ast::Expr::BoolOp(b) => self.bool_value(expr, b),
             ast::Expr::If(i) => {
@@ -713,12 +713,12 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn binary(
         &self,
         node: &impl Ranged,
-        op: ast::Operator,
+        (op, augmented): (ast::Operator, bool),
         (left, left_node): (Expr, &impl Ranged),
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
         if left.rep().class().is_some() || right.rep().class().is_some() {
-            return self.special_arith(node, op, left, right);
+            return self.special_arith(node, (op, augmented), left, right);
         }
         match (op, left.rep(), right.rep()) {
             (ast::Operator::Add, Rep::List(a), Rep::List(b)) if a == b => {
