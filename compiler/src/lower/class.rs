@@ -1339,28 +1339,7 @@ impl<'a> Lowering<'a, '_> {
         }
         let init = self.class_init(class);
         let sig = self.funcs.borrow().get(init).clone();
-        let names: Vec<String> = self
-            .classes
-            .borrow()
-            .get(class)
-            .fields
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect();
-        // The index of a parameter of the checker may count `self`, and the
-        // name finds the field.
-        let bindings: Vec<ArgBinding> = call_bindings(self.model(), call)
-            .ok_or_else(|| unsupported(call, "a call with these arguments"))?
-            .into_iter()
-            .map(|binding| ArgBinding {
-                parameter: binding
-                    .parameter_name
-                    .as_deref()
-                    .and_then(|param| names.iter().position(|name| name == param)),
-                parameter_name: binding.parameter_name,
-                parameter_shape: None,
-            })
-            .collect();
+        let bindings = self.field_bindings(call, class)?;
         let (args, order) = self.arguments(call, &sig, Some(&bindings))?;
         let value = Expr::Call {
             func: init,
@@ -1540,16 +1519,7 @@ impl<'a> Lowering<'a, '_> {
         }
         let func = self.reinit(class);
         let sig = self.funcs.borrow().get(func).clone();
-        let names: Vec<String> = self
-            .classes
-            .borrow()
-            .get(class)
-            .fields
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect();
-        let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let bindings = self.bindings_by_name(call, &names)?;
+        let bindings = self.field_bindings(call, class)?;
         let mut rest = sig.clone();
         rest.params.remove(0);
         rest.defaults.remove(0);
@@ -1623,6 +1593,26 @@ impl<'a> Lowering<'a, '_> {
         // The code of an example of a docstring is in the range of the
         // `def` too.
         (scope.doctest.is_none() && scope.name == method.name.as_str()).then_some((class, method))
+    }
+
+    /// The bindings of the checker for the arguments of `call`, a call of
+    /// the `__init__` of `class`, a dataclass, whose parameters are the
+    /// fields.
+    fn field_bindings(
+        &self,
+        call: &ast::ExprCall,
+        class: ClassId,
+    ) -> Result<Vec<ArgBinding>, Error> {
+        let names: Vec<String> = self
+            .classes
+            .borrow()
+            .get(class)
+            .fields
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        self.bindings_by_name(call, &names)
     }
 
     /// The bindings of the checker for the arguments of `call`, with the
