@@ -284,17 +284,13 @@ def join(s: str, parts: list[str]) -> str:
     if n == 0:
         return ""
     size = len(s) * (n - 1)
-    i = 0
-    while i < n:
+    for i in range(n):
         size += len(item(parts, i))
-        i += 1
     b = builder_new(size)
     at = put(b, 0, item(parts, 0))
-    i = 1
-    while i < n:
+    for i in range(1, n):
         at = put(b, at, s)
         at = put(b, at, item(parts, i))
-        i += 1
     return builder_done(b)
 
 

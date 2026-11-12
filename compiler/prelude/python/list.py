@@ -79,12 +79,9 @@ def index[T](
 ) -> int:
     """The index of the first item of `xs` equal to `x`, between `start` and `stop`, which go
     from the end when they are negative."""
-    i = slice_start(start, len(xs))
-    end = slice_end(stop, len(xs))
-    while i < end:
+    for i in range(slice_start(start, len(xs)), slice_end(stop, len(xs))):
         if item(xs, i) == x:
             return i
-        i += 1
     raise ValueError(repr(x) + " is not in list")
 
 
@@ -179,10 +176,8 @@ def grow[T](xs: list[T], need: int) -> None:
 def repr_of[T](xs: list[T]) -> str:
     """The `repr` of `xs`, which is also its `str`."""
     parts: list[str] = []
-    i = 0
-    while i < len(xs):
+    for i in range(len(xs)):
         parts.append(repr(item(xs, i)))
-        i += 1
     return "[" + ", ".join(parts) + "]"
 
 
