@@ -25,7 +25,15 @@ impl<'a> Lowering<'a, '_> {
                 operand,
                 ..
             }) => Ok(Expr::Not(Box::new(self.truth_of(operand)?))),
-            _ => truth(self.expr(expr)?, expr),
+            _ => self.truth(self.expr(expr)?, expr),
+        }
+    }
+
+    /// The truth of `lowered`, the value of `node`, as a `bool`.
+    pub(super) fn truth(&self, lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
+        match self.special_truth(node, lowered)? {
+            Ok(truth) => Ok(truth),
+            Err(lowered) => truth(lowered, node),
         }
     }
 
@@ -824,6 +832,17 @@ impl<'a> Lowering<'a, '_> {
         match lowered.rep() {
             Rep::None => Err(unsupported(operand, "the truth of None")),
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(operand, "the truth of a union")),
+            Rep::Object(class) | Rep::ObjectOrNone(class)
+                if self.descendants(class).into_iter().any(|class| {
+                    self.method(class, "__bool__").is_some()
+                        || self.method(class, "__len__").is_some()
+                }) =>
+            {
+                Err(unsupported(
+                    operand,
+                    "an operand of and or or with __bool__ or __len__",
+                ))
+            }
             Rep::Int
             | Rep::Float
             | Rep::Bool
@@ -894,14 +913,14 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
     }
 }
 
-/// The truth of `lowered`, the value of `node`, as a `bool`.
-pub(super) fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
+/// The truth of `lowered`, the value of `node`, as a `bool`, for a value
+/// that calls no special method.
+fn truth(lowered: Expr, node: &impl Ranged) -> Result<Expr, Error> {
     match lowered.rep() {
         Rep::Bool => Ok(lowered),
-        // An object is true, since neither form of a class defines
-        // `__bool__` or `__len__`, and an object or `None` is true when it
-        // is an object. A list or `None` is true when it is a list with
-        // items.
+        // An object of a class without `__bool__` and `__len__` is true,
+        // and an object or `None` is true when it is an object. A list or
+        // `None` is true when it is a list with items.
         Rep::Int
         | Rep::Float
         | Rep::Str

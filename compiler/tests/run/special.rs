@@ -1,7 +1,7 @@
 //! The special methods of a class of the program, which the operators and
 //! the builtins call.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::{same_as_cpython, unsupported};
 
@@ -448,6 +448,88 @@ fn an_augmented_assignment_calls_iadd() {
     );
 }
 
+/// `len` calls `__len__`, and the truth of an object calls `__bool__`, or
+/// else `__len__`. A negative length raises `ValueError`.
+#[test]
+fn len_and_the_truth_call_the_special_methods() {
+    same_as_cpython(
+        "len_and_the_truth_call_the_special_methods",
+        indoc! {"
+            class Pilha:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __len__(self) -> int:
+                    print('len', self.n)
+                    return self.n
+
+
+            class Cheia(Pilha):
+                def __bool__(self) -> bool:
+                    print('bool', self.n)
+                    return self.n > 10
+
+
+            class Nada:
+                pass
+
+
+            class Bool:
+                def __bool__(self) -> bool:
+                    return False
+
+
+            def vazia(p: Pilha | None) -> bool:
+                return not p
+
+
+            p = Pilha(0)
+            q = Pilha(3)
+            print(len(p), len(q), len(Cheia(4)), bool(p), bool(q), bool(Cheia(4)), bool(Cheia(11)))
+            if q and not p:
+                print('sim')
+            print(vazia(None), vazia(p), vazia(Cheia(20)), bool(Nada()), bool(Bool()), not Bool())
+            x: Bool | None = Bool()
+            while x:
+                x = None
+            print(len(Pilha(-1)))
+        "},
+    );
+}
+
+/// The traceback has the frame of `__len__` after the frame of the line
+/// of `len` or of the `if`.
+#[test]
+fn an_exception_in_len_has_the_frame_of_the_method() {
+    for (name, use_) in [
+        ("an_exception_in_len_called_by_len", "print(len(Pilha(0)))"),
+        (
+            "an_exception_in_len_called_by_if",
+            "if Pilha(0):\n    print(1)",
+        ),
+        ("a_negative_len_called_by_if", "if Pilha(-1):\n    print(1)"),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                class Pilha:
+                    n: int
+
+                    def __init__(self, n: int) -> None:
+                        self.n = n
+
+                    def __len__(self) -> int:
+                        return 1 // self.n if self.n >= 0 else self.n
+
+                print(len(Pilha(1)))
+                {use_}
+            "},
+        );
+    }
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [
@@ -485,6 +567,24 @@ fn eq_outside_the_accepted_form_is_unsupported() {
                         return 1
             "},
             "a method of an operator other than (self, other)",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __len__(self, x: int = 0) -> int:
+                        return 1
+            "},
+            "a __neg__, __len__ or __bool__ other than (self)",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __bool__(self) -> bool:
+                        return False
+
+                x = P() or 1
+            "},
+            "an operand of and or or with __bool__ or __len__",
         ),
         (
             indoc! {"

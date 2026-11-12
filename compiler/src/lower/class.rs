@@ -448,15 +448,25 @@ impl<'a> Lowering<'a, '_> {
     /// differ from the ones that the operator gives and takes. `__eq__`
     /// and `__ne__` take any value, and the methods of an order take one
     /// value, and each of them gives a `bool`. The method of an arithmetic
-    /// operator takes one value, and `__neg__` takes none.
+    /// operator takes one value, and `__neg__`, `__len__` and `__bool__`
+    /// take none. `__len__` gives an `int`, and `__bool__` a `bool`.
     fn check_special(&self, class: ClassId, method: Method<'a>) -> Result<(), Error> {
         let name = method.def.name.as_str();
         let funcs = self.funcs.borrow();
         let sig = funcs.get(method.func());
         let defaults = params_of(method.def).any(|param| param.default.is_some());
-        if name == "__neg__" {
-            if defaults || sig.params.len() != 1 {
-                return Err(unsupported(method.def, "a __neg__ other than (self)"));
+        let unary = match name {
+            "__neg__" => Some(None),
+            "__len__" => Some(Some(Rep::Int)),
+            "__bool__" => Some(Some(Rep::Bool)),
+            _ => None,
+        };
+        if let Some(ret) = unary {
+            if defaults || sig.params.len() != 1 || ret.is_some_and(|ret| sig.ret != ret) {
+                return Err(unsupported(
+                    method.def,
+                    "a __neg__, __len__ or __bool__ other than (self)",
+                ));
             }
             return Ok(());
         }
@@ -2530,6 +2540,8 @@ const COMPILED_SPECIAL: &[&str] = &[
     "__pow__",
     "__rpow__",
     "__neg__",
+    "__len__",
+    "__bool__",
     "__iadd__",
     "__isub__",
     "__imul__",

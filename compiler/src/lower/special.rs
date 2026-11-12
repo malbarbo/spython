@@ -355,6 +355,106 @@ impl Lowering<'_, '_> {
         Ok(generated_call(func, vec![left, right], ret, site))
     }
 
+    /// `len(operand)` of `call`, an object, which calls `__len__` of its
+    /// class. A negative result raises `ValueError`.
+    pub(super) fn special_len(&self, call: &ast::ExprCall, operand: Expr) -> Result<Expr, Error> {
+        let Rep::Object(class) = operand.rep() else {
+            return Err(unsupported(call, "len of an object of a union"));
+        };
+        let method = self
+            .method(class, "__len__")
+            .ok_or_else(|| unsupported(call, "len of this type"))?;
+        let func = self.method_slot(class, method);
+        let len = generated_call(func, vec![operand], Rep::Int, self.site(call.range()));
+        self.prelude_call(call, "int", "length", vec![len])
+    }
+
+    /// The truth of `value`, an object or an object or `None`, at `node`,
+    /// as a `bool`, and `None` when no class of the object has `__bool__`
+    /// or `__len__`. An object calls the `__bool__` of its class, or else
+    /// its `__len__`, which gives `False` for 0. `None` is false.
+    pub(super) fn special_truth(
+        &self,
+        node: &impl Ranged,
+        value: Expr,
+    ) -> Result<Result<Expr, Expr>, Error> {
+        let Some(class) = value.rep().class() else {
+            return Ok(Err(value));
+        };
+        let classes = self.descendants(class);
+        let truths: Vec<Option<(&str, FuncId)>> = classes
+            .iter()
+            .map(|class| {
+                ["__bool__", "__len__"].into_iter().find_map(|name| {
+                    let func = self.method(*class, name)?.func?;
+                    Some((name, func))
+                })
+            })
+            .collect();
+        if truths.iter().all(Option::is_none) {
+            return Ok(Err(value));
+        }
+        let site = self.site(node.range());
+        let truth = |truth: Option<(&str, FuncId)>, object: Expr| match truth {
+            None => Ok(Expr::Bool(true)),
+            Some((name, func)) => {
+                let sig = self.funcs.borrow().get(func).clone();
+                let receiver = *sig.params.first().expect("a method has self");
+                let call = generated_call(func, vec![widen(object, receiver)], sig.ret, site);
+                if name == "__bool__" {
+                    return Ok(call);
+                }
+                let len = self.prelude_call(node, "int", "length", vec![call])?;
+                Ok(Expr::Compare(
+                    Box::new(len),
+                    vec![(CmpOp::Ne, Expr::Int(0))],
+                ))
+            }
+        };
+        let first = truths.first().copied().flatten();
+        let same = truths.iter().all(|truth| *truth == first);
+        if same && let Rep::Object(_) = value.rep() {
+            return truth(first, value).map(Ok);
+        }
+        let object = || param(0, Rep::Object(class));
+        let mut body = Vec::new();
+        if let Rep::ObjectOrNone(_) = value.rep() {
+            body.push(Stmt::If {
+                cond: Expr::IsNone(Box::new(param(0, value.rep()))),
+                then: vec![Stmt::Return(Some(Expr::Bool(false)))],
+                else_: Vec::new(),
+            });
+        }
+        let narrowed = || match value.rep() {
+            Rep::ObjectOrNone(_) => Expr::Narrow {
+                value: Box::new(param(0, value.rep())),
+                rep: Rep::Object(class),
+            },
+            _ => object(),
+        };
+        if same {
+            body.push(Stmt::Return(Some(truth(first, narrowed())?)));
+        } else {
+            for (exact, own) in classes.iter().zip(&truths) {
+                let exact_value = Expr::AsExact {
+                    value: Box::new(narrowed()),
+                    class: *exact,
+                };
+                body.push(Stmt::If {
+                    cond: Expr::IsExact {
+                        value: Box::new(narrowed()),
+                        class: *exact,
+                    },
+                    then: vec![Stmt::Return(Some(truth(*own, exact_value)?))],
+                    else_: Vec::new(),
+                });
+            }
+            body.push(Stmt::Unreachable);
+        }
+        let func = self.generated(vec![value.rep()], Rep::Bool, body);
+        Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
+    }
+
     /// `-operand` of `u`, an object, which calls `__neg__` of its class.
     pub(super) fn special_neg(&self, u: &ast::ExprUnaryOp, operand: Expr) -> Result<Expr, Error> {
         let Rep::Object(class) = operand.rep() else {

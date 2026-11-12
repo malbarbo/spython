@@ -186,6 +186,9 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(call, "this call of len"));
         };
         let operand = self.expr(arg)?;
+        if operand.rep().class().is_some() {
+            return self.special_len(call, operand);
+        }
         if !matches!(operand.rep(), Rep::Str | Rep::List(_)) {
             return Err(unsupported(arg, "len of this type"));
         }

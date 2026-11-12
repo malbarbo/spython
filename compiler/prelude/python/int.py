@@ -16,6 +16,14 @@ def power(base: int, exp: int) -> int | float:
     return natural_power(base, exp)
 
 
+def length(n: int) -> int:
+    """`n`, the result of a method `__len__`, which `len` and the truth of an object take. A
+    negative `n` raises `ValueError`."""
+    if n < 0:
+        raise ValueError("__len__() should return >= 0")
+    return n
+
+
 def int_of_str(s: str, base: int) -> int:
     """`int(s, base)`, as `PyLong_FromString` of CPython reads `s` after it
     takes each decimal digit to ASCII and each white space to a space."""
