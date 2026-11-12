@@ -535,6 +535,39 @@ fn len_and_the_truth_call_the_special_methods() {
     );
 }
 
+/// An object of a class without `__bool__` and `__len__` is true, and an
+/// object of a subclass calls the method of the subclass.
+#[test]
+fn the_truth_of_an_object_calls_the_method_of_its_class() {
+    same_as_cpython(
+        "the_truth_of_an_object_calls_the_method_of_its_class",
+        indoc! {"
+            class Forma:
+                pass
+
+            class Vazia(Forma):
+                def __len__(self) -> int:
+                    return 0
+
+            class Falsa(Vazia):
+                def __bool__(self) -> bool:
+                    return False
+
+            class Quadrado(Forma):
+                pass
+
+            def diz(f: Forma) -> str:
+                return 'sim' if f else 'não'
+
+            def talvez(f: Forma | None) -> str:
+                return 'sim' if f else 'não'
+
+            print(diz(Forma()), diz(Vazia()), diz(Falsa()), diz(Quadrado()))
+            print(talvez(None), talvez(Forma()), talvez(Vazia()), talvez(Quadrado()))
+        "},
+    );
+}
+
 /// The traceback has the frame of `__len__` after the frame of the line
 /// of `len` or of the `if`.
 #[test]

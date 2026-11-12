@@ -389,60 +389,45 @@ impl Lowering<'_, '_> {
     /// The truth of `value`, an object, an object or `None` or a value of
     /// a union, at `node`, as a `bool`, where `shape` gives the type of a
     /// value of a union, and `Err` with `value` back when no class of the
-    /// value has `__bool__` or `__len__`. An object calls
-    /// the `__bool__` of its class, or else its `__len__`, which gives
-    /// `False` for 0. `None` is false.
+    /// value has `__bool__` or `__len__`. `None` is false.
     pub(super) fn special_truth(
         &self,
         node: &impl Ranged,
         value: Expr,
         shape: impl FnOnce() -> Option<Shape>,
     ) -> Result<Result<Expr, Expr>, Error> {
-        if value.rep() == Rep::Uniform {
+        let rep = value.rep();
+        if rep == Rep::Uniform {
             return self.uniform_truth(node, value, shape());
         }
-        let Some(class) = value.rep().class() else {
+        let Some(class) = rep.class() else {
             return Ok(Err(value));
         };
         let classes = self.descendants(class);
-        let truths: Vec<Option<(&str, FuncId)>> = classes
+        if classes
             .iter()
-            .map(|class| self.truth_method(*class))
-            .collect();
-        if truths.iter().all(Option::is_none) {
+            .all(|class| self.truth_method(*class).is_none())
+        {
             return Ok(Err(value));
         }
+        let func = self.class_truth(class);
         let site = self.site(node.range());
-        let truth = |truth, object| self.object_truth(node, truth, object, site);
-        let first = truths.first().copied().flatten();
-        let same = truths.iter().all(|truth| *truth == first);
-        if same && let Rep::Object(_) = value.rep() {
-            return truth(first, value).map(Ok);
+        if let Rep::Object(_) = rep {
+            return Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)));
         }
-        let object = || param(0, Rep::Object(class));
-        let mut body = Vec::new();
-        if let Rep::ObjectOrNone(_) = value.rep() {
-            body.push(Stmt::If {
-                cond: Expr::IsNone(Box::new(param(0, value.rep()))),
+        let object = Expr::Narrow {
+            value: Box::new(param(0, rep)),
+            rep: Rep::Object(class),
+        };
+        let body = vec![
+            Stmt::If {
+                cond: Expr::IsNone(Box::new(param(0, rep))),
                 then: vec![Stmt::Return(Some(Expr::Bool(false)))],
                 else_: Vec::new(),
-            });
-        }
-        let narrowed = || match value.rep() {
-            Rep::ObjectOrNone(_) => Expr::Narrow {
-                value: Box::new(param(0, value.rep())),
-                rep: Rep::Object(class),
             },
-            _ => object(),
-        };
-        if same {
-            body.push(Stmt::Return(Some(truth(first, narrowed())?)));
-        } else {
-            let arms = classes.into_iter().zip(truths);
-            body.extend(self.truth_arms(node, narrowed, arms, site)?);
-            body.push(Stmt::Unreachable);
-        }
-        let func = self.generated(vec![value.rep()], Rep::Bool, body);
+            Stmt::Return(Some(generated_call(func, vec![object], Rep::Bool, site))),
+        ];
+        let func = self.generated(vec![rep], Rep::Bool, body);
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
     }
 
@@ -456,20 +441,34 @@ impl Lowering<'_, '_> {
         value: Expr,
         shape: Option<Shape>,
     ) -> Result<Result<Expr, Expr>, Error> {
-        let methods: Vec<_> = self
-            .uniform_classes(shape, |class| self.truth_method(class).is_some())
-            .into_iter()
-            .filter_map(|class| Some((class, self.truth_method(class)?)))
-            .collect();
-        if methods.is_empty() {
+        let classes = self.uniform_classes(shape, |class| self.truth_method(class).is_some());
+        if classes.is_empty() {
             return Ok(Err(value));
         }
         let site = self.site(node.range());
         let uniform = || param(0, Rep::Uniform);
-        let arms = methods
-            .into_iter()
-            .map(|(class, method)| (class, Some(method)));
-        let mut body = self.truth_arms(node, uniform, arms, site)?;
+        let mut body = Vec::new();
+        for class in classes {
+            let func = self.exact_truth(class)?;
+            let object = Expr::AsExact {
+                value: Box::new(uniform()),
+                class,
+            };
+            let truth = generated_call(
+                func,
+                vec![widen(object, self.self_rep(func))],
+                Rep::Bool,
+                site,
+            );
+            body.push(Stmt::If {
+                cond: Expr::IsExact {
+                    value: Box::new(uniform()),
+                    class,
+                },
+                then: vec![Stmt::Return(Some(truth))],
+                else_: Vec::new(),
+            });
+        }
         body.push(Stmt::Return(Some(Expr::Truth(Box::new(uniform())))));
         let func = self.generated(vec![Rep::Uniform], Rep::Bool, body);
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
@@ -485,58 +484,41 @@ impl Lowering<'_, '_> {
         })
     }
 
-    /// The code that returns the truth of `value()` at `site` when it is an
-    /// object of exactly the class of an arm, by the method of the arm.
-    fn truth_arms<'n>(
-        &self,
-        node: &impl Ranged,
-        value: impl Fn() -> Expr,
-        arms: impl IntoIterator<Item = (ClassId, Option<(&'n str, FuncId)>)>,
-        site: Site,
-    ) -> Result<Vec<Stmt>, Error> {
-        arms.into_iter()
-            .map(|(class, method)| {
-                let object = Expr::AsExact {
-                    value: Box::new(value()),
-                    class,
-                };
-                Ok(Stmt::If {
-                    cond: Expr::IsExact {
-                        value: Box::new(value()),
-                        class,
-                    },
-                    then: vec![Stmt::Return(Some(
-                        self.object_truth(node, method, object, site)?,
-                    ))],
-                    else_: Vec::new(),
-                })
-            })
-            .collect()
-    }
-
-    /// The truth of `object` at `site`, which calls `method`, the one of
-    /// [`Self::truth_method`]. An object without that method is true.
-    fn object_truth(
-        &self,
-        node: &impl Ranged,
-        method: Option<(&str, FuncId)>,
-        object: Expr,
-        site: Site,
-    ) -> Result<Expr, Error> {
-        let Some((name, func)) = method else {
-            return Ok(Expr::Bool(true));
+    /// The function that gives the truth of an object of exactly `class`.
+    /// It calls `__bool__`, or else `__len__`, which gives `False` for 0
+    /// and raises `ValueError` when negative. An object of a class with
+    /// neither is true. Each class whose truth comes from the same
+    /// `__len__`, or from neither method in the same hierarchy, shares the
+    /// function.
+    pub(super) fn exact_truth(&self, class: ClassId) -> Result<FuncId, Error> {
+        let method = self.truth_method(class);
+        let owner = match method {
+            Some(("__bool__", func)) => return Ok(func),
+            Some((_, func)) => self.receiver(func),
+            None => {
+                let classes = self.classes.borrow();
+                classes.chain(class).last().expect("a class in its chain")
+            }
         };
-        let sig = self.funcs.borrow().get(func).clone();
-        let receiver = *sig.params.first().expect("a method has self");
-        let call = generated_call(func, vec![widen(object, receiver)], sig.ret, site);
-        if name == "__bool__" {
-            return Ok(call);
+        if let Some(func) = self.classes.borrow().get(owner).own_truth {
+            return Ok(func);
         }
-        let len = self.prelude_call(node, "int", "length", vec![call])?;
-        Ok(Expr::Compare(
-            Box::new(len),
-            vec![(CmpOp::Ne, Expr::Int(0))],
-        ))
+        let object = param(0, Rep::Object(owner));
+        let truth = match method {
+            Some((_, func)) => {
+                let len = generated_call(func, vec![object], Rep::Int, Site::NONE);
+                let len = self.prelude_call_at("int", "length", vec![len], Site::NONE)?;
+                Expr::Compare(Box::new(len), vec![(CmpOp::Ne, Expr::Int(0))])
+            }
+            None => Expr::Bool(true),
+        };
+        let func = self.generated(
+            vec![Rep::Object(owner)],
+            Rep::Bool,
+            vec![Stmt::Return(Some(truth))],
+        );
+        self.classes.borrow_mut().get_mut(owner).own_truth = Some(func);
+        Ok(func)
     }
 
     /// The call at `node` of the method `name` of the class of an object,

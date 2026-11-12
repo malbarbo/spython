@@ -58,6 +58,8 @@ pub(super) enum Key {
     Str,
     /// The `repr` of the object.
     Repr,
+    /// The truth of the object.
+    Truth,
 }
 
 /// The function that a call of `key` through a value of `class` calls,
@@ -176,6 +178,10 @@ pub(super) struct Declared<'a> {
     /// The `repr` that the compiler writes for an object of exactly the
     /// class, and that a class without `__repr__` has.
     pub own_repr: Option<FuncId>,
+    /// The truth that the compiler writes for an object of a class whose
+    /// truth comes from the `__len__` of this class, or, for a class
+    /// without a base, from neither `__bool__` nor `__len__`.
+    pub own_truth: Option<FuncId>,
     /// The function that makes an object from a value for each field of a
     /// dataclass, or for each parameter of the `__init__` of a class of
     /// [`Kind::Plain`], once a call needs it.
@@ -308,6 +314,7 @@ impl<'a> Lowering<'a, '_> {
             members,
             own_str: None,
             own_repr: None,
+            own_truth: None,
             init: None,
             reinit: None,
             methods,
@@ -933,6 +940,18 @@ impl<'a> Lowering<'a, '_> {
         self.slot(class, key, vec![Rep::Object(class)], Rep::Str, Vec::new())
     }
 
+    /// The function that gives the truth of a value of `class`. An object
+    /// of a subclass may have its own.
+    pub(super) fn class_truth(&self, class: ClassId) -> FuncId {
+        self.slot(
+            class,
+            Key::Truth,
+            vec![Rep::Object(class)],
+            Rep::Bool,
+            Vec::new(),
+        )
+    }
+
     /// The function that a call of `key` through a value of `class` calls,
     /// with a parameter of each rep of `params`, the first an object of
     /// `class`, the global of each default in `defaults`, and a result of
@@ -999,6 +1018,7 @@ impl<'a> Lowering<'a, '_> {
                             .func(),
                         Key::Str => self.exact_str(exact)?,
                         Key::Repr => self.exact_repr(exact)?,
+                        Key::Truth => self.exact_truth(exact)?,
                     };
                     Ok((exact, body))
                 })
@@ -1031,7 +1051,7 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The class of the first parameter of `func`, a method.
-    fn receiver(&self, func: FuncId) -> ClassId {
+    pub(super) fn receiver(&self, func: FuncId) -> ClassId {
         self.self_rep(func).class().expect("self is an object")
     }
 
