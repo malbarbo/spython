@@ -659,7 +659,11 @@ impl Reprs {
             Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 f.ins().ref_is_null().i32_eqz();
             }
-            Rep::List(list) | Rep::ListOrNone(list) => self.list.truth(f, list.index()),
+            Rep::List(list) => {
+                self.list.len(f, list.index());
+                f.ins().i32_const(0).i32_ne();
+            }
+            Rep::ListOrNone(list) => self.list.truth(f, list.index()),
             Rep::None | Rep::StrOrNone | Rep::Uniform => unreachable!("the truth of {rep:?}"),
         }
     }
@@ -1322,15 +1326,13 @@ impl Reprs {
                 f.end();
                 f.free(value);
             }
-            // The `str` of a list is its `repr`, and a list or `None` may be
-            // null.
-            Rep::List(list) | Rep::ListOrNone(list) => {
-                let repr = self
-                    .list_reprs
-                    .get(list.index())
-                    .copied()
-                    .flatten()
-                    .expect("the repr of a list that the program writes");
+            // The `str` of a list is its `repr`.
+            Rep::List(list) => {
+                f.ins().call(self.list_repr(list));
+                self.str.write(f);
+            }
+            Rep::ListOrNone(list) => {
+                let repr = self.list_repr(list);
                 let value = f.temp(self.list_type(list).ref_to(true));
                 f.ins().local_tee(value).ref_is_null();
                 f.if_(BlockType::Empty);
@@ -1342,6 +1344,15 @@ impl Reprs {
                 f.free(value);
             }
         }
+    }
+
+    /// The function that gives the `repr` of a list of the type `list`.
+    fn list_repr(&self, list: ListId) -> FuncIdx {
+        self.list_reprs
+            .get(list.index())
+            .copied()
+            .flatten()
+            .expect("the repr of a list that the program writes")
     }
 
     /// The function that gives the `str` of an object of `class`.
