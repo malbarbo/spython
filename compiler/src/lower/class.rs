@@ -1642,6 +1642,13 @@ impl<'a> Lowering<'a, '_> {
                         .ok_or_else(|| unsupported(stmt, "a field of this type"))?;
                     checked.push((name, shape));
                 }
+                // The compiler calls no special method other than `__init__`
+                // for an operator or a builtin yet.
+                ast::Stmt::FunctionDef(method)
+                    if is_special(&method.name) && method.name.as_str() != "__init__" =>
+                {
+                    return Err(unsupported(method, "this special method"));
+                }
                 ast::Stmt::FunctionDef(method) => push_method(&mut methods, method)?,
                 _ => return Err(unsupported(stmt, "this statement in a class")),
             }

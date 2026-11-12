@@ -413,6 +413,18 @@ fn a_method_of_none_raises_attribute_error() {
     );
 }
 
+#[test]
+fn a_special_method_other_than_init_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            class Ponto:
+                def __eq__(self, other: object) -> bool:
+                    return True
+        "}),
+        "this special method"
+    );
+}
+
 /// A method called in `__init__` may read any field.
 #[test]
 fn a_method_call_in_init_before_each_field_is_unsupported() {
