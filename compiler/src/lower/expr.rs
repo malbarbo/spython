@@ -384,12 +384,18 @@ impl<'a> Lowering<'a, '_> {
                 value,
                 rep: Rep::None,
             } => *value,
-            Expr::Narrow { value, rep } if !matches!(from, Rep::ObjectOrNone(_)) => Expr::Expect {
-                value,
-                rep,
-                text: format!("{what} changed after the test that narrowed its type"),
-                site: self.site(range),
-            },
+            // An object or `None` that the test narrows to an object of its
+            // class may be null.
+            Expr::Narrow { value, rep }
+                if !(from.class().is_some() && from.class() == rep.class()) =>
+            {
+                Expr::Expect {
+                    value,
+                    rep,
+                    text: format!("{what} changed after the test that narrowed its type"),
+                    site: self.site(range),
+                }
+            }
             narrowed => narrowed,
         })
     }

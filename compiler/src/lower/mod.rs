@@ -1068,18 +1068,21 @@ impl Lowering<'_, '_> {
     }
 
     /// Returns `true` if a variable of `rep` holds the values of `value`,
-    /// `false` otherwise.
+    /// `false` otherwise. A variable of a class holds an object of a class
+    /// that descends from it.
     fn holds(&self, rep: Rep, value: Rep) -> bool {
-        match rep {
-            Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
-            Rep::ObjectOrNone(class) => {
-                matches!(value, Rep::None) || value == Rep::Object(class) || value == rep
+        match (rep, value) {
+            (Rep::Object(class), Rep::Object(other))
+            | (Rep::ObjectOrNone(class), Rep::Object(other) | Rep::ObjectOrNone(other)) => {
+                self.descends(other, class)
             }
-            Rep::ListOrNone(list) => {
+            (Rep::ObjectOrNone(_), Rep::None) => true,
+            (Rep::StrOrNone, _) => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
+            (Rep::ListOrNone(list), _) => {
                 matches!(value, Rep::None) || value == Rep::List(list) || value == rep
             }
             // The dispatch of a uniform value knows no list.
-            Rep::Uniform => value.list().is_none(),
+            (Rep::Uniform, _) => value.list().is_none(),
             _ => rep == value,
         }
     }
@@ -1097,11 +1100,14 @@ impl Lowering<'_, '_> {
             .all(|rep| matches!(rep, Rep::Str | Rep::None | Rep::StrOrNone))
         {
             Rep::StrOrNone
-        } else if let Some(class) = a.class().or(b.class())
-            && pair
-                .iter()
-                .all(|rep| *rep == Rep::None || rep.class() == Some(class))
-        {
+        } else if let Some(class) = pair.iter().filter_map(|rep| rep.class()).find(|class| {
+            pair.iter().all(|rep| {
+                *rep == Rep::None
+                    || rep
+                        .class()
+                        .is_some_and(|other| self.descends(other, *class))
+            })
+        }) {
             Rep::ObjectOrNone(class)
         } else if let Some(list) = a.list().or(b.list())
             && pair

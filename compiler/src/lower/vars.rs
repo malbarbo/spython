@@ -129,18 +129,29 @@ impl<'a> Lowering<'a, '_> {
     /// [`Self::narrowed`] of the read `name`, which builds the node of the
     /// read only for a union.
     fn narrowed_name(&self, name: &ast::ExprName, load: Expr) -> Result<Expr, Error> {
-        if !is_union(load.rep()) {
+        if !self.may_narrow(load.rep()) {
             return Ok(load);
         }
         self.narrowed(&ast::Expr::Name(name.clone()), load)
     }
 
+    /// Returns `true` if the checker may give a narrower type to a value
+    /// of `rep` after a test, as it does for a union and for a class with
+    /// subclasses, `false` otherwise.
+    fn may_narrow(&self, rep: Rep) -> bool {
+        is_union(rep)
+            || rep
+                .class()
+                .is_some_and(|class| self.descendants(class).len() > 1)
+    }
+
     /// `load`, the read `node` of a variable or of a field, as a value of
     /// the type that the checker gives to the read. The type is narrower
-    /// than the type of a variable of a union after a test of the value.
+    /// than the type of a variable of a union, or of a class with
+    /// subclasses, after a test of the value.
     pub(super) fn narrowed(&self, node: &ast::Expr, load: Expr) -> Result<Expr, Error> {
         let rep = load.rep();
-        if !is_union(rep) {
+        if !self.may_narrow(rep) {
             return Ok(load);
         }
         let narrowed = match expr_shape(self.model(), node) {

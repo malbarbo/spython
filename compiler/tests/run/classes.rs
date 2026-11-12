@@ -875,3 +875,73 @@ fn super_outside_the_accepted_form_is_unsupported() {
         assert_eq!(unsupported(source), what, "{source}");
     }
 }
+
+/// A value of a class holds an object of a subclass, and the checker
+/// narrows a read after an assignment to the class of the object.
+#[test]
+fn an_object_of_a_subclass_is_a_value_of_its_base() {
+    same_as_cpython(
+        "an_object_of_a_subclass_is_a_value_of_its_base",
+        indoc! {"
+            class Animal:
+                nome: str
+
+                def __init__(self, nome: str) -> None:
+                    self.nome = nome
+
+                def descricao(self) -> str:
+                    return 'animal ' + self.nome
+
+            class Cachorro(Animal):
+                def late(self) -> str:
+                    return self.nome + ' late'
+
+            class Gato(Animal):
+                pass
+
+            class Filhote(Cachorro):
+                pass
+
+            class Dono:
+                pet: Animal | None
+
+                def __init__(self) -> None:
+                    self.pet = None
+
+            def descreve(a: Animal) -> str:
+                return a.descricao()
+
+            def novo(nome: str) -> Cachorro:
+                if nome == 'Bidu':
+                    return Filhote(nome)
+                return Cachorro(nome)
+
+            def primeiro(animais: list[Animal]) -> Animal | None:
+                if len(animais) > 0:
+                    return animais[0]
+                return None
+
+            a: Animal = Cachorro('Rex')
+            print(a.late(), descreve(a), descreve(Gato('Mia')))
+            animais: list[Animal] = [Cachorro('Bob'), Gato('Tom')]
+            animais.append(Cachorro('Max'))
+            for b in animais:
+                print(b.descricao(), b is animais[0])
+            p = primeiro(animais)
+            if p is not None:
+                print(p.nome)
+            d = Dono()
+            d.pet = Cachorro('Fido')
+            print(d.pet.late())
+            x: Animal | None = None
+            if len(animais) > 2:
+                x = Gato('Lua')
+            if x is not None:
+                print(x.descricao())
+            c: Animal = novo('Bidu')
+            print(c.late(), novo('Rex').late())
+            d.pet = novo('Bidu')
+            print(d.pet.late())
+        "},
+    );
+}

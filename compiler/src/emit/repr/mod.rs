@@ -610,6 +610,11 @@ impl Reprs {
             }
             // An object may be null.
             (Rep::ObjectOrNone(a), Rep::Object(b)) if a == b => {}
+            (Rep::Object(a) | Rep::ObjectOrNone(a), Rep::Object(b) | Rep::ObjectOrNone(b))
+                if self.layout.descends(b, a) =>
+            {
+                self.cast_class(f, b);
+            }
             (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
                 self.cast_class(f, class);
             }
@@ -653,7 +658,10 @@ impl Reprs {
             }
             // An object may be null.
             (Rep::Uniform, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
-                self.test_class(f, class);
+                self.test_class(f, class, true);
+            }
+            (Rep::Object(_) | Rep::ObjectOrNone(_), Rep::Object(class)) => {
+                self.test_class(f, class, false);
             }
             _ => unreachable!("a test of {from:?} for {to:?}"),
         }
@@ -667,18 +675,27 @@ impl Reprs {
             .collect()
     }
 
-    /// Pops a uniform value and pushes the `bool` of whether it is null or
-    /// an object of `class` or of a class that descends from it. Each test
-    /// names an exact type.
-    fn test_class(&self, f: &mut FuncState, class: ClassId) {
+    /// Pops a reference and pushes the `bool` of whether it is an object
+    /// of `class` or of a class that descends from it, or null when
+    /// `nullable` is `true`. Each test names an exact type.
+    fn test_class(&self, f: &mut FuncState, class: ClassId, nullable: bool) {
         let classes = self.descendants(class);
         if let [only] = *classes {
-            f.ins()
-                .ref_test_nullable(self.layout.exact(only).heap_type());
+            let exact = self.layout.exact(only).heap_type();
+            if nullable {
+                f.ins().ref_test_nullable(exact);
+            } else {
+                f.ins().ref_test(exact);
+            }
             return;
         }
         let value = f.temp(self.uniform.val_type());
-        f.ins().local_tee(value).ref_is_null();
+        f.ins().local_tee(value);
+        if nullable {
+            f.ins().ref_is_null();
+        } else {
+            f.ins().drop().i32_const(0);
+        }
         for class in classes {
             f.ins()
                 .local_get(value)
@@ -688,15 +705,19 @@ impl Reprs {
         f.free(value);
     }
 
-    /// Pops a uniform value that is null or an object of `class` or of a
-    /// class that descends from it, and pushes it as a reference to the
-    /// struct of `class`. Each cast names an exact type.
+    /// Pops a reference that is null or an object of `class` or of a class
+    /// that descends from it, and pushes it as a reference to the struct of
+    /// `class`. Each cast names an exact type.
     fn cast_class(&self, f: &mut FuncState, class: ClassId) {
         if !self.layout.is_open(class) {
             f.ins().ref_cast(self.layout.exact(class).heap_type(), true);
             return;
         }
+        let value = f.temp(self.uniform.val_type());
+        f.ins().local_set(value);
         let done = f.block(BlockType::Result(self.class(class).ref_to(true)));
+        f.ins().local_get(value);
+        f.free(value);
         for class in self.descendants(class) {
             f.br_on_cast(done, self.layout.exact(class));
         }
