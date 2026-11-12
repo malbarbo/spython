@@ -176,6 +176,7 @@ def grow[T](xs: list[T], need: int) -> None:
 def repr_of[T](xs: list[T]) -> str:
     """The `repr` of `xs`, which is also its `str`."""
     parts: list[str] = []
+    list_reserve(parts, len(xs))
     for i in range(len(xs)):
         parts.append(repr(item(xs, i)))
     return "[" + ", ".join(parts) + "]"
