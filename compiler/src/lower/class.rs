@@ -1403,18 +1403,25 @@ impl<'a> Lowering<'a, '_> {
         method: Method<'a>,
         func: FuncId,
     ) -> Result<Expr, Error> {
+        let bindings = self.param_bindings(call, method.def)?;
+        self.call_self(call, receiver, func, &bindings)
+    }
+
+    /// The call of `func`, a method, with `receiver` as `self` and the
+    /// arguments of `call` after it, which `bindings` binds.
+    fn call_self(
+        &self,
+        call: &ast::ExprCall,
+        receiver: Expr,
+        func: FuncId,
+        bindings: &[ArgBinding],
+    ) -> Result<Expr, Error> {
         let sig = self.funcs.borrow().get(func).clone();
-        let names: Vec<&str> = params_of(method.def)
-            .skip(1)
-            .map(|param| param.name().as_str())
-            .collect();
-        let bindings = self.bindings_by_name(call, &names)?;
         let mut rest = sig.clone();
         rest.params.remove(0);
         rest.defaults.remove(0);
-        let (args, order) = self.arguments(call, &rest, Some(&bindings))?;
-        let self_rep = *sig.params.first().expect("a method has self");
-        let receiver = widen(receiver, self_rep);
+        let (args, order) = self.arguments(call, &rest, Some(bindings))?;
+        let receiver = widen(receiver, self.self_rep(func));
         let order = order.map(|order| {
             std::iter::once(0)
                 .chain(order.into_iter().map(|arg| arg + 1))
@@ -1428,6 +1435,20 @@ impl<'a> Lowering<'a, '_> {
             site: self.call_site(func, call),
             check: None,
         })
+    }
+
+    /// The binding of each argument of `call` to a parameter of `def`, a
+    /// method, after `self`.
+    fn param_bindings(
+        &self,
+        call: &ast::ExprCall,
+        def: &ast::StmtFunctionDef,
+    ) -> Result<Vec<ArgBinding>, Error> {
+        let names: Vec<&str> = params_of(def)
+            .skip(1)
+            .map(|param| param.name().as_str())
+            .collect();
+        self.bindings_by_name(call, &names)
     }
 
     /// The call `call` of the method of `attr`, whose object is `sup`,
@@ -1473,28 +1494,8 @@ impl<'a> Lowering<'a, '_> {
         if self.classes.borrow().get(class).kind != (Kind::Dataclass { frozen: false }) {
             return Err(unsupported(call, "super().__init__ of a frozen dataclass"));
         }
-        let func = self.reinit(class);
-        let sig = self.funcs.borrow().get(func).clone();
         let bindings = self.field_bindings(call, class)?;
-        let mut rest = sig.clone();
-        rest.params.remove(0);
-        rest.defaults.remove(0);
-        let (args, order) = self.arguments(call, &rest, Some(&bindings))?;
-        let order = order.map(|order| {
-            std::iter::once(0)
-                .chain(order.into_iter().map(|arg| arg + 1))
-                .collect()
-        });
-        Ok(Expr::Call {
-            func,
-            args: std::iter::once(widen(object, Rep::Object(class)))
-                .chain(args)
-                .collect(),
-            order,
-            rep: Rep::None,
-            site: self.call_site(func, call),
-            check: None,
-        })
+        self.call_self(call, object, self.reinit(class), &bindings)
     }
 
     /// The function [`Declared::reinit`] of `class`.
