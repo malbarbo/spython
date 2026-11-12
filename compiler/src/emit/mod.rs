@@ -1,5 +1,6 @@
 //! From the IR to the bytes of the module.
 
+mod layout;
 pub(crate) mod module;
 mod repr;
 mod runtime;

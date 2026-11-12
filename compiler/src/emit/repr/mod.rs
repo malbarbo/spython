@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use wasm_encoder::{BlockType, ConstExpr, HeapType, StorageType, ValType};
 
+use super::layout::Layout;
 use super::module::{
     Composite, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState, TypeIdx,
 };
@@ -53,9 +54,7 @@ pub(crate) struct Reprs {
     /// the `repr` of an object runs.
     in_repr: Option<FuncIdx>,
     exc: Exceptions,
-    /// The struct of an object of each class of the program, by its
-    /// [`ClassId`].
-    classes: Vec<TypeIdx>,
+    layout: Layout,
     /// The global of each member of each class, which `_start` fills.
     members: Vec<Vec<GlobalIdx>>,
     /// The function that gives the `str` of an object of each class, when
@@ -94,15 +93,10 @@ impl Reprs {
         // A field of a class may hold an object of any class, its own too,
         // or a list, and an item of a list may be an object or another list,
         // so the types refer to each other by the indices that they will have
-        // in their rec group. The struct and the array of each list come
-        // after the classes.
-        let first = m.next_type_index();
-        let list_types: Vec<(TypeIdx, TypeIdx)> = (0..lists.len())
-            .map(|i| {
-                let list = first.plus(classes.len() + 2 * i);
-                (list, list.plus(1))
-            })
-            .collect();
+        // in their rec group.
+        let layout = Layout::new(m.next_type_index(), classes.len(), lists.len());
+        let list_types: Vec<(TypeIdx, TypeIdx)> =
+            (0..lists.len()).map(|i| layout.list(i)).collect();
         let mut reprs = Reprs {
             int,
             float,
@@ -115,7 +109,7 @@ impl Reprs {
             uniform_eqs: HashMap::new(),
             in_repr: None,
             exc,
-            classes: Vec::new(),
+            layout,
             members: Vec::new(),
             class_strs: Vec::new(),
             class_reprs: Vec::new(),
@@ -124,27 +118,19 @@ impl Reprs {
             list_reprs: Vec::new(),
             repr_stack: None,
         };
-        reprs.classes = (0..classes.len()).map(|i| first.plus(i)).collect();
         let mut composites: Vec<Composite> = classes
             .iter()
             .map(|class| {
-                Composite::Struct(
-                    class
-                        .fields
-                        .iter()
-                        .map(|rep| {
-                            let ty = reprs.value_type(*rep).expect("a field has a value");
-                            (StorageType::Val(ty), class.mutable)
-                        })
-                        .collect(),
-                )
+                Layout::class_struct(class, |rep| {
+                    reprs.value_type(rep).expect("a field has a value")
+                })
             })
             .collect();
         for (list, &(_, items)) in lists.iter().zip(&list_types) {
             let item = reprs.local_type(list.item).expect("an item has a value");
             composites.extend(ListRepr::composites(items, item));
         }
-        let node = first.plus(classes.len() + 2 * lists.len());
+        let node = reprs.layout.repr_node();
         let guarded = classes.iter().any(|class| class.repr_guard);
         if guarded {
             let object = reprs.uniform.val_type();
@@ -161,7 +147,13 @@ impl Reprs {
         let listed: Vec<TypeIdx> = list_types.iter().flat_map(|(a, b)| [*a, *b]).collect();
         let group_lists = group.split_off(classes.len());
         debug_assert_eq!(group_lists, listed, "the lists in their rec group");
-        debug_assert_eq!(group, reprs.classes, "the classes in their rec group");
+        debug_assert_eq!(
+            group,
+            (0..classes.len())
+                .map(|i| reprs.layout.class(ClassId::new(i)))
+                .collect::<Vec<_>>(),
+            "the classes in their rec group"
+        );
         reprs.members = classes
             .iter()
             .zip(group)
@@ -239,7 +231,7 @@ impl Reprs {
     /// after the test of its type.
     fn add_repr_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
         let results = [self.str.val_type(false)];
-        let classes = (0..self.classes.len()).map(ClassId::new).collect();
+        let classes = (0..self.layout.classes()).map(ClassId::new).collect();
         self.add_uniform_dispatch(m, &results, classes, |reprs, m, f, rep| match rep {
             Rep::None => reprs.str.literal(m, f, "None"),
             Rep::Str => {
@@ -455,10 +447,7 @@ impl Reprs {
 
     /// The struct of an object of `class`.
     fn class(&self, class: ClassId) -> TypeIdx {
-        *self
-            .classes
-            .get(class.index())
-            .expect("a class of the program")
+        self.layout.class(class)
     }
 
     /// The type of a value of `rep` on the stack, and `None` for a rep that
@@ -1563,7 +1552,7 @@ impl Reprs {
     /// test of its type.
     fn add_write_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
         // The print of a union makes the `str` of each class in its type.
-        let classes = (0..self.classes.len())
+        let classes = (0..self.layout.classes())
             .filter(|&i| self.class_strs.get(i).copied().flatten().is_some())
             .map(ClassId::new)
             .collect();
