@@ -88,27 +88,14 @@ pub(crate) fn lower(
         Some(_) => Some(lowering.tests_driver()?),
         None => None,
     };
-    // The lowering of a function may declare another one, which goes to the
-    // end of the queue.
     let mut funcs: Vec<Func> = Vec::new();
+    lowering.lower_queue(&mut funcs)?;
+    // The `repr` of a uniform value may meet a `str` or an object of any
+    // class, whose functions go to the end of the queue.
     let mut str_repr = None;
-    let mut reprs_made = false;
-    loop {
-        while funcs.len() < lowering.funcs.borrow().sigs.len() {
-            let id = FuncId::new(funcs.len());
-            let lowered = lowering.lowered.borrow_mut().remove(&id.index());
-            funcs.push(match lowered {
-                Some(func) => func,
-                None => lowering.func(id)?,
-            });
-        }
-        // The `repr` of a uniform value may meet a `str` or an object of
-        // any class, whose functions go to the end of the queue.
-        if !lowering.uniform_repr.get() || reprs_made {
-            break;
-        }
+    if lowering.uniform_repr.get() {
         str_repr = lowering.uniform_reprs()?;
-        reprs_made = true;
+        lowering.lower_queue(&mut funcs)?;
     }
     // The lowering of a later function may order an earlier one.
     for (func, ordered) in funcs.iter_mut().zip(&lowering.funcs.borrow().ordered) {
@@ -951,6 +938,21 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .items
             .get(list.index())
             .expect("a type of list of the program")
+    }
+
+    /// Lowers the functions of the queue after the ones in `funcs`. The
+    /// lowering of a function may declare another one, which goes to the
+    /// end of the queue.
+    fn lower_queue(&self, funcs: &mut Vec<Func>) -> Result<(), Error> {
+        while funcs.len() < self.funcs.borrow().sigs.len() {
+            let id = FuncId::new(funcs.len());
+            let lowered = self.lowered.borrow_mut().remove(&id.index());
+            funcs.push(match lowered {
+                Some(func) => func,
+                None => self.func(id)?,
+            });
+        }
+        Ok(())
     }
 
     /// Makes the function that gives the `repr` of a `str` and of an object
