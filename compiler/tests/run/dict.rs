@@ -478,3 +478,43 @@ fn a_for_over_a_dict_that_changes_raises_runtime_error() {
         );
     }
 }
+
+#[test]
+fn a_for_over_the_items_of_a_dict_runs() {
+    same_as_cpython(
+        "a_for_over_the_items_of_a_dict_runs",
+        indoc! {"
+            def total(d: dict[str, float]) -> float:
+                soma = 0.0
+                for nome, valor in d.items():
+                    soma += valor
+                    print(nome, valor)
+                return soma
+
+            precos: dict[str, float] = {'pao': 0.5, 'leite': 4.25}
+            print(total(precos))
+            idades: dict[str, int | None] = {'ana': 3, 'bia': None}
+            for nome, idade in idades.items():
+                if idade is None:
+                    print(nome, 'sem idade')
+                    continue
+                print(nome, idade + 1)
+            else:
+                print('fim')
+            for nome, idade in idades.items():
+                idades.pop(nome)
+        "},
+    );
+}
+
+#[test]
+fn a_for_over_the_items_of_a_dict_with_one_name_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            d = {'a': 1}
+            for par in d.items():
+                print(par)
+        "}),
+        "this target"
+    );
+}

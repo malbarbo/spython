@@ -409,8 +409,9 @@ impl<'a> Lowering<'a, '_> {
         ])
     }
 
-    /// `for` over a `dict`, over its `keys()` or over its `values()`, and
-    /// `None` for a `for` over another value. An object of `DictIter` of the prelude
+    /// `for` over a `dict`, over its `keys()`, over its `values()`, or
+    /// over its `items()` with two names as the target, and `None` for a
+    /// `for` over another value. An object of `DictIter` of the prelude
     /// holds the place of the loop in the `dict`, and its method `next`
     /// raises the errors of a `dict` that changes, at the iterable.
     fn for_dict(&self, f: &ast::StmtFor) -> Result<Option<Vec<Stmt>>, Error> {
@@ -439,12 +440,28 @@ impl<'a> Lowering<'a, '_> {
             let rep = self.funcs.borrow().get(func).ret;
             generated_call(func, vec![read()], rep, site)
         };
-        let name = if part == "keys" { "key" } else { "value" };
-        let (place, value) = self.target(&f.target, call(name))?;
-        let mut body = vec![Stmt::Assign {
-            targets: vec![place],
-            value,
-        }];
+        let mut body = match (part, &*f.target) {
+            ("items", ast::Expr::Tuple(tuple)) if tuple.elts.len() == 2 => {
+                let mut assigns = Vec::new();
+                for (target, name) in tuple.elts.iter().zip(["key", "value"]) {
+                    let (place, value) = self.target(target, call(name))?;
+                    assigns.push(Stmt::Assign {
+                        targets: vec![place],
+                        value,
+                    });
+                }
+                assigns
+            }
+            ("items", target) => return Err(unsupported(target, "this target")),
+            (part, target) => {
+                let name = if part == "keys" { "key" } else { "value" };
+                let (place, value) = self.target(target, call(name))?;
+                vec![Stmt::Assign {
+                    targets: vec![place],
+                    value,
+                }]
+            }
+        };
         body.extend(self.body(&f.body)?);
         Ok(Some(vec![
             Stmt::Assign {

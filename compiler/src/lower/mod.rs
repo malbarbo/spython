@@ -1323,8 +1323,9 @@ fn unsupported(node: &impl Ranged, what: &str) -> Error {
 }
 
 /// Each name of `target`, the target of a `for` over `iter`, with the type
-/// of its values, when `iter` is a `dict`, its `keys()` or its `values()`.
-/// `None` for another `for`.
+/// of its values, when `iter` is a `dict`, its `keys()`, its `values()`,
+/// or its `items()` with two names as the target. `None` for another
+/// `for`.
 fn dict_loop<'e>(
     model: &SemanticModel<'_>,
     target: &'e ast::Expr,
@@ -1337,19 +1338,24 @@ fn dict_loop<'e>(
     match (part, target) {
         ("keys", target) => Some(vec![(target, *key)]),
         ("values", target) => Some(vec![(target, *value)]),
+        ("items", ast::Expr::Tuple(tuple)) => match &tuple.elts[..] {
+            [k, v] => Some(vec![(k, *key), (v, *value)]),
+            _ => None,
+        },
         _ => None,
     }
 }
 
 /// The value of `iter`, the iterable of a `for`, that may be a `dict`, and
-/// what the loop takes of it: `keys` for the value itself, and `keys` or
-/// `values` for a call of the method of the name without arguments.
+/// what the loop takes of it: `keys` for the value itself, and `keys`,
+/// `values` or `items` for a call of the method of the name without
+/// arguments.
 fn dict_part(iter: &ast::Expr) -> (&ast::Expr, &str) {
     match iter {
         ast::Expr::Call(call)
             if call.arguments.is_empty()
                 && let ast::Expr::Attribute(attr) = &*call.func
-                && matches!(attr.attr.as_str(), "keys" | "values") =>
+                && matches!(attr.attr.as_str(), "keys" | "values" | "items") =>
         {
             (&*attr.value, attr.attr.as_str())
         }

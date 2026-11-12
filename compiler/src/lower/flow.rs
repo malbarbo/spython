@@ -108,6 +108,12 @@ impl<'a> Bindings<'a> {
                     self.visit(&f.iter);
                     self.visit(&f.target);
                     self.assign(&f.target);
+                    // `for k, v in d.items()` assigns two names.
+                    if let ast::Expr::Tuple(tuple) = &*f.target {
+                        for elt in &tuple.elts {
+                            self.assign(elt);
+                        }
+                    }
                     self.loops.push((&f.target, &f.iter));
                     self.add(&f.body);
                     self.add(&f.orelse);
