@@ -12,7 +12,7 @@ use crate::cpython::{
 };
 use crate::emit::module::{FuncIdx, FuncState, LocalIdx, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
-use crate::emit::runtime::host::{Host, SCRATCH_SIZE};
+use crate::emit::runtime::host::{self, Host, SCRATCH_SIZE};
 use crate::ir::{CmpOp, DivOp, FloatFunc2, FloatOp, HYPOT_MAX, MathFunc, MathFunc2};
 
 pub(super) enum FloatRepr {
@@ -478,37 +478,12 @@ fn add_parse(m: &mut ModuleState, str: &StrRepr, free: i32) -> FuncIdx {
     let ty = m.func_type(&[str.val_type(false)], &[ValType::F64]);
     let mut f = FuncState::new(1);
     let s = f.param(0);
-    let (len, i, pages) = (
-        f.local(ValType::I32),
-        f.local(ValType::I32),
-        f.local(ValType::I32),
-    );
+    let (len, i) = (f.local(ValType::I32), f.local(ValType::I32));
     f.ins().local_get(s);
     str.len(&mut f);
     f.ins().local_set(len);
-    f.ins()
-        .i32_const(free)
-        .local_get(len)
-        .i32_add()
-        .i32_const(0xFFFF)
-        .i32_add()
-        .i32_const(16)
-        .i32_shr_u()
-        .memory_size(0)
-        .i32_sub()
-        .local_tee(pages)
-        .i32_const(0)
-        .i32_gt_s();
-    f.if_(BlockType::Empty);
-    f.ins()
-        .local_get(pages)
-        .memory_grow(0)
-        .i32_const(-1)
-        .i32_eq();
-    f.if_(BlockType::Empty);
-    f.ins().unreachable();
-    f.end();
-    f.end();
+    f.ins().local_get(len);
+    host::reserve(&mut f, free);
     let done = f.block(BlockType::Empty);
     let again = f.loop_(BlockType::Empty);
     f.ins().local_get(i).local_get(len).i32_ge_u();

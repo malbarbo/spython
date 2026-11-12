@@ -203,6 +203,36 @@ impl Host {
     }
 }
 
+/// Pops a number of bytes and grows the memory so that they fit from
+/// `free`, the address of [`Host::free`]. A memory that cannot grow stops
+/// the program with a trap.
+pub(crate) fn reserve(f: &mut FuncState, free: i32) {
+    let pages = f.temp(ValType::I32);
+    f.ins()
+        .i32_const(free)
+        .i32_add()
+        .i32_const(0xFFFF)
+        .i32_add()
+        .i32_const(16)
+        .i32_shr_u()
+        .memory_size(0)
+        .i32_sub()
+        .local_tee(pages)
+        .i32_const(0)
+        .i32_gt_s();
+    f.if_(BlockType::Empty);
+    f.ins()
+        .local_get(pages)
+        .memory_grow(0)
+        .i32_const(-1)
+        .i32_eq();
+    f.if_(BlockType::Empty);
+    f.ins().unreachable();
+    f.end();
+    f.end();
+    f.free(pages);
+}
+
 /// The address of `offset` in the area of the host.
 fn at(offset: i32) -> i32 {
     free_memory() + offset
