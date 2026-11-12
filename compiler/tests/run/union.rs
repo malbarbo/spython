@@ -320,3 +320,59 @@ fn a_test_of_equality_keeps_the_type_of_a_narrowed_value() {
         "},
     );
 }
+
+#[test]
+fn a_value_of_object_holds_any_value_and_writes_it() {
+    same_as_cpython(
+        "a_value_of_object_holds_any_value_and_writes_it",
+        indoc! {"
+            from dataclasses import dataclass
+            from enum import Enum, auto
+
+
+            @dataclass
+            class Ponto:
+                x: int
+                y: int
+
+
+            class Cor(Enum):
+                AZUL = auto()
+
+
+            def mostra(x: object) -> object:
+                print(x, repr(x))
+                if x is None:
+                    print('nada', x)
+                return x
+
+
+            v: object = mostra(1)
+            print(v == 1, v != 1.0, v == '1')
+            v = mostra('a')
+            print(v == 'a')
+            v = mostra(2.5)
+            v = mostra(True)
+            v = mostra(None)
+            print(v is None)
+            v = mostra(Ponto(1, 2))
+            print(v == Ponto(1, 2), v == Ponto(2, 1), v == 3)
+            v = mostra(Cor.AZUL)
+            print(v == Cor.AZUL)
+        "},
+    );
+}
+
+#[test]
+fn a_list_as_an_object_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            def f(x: object) -> None:
+                print(x)
+
+
+            f([1, 2])
+        "}),
+        "an argument of this type"
+    );
+}

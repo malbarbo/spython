@@ -861,6 +861,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 Some(Rep::Str)
             }
+            Shape::Instance(class, _) if self.is_object(&class) => Some(Rep::Uniform),
             Shape::Instance(class, _) | Shape::EnumMember(class, _) => self
                 .classes
                 .borrow()
@@ -1050,7 +1051,8 @@ fn holds(rep: Rep, value: Rep) -> bool {
         Rep::ListOrNone(list) => {
             matches!(value, Rep::None) || value == Rep::List(list) || value == rep
         }
-        Rep::Uniform => true,
+        // The dispatch of a uniform value knows no list.
+        Rep::Uniform => value.list().is_none(),
         _ => rep == value,
     }
 }

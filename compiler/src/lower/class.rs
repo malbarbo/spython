@@ -812,6 +812,12 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// Returns `true` if `class` is the `object` of the builtins, `false`
+    /// otherwise.
+    pub(super) fn is_object(&self, class: &CheckerClass) -> bool {
+        class.known == Some(KnownClass::Object)
+    }
+
     pub(super) fn is_dataclass(&self, class: ClassId) -> bool {
         self.classes.borrow().get(class).kind.is_dataclass()
     }
@@ -825,6 +831,9 @@ impl<'a> Lowering<'a, '_> {
 
     fn add_classes_in(&self, shape: Option<Shape>, found: &mut Vec<ClassId>) {
         match shape {
+            Some(Shape::Instance(class, _)) if self.is_object(&class) => {
+                found.extend((0..self.classes.borrow().list.len()).map(ClassId::new));
+            }
             Some(Shape::Instance(class, _) | Shape::EnumMember(class, _)) => {
                 found.extend(self.classes.borrow().ids.get(&class).copied());
             }
