@@ -60,6 +60,9 @@ pub(crate) struct Reprs {
     /// `(func (param (ref null eq)) (result i32))`, which gives the truth
     /// of a value of a union, true for an object.
     truth_uniform: Option<FuncIdx>,
+    /// `(func (param (ref null eq)) (result i64))`, which gives the `hash`
+    /// of `None`, a number or a `str` of a union.
+    hash_uniform: Option<FuncIdx>,
     /// `(func (param (ref null eq)) (result i32))`, which tells whether
     /// the `repr` of an object runs.
     in_repr: Option<FuncIdx>,
@@ -116,6 +119,7 @@ impl Reprs {
             write_uniform: None,
             repr_uniform: None,
             truth_uniform: None,
+            hash_uniform: None,
             compare_uniform: None,
             uniform_eqs: HashMap::new(),
             in_repr: None,
@@ -1400,8 +1404,44 @@ impl Reprs {
                 f.end();
                 f.free(value);
             }
+            Rep::Uniform => {
+                let func = match self.hash_uniform {
+                    Some(func) => func,
+                    None => {
+                        let func = self.add_hash_uniform(m);
+                        self.hash_uniform = Some(func);
+                        func
+                    }
+                };
+                f.ins().call(func);
+            }
             _ => unreachable!("the hash of {rep:?}"),
         }
+    }
+
+    /// Defines the function that gives the `hash` of a value of a union
+    /// that is `None`, a number or a `str`. The lowering tests the classes
+    /// of an object before it.
+    fn add_hash_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        let ty = m.func_type(&[self.uniform.val_type()], &[ValType::I64]);
+        let mut f = FuncState::new(1);
+        let value = f.param(0);
+        f.ins().local_get(value).ref_is_null();
+        f.if_(BlockType::Empty);
+        f.ins().i64_const(NONE_HASH).return_();
+        f.end();
+        let str = (Rep::Str, self.str.type_index().heap_type());
+        for (rep, ty) in self.uniform.boxes(m).into_iter().chain([str]) {
+            f.ins().local_get(value).ref_test(ty);
+            f.if_(BlockType::Empty);
+            f.ins().local_get(value);
+            self.narrow(m, &mut f, Rep::Uniform, rep);
+            self.hash(m, &mut f, rep);
+            f.ins().return_();
+            f.end();
+        }
+        f.ins().unreachable();
+        m.add_func(ty, f.finish())
     }
 
     /// Pushes the start of the `hash` of a tuple, as `tuplehash` of

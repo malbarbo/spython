@@ -85,6 +85,7 @@ pub(crate) fn lower(
         types: RefCell::new(Vec::new()),
         raises: Cell::new(false),
         uniform_repr: Cell::new(false),
+        uniform_hash: Cell::new(None),
     };
     let suite = main.module.suite().as_slice();
     lowering.declare_vars(&Bindings::of(suite))?;
@@ -272,6 +273,9 @@ struct Lowering<'a, 'db> {
     raises: Cell<bool>,
     /// Whether the program gives the `repr` of a uniform value.
     uniform_repr: Cell<bool>,
+    /// The function that gives the `hash` of a uniform value, once a table
+    /// needs it.
+    uniform_hash: Cell<Option<FuncId>>,
 }
 
 #[derive(Default)]
@@ -989,7 +993,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             // it runs, and the compiler refuses the type.
             Shape::Dict(key, value) => {
                 let unit = self.prelude_unit("dict")?;
-                if !self.hashable(self.rep_of(Some((*key).clone()))?) {
+                if !self.hashable(&key) {
                     return None;
                 }
                 self.prelude_class(unit, "Dict", vec![*key, *value])
@@ -997,7 +1001,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
             Shape::Set(item) => {
                 let unit = self.prelude_unit("set")?;
-                if !self.hashable(self.rep_of(Some((*item).clone()))?) {
+                if !self.hashable(&item) {
                     return None;
                 }
                 self.prelude_class(unit, "Set", vec![*item])

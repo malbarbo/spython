@@ -80,6 +80,7 @@ fn a_set_and_a_dict_of_a_type_with_a_hash_run() {
                 valor: int
                 nome: str | None
                 cor: Cor
+                chave: int | str
                 proximo: 'No | None'
 
             class Ponto:
@@ -105,8 +106,10 @@ fn a_set_and_a_dict_of_a_type_with_a_hash_run() {
                 e: set[Cor],
                 f: set[No],
                 g: dict[Ponto, list[int]],
+                h: set[int | str | None],
+                i: dict[Cor | No | float, int],
             ) -> int:
-                return len(a) + len(b) + len(c) + len(d) + len(e) + len(f) + len(g)
+                return len(a) + len(b) + len(c) + len(d) + len(e) + len(f) + len(g) + len(h) + len(i)
 
             print('ok')
         "},
@@ -115,7 +118,8 @@ fn a_set_and_a_dict_of_a_type_with_a_hash_run() {
 
 /// CPython raises `TypeError` when it takes the `hash` of an object
 /// without one, and the compiler refuses the type of a `set` or of a key
-/// of a `dict` of an object without a `hash`.
+/// of a `dict` of an object without a `hash`. A value of `object` may be
+/// a list.
 #[test]
 fn a_set_and_a_dict_key_without_a_hash_are_unsupported() {
     for source in [
@@ -185,6 +189,24 @@ fn a_set_and_a_dict_key_without_a_hash_are_unsupported() {
                 xs: list[int]
 
             def f(s: set[Ponto]) -> None:
+                pass
+        "},
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Ponto:
+                x: int
+
+            def f(s: set[int | Ponto]) -> None:
+                pass
+        "},
+        indoc! {"
+            def f(s: set[object]) -> None:
+                pass
+        "},
+        indoc! {"
+            def f(s: set[int | list[int]]) -> None:
                 pass
         "},
     ] {

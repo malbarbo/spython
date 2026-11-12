@@ -5,7 +5,9 @@ use std::collections::HashSet;
 
 use ruff_text_size::Ranged;
 
-use super::class::{Kind, generated_call, param};
+use ty_python_semantic::types::lowering::Shape;
+
+use super::class::{Kind, generated_call, param, widen};
 use super::{Error, Lowering, unsupported};
 use crate::ir::{ClassId, Expr, FuncId, Rep, Site, Stmt};
 
@@ -58,48 +60,106 @@ impl Lowering<'_, '_> {
                 let func = self.generated(vec![rep], Rep::Hash, body);
                 Ok(generated_call(func, vec![value], Rep::Hash, Site::NONE))
             }
-            _ => Err(unsupported(node, "the hash of this type")),
+            Rep::Uniform => Ok(generated_call(
+                self.uniform_hash()?,
+                vec![value],
+                Rep::Hash,
+                Site::NONE,
+            )),
+            Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash => {
+                Err(unsupported(node, "the hash of this type"))
+            }
         }
     }
 
-    /// Returns `true` if each value of `rep` has a `hash`, `false`
-    /// otherwise. An object of a class has one when each class that
-    /// descends from its class has one, and a frozen dataclass needs one
-    /// for each field.
-    pub(super) fn hashable(&self, rep: Rep) -> bool {
-        self.hashable_in(rep, &mut HashSet::new())
+    /// Returns `true` if each value of `shape` has a `hash`, `false`
+    /// otherwise. An object has one when each class that its class may be
+    /// has one, and a frozen dataclass needs one for each field. A value
+    /// of `object` may be a `dict`, a `set` or a list, which have none.
+    pub(super) fn hashable(&self, shape: &Shape) -> bool {
+        self.hashable_in(shape, &mut HashSet::new())
     }
 
     /// [`Self::hashable`], where `seen` holds the dataclasses whose fields
     /// the test already takes, as the ones that a field of a dataclass of
     /// its own class reaches again.
-    fn hashable_in(&self, rep: Rep, seen: &mut HashSet<ClassId>) -> bool {
-        match rep {
-            Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str | Rep::StrOrNone => true,
-            Rep::Object(class) | Rep::ObjectOrNone(class) => {
-                let classes = self.classes.borrow().descendants(class);
-                classes
-                    .into_iter()
-                    .all(|class| match self.hash_source(class) {
-                        Source::Method(_) | Source::Name(_) => true,
-                        Source::Fields(owner) => {
-                            let fields: Vec<Rep> = {
-                                let classes = self.classes.borrow();
-                                classes
-                                    .get(owner)
-                                    .fields
-                                    .iter()
-                                    .map(|(_, rep)| *rep)
-                                    .collect()
-                            };
-                            !seen.insert(owner)
-                                || fields.into_iter().all(|rep| self.hashable_in(rep, seen))
-                        }
-                        Source::Unhashable | Source::Identity => false,
-                    })
+    fn hashable_in(&self, shape: &Shape, seen: &mut HashSet<ClassId>) -> bool {
+        match shape {
+            Shape::Union(shapes) => {
+                return shapes.iter().all(|shape| self.hashable_in(shape, seen));
             }
-            Rep::Uniform | Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash => false,
+            Shape::None => return true,
+            Shape::Instance(class, _) if self.is_object(class) => return false,
+            Shape::Dict(..) | Shape::Set(_) | Shape::List(_) => return false,
+            _ => {}
         }
+        match self.rep_of(Some(shape.clone())) {
+            Some(Rep::Int | Rep::Bool | Rep::Float | Rep::None | Rep::Str | Rep::StrOrNone) => true,
+            Some(Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_)) => self
+                .classes_in(Some(shape.clone()))
+                .into_iter()
+                .all(|class| self.class_hashable(class, seen)),
+            Some(Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash) | None => false,
+        }
+    }
+
+    /// Returns `true` if an object of exactly `class` has a `hash`,
+    /// `false` otherwise.
+    fn class_hashable(&self, class: ClassId, seen: &mut HashSet<ClassId>) -> bool {
+        match self.hash_source(class) {
+            Source::Method(_) | Source::Name(_) => true,
+            Source::Fields(owner) => {
+                let fields: Vec<Shape> = {
+                    let classes = self.classes.borrow();
+                    let nodes = &classes.get(owner).nodes;
+                    nodes.iter().map(|(_, shape)| shape.clone()).collect()
+                };
+                !seen.insert(owner) || fields.iter().all(|shape| self.hashable_in(shape, seen))
+            }
+            Source::Unhashable | Source::Identity => false,
+        }
+    }
+
+    /// The function that gives the `hash` of a uniform value. It tests
+    /// the exact class of an object against each class with a `hash`,
+    /// and the value of another type has the `hash` of its type.
+    fn uniform_hash(&self) -> Result<FuncId, Error> {
+        if let Some(func) = self.uniform_hash.get() {
+            return Ok(func);
+        }
+        let func = self.reserve(vec![Rep::Uniform], Rep::Hash);
+        self.uniform_hash.set(Some(func));
+        let uniform = || param(0, Rep::Uniform);
+        let mut body = Vec::new();
+        for class in self.all_classes() {
+            if matches!(
+                self.hash_source(class),
+                Source::Unhashable | Source::Identity
+            ) {
+                continue;
+            }
+            let hash = self.exact_hash(class)?;
+            let object = Expr::AsExact {
+                value: Box::new(uniform()),
+                class,
+            };
+            body.push(Stmt::If {
+                cond: Expr::IsExact {
+                    value: Box::new(uniform()),
+                    class,
+                },
+                then: vec![Stmt::Return(Some(generated_call(
+                    hash,
+                    vec![widen(object, self.self_rep(hash))],
+                    Rep::Hash,
+                    Site::NONE,
+                )))],
+                else_: Vec::new(),
+            });
+        }
+        body.push(Stmt::Return(Some(Expr::Hash(Box::new(uniform())))));
+        self.define(func, false, body);
+        Ok(func)
     }
 
     /// Where the `hash` of an object of exactly `class` comes from, the
