@@ -9,12 +9,17 @@ use crate::ir::{ClassId, Expr, FuncId, Rep, Site, Stmt};
 
 /// Where the `hash` of an object of a class comes from.
 enum Source {
+    /// The method `__hash__` of the program.
+    Method(FuncId),
     /// The fields of a frozen dataclass, as a tuple of them.
     Fields(ClassId),
     /// The name of a member of an `Enum`.
     Name(ClassId),
     /// None: the object has no `hash`.
     Unhashable,
+    /// The identity of the object, which a class without `__eq__` and
+    /// without `__hash__` takes from `object`.
+    Identity,
 }
 
 impl Lowering<'_, '_> {
@@ -55,25 +60,39 @@ impl Lowering<'_, '_> {
         }
     }
 
-    /// Where the `hash` of an object of exactly `class` comes from. The
-    /// decorator of a dataclass gives a frozen one the `hash` of its
-    /// fields and takes it away from the others, and an `Enum` gives its
-    /// members the `hash` of their names.
+    /// Where the `hash` of an object of exactly `class` comes from, the
+    /// first class of its chain that says it. A `__hash__` of the body
+    /// says it. The decorator of a dataclass gives a frozen one the `hash`
+    /// of its fields and takes it away from the others, and an `Enum`
+    /// gives its members the `hash` of their names. A body with `__eq__`
+    /// and without `__hash__` takes the `hash` away.
     fn hash_source(&self, class: ClassId) -> Source {
         let classes = self.classes.borrow();
-        match classes.get(class).kind {
-            Kind::Dataclass { frozen: true } => Source::Fields(class),
-            Kind::Enum => Source::Name(class),
-            Kind::Dataclass { frozen: false } | Kind::Plain => Source::Unhashable,
+        for class in classes.chain(class) {
+            if let Some(method) = classes.own_method(class, "__hash__") {
+                return Source::Method(method.func());
+            }
+            let eq = classes.own_method(class, "__eq__").is_some();
+            match classes.get(class).kind {
+                Kind::Dataclass { frozen: true } => return Source::Fields(class),
+                Kind::Dataclass { frozen: false } => return Source::Unhashable,
+                Kind::Enum | Kind::Plain if eq => return Source::Unhashable,
+                Kind::Enum => return Source::Name(class),
+                Kind::Plain => {}
+            }
         }
+        Source::Identity
     }
 
     /// The function that gives the `hash` of an object of exactly `class`.
     /// Each class whose `hash` comes from the same class shares it.
     pub(super) fn exact_hash(&self, class: ClassId) -> Result<FuncId, Error> {
         let owner = match self.hash_source(class) {
+            Source::Method(func) => self.receiver(func),
             Source::Fields(owner) | Source::Name(owner) => owner,
-            Source::Unhashable => unreachable!("a table of a class without a hash"),
+            Source::Unhashable | Source::Identity => {
+                unreachable!("a table of a class without a hash")
+            }
         };
         if let Some(func) = self.classes.borrow().get(owner).own_hash {
             return Ok(func);
@@ -84,6 +103,13 @@ impl Lowering<'_, '_> {
             (declared.def, declared.fields.len())
         };
         let hash = match self.hash_source(owner) {
+            // `__hash__` gives an `int`, whose `hash` takes -1 to -2.
+            Source::Method(func) => Expr::Hash(Box::new(generated_call(
+                func,
+                vec![param(0, Rep::Object(owner))],
+                Rep::Int,
+                Site::NONE,
+            ))),
             Source::Name(_) => Expr::Hash(Box::new(self.own_field(owner, 0))),
             _ => Expr::HashTuple(
                 (0..fields)

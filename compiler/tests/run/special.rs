@@ -772,7 +772,15 @@ fn eq_outside_the_accepted_form_is_unsupported() {
                     def __len__(self, x: int = 0) -> int:
                         return 1
             "},
-            "a __neg__, __len__ or __bool__ other than (self)",
+            "a __neg__, __len__, __bool__ or __hash__ other than (self)",
+        ),
+        (
+            indoc! {"
+                class P:
+                    def __hash__(self, x: int = 0) -> int:
+                        return 1
+            "},
+            "a __neg__, __len__, __bool__ or __hash__ other than (self)",
         ),
         (
             indoc! {"
@@ -824,5 +832,28 @@ fn operator_methods_with_a_list_and_another_result_are_unsupported() {
             print(a + a)
         "}),
         "methods of an operator with results of two types"
+    );
+}
+
+/// A class may define `__hash__`, which a call through the object runs.
+#[test]
+fn a_class_with_hash_runs() {
+    same_as_cpython(
+        "a_class_with_hash_runs",
+        indoc! {"
+            class Ponto:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    return isinstance(other, Ponto) and self.x == other.x
+
+                def __hash__(self) -> int:
+                    return self.x
+
+            print(Ponto(3).__hash__(), Ponto(3) == Ponto(3))
+        "},
     );
 }

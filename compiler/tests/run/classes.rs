@@ -420,7 +420,7 @@ fn a_special_method_other_than_init_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
             class Ponto:
-                def __hash__(self) -> int:
+                def __call__(self) -> int:
                     return 1
         "}),
         "this special method"

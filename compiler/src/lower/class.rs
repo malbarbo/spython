@@ -274,7 +274,7 @@ pub(super) struct Method<'a> {
 }
 
 impl Method<'_> {
-    fn func(&self) -> FuncId {
+    pub fn func(&self) -> FuncId {
         self.func.expect("a declared method")
     }
 }
@@ -589,8 +589,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// differ from the ones that the operator gives and takes. `__eq__`
     /// and `__ne__` take any value, and the methods of an order take one
     /// value, and each of them gives a `bool`. The method of an arithmetic
-    /// operator takes one value, and `__neg__`, `__len__` and `__bool__`
-    /// take none. `__len__` gives an `int`, and `__bool__` a `bool`.
+    /// operator takes one value, and `__neg__`, `__len__`, `__bool__` and
+    /// `__hash__` take none. `__len__` and `__hash__` give an `int`, and
+    /// `__bool__` a `bool`.
     /// `__contains__` takes a value and gives a `bool`, `__getitem__`
     /// takes a key, and `__setitem__` takes a key and a value and gives
     /// `None`.
@@ -603,13 +604,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "__neg__" => Some(None),
             "__len__" => Some(Some(Rep::Int)),
             "__bool__" => Some(Some(Rep::Bool)),
+            "__hash__" => Some(Some(Rep::Int)),
             _ => None,
         };
         if let Some(ret) = unary {
             if defaults || sig.params.len() != 1 || ret.is_some_and(|ret| sig.ret != ret) {
                 return Err(unsupported(
                     method.def,
-                    "a __neg__, __len__ or __bool__ other than (self)",
+                    "a __neg__, __len__, __bool__ or __hash__ other than (self)",
                 ));
             }
             return Ok(());
@@ -2814,6 +2816,7 @@ pub(super) const COMPILED_SPECIAL: &[&str] = &[
     "__neg__",
     "__len__",
     "__bool__",
+    "__hash__",
     "__contains__",
     "__getitem__",
     "__setitem__",
