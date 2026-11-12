@@ -11,7 +11,7 @@ use ty_python_semantic::types::lowering::{
 
 use super::class::generated_call;
 use super::expr::float_value;
-use super::{Lowering, Sig, coerce, params_of, unsupported};
+use super::{Lowering, Sig, params_of, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Place, Rep, Site};
 
@@ -119,7 +119,8 @@ impl<'a> Lowering<'a, '_> {
             let Some((slot, rep)) = slot else {
                 return Err(unsupported(call, "a call with these arguments"));
             };
-            let lowered = coerce(self.expr(arg.value())?, *rep)
+            let lowered = self
+                .coerce(self.expr(arg.value())?, *rep)
                 .ok_or_else(|| unsupported(arg.value(), "an argument of this type"))?;
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
             args.push(lowered);
@@ -383,7 +384,7 @@ impl<'a> Lowering<'a, '_> {
                 site,
             ),
             Rep::None | Rep::StrOrNone => {
-                let value = coerce(value, Rep::StrOrNone).expect("a str or None");
+                let value = self.coerce(value, Rep::StrOrNone).expect("a str or None");
                 self.prelude_call_at("str", "repr_or_none", vec![value], site)?
             }
             Rep::List(_) | Rep::ListOrNone(_) => self.list_repr(value, site)?,
@@ -391,7 +392,7 @@ impl<'a> Lowering<'a, '_> {
             Rep::Uniform => {
                 self.uniform_repr.set(true);
                 Expr::UniformRepr {
-                    value: Box::new(coerce(value, Rep::Uniform).expect("a uniform value")),
+                    value: Box::new(self.coerce(value, Rep::Uniform).expect("a uniform value")),
                     site,
                 }
             }

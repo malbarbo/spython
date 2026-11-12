@@ -537,7 +537,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     .and_then(|(_, from)| self.vars.borrow().find(from))
                     .map(|(_, rep)| rep);
                 let rep = match (self.rep_of(shape), copied) {
-                    (Some(rep), Some(copied)) => Some(join(rep, copied)),
+                    (Some(rep), Some(copied)) => Some(self.join(rep, copied)),
                     (rep, copied) => rep.or(copied),
                 };
                 if let ast::Expr::Name(name) = target
@@ -571,7 +571,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
         };
         match vars.find(name) {
-            Some((_, declared)) if !holds(declared, rep) => {
+            Some((_, declared)) if !self.holds(declared, rep) => {
                 Err(unsupported(value, "a variable with values of two types"))
             }
             Some(_) => Ok(()),
@@ -919,7 +919,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         shape => self.rep_of(Some(shape)),
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let rep = reps.iter().copied().reduce(join)?;
+                let rep = reps.iter().copied().reduce(|a, b| self.join(a, b))?;
                 // A uniform value does not hold a list yet.
                 let holds_list = reps.iter().any(|rep| rep.list().is_some());
                 (rep != Rep::Uniform || !holds_list).then_some(rep)
@@ -1053,61 +1053,65 @@ fn params_of(def: &ast::StmtFunctionDef) -> impl Iterator<Item = &ast::Parameter
 /// The most parameters that a wasm engine accepts in a function.
 const MAX_PARAMS: usize = 1000;
 
-/// `value` as a value of `rep`, and `None` when a variable of `rep` does
-/// not hold it.
-fn coerce(value: Expr, rep: Rep) -> Option<Expr> {
-    let from = value.rep();
-    if from == rep {
-        return Some(value);
-    }
-    holds(rep, from).then(|| Expr::Widen {
-        value: Box::new(value),
-        rep,
-    })
-}
-
-/// Returns `true` if a variable of `rep` holds the values of `value`,
-/// `false` otherwise.
-fn holds(rep: Rep, value: Rep) -> bool {
-    match rep {
-        Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
-        Rep::ObjectOrNone(class) => {
-            matches!(value, Rep::None) || value == Rep::Object(class) || value == rep
+impl Lowering<'_, '_> {
+    /// `value` as a value of `rep`, and `None` when a variable of `rep`
+    /// does not hold it.
+    fn coerce(&self, value: Expr, rep: Rep) -> Option<Expr> {
+        let from = value.rep();
+        if from == rep {
+            return Some(value);
         }
-        Rep::ListOrNone(list) => {
-            matches!(value, Rep::None) || value == Rep::List(list) || value == rep
-        }
-        // The dispatch of a uniform value knows no list.
-        Rep::Uniform => value.list().is_none(),
-        _ => rep == value,
+        self.holds(rep, from).then(|| Expr::Widen {
+            value: Box::new(value),
+            rep,
+        })
     }
-}
 
-/// The narrowest rep that holds the values of `a` and the values of `b`.
-fn join(a: Rep, b: Rep) -> Rep {
-    if holds(a, b) {
-        a
-    } else if holds(b, a) {
-        b
-    } else if [a, b]
-        .iter()
-        .all(|rep| matches!(rep, Rep::Str | Rep::None | Rep::StrOrNone))
-    {
-        Rep::StrOrNone
-    } else if let Some(class) = a.class().or(b.class())
-        && [a, b]
+    /// Returns `true` if a variable of `rep` holds the values of `value`,
+    /// `false` otherwise.
+    fn holds(&self, rep: Rep, value: Rep) -> bool {
+        match rep {
+            Rep::StrOrNone => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
+            Rep::ObjectOrNone(class) => {
+                matches!(value, Rep::None) || value == Rep::Object(class) || value == rep
+            }
+            Rep::ListOrNone(list) => {
+                matches!(value, Rep::None) || value == Rep::List(list) || value == rep
+            }
+            // The dispatch of a uniform value knows no list.
+            Rep::Uniform => value.list().is_none(),
+            _ => rep == value,
+        }
+    }
+
+    /// The narrowest rep that holds the values of `a` and the values of
+    /// `b`.
+    fn join(&self, a: Rep, b: Rep) -> Rep {
+        let pair = [a, b];
+        if self.holds(a, b) {
+            a
+        } else if self.holds(b, a) {
+            b
+        } else if pair
             .iter()
-            .all(|rep| *rep == Rep::None || rep.class() == Some(class))
-    {
-        Rep::ObjectOrNone(class)
-    } else if let Some(list) = a.list().or(b.list())
-        && [a, b]
-            .iter()
-            .all(|rep| *rep == Rep::None || rep.list() == Some(list))
-    {
-        Rep::ListOrNone(list)
-    } else {
-        Rep::Uniform
+            .all(|rep| matches!(rep, Rep::Str | Rep::None | Rep::StrOrNone))
+        {
+            Rep::StrOrNone
+        } else if let Some(class) = a.class().or(b.class())
+            && pair
+                .iter()
+                .all(|rep| *rep == Rep::None || rep.class() == Some(class))
+        {
+            Rep::ObjectOrNone(class)
+        } else if let Some(list) = a.list().or(b.list())
+            && pair
+                .iter()
+                .all(|rep| *rep == Rep::None || rep.list() == Some(list))
+        {
+            Rep::ListOrNone(list)
+        } else {
+            Rep::Uniform
+        }
     }
 }
 

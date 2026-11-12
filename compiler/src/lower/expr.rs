@@ -5,7 +5,7 @@ use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::class::generated_call;
-use super::{Lowering, coerce, join, unsupported};
+use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{ArithOp, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep};
 
@@ -106,9 +106,9 @@ impl<'a> Lowering<'a, '_> {
                 let cond = self.truth_of(&i.test)?;
                 let then = self.expr(&i.body)?;
                 let else_ = self.expr(&i.orelse)?;
-                let rep = join(then.rep(), else_.rep());
+                let rep = self.join(then.rep(), else_.rep());
                 let widen =
-                    |value| Box::new(coerce(value, rep).expect("the join holds both values"));
+                    |value| Box::new(self.coerce(value, rep).expect("the join holds both values"));
                 Ok(Expr::IfElse {
                     cond: Box::new(cond),
                     then: widen(then),
@@ -146,7 +146,8 @@ impl<'a> Lowering<'a, '_> {
                             .into_iter()
                             .map(|part| {
                                 let part = bound(part)?.map_or(Expr::None, |part| *part);
-                                Ok(coerce(part, Rep::Uniform)
+                                Ok(self
+                                    .coerce(part, Rep::Uniform)
                                     .expect("a uniform value holds any value"))
                             })
                             .collect::<Result<Vec<_>, Error>>()?;
@@ -239,7 +240,8 @@ impl<'a> Lowering<'a, '_> {
                     (Rep::Bool, Rep::Int) => Expr::BoolAsInt(Box::new(lowered)),
                     _ => lowered,
                 };
-                coerce(lowered, item).ok_or_else(|| unsupported(elt, "an item of this type"))
+                self.coerce(lowered, item)
+                    .ok_or_else(|| unsupported(elt, "an item of this type"))
             })
             .collect::<Result<_, _>>()?;
         Ok(Expr::List { list: id, items })
@@ -423,10 +425,10 @@ impl<'a> Lowering<'a, '_> {
                     let reference = |value: Expr, other: Rep| match (value.rep(), other) {
                         (rep, _) if rep.class().is_some() || rep.list().is_some() => Some(value),
                         (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
-                            coerce(value, Rep::ObjectOrNone(class))
+                            self.coerce(value, Rep::ObjectOrNone(class))
                         }
                         (Rep::None, Rep::List(list) | Rep::ListOrNone(list)) => {
-                            coerce(value, Rep::ListOrNone(list))
+                            self.coerce(value, Rep::ListOrNone(list))
                         }
                         _ => None,
                     };
@@ -508,11 +510,12 @@ impl<'a> Lowering<'a, '_> {
             let rep = operands
                 .iter()
                 .map(|(lowered, _)| lowered.rep())
-                .reduce(join)
+                .reduce(|a, b| self.join(a, b))
                 .expect("a comparison has a first operand");
-            let mut operands = operands
-                .into_iter()
-                .map(|(lowered, _)| coerce(lowered, rep).expect("the join holds every operand"));
+            let mut operands = operands.into_iter().map(|(lowered, _)| {
+                self.coerce(lowered, rep)
+                    .expect("the join holds every operand")
+            });
             let first = operands.next().expect("a comparison has a first operand");
             return Ok(Expr::Compare(
                 Box::new(first),
@@ -526,7 +529,8 @@ impl<'a> Lowering<'a, '_> {
         };
         if operands.iter().any(union) {
             let mut operands = operands.into_iter().map(|(lowered, _)| {
-                coerce(lowered, Rep::Uniform).expect("a uniform value holds any value")
+                self.coerce(lowered, Rep::Uniform)
+                    .expect("a uniform value holds any value")
             });
             let first = operands.next().expect("a comparison has a first operand");
             return Ok(Expr::Compare(
@@ -577,7 +581,7 @@ impl<'a> Lowering<'a, '_> {
             }
             .ok_or_else(|| unsupported(c, "a comparison of two types of list"))?;
             let rep = Rep::ListOrNone(list);
-            let coerced = |value| coerce(value, rep).expect("a list or None");
+            let coerced = |value| self.coerce(value, rep).expect("a list or None");
             self.list_call(c, "eq", vec![coerced(left), coerced(right)])
         })
     }

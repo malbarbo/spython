@@ -7,7 +7,7 @@ use ty_python_semantic::types::lowering::{
 };
 
 use super::name_error::may_suggest;
-use super::{Lowering, coerce, holds, unbound_local, unsupported};
+use super::{Lowering, unbound_local, unsupported};
 use crate::Error;
 use crate::ir::{Binding, Check, Expr, Place, Rep, Undefined};
 
@@ -18,7 +18,8 @@ impl<'a> Lowering<'a, '_> {
         let (place, rep) = self.place(target, value.rep())?;
         Ok((
             place,
-            coerce(value, rep).expect("a variable that holds the value"),
+            self.coerce(value, rep)
+                .expect("a variable that holds the value"),
         ))
     }
 
@@ -41,7 +42,7 @@ impl<'a> Lowering<'a, '_> {
                 .map(|(id, rep)| (Place::Global(id), rep)),
         };
         match found {
-            Some((place, rep)) if rep == value || holds(rep, value) => Ok((place, rep)),
+            Some((place, rep)) if rep == value || self.holds(rep, value) => Ok((place, rep)),
             Some(_) => Err(unsupported(target, "a variable with values of two types")),
             // The checker gives the value a type that no rep holds.
             None => Err(unsupported(target, "a variable of this type")),

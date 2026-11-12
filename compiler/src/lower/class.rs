@@ -18,7 +18,7 @@ use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::{imported_name, names_in};
 use super::init::{Base, check_init};
-use super::{HashSet, Lowering, Scope, Sig, Vars, coerce, params_of, unsupported};
+use super::{HashSet, Lowering, Scope, Sig, Vars, params_of, unsupported};
 use crate::Error;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
 use crate::cpython::{Class, names};
@@ -598,8 +598,9 @@ impl<'a> Lowering<'a, '_> {
                 site: self.site_with(decorator.range(), &frames),
             });
         }
-        let lowered =
-            coerce(lowered, rep).ok_or_else(|| unsupported(value, "a default of this type"))?;
+        let lowered = self
+            .coerce(lowered, rep)
+            .ok_or_else(|| unsupported(value, "a default of this type"))?;
         self.scope
             .borrow_mut()
             .as_mut()
@@ -698,7 +699,8 @@ impl<'a> Lowering<'a, '_> {
         value: Expr,
     ) -> Result<Stmt, Error> {
         let (object, class, field, rep) = self.updated_field(attr)?;
-        let value = coerce(value, rep)
+        let value = self
+            .coerce(value, rep)
             .ok_or_else(|| unsupported(attr, "a field with values of two types"))?;
         let text = format!(
             "'NoneType' object has no attribute '{}' and no __dict__ for setting new attributes",
@@ -1475,7 +1477,7 @@ impl<'a> Lowering<'a, '_> {
         {
             // An object may be null, which `__eq__` does not take.
             let rep = Rep::ObjectOrNone(a);
-            let coerced = |value| coerce(value, rep).expect("an object or None");
+            let coerced = |value| self.coerce(value, rep).expect("an object or None");
             return Ok(generated_call(
                 self.eq_or_none(a)?,
                 vec![coerced(left), coerced(right)],
@@ -1487,8 +1489,12 @@ impl<'a> Lowering<'a, '_> {
             .into_iter()
             .map(|class| Ok((class, self.eq_or_none(class)?)))
             .collect::<Result<_, Error>>()?;
-        let uniform =
-            |value| Box::new(coerce(value, Rep::Uniform).expect("a uniform value holds any value"));
+        let uniform = |value| {
+            Box::new(
+                self.coerce(value, Rep::Uniform)
+                    .expect("a uniform value holds any value"),
+            )
+        };
         Ok(Expr::UniformEq {
             left: uniform(left),
             right: uniform(right),
@@ -1564,7 +1570,7 @@ impl<'a> Lowering<'a, '_> {
         let rep = ours.rep();
         if let Some(list) = rep.list() {
             let rep = Rep::ListOrNone(list);
-            let coerced = |value| coerce(value, rep).expect("a list or None");
+            let coerced = |value| self.coerce(value, rep).expect("a list or None");
             return self.list_call_at(node, "eq", vec![coerced(ours), coerced(theirs)], site);
         }
         let classes = self.uniform_dataclasses(Some(shape));
@@ -1573,7 +1579,7 @@ impl<'a> Lowering<'a, '_> {
         }
         // A union compares by the types of its values.
         if matches!(rep, Rep::StrOrNone | Rep::Uniform) {
-            let uniform = |value| coerce(value, Rep::Uniform).expect("a uniform value");
+            let uniform = |value| self.coerce(value, Rep::Uniform).expect("a uniform value");
             return Ok(Expr::Compare(
                 Box::new(uniform(ours)),
                 vec![(CmpOp::Eq, uniform(theirs))],

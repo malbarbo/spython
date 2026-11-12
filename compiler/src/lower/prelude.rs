@@ -10,7 +10,7 @@ use ty_python_semantic::types::lowering::{DefId, Shape, function_info};
 
 use std::rc::Rc;
 
-use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, coerce, unsupported};
+use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, unsupported};
 use crate::Error;
 use crate::cpython::names;
 use crate::ir::{Case, CodePointSet, Expr, FuncId, ListId, Rep, Site};
@@ -232,7 +232,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .iter()
             .zip(shapes)
             .map(|(rep, shape)| {
-                prelude_arg(given.next().unwrap_or(Expr::None), *rep, shape)
+                self.prelude_arg(given.next().unwrap_or(Expr::None), *rep, shape)
                     .ok_or_else(|| unsupported(node, "an argument of this type"))
             })
             .collect()
@@ -505,7 +505,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         Some(Expr::SetItem {
                             list,
                             index,
-                            value: Box::new(coerce(*value, item)?),
+                            value: Box::new(self.coerce(*value, item)?),
                         })
                     })
             }
@@ -532,24 +532,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// `false` in the code of the program.
     pub(super) fn in_prelude(&self) -> bool {
         self.unit.get().prelude.is_some()
-    }
-}
-
-/// `value` as an argument of a parameter of `rep` of a function of the
-/// prelude, whose declared type is `shape`, and `None` when the parameter
-/// does not take it. A parameter of `int`, or of a union with `int`, takes
-/// a `bool` as the `int` it is, because the prelude reads the union as an
-/// `int` after a test. A parameter of a type variable takes it as an `int`
-/// only when the variable is `int`, so a list of `bool`s keeps its items.
-/// Any other parameter keeps the `bool`.
-fn prelude_arg(value: Expr, rep: Rep, shape: &Shape) -> Option<Expr> {
-    let as_int = match shape {
-        Shape::TypeVar(_) => rep == Rep::Int,
-        _ => matches!(rep, Rep::Int | Rep::Uniform),
-    };
-    match value.rep() {
-        Rep::Bool if as_int => coerce(Expr::BoolAsInt(Box::new(value)), rep),
-        _ => coerce(value, rep),
     }
 }
 
@@ -605,6 +587,26 @@ fn type_map(
         .zip(found)
         .map(|(name, arg)| Some((name.clone(), arg?)))
         .collect()
+}
+
+impl Lowering<'_, '_> {
+    /// `value` as an argument of a parameter of `rep` of a function of the
+    /// prelude, whose declared type is `shape`, and `None` when the parameter
+    /// does not take it. A parameter of `int`, or of a union with `int`, takes
+    /// a `bool` as the `int` it is, because the prelude reads the union as an
+    /// `int` after a test. A parameter of a type variable takes it as an `int`
+    /// only when the variable is `int`, so a list of `bool`s keeps its items.
+    /// Any other parameter keeps the `bool`.
+    fn prelude_arg(&self, value: Expr, rep: Rep, shape: &Shape) -> Option<Expr> {
+        let as_int = match shape {
+            Shape::TypeVar(_) => rep == Rep::Int,
+            _ => matches!(rep, Rep::Int | Rep::Uniform),
+        };
+        match value.rep() {
+            Rep::Bool if as_int => self.coerce(Expr::BoolAsInt(Box::new(value)), rep),
+            _ => self.coerce(value, rep),
+        }
+    }
 }
 
 #[cfg(test)]
