@@ -92,11 +92,9 @@ def count[T](xs: list[T], x: T) -> int:
 
 def remove[T](xs: list[T], x: T) -> None:
     """Removes the first item of `xs` equal to `x`."""
-    n = len(xs)
-    for i in range(n):
+    for i in range(len(xs)):
         if item(xs, i) == x:
-            copy_items(xs, i, xs, i + 1, n - i - 1)
-            list_truncate(xs, n - 1)
+            pop(xs, i)
             return
     raise ValueError("list.remove(x): x not in list")
 
