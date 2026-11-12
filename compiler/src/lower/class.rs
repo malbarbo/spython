@@ -2110,9 +2110,7 @@ impl<'a> Lowering<'a, '_> {
                     push_method(&mut methods, method)?;
                     continue;
                 }
-                ast::Stmt::Pass(_) => continue,
-                ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => continue,
-                ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => continue,
+                _ if is_filler(i, stmt) => continue,
                 ast::Stmt::Assign(ast::StmtAssign { targets, value, .. }) => match &**targets {
                     [ast::Expr::Name(target)] if !target.id.starts_with('_') => (target, value),
                     _ => return Err(unsupported(stmt, "this target in an Enum")),
@@ -2275,9 +2273,7 @@ impl<'a> Lowering<'a, '_> {
                     return Err(unsupported(method, "a special method in a dataclass"));
                 }
                 ast::Stmt::FunctionDef(method) => push_method(&mut methods, method)?,
-                ast::Stmt::Pass(_) => {}
-                ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => {}
-                ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
+                _ if is_filler(i, stmt) => {}
                 ast::Stmt::AnnAssign(ast::StmtAnnAssign {
                     target,
                     value,
@@ -2404,9 +2400,7 @@ impl<'a> Lowering<'a, '_> {
         let mut methods: Vec<Method> = Vec::new();
         for (i, stmt) in def.body.iter().enumerate() {
             match stmt {
-                ast::Stmt::Pass(_) => {}
-                ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => {}
-                ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
+                _ if is_filler(i, stmt) => {}
                 ast::Stmt::AnnAssign(
                     field @ ast::StmtAnnAssign {
                         target,
@@ -2707,4 +2701,16 @@ fn is_int_literal(expr: &ast::Expr) -> bool {
             ..
         })
     )
+}
+
+/// Returns `true` if `stmt`, the statement `i` of the body of a class, is
+/// `pass`, `...` or the docstring, which do nothing, `false` otherwise.
+fn is_filler(i: usize, stmt: &ast::Stmt) -> bool {
+    match stmt {
+        ast::Stmt::Pass(_) => true,
+        ast::Stmt::Expr(e) => {
+            e.value.is_ellipsis_literal_expr() || (i == 0 && e.value.is_string_literal_expr())
+        }
+        _ => false,
+    }
 }
