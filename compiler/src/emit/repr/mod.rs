@@ -89,12 +89,24 @@ impl Reprs {
         let exc = Exceptions::new(m, host, &mut str, tests);
         let int = IntRepr::i31(m, &mut str, &exc);
         let float = FloatRepr::f64(host);
+        // A field of a class may hold an object of any class, its own too,
+        // or a list, and an item of a list may be an object or another list,
+        // so the types refer to each other by the indices that they will have
+        // in their rec group. The struct and the array of each list come
+        // after the classes.
+        let first = m.next_type_index();
+        let list_types: Vec<(TypeIdx, TypeIdx)> = (0..lists.len())
+            .map(|i| {
+                let list = first.plus(classes.len() + 2 * i);
+                (list, list.plus(1))
+            })
+            .collect();
         let mut reprs = Reprs {
             int,
             float,
             str,
             uniform: UniformRepr::new(),
-            list: ListRepr::empty(),
+            list: ListRepr::new(m, &list_types),
             write_uniform: None,
             repr_uniform: None,
             compare_uniform: None,
@@ -109,20 +121,7 @@ impl Reprs {
             list_reprs: Vec::new(),
             repr_stack: None,
         };
-        // A field of a class may hold an object of any class, its own too,
-        // or a list, and an item of a list may be an object or another list,
-        // so the types refer to each other by the indices that they will have
-        // in their rec group. The struct and the array of each list come
-        // after the classes.
-        let first = m.next_type_index();
         reprs.classes = (0..classes.len()).map(|i| first.plus(i)).collect();
-        let list_types: Vec<(TypeIdx, TypeIdx)> = (0..lists.len())
-            .map(|i| {
-                let list = first.plus(classes.len() + 2 * i);
-                (list, list.plus(1))
-            })
-            .collect();
-        reprs.list = ListRepr::new(m, &list_types);
         let mut composites: Vec<Composite> = classes
             .iter()
             .map(|class| {
@@ -138,9 +137,9 @@ impl Reprs {
                 )
             })
             .collect();
-        for (list, (ty, _)) in lists.iter().zip(&list_types) {
+        for (list, &(_, items)) in lists.iter().zip(&list_types) {
             let item = reprs.local_type(list.item).expect("an item has a value");
-            composites.extend(ListRepr::composites(*ty, item));
+            composites.extend(ListRepr::composites(items, item));
         }
         let node = first.plus(classes.len() + 2 * lists.len());
         let guarded = classes.iter().any(|class| class.repr_guard);

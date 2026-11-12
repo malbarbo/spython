@@ -37,11 +37,9 @@ const LEN: u32 = 0;
 const ITEMS: u32 = 1;
 
 impl ListRepr {
-    /// The struct and the array of a type of list whose items have the
-    /// local type `item`, as two types of a rec group whose first type is
-    /// `first`.
-    pub fn composites(first: TypeIdx, item: ValType) -> [Composite; 2] {
-        let items = first.plus(1);
+    /// The struct and the array `items` of a type of list whose items have
+    /// the local type `item`, as two types of a rec group.
+    pub fn composites(items: TypeIdx, item: ValType) -> [Composite; 2] {
         [
             Composite::Struct(vec![
                 (StorageType::Val(ValType::I32), true),
@@ -69,11 +67,6 @@ impl ListRepr {
             })
             .collect();
         ListRepr { types }
-    }
-
-    /// The lists of a module that has no type of list yet.
-    pub fn empty() -> Self {
-        ListRepr { types: Vec::new() }
     }
 
     fn types(&self, list: usize) -> &ListTypes {
