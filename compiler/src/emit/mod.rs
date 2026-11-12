@@ -413,7 +413,7 @@ impl Emitter<'_> {
                 let temp = f.temp(ty);
                 f.ins().local_set(temp);
                 self.expr(f, object);
-                f.ins().local_get(temp);
+                self.reprs.load(f, value.rep(), temp);
                 f.free(temp);
                 self.reprs.set_field(f, *class, *field);
             }

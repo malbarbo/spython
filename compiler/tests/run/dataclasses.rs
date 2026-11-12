@@ -1252,3 +1252,21 @@ fn objects_of_two_dataclasses_are_not_equal() {
         "},
     );
 }
+
+#[test]
+fn an_assignment_to_a_str_field_changes_the_field() {
+    same_as_cpython(
+        "an_assignment_to_a_str_field_changes_the_field",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class P:
+                name: str
+
+            p = P('a')
+            p.name = 'b'
+            print(p)
+        "},
+    );
+}
