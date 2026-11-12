@@ -410,23 +410,26 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// `for` over a `dict`, over its `keys()`, over its `values()`, or
-    /// over its `items()` with two names as the target, and `None` for a
-    /// `for` over another value. An object of `DictIter` of the prelude
-    /// holds the place of the loop in the `dict`, and its method `next`
-    /// raises the errors of a `dict` that changes, at the iterable.
+    /// over its `items()` with two names as the target, or over a `set`,
+    /// and `None` for a `for` over another value. An object of `DictIter`
+    /// or of `SetIter` of the prelude holds the place of the loop, and its
+    /// method `next` raises the errors of a `dict` or a `set` that changes,
+    /// at the iterable.
     fn for_dict(&self, f: &ast::StmtFor) -> Result<Option<Vec<Stmt>>, Error> {
         let (value, part) = dict_part(&f.iter);
-        if !matches!(expr_shape(self.model(), value), Some(Shape::Dict(..))) {
-            return Ok(None);
+        match expr_shape(self.model(), value) {
+            Some(Shape::Dict(..)) => {}
+            Some(Shape::Set(_)) if part == "keys" => {}
+            _ => return Ok(None),
         }
         let dict = self.expr(value)?;
         let Rep::Object(class) = dict.rep() else {
             return Err(unsupported(&*f.iter, "a for over this type"));
         };
         let site = self.site(f.iter.range());
-        let iter = self.method_func(class, "iter").expect("Dict has iter");
+        let iter = self.method_func(class, "iter").expect("a copy with iter");
         let iter_rep = self.funcs.borrow().get(iter).ret;
-        let iter_class = iter_rep.class().expect("an object of DictIter");
+        let iter_class = iter_rep.class().expect("an object of an iterator");
         let iter_var = self.hidden_var(iter_rep);
         let read = || Expr::Load {
             place: iter_var,
@@ -436,7 +439,7 @@ impl<'a> Lowering<'a, '_> {
         let call = |name: &str| {
             let func = self
                 .method_func(iter_class, name)
-                .expect("a method of DictIter");
+                .expect("a method of the iterator");
             let rep = self.funcs.borrow().get(func).ret;
             generated_call(func, vec![read()], rep, site)
         };

@@ -1326,16 +1326,18 @@ fn unsupported(node: &impl Ranged, what: &str) -> Error {
 
 /// Each name of `target`, the target of a `for` over `iter`, with the type
 /// of its values, when `iter` is a `dict`, its `keys()`, its `values()`,
-/// or its `items()` with two names as the target. `None` for another
-/// `for`.
+/// or its `items()` with two names as the target, or a `set`. `None` for
+/// another `for`.
 fn dict_loop<'e>(
     model: &SemanticModel<'_>,
     target: &'e ast::Expr,
     iter: &ast::Expr,
 ) -> Option<Vec<(&'e ast::Expr, Shape)>> {
     let (value, part) = dict_part(iter);
-    let Some(Shape::Dict(key, value)) = expr_shape(model, value) else {
-        return None;
+    let (key, value) = match expr_shape(model, value)? {
+        Shape::Dict(key, value) => (key, value),
+        Shape::Set(item) if part == "keys" => return Some(vec![(target, *item)]),
+        _ => return None,
     };
     match (part, target) {
         ("keys", target) => Some(vec![(target, *key)]),

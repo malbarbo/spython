@@ -229,3 +229,78 @@ fn a_set_inside_its_own_repr_is_written_with_dots() {
         "},
     );
 }
+
+#[test]
+fn a_for_over_a_set_takes_the_items_in_the_order_of_cpython() {
+    same_as_cpython(
+        "a_for_over_a_set_takes_the_items_in_the_order_of_cpython",
+        indoc! {"
+            def soma(s: set[int]) -> int:
+                total = 0
+                for x in s:
+                    total += x
+                return total
+
+            s: set[int] = set()
+            for x in [5, 3, 40, -2, 17]:
+                s.add(x)
+            for x in s:
+                print(x)
+            print(soma(s))
+            nomes: set[str] = set()
+            for i in range(40):
+                nomes.add('n' + str(i * 3))
+            for i in range(10):
+                nomes.discard('n' + str(i * 6))
+            ordem = []
+            for nome in nomes:
+                ordem.append(nome)
+            print(ordem)
+            for x in s:
+                if x > 10:
+                    print('achou', x)
+                    break
+            else:
+                print('nada')
+            for x in {1, 2}:
+                for y in {1, 2}:
+                    print(x, y)
+            else:
+                print('fim')
+            vazio: set[float] = set()
+            for v in vazio:
+                print(v)
+        "},
+    );
+}
+
+/// The loop sees each slot in order, so an item that the body puts in a
+/// later slot comes in the loop when the size stays.
+#[test]
+fn a_for_over_a_set_that_keeps_its_size_goes_on() {
+    same_as_cpython(
+        "a_for_over_a_set_that_keeps_its_size_goes_on",
+        indoc! {"
+            s: set[int] = {1, 2, 3}
+            for x in s:
+                print(x)
+                if x < 6:
+                    s.discard(x)
+                    s.add(x + 3)
+            print(s)
+        "},
+    );
+}
+
+#[test]
+fn a_for_over_a_set_that_changes_size_raises_runtime_error() {
+    same_as_cpython(
+        "a_for_over_a_set_that_changes_size_raises_runtime_error",
+        indoc! {"
+            s: set[int] = {1, 2, 3}
+            for x in s:
+                print(x)
+                s.add(x + 10)
+        "},
+    );
+}

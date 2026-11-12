@@ -243,3 +243,43 @@ class Set[T]:
         for x in items:
             parts.append(repr(x))
         return "{" + ", ".join(parts) + "}"
+
+    def iter(self) -> SetIter[T]:
+        return SetIter(self)
+
+
+class SetIter[T]:
+    """A `for` over a `set`, which follows `setiter_iternext` of CPython 3.13."""
+
+    s: Set[T]
+    # The first slot that the loop has yet to see.
+    pos: int
+    # The size of the `set` when the loop started.
+    used: int
+    # The slot of the last item that `next` found.
+    index: int
+
+    def __init__(self, s: Set[T]) -> None:
+        self.s = s
+        self.pos = 0
+        self.used = s.used
+        self.index = -1
+
+    def next(self) -> bool:
+        """Finds the next item in the `set`, and returns `False` past the last one. A change of
+        the size of the `set` raises `RuntimeError`."""
+        s = self.s
+        if self.used != s.used:
+            raise RuntimeError("Set changed size during iteration")
+        i = self.pos
+        mask = s.mask
+        while i <= mask and item(s.states, i) != 1:
+            i += 1
+        self.pos = i + 1
+        if i > mask:
+            return False
+        self.index = i
+        return True
+
+    def key(self) -> T:
+        return item(self.s.keys, self.index)
