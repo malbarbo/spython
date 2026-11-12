@@ -396,9 +396,10 @@ impl Lowering<'_, '_> {
     }
 
     /// The truth of `value`, an object, an object or `None` or a value of
-    /// a union, at `node`, as a `bool`, and `None` when no class of the
-    /// value has `__bool__` or `__len__`. An object calls the `__bool__` of its class, or else
-    /// its `__len__`, which gives `False` for 0. `None` is false.
+    /// a union, at `node`, as a `bool`, and `Err` with `value` back when
+    /// no class of the value has `__bool__` or `__len__`. An object calls
+    /// the `__bool__` of its class, or else its `__len__`, which gives
+    /// `False` for 0. `None` is false.
     pub(super) fn special_truth(
         &self,
         node: &impl Ranged,
@@ -464,8 +465,9 @@ impl Lowering<'_, '_> {
         Ok(Ok(generated_call(func, vec![value], Rep::Bool, site)))
     }
 
-    /// The truth of `value`, a value of a union, at `node`, and `None` when
-    /// no class of the program has `__bool__` or `__len__`. An object of a
+    /// The truth of `value`, a value of a union, at `node`, and `Err` with
+    /// `value` back when no class of the program has `__bool__` or
+    /// `__len__`. An object of a
     /// class with one of them calls it, and the rest of the values take
     /// the truth of their type.
     fn uniform_truth(&self, node: &impl Ranged, value: Expr) -> Result<Result<Expr, Expr>, Error> {
