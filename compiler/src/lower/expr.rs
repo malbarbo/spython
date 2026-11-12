@@ -29,6 +29,31 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// The truth of the value of `expr` at `site`, as a `bool`, which
+    /// `bool(expr)` and `not expr` outside a condition take. `a and b`
+    /// gives `a` when `a` is false, and the truth of `a` runs again on that
+    /// value, as in CPython.
+    pub(super) fn value_truth(&self, expr: &ast::Expr, site: &impl Ranged) -> Result<Expr, Error> {
+        let ast::Expr::BoolOp(b) = expr else {
+            return self.truth(self.expr(expr)?, expr, site);
+        };
+        let op = logic_op(b.op);
+        let (last, init) = b.values.split_last().expect("a bool operator has operands");
+        init.iter()
+            .rev()
+            .try_fold(self.value_truth(last, site)?, |right, left| {
+                let lowered = self.expr(left)?;
+                let from = lowered.rep();
+                Ok(Expr::Logic {
+                    op,
+                    left: Box::new(lowered),
+                    test: Box::new(self.truth(Expr::LogicLeft(from), left, b)?),
+                    value: Box::new(self.truth(Expr::LogicLeft(from), left, site)?),
+                    right: Box::new(right),
+                })
+            })
+    }
+
     /// The truth of `lowered`, the value of `operand`, at `node`, as a
     /// `bool`.
     pub(super) fn truth(
@@ -891,7 +916,7 @@ impl<'a> Lowering<'a, '_> {
                 }
                 self.int_value(lowered, &*u.operand)
             }
-            ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.truth_of(&u.operand)?))),
+            ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.value_truth(&u.operand, u)?))),
             ast::UnaryOp::Invert => Err(unsupported(u, "this operator")),
         }
     }

@@ -568,6 +568,93 @@ fn the_truth_of_an_object_calls_the_method_of_its_class() {
     );
 }
 
+/// `bool(x)` and `not x` outside a condition take the truth of the value
+/// of `x`. When `x` is `a and b` and `a` is false, the truth of `a` runs
+/// in the `and` and again on the value, as in CPython, and a condition
+/// takes it once.
+#[test]
+fn bool_and_not_take_the_truth_of_the_value_of_and_or() {
+    same_as_cpython(
+        "bool_and_not_take_the_truth_of_the_value_of_and_or",
+        indoc! {"
+            class V:
+                def __len__(self) -> int:
+                    print('len')
+                    return 0
+
+            x = V()
+            print('bool')
+            print(bool(x and True))
+            print('not')
+            print(not (x and True))
+            print('or')
+            print(bool(x or x))
+            print('not not')
+            print(not not x)
+            print('if')
+            if x and True:
+                print('sim')
+            if not (x and True):
+                print('não')
+            print(1 if not (x and True) else 2)
+
+            def dois(xs: list[int], s: str) -> None:
+                print(bool(xs and 0), not (xs or s), bool(s and xs))
+
+            dois([1], 'a')
+            dois([], '')
+        "},
+    );
+}
+
+/// The `ValueError` of a `__len__` in `bool(x)` and `not x` points at the
+/// call or at the `not`, and the one of the left operand of `and` points
+/// at the `and`.
+#[test]
+fn an_error_in_the_truth_of_bool_and_not_raises_at_the_call() {
+    for (name, use_) in [
+        ("an_error_in_the_truth_of_bool", "print(1, bool(N()))"),
+        ("an_error_in_the_truth_of_not", "print(1, not N())"),
+        (
+            "an_error_in_the_truth_of_bool_of_and",
+            "print(1, bool(N() and 1))",
+        ),
+        (
+            "an_error_in_the_second_truth_of_not",
+            "print(1, not (M() and 1))",
+        ),
+        (
+            "an_error_in_the_second_truth_of_bool",
+            "print(1, bool(M() and 1))",
+        ),
+        (
+            "an_error_in_the_truth_of_bool_of_the_right",
+            "print(1, bool(1 and N()))",
+        ),
+    ] {
+        same_as_cpython(
+            name,
+            &formatdoc! {"
+                class N:
+                    def __len__(self) -> int:
+                        return -1
+
+                class M:
+                    n: int
+
+                    def __init__(self) -> None:
+                        self.n = 0
+
+                    def __len__(self) -> int:
+                        self.n += 1
+                        return 0 if self.n == 1 else -1
+
+                {use_}
+            "},
+        );
+    }
+}
+
 /// The traceback has the frame of `__len__` after the frame of the line
 /// of `len` or of the `if`.
 #[test]

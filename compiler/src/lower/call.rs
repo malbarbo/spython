@@ -432,7 +432,7 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn bool(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         match (&*call.arguments.args, &*call.arguments.keywords) {
             ([], []) => Ok(Expr::Bool(false)),
-            ([arg], []) => self.truth_of(arg),
+            ([arg], []) => self.value_truth(arg, call),
             _ => Err(unsupported(call, "this call of bool")),
         }
     }
