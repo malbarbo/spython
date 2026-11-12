@@ -15,6 +15,7 @@ mod classes;
 mod control;
 mod corpus;
 mod dataclasses;
+mod dict;
 mod doctests;
 mod enums;
 mod float;

@@ -274,7 +274,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// The module of the prelude in `file`.
-    fn prelude_unit_of(&self, file: File) -> &'a Unit<'a, 'db> {
+    pub(super) fn prelude_unit_of(&self, file: File) -> &'a Unit<'a, 'db> {
         self.prelude
             .iter()
             .find(|unit| unit.file == file)
@@ -282,7 +282,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// The module `module` of the prelude.
-    fn prelude_unit(&self, module: &str) -> Option<&'a Unit<'a, 'db>> {
+    pub(super) fn prelude_unit(&self, module: &str) -> Option<&'a Unit<'a, 'db>> {
         self.prelude
             .iter()
             .find(|unit| unit.prelude == Some(module))
@@ -623,6 +623,7 @@ impl Lowering<'_, '_> {
 mod tests {
     use engine::Level;
     use engine::check::check_source;
+    use indoc::indoc;
     use ty_python_semantic::types::lowering::Shape;
 
     use crate::ir::{ListId, Rep};
@@ -635,6 +636,17 @@ mod tests {
         };
         match crate::lower::lower(&checked.db, checked.file, "test.py", None) {
             Ok(program) => program.funcs.len(),
+            Err(error) => panic!("{error:?}"),
+        }
+    }
+
+    /// The number of classes in the program of `source`.
+    fn classes(source: &str) -> usize {
+        let Ok(checked) = check_source(source, Level::Full, false) else {
+            panic!("the checker rejects the program");
+        };
+        match crate::lower::lower(&checked.db, checked.file, "test.py", None) {
+            Ok(program) => program.classes.len(),
             Err(error) => panic!("{error:?}"),
         }
     }
@@ -696,5 +708,37 @@ mod tests {
             funcs("xs = [1]\nys = ['a']\nxs.append(2)\nys.append('b')\n"),
             4
         );
+    }
+
+    #[test]
+    fn a_generic_class_of_the_prelude_has_a_copy_for_each_type() {
+        assert_eq!(
+            classes(indoc! {"
+                def f(a: dict[str, int], b: dict[str, int], c: dict[str, str], d: set[int]) -> None:
+                    pass
+            "}),
+            3
+        );
+        assert_eq!(
+            classes(indoc! {"
+                def f(a: dict[str, dict[str, int]], b: dict[str, int]) -> None:
+                    pass
+            "}),
+            2
+        );
+    }
+
+    #[test]
+    fn a_method_of_a_copy_comes_with_its_first_call() {
+        let len = |params: &str, sum: &str| {
+            funcs(&format!("def f({params}) -> int:\n    return {sum}\n"))
+        };
+        let one = len("a: dict[str, int]", "len(a)");
+        assert_eq!(len("a: dict[str, int]", "0"), 1);
+        assert_eq!(
+            len("a: dict[str, int], b: dict[str, int]", "len(a) + len(b)"),
+            one
+        );
+        assert!(len("a: dict[str, int], b: dict[int, int]", "len(a) + len(b)") > one);
     }
 }

@@ -176,24 +176,32 @@ struct Unit<'a, 'db> {
     prelude: Option<&'a str>,
     /// The functions of a module of the prelude, by name.
     defs: HashMap<&'a str, &'a ast::StmtFunctionDef>,
+    /// The classes of a module of the prelude, by name.
+    classes: HashMap<&'a str, &'a ast::StmtClassDef>,
     /// The statements of the module.
     suite: &'a [ast::Stmt],
 }
 
 impl<'a, 'db> Unit<'a, 'db> {
     fn new(loaded: &'a Loaded<'db>, path: &'a str, prelude: Option<&'a str>) -> Self {
-        let defs = match prelude {
-            Some(_) => loaded
-                .module
-                .suite()
-                .iter()
-                .filter_map(|stmt| match stmt {
-                    ast::Stmt::FunctionDef(def) => Some((def.name.as_str(), def)),
-                    _ => None,
-                })
-                .collect(),
-            None => HashMap::new(),
+        let suite = match prelude {
+            Some(_) => loaded.module.suite().as_slice(),
+            None => &[],
         };
+        let defs = suite
+            .iter()
+            .filter_map(|stmt| match stmt {
+                ast::Stmt::FunctionDef(def) => Some((def.name.as_str(), def)),
+                _ => None,
+            })
+            .collect();
+        let classes = suite
+            .iter()
+            .filter_map(|stmt| match stmt {
+                ast::Stmt::ClassDef(def) => Some((def.name.as_str(), def)),
+                _ => None,
+            })
+            .collect();
         Unit {
             file: loaded.file,
             model: &loaded.model,
@@ -202,6 +210,7 @@ impl<'a, 'db> Unit<'a, 'db> {
             path,
             prelude,
             defs,
+            classes,
             suite: loaded.module.suite().as_slice(),
         }
     }
@@ -965,6 +974,21 @@ impl<'a, 'db> Lowering<'a, 'db> {
             {
                 Some(Rep::Str)
             }
+            Shape::Instance(class, args)
+                if let Some(unit) = self.prelude.iter().find(|unit| unit.file == class.file) =>
+            {
+                self.prelude_class(unit, &class.name, args).map(Rep::Object)
+            }
+            Shape::Dict(key, value) => {
+                let unit = self.prelude_unit("dict")?;
+                self.prelude_class(unit, "Dict", vec![*key, *value])
+                    .map(Rep::Object)
+            }
+            Shape::Set(item) => {
+                let unit = self.prelude_unit("set")?;
+                self.prelude_class(unit, "Set", vec![*item])
+                    .map(Rep::Object)
+            }
             Shape::Instance(class, _) if self.is_object(&class) => Some(Rep::Uniform),
             Shape::Instance(class, _) | Shape::EnumMember(class, _) => self
                 .classes
@@ -1013,6 +1037,25 @@ impl<'a, 'db> Lowering<'a, 'db> {
         lists.reprs.push(None);
         lists.ids.insert(arg, list);
         list
+    }
+
+    /// What a type variable stands for when a generic class of the prelude
+    /// takes `shape` for it. A type variable of the copy that the lowering
+    /// is in stands for what it stands for there.
+    fn type_arg(&self, shape: Shape) -> Option<TypeArg> {
+        if let Shape::TypeVar(name) = &shape {
+            let types = self.types.borrow();
+            return types
+                .iter()
+                .find(|(var, _)| var == name)
+                .map(|(_, arg)| arg.clone());
+        }
+        let rep = self.rep_of(Some(shape.clone()))?;
+        let classes = match rep {
+            Rep::Uniform => self.uniform_eq_classes(Some(shape)),
+            _ => Vec::new(),
+        };
+        Some(TypeArg { rep, classes })
     }
 
     /// The type of each item of a list of the type `list`.

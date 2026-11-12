@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use ruff_db::files::File;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_module_resolver::KnownModule;
@@ -18,7 +19,7 @@ use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::{imported_name, names_in};
 use super::init::{Base, check_init};
-use super::{HashSet, Lowering, Scope, Sig, Vars, params_of, unsupported};
+use super::{HashSet, Lowering, Scope, Sig, TypeArg, Unit, Vars, params_of, unsupported};
 use crate::Error;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
 use crate::cpython::{Class, names};
@@ -47,6 +48,9 @@ pub(super) struct Classes<'a> {
     /// The number of slots that [`Lowering::resolve_slots`] has defined,
     /// which are the first ones of `slots`.
     pub resolved: usize,
+    /// The copy of each generic class of the prelude, by the file and the
+    /// name of the class and what each of its type variables stands for.
+    pub copies: HashMap<(File, String, Vec<TypeArg>), ClassId>,
 }
 
 /// What a call through a value of a class calls.
@@ -206,6 +210,16 @@ pub(super) struct Declared<'a> {
     /// The variable of the module that holds the default of each field of
     /// a dataclass that has one. The `class` statement gives it its value.
     pub defaults: Vec<Option<VarId>>,
+    /// What the class copies, for a copy of a generic class of the prelude.
+    pub copy: Option<ClassCopy>,
+}
+
+/// A generic class of the prelude, in the file of its module, with what
+/// each of its type variables stands for in a copy.
+#[derive(Clone)]
+pub(super) struct ClassCopy {
+    pub file: File,
+    pub types: Vec<(String, TypeArg)>,
 }
 
 impl Declared<'_> {
@@ -266,7 +280,7 @@ pub(super) struct Member {
     pub value: Literal,
 }
 
-impl<'a> Lowering<'a, '_> {
+impl<'a, 'db> Lowering<'a, 'db> {
     /// Declares the class of `def`, a `class` statement of the module. The
     /// fields of a dataclass wait for [`Self::declare_fields`], since they
     /// may hold an object of a class that comes later.
@@ -323,6 +337,7 @@ impl<'a> Lowering<'a, '_> {
             str_or_none: None,
             repr_or_none: None,
             defaults: Vec::new(),
+            copy: None,
         });
         if kind == Kind::Enum && !classes.get(id).members.is_empty() {
             classes.instantiated.insert(id);
@@ -335,6 +350,103 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
+    /// The copy of the generic class `name` of `unit`, a module of the
+    /// prelude, whose type variables stand for what `args` gives in order,
+    /// which the first use declares. `None` when the module has no such
+    /// class, or a type variable has no rep. A call declares each method.
+    pub(super) fn prelude_class(
+        &self,
+        unit: &'a Unit<'a, 'db>,
+        name: &str,
+        args: Vec<Shape>,
+    ) -> Option<ClassId> {
+        let def = *unit.classes.get(name)?;
+        let args = args
+            .into_iter()
+            .map(|shape| self.type_arg(shape))
+            .collect::<Option<Vec<_>>>()?;
+        let key = (unit.file, name.to_owned(), args.clone());
+        if let Some(&class) = self.classes.borrow().copies.get(&key) {
+            return Some(class);
+        }
+        let types: Vec<(String, TypeArg)> = def
+            .type_params
+            .iter()
+            .flat_map(|params| &params.type_params)
+            .map(|param| param.name().to_string())
+            .zip(args)
+            .collect();
+        let outer = self.unit.replace(unit);
+        let outer_types = self.types.replace(types.clone());
+        let form = self.copy_form(def);
+        self.types.replace(outer_types);
+        self.unit.set(outer);
+        let (checked, methods, nodes, fields) = form;
+        let mut classes = self.classes.borrow_mut();
+        let id = ClassId::new(classes.list.len());
+        classes.list.push(Declared {
+            def,
+            ordered: false,
+            kind: Kind::Plain,
+            base: None,
+            init_escapes: false,
+            checked,
+            nodes,
+            fields,
+            members: Vec::new(),
+            own_str: None,
+            own_repr: None,
+            own_truth: None,
+            init: None,
+            reinit: None,
+            methods,
+            eq: None,
+            eq_or_none: None,
+            str_or_none: None,
+            repr_or_none: None,
+            defaults: Vec::new(),
+            copy: Some(ClassCopy {
+                file: unit.file,
+                types,
+            }),
+        });
+        classes.copies.insert(key, id);
+        Some(id)
+    }
+
+    /// The fields and the methods of `def`, a generic class of the module
+    /// of the prelude that the lowering is in, with the types of the copy
+    /// that the lowering declares. Each field has the rep of its type,
+    /// which a list of a type variable always has.
+    #[expect(clippy::type_complexity)]
+    fn copy_form(
+        &self,
+        def: &'a ast::StmtClassDef,
+    ) -> (
+        Checked,
+        Vec<Method<'a>>,
+        Vec<(&'a ast::StmtAnnAssign, Shape)>,
+        Vec<(String, Rep)>,
+    ) {
+        let info = class_info(self.model(), def).expect("a class of the prelude");
+        let (checked, methods, _) = self
+            .plain_form(def, &info, None)
+            .expect("a class of the prelude of the plain form");
+        let nodes = dataclass_fields(def)
+            .zip(checked.iter().map(|(_, shape)| shape.clone()))
+            .collect();
+        let fields = checked
+            .iter()
+            .map(|(name, shape)| {
+                let rep = self
+                    .rep_of(Some(shape.clone()))
+                    .expect("a field of a class of the prelude with a rep");
+                (name.clone(), rep)
+            })
+            .collect();
+        (checked, methods, nodes, fields)
+    }
+
     /// Gives each field of each class of the module with fields that the
     /// checker gives the rep of its values, once every class of the module
     /// has an id.
@@ -344,7 +456,7 @@ impl<'a> Lowering<'a, '_> {
             let (def, checked, base) = {
                 let classes = self.classes.borrow();
                 let declared = classes.get(class);
-                if declared.kind == Kind::Enum {
+                if declared.kind == Kind::Enum || declared.copy.is_some() {
                     continue;
                 }
                 let base = declared.base.map(|base| {
@@ -403,6 +515,10 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn declare_methods(&self) -> Result<(), Error> {
         let count = self.classes.borrow().list.len();
         for class in (0..count).map(ClassId::new) {
+            // A call declares a method of a copy, with the types of the copy.
+            if self.classes.borrow().get(class).copy.is_some() {
+                continue;
+            }
             let mut methods = self.classes.borrow().get(class).methods.clone();
             for method in &mut methods {
                 method.func = Some(self.declare_method(method.def, class)?);
@@ -566,10 +682,59 @@ impl<'a> Lowering<'a, '_> {
     /// the nearest class that it descends from, and `None` when no such
     /// class has a method of the name.
     pub(super) fn method(&self, class: ClassId, name: &str) -> Option<Method<'a>> {
-        let classes = self.classes.borrow();
-        classes
-            .chain(class)
-            .find_map(|class| classes.own_method(class, name))
+        let (owner, method) = {
+            let classes = self.classes.borrow();
+            classes
+                .chain(class)
+                .find_map(|class| Some((class, classes.own_method(class, name)?)))?
+        };
+        let copy = self.classes.borrow().get(owner).copy.clone();
+        match copy {
+            Some(copy) if method.func.is_none() => Some(Method {
+                func: Some(self.declare_copy_method(owner, copy, method.def)),
+                ..method
+            }),
+            _ => Some(method),
+        }
+    }
+
+    /// Declares `def`, a method of `class`, a copy of a generic class of
+    /// the prelude, with the types of the copy. A parameter with a default
+    /// holds `None` for it, as in a function of the prelude.
+    fn declare_copy_method(
+        &self,
+        class: ClassId,
+        copy: ClassCopy,
+        def: &'a ast::StmtFunctionDef,
+    ) -> FuncId {
+        let unit = self.prelude_unit_of(copy.file);
+        let outer = self.unit.replace(unit);
+        let outer_types = self.types.replace(copy.types.clone());
+        let signature = self.signature(def, Some(class));
+        self.types.replace(outer_types);
+        self.unit.set(outer);
+        // The prelude joins a type variable only with `None`, which every
+        // rep joins.
+        let (_, params, ret) = signature.expect("a method of the prelude with a signature");
+        let sig = Sig {
+            unit,
+            def: Some(def),
+            defaults: params.iter().map(|_| None).collect(),
+            doctest: None,
+            params,
+            ret,
+            types: copy.types,
+        };
+        let func = self.funcs.borrow_mut().add_generated(sig, true);
+        let mut classes = self.classes.borrow_mut();
+        let method = classes
+            .get_mut(class)
+            .methods
+            .iter_mut()
+            .find(|method| std::ptr::eq(method.def, def))
+            .expect("a method of the class");
+        method.func = Some(func);
+        func
     }
 
     /// The function of [`Self::method`], once the lowering declares it.
@@ -922,8 +1087,13 @@ impl<'a> Lowering<'a, '_> {
     /// The index and the rep of the field of `class` that `attr` names.
     fn field_of(&self, attr: &ast::ExprAttribute, class: ClassId) -> Result<(u32, Rep), Error> {
         let classes = self.classes.borrow();
-        let (field, (_, rep)) = classes
-            .get(class)
+        let declared = classes.get(class);
+        // The fields of a copy are the data of a builtin of CPython, which
+        // only the code of the prelude reads.
+        if declared.copy.is_some() && !self.in_prelude() {
+            return Err(unsupported(attr, "this attribute of an object"));
+        }
+        let (field, (_, rep)) = declared
             .fields
             .iter()
             .enumerate()
@@ -2413,7 +2583,7 @@ impl<'a> Lowering<'a, '_> {
         info: &ClassInfo,
         base: Option<ClassId>,
     ) -> Result<(Checked, Vec<Method<'a>>, bool), Error> {
-        if def.type_params.is_some() {
+        if def.type_params.is_some() && !self.in_prelude() {
             return Err(unsupported(def, "a generic class"));
         }
         let mut checked = Vec::new();
