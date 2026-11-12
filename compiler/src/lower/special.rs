@@ -326,7 +326,7 @@ impl Lowering<'_, '_> {
             return self.call_operator(node, func, left, right, site);
         }
         let reps = [left.rep(), right.rep()];
-        let operand = |i| param(i, if i == 0 { reps[0] } else { reps[1] });
+        let operand = |i| operand_param(reps, i);
         let mut arms = Vec::new();
         for class in &lefts {
             if let Some(func) = inplace(*class) {
@@ -719,7 +719,7 @@ impl Lowering<'_, '_> {
             return call(method, left.0, right.0, site);
         }
         let reps = [left.0.rep(), right.0.rep()];
-        let operand = |i| param(i, if i == 0 { reps[0] } else { reps[1] });
+        let operand = |i| operand_param(reps, i);
         let is_exact = |i, class| Expr::IsExact {
             value: Box::new(operand(i)),
             class,
@@ -851,7 +851,7 @@ fn same_class_error(
     message: impl Fn(ClassId) -> String,
 ) -> Vec<Stmt> {
     let is_exact = |i: usize, class| Expr::IsExact {
-        value: Box::new(param(i, if i == 0 { reps[0] } else { reps[1] })),
+        value: Box::new(operand_param(reps, i)),
         class,
     };
     let mut body: Vec<Stmt> = classes
@@ -905,4 +905,9 @@ fn inplace_method(op: ast::Operator) -> Option<&'static str> {
         ast::Operator::Pow => Some("__ipow__"),
         _ => None,
     }
+}
+
+/// The parameter `i`, 0 or 1, of a function of two operands of `reps`.
+fn operand_param(reps: [Rep; 2], i: usize) -> Expr {
+    param(i, if i == 0 { reps[0] } else { reps[1] })
 }
