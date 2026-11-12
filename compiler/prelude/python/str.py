@@ -23,7 +23,13 @@ from __spython_prelude__.intrinsics import (
     title_at,
     upper_at,
 )
-from __spython_prelude__.slices import slice_end, slice_start, step_bound
+from __spython_prelude__.slices import (
+    slice_end,
+    slice_start,
+    step_count,
+    step_of,
+    step_start,
+)
 
 
 def repr_of(s: str) -> str:
@@ -689,24 +695,9 @@ def is_in(sub: str, s: str) -> bool:
 def slice_step(s: str, start: int | None, stop: int | None, step: int | None) -> str:
     """`s[start:stop:step]`, with the bounds that CPython adjusts to the step."""
     n = len(s)
-    k = 1
-    if step is not None:
-        k = step
-    if k == 0:
-        raise ValueError("slice step cannot be zero")
-    negative = k < 0
-    first = 0
-    last = n
-    if negative:
-        first = n - 1
-        last = -1
-    first = step_bound(start, n, negative, first)
-    last = step_bound(stop, n, negative, last)
-    count = 0
-    if negative and last < first:
-        count = (last - first + 1) // k + 1
-    elif not negative and first < last:
-        count = (last - first - 1) // k + 1
+    k = step_of(step)
+    first = step_start(start, n, k)
+    count = step_count(first, stop, n, k)
     b = builder_new(count)
     i = 0
     while i < count:

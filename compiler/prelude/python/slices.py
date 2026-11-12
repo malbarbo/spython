@@ -36,3 +36,32 @@ def step_bound(bound: int | None, n: int, negative: bool, missing: int) -> int:
             return n - 1
         return n
     return i
+
+
+def step_of(step: int | None) -> int:
+    """The step of a slice, 1 when it is missing."""
+    k = 1
+    if step is not None:
+        k = step
+    if k == 0:
+        raise ValueError("slice step cannot be zero")
+    return k
+
+
+def step_start(start: int | None, n: int, k: int) -> int:
+    """The first index of a slice with the step `k` of a sequence of length `n`."""
+    return step_bound(start, n, k < 0, n - 1 if k < 0 else 0)
+
+
+def step_count(first: int, stop: int | None, n: int, k: int) -> int:
+    """The number of items of a slice with the step `k` of a sequence of length `n`, from the
+    index `first`."""
+    if k < 0:
+        last = step_bound(stop, n, True, -1)
+        if last < first:
+            return (last - first + 1) // k + 1
+    else:
+        last = step_bound(stop, n, False, n)
+        if first < last:
+            return (last - first - 1) // k + 1
+    return 0

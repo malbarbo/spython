@@ -9,7 +9,13 @@ from __spython_prelude__.intrinsics import (
     list_truncate,
     set_item,
 )
-from __spython_prelude__.slices import slice_end, slice_start, step_bound
+from __spython_prelude__.slices import (
+    slice_end,
+    slice_start,
+    step_count,
+    step_of,
+    step_start,
+)
 
 
 def append[T](xs: list[T], x: T) -> None:
@@ -150,24 +156,9 @@ def slice_step[T](
 ) -> list[T]:
     """`xs[start:stop:step]`, with the bounds that CPython adjusts to the step."""
     n = len(xs)
-    k = 1
-    if step is not None:
-        k = step
-    if k == 0:
-        raise ValueError("slice step cannot be zero")
-    negative = k < 0
-    first = 0
-    last = n
-    if negative:
-        first = n - 1
-        last = -1
-    first = step_bound(start, n, negative, first)
-    last = step_bound(stop, n, negative, last)
-    count = 0
-    if negative and last < first:
-        count = (last - first + 1) // k + 1
-    elif not negative and first < last:
-        count = (last - first - 1) // k + 1
+    k = step_of(step)
+    first = step_start(start, n, k)
+    count = step_count(first, stop, n, k)
     ys: list[T] = []
     list_reserve(ys, count)
     for i in range(count):
