@@ -68,8 +68,8 @@ def extend[T](xs: list[T], ys: list[T]) -> None:
 
 def contains[T](x: T, xs: list[T]) -> bool:
     """`x in xs`, which compares each item with `x`, with the item on the left."""
-    for y in xs:
-        if y == x:
+    for i in range(len(xs)):
+        if item(xs, i) == x:
             return True
     return False
 
@@ -87,8 +87,8 @@ def index[T](
 
 def count[T](xs: list[T], x: T) -> int:
     n = 0
-    for y in xs:
-        if y == x:
+    for i in range(len(xs)):
+        if item(xs, i) == x:
             n += 1
     return n
 
