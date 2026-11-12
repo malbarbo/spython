@@ -1275,3 +1275,53 @@ fn a_call_of_a_name_of_two_classes_in_a_function_is_unsupported() {
         "a call of a name of two classes"
     );
 }
+
+/// A call of `__init__` through an object runs the `__init__` of the
+/// exact class of the object.
+#[test]
+fn an_explicit_call_of_init_runs_the_init_of_the_object() {
+    same_as_cpython(
+        "an_explicit_call_of_init_runs_the_init_of_the_object",
+        indoc! {"
+            class A:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+            class B(A):
+                def __init__(self, x: int) -> None:
+                    super().__init__(x * 10)
+
+            def reset(a: A) -> None:
+                a.__init__(5)
+                print(a.x)
+
+            reset(A(1))
+            reset(B(1))
+        "},
+    );
+}
+
+#[test]
+fn a_call_of_init_that_a_subclass_overrides_otherwise_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            class A:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+            class B(A):
+                def __init__(self) -> None:
+                    super().__init__(0)
+
+            def reset(a: A) -> None:
+                a.__init__(5)
+
+            reset(B())
+        "}),
+        "a call of __init__ that a subclass overrides otherwise"
+    );
+}

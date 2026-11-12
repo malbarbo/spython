@@ -1415,8 +1415,37 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         let text = format!("'NoneType' object has no attribute '{}'", attr.attr);
         let class = receiver.rep().class().expect("an object");
+        if method.def.name.as_str() == "__init__" {
+            self.check_init_overrides(call, class, method)?;
+        }
         let func = self.method_slot(class, method);
         self.call_with(call, self.not_none(receiver, text, attr), method, func)
+    }
+
+    /// Checks that each `__init__` of a class that descends from `class`
+    /// may take the place of `init` in the call `call`. A class may change
+    /// the parameters of its `__init__`, which [`Self::declare_methods`]
+    /// lets through, but a call of `__init__` through an object of `class`
+    /// binds the arguments by the parameters of `init`.
+    fn check_init_overrides(
+        &self,
+        call: &ast::ExprCall,
+        class: ClassId,
+        init: Method<'a>,
+    ) -> Result<(), Error> {
+        for descendant in self.descendants(class) {
+            if let Some(own) = self.method(descendant, "__init__")
+                && !std::ptr::eq(own.def, init.def)
+            {
+                self.check_override(own, init).map_err(|_| {
+                    unsupported(
+                        call,
+                        "a call of __init__ that a subclass overrides otherwise",
+                    )
+                })?;
+            }
+        }
+        Ok(())
     }
 
     /// The function that a call of `method` through an object of `class`
