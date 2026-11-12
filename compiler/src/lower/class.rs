@@ -1276,8 +1276,9 @@ impl<'a> Lowering<'a, '_> {
         )
     }
 
-    /// The object of `class`, a dataclass, that `call` makes. The checker
-    /// rejects a missing argument, an extra one and one that two names give.
+    /// The object of `class` that `call` makes. The checker rejects a
+    /// missing argument, an extra one and one that two names give, and an
+    /// argument of a class without `__init__`.
     pub(super) fn construct(
         &self,
         call: &ast::ExprCall,
@@ -1288,44 +1289,17 @@ impl<'a> Lowering<'a, '_> {
         if kind != Kind::Enum {
             self.classes.borrow_mut().instantiated.insert(class);
         }
-        match kind {
+        let (init, bindings) = match kind {
             Kind::Enum => return Err(unsupported(call, "a call of this class")),
-            Kind::Plain => return self.construct_plain(call, name, class),
-            Kind::Dataclass { .. } => {}
-        }
-        let init = self.class_init(class);
-        let sig = self.funcs.borrow().get(init).clone();
-        let bindings = self.field_bindings(call, class)?;
-        let (args, order) = self.arguments(call, &sig, Some(&bindings))?;
-        let value = Expr::Call {
-            func: init,
-            args,
-            order,
-            rep: Rep::Object(class),
-            site: self.call_site(init, call),
-            check: None,
-        };
-        self.after(Binding::Class(class), name, value)
-    }
-
-    /// The object of `class`, a class of [`Kind::Plain`], that `call`
-    /// makes. A class without `__init__` takes no argument, as the checker
-    /// tells.
-    fn construct_plain(
-        &self,
-        call: &ast::ExprCall,
-        name: &ast::ExprName,
-        class: ClassId,
-    ) -> Result<Expr, Error> {
-        let Some((def, init)) = self.plain_init(class) else {
-            return self.after(Binding::Class(class), name, Expr::Empty(class));
+            Kind::Plain => {
+                let Some((def, init)) = self.plain_init(class) else {
+                    return self.after(Binding::Class(class), name, Expr::Empty(class));
+                };
+                (init, self.param_bindings(call, def)?)
+            }
+            Kind::Dataclass { .. } => (self.class_init(class), self.field_bindings(call, class)?),
         };
         let sig = self.funcs.borrow().get(init).clone();
-        let names: Vec<&str> = params_of(def)
-            .skip(1)
-            .map(|param| param.name().as_str())
-            .collect();
-        let bindings = self.bindings_by_name(call, &names)?;
         let (args, order) = self.arguments(call, &sig, Some(&bindings))?;
         let value = Expr::Call {
             func: init,
