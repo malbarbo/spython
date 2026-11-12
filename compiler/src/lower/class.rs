@@ -800,13 +800,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         func
     }
 
-    /// A new object of `class`, a copy of a generic class of the prelude
-    /// whose `__init__` takes no argument, which may run out of memory at
+    /// A new object of `class`, a copy of a generic class of the prelude,
+    /// whose `__init__` takes `args`. The call may run out of memory at
     /// `site`.
-    pub(super) fn new_copy(&self, class: ClassId, site: Site) -> Expr {
+    pub(super) fn new_copy(&self, class: ClassId, args: Vec<Expr>, site: Site) -> Expr {
         self.classes.borrow_mut().instantiated.insert(class);
         let (_, init) = self.plain_init(class).expect("a copy with __init__");
-        generated_call(init, Vec::new(), Rep::Object(class), site)
+        generated_call(init, args, Rep::Object(class), site)
     }
 
     /// The file of the generic class of the prelude that `class` copies,

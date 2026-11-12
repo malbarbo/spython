@@ -166,6 +166,9 @@ class Dict[K, V]:
         self.usable = 0
         self.unicode = True
 
+    def iter(self) -> DictIter[K, V]:
+        return DictIter(self)
+
     def pend(self, key: K, value: V) -> Dict[K, V]:
         """Keeps an item of a literal of `dict`, which [`done`] puts in the `dict` once each key
         and each value of the literal has its value, as `BUILD_MAP` of CPython does."""
@@ -319,3 +322,49 @@ class Dict[K, V]:
                 self.values.append(item(values, i))
                 self.live.append(True)
         self.usable -= len(self.keys)
+
+
+class DictIter[K, V]:
+    """A `for` over a `dict`, which follows `dictiter_iternextkey` of CPython 3.13."""
+
+    d: Dict[K, V]
+    # The first entry that the loop has yet to see.
+    pos: int
+    # The size of the `dict` when the loop started.
+    used: int
+    # How many entries the loop has yet to see.
+    left: int
+    # The entry of the last item that `next` found.
+    index: int
+
+    def __init__(self, d: Dict[K, V]) -> None:
+        self.d = d
+        self.pos = 0
+        self.used = d.used
+        self.left = d.used
+        self.index = -1
+
+    def next(self) -> bool:
+        """Finds the next entry in the `dict`, and returns `False` past the last one. A change of
+        the size of the `dict`, or one more entry than the loop expects, raises `RuntimeError`."""
+        d = self.d
+        if self.used != d.used:
+            raise RuntimeError("dictionary changed size during iteration")
+        i = self.pos
+        n = len(d.keys)
+        while i < n and not item(d.live, i):
+            i += 1
+        if i >= n:
+            return False
+        if self.left == 0:
+            raise RuntimeError("dictionary keys changed during iteration")
+        self.pos = i + 1
+        self.left -= 1
+        self.index = i
+        return True
+
+    def key(self) -> K:
+        return item(self.d.keys, self.index)
+
+    def value(self) -> V:
+        return item(self.d.values, self.index)

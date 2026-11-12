@@ -535,20 +535,34 @@ impl<'a, 'db> Lowering<'a, 'db> {
         keep: impl Fn(&str) -> bool,
     ) -> Result<(), Error> {
         for (target, iter) in loops {
-            let rep = match slot_shape(self.model(), target) {
-                Some(shape) => self.rep_of(Some(shape)),
-                None if self.range_call(iter).is_some() => Some(Rep::Int),
-                None => match self.rep_of(expr_shape(self.model(), iter)) {
-                    Some(Rep::List(list)) => Some(self.list_item(list)),
-                    Some(Rep::Str) => Some(Rep::Str),
-                    _ => None,
-                },
+            let targets = match dict_loop(self.model(), target, iter) {
+                Some(targets) => targets
+                    .into_iter()
+                    .map(|(target, shape)| {
+                        let shape = slot_shape(self.model(), target).unwrap_or(shape);
+                        (target, self.rep_of(Some(shape)))
+                    })
+                    .collect(),
+                None => {
+                    let rep = match slot_shape(self.model(), target) {
+                        Some(shape) => self.rep_of(Some(shape)),
+                        None if self.range_call(iter).is_some() => Some(Rep::Int),
+                        None => match self.rep_of(expr_shape(self.model(), iter)) {
+                            Some(Rep::List(list)) => Some(self.list_item(list)),
+                            Some(Rep::Str) => Some(Rep::Str),
+                            _ => None,
+                        },
+                    };
+                    vec![(*target, rep)]
+                }
             };
-            if let ast::Expr::Name(name) = target
-                && keep(name.id.as_str())
-                && let Some(rep) = rep
-            {
-                self.declare_var(name.id.as_str(), rep, iter)?;
+            for (target, rep) in targets {
+                if let ast::Expr::Name(name) = target
+                    && keep(name.id.as_str())
+                    && let Some(rep) = rep
+                {
+                    self.declare_var(name.id.as_str(), rep, iter)?;
+                }
             }
         }
         Ok(())
@@ -1305,5 +1319,40 @@ fn unsupported(node: &impl Ranged, what: &str) -> Error {
     Error::Unsupported {
         range: node.range(),
         what: what.to_owned(),
+    }
+}
+
+/// Each name of `target`, the target of a `for` over `iter`, with the type
+/// of its values, when `iter` is a `dict`, its `keys()` or its `values()`.
+/// `None` for another `for`.
+fn dict_loop<'e>(
+    model: &SemanticModel<'_>,
+    target: &'e ast::Expr,
+    iter: &ast::Expr,
+) -> Option<Vec<(&'e ast::Expr, Shape)>> {
+    let (value, part) = dict_part(iter);
+    let Some(Shape::Dict(key, value)) = expr_shape(model, value) else {
+        return None;
+    };
+    match (part, target) {
+        ("keys", target) => Some(vec![(target, *key)]),
+        ("values", target) => Some(vec![(target, *value)]),
+        _ => None,
+    }
+}
+
+/// The value of `iter`, the iterable of a `for`, that may be a `dict`, and
+/// what the loop takes of it: `keys` for the value itself, and `keys` or
+/// `values` for a call of the method of the name without arguments.
+fn dict_part(iter: &ast::Expr) -> (&ast::Expr, &str) {
+    match iter {
+        ast::Expr::Call(call)
+            if call.arguments.is_empty()
+                && let ast::Expr::Attribute(attr) = &*call.func
+                && matches!(attr.attr.as_str(), "keys" | "values") =>
+        {
+            (&*attr.value, attr.attr.as_str())
+        }
+        value => (value, "keys"),
     }
 }

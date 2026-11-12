@@ -407,3 +407,74 @@ fn a_pop_of_a_missing_key_raises_key_error_with_its_repr() {
         "},
     );
 }
+
+#[test]
+fn a_for_over_a_dict_its_keys_and_its_values_runs() {
+    same_as_cpython(
+        "a_for_over_a_dict_its_keys_and_its_values_runs",
+        indoc! {"
+            def soma(d: dict[str, int]) -> int:
+                total = 0
+                for v in d.values():
+                    total += v
+                return total
+
+            d: dict[str, int] = {'b': 1, 'a': 2, 'c': 3}
+            for k in d:
+                print(k, d[k])
+            for k in d.keys():
+                if k == 'a':
+                    continue
+                print('chave', k)
+            else:
+                print('fim')
+            for v in d.values():
+                if v == 2:
+                    break
+                print('valor', v)
+            else:
+                print('nunca')
+            print(soma(d))
+            d.pop('b')
+            d['b'] = 10
+            for k in d:
+                d[k] = d[k] * 2
+            print(d)
+            vazio: dict[int, float] = {}
+            for x in vazio:
+                print(x)
+            else:
+                print('vazio')
+            grande: dict[int, list[int]] = {}
+            for i in range(50):
+                grande[i] = [i]
+            for i in range(0, 50, 2):
+                grande.pop(i)
+            n = 0
+            for i in grande:
+                n += i + grande[i][0]
+            print(n)
+        "},
+    );
+}
+
+/// A `for` over a `dict` that changes raises `RuntimeError` at the
+/// iterable, as in CPython, even when the change comes in the last turn.
+#[test]
+fn a_for_over_a_dict_that_changes_raises_runtime_error() {
+    for (name, body) in [
+        ("grows", "d[k + k] = 0"),
+        ("shrinks_last", "if k == 'c':\n        d.pop('a')"),
+        ("grows_last", "if k == 'c':\n        d['z'] = 0"),
+        ("same_size", "d.pop(k)\n    d[k + 'x'] = 0"),
+        ("values", "d.clear()"),
+    ] {
+        let iter = if name == "values" { "d.values()" } else { "d" };
+        same_as_cpython(
+            &format!("a_for_over_a_dict_that_changes_raises_runtime_error_{name}"),
+            &format!(
+                "d: dict[str, int] = {{'a': 1, 'b': 2, 'c': 3}}\nfor k in {iter}:\n    print(k)\n    {body}\nprint('fim')\n"
+            ),
+        );
+    }
+}

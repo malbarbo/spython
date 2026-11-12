@@ -360,7 +360,7 @@ impl<'a> Lowering<'a, '_> {
         };
         let object = Rep::Object(class);
         let site = self.site(expr.range());
-        let mut value = self.new_copy(class, site);
+        let mut value = self.new_copy(class, Vec::new(), site);
         if dict.items.is_empty() {
             return Ok(value);
         }

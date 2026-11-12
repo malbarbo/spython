@@ -5,8 +5,9 @@ use ruff_text_size::Ranged;
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::call::is_builtins;
+use super::class::generated_call;
 use super::flow::imported_name;
-use super::{Lowering, params_of, unsupported};
+use super::{Lowering, dict_part, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
 use crate::ir::{ArithOp, CmpOp, Expr, FuncId, Place, Rep, Stmt};
@@ -341,6 +342,9 @@ impl<'a> Lowering<'a, '_> {
         if let Some(range) = self.range_call(&f.iter) {
             return self.for_range(f, range).map(|stmt| vec![stmt]);
         }
+        if let Some(stmts) = self.for_dict(f)? {
+            return Ok(stmts);
+        }
         let seq = self.expr(&f.iter)?;
         let rep = seq.rep();
         if !matches!(rep, Rep::List(_) | Rep::Str) {
@@ -403,6 +407,56 @@ impl<'a> Lowering<'a, '_> {
                 else_: self.body(&f.orelse)?,
             },
         ])
+    }
+
+    /// `for` over a `dict`, over its `keys()` or over its `values()`, and
+    /// `None` for a `for` over another value. An object of `DictIter` of the prelude
+    /// holds the place of the loop in the `dict`, and its method `next`
+    /// raises the errors of a `dict` that changes, at the iterable.
+    fn for_dict(&self, f: &ast::StmtFor) -> Result<Option<Vec<Stmt>>, Error> {
+        let (value, part) = dict_part(&f.iter);
+        if !matches!(expr_shape(self.model(), value), Some(Shape::Dict(..))) {
+            return Ok(None);
+        }
+        let dict = self.expr(value)?;
+        let Rep::Object(class) = dict.rep() else {
+            return Err(unsupported(&*f.iter, "a for over this type"));
+        };
+        let site = self.site(f.iter.range());
+        let iter = self.method_func(class, "iter").expect("Dict has iter");
+        let iter_rep = self.funcs.borrow().get(iter).ret;
+        let iter_class = iter_rep.class().expect("an object of DictIter");
+        let iter_var = self.hidden_var(iter_rep);
+        let read = || Expr::Load {
+            place: iter_var,
+            rep: iter_rep,
+            check: None,
+        };
+        let call = |name: &str| {
+            let func = self
+                .method_func(iter_class, name)
+                .expect("a method of DictIter");
+            let rep = self.funcs.borrow().get(func).ret;
+            generated_call(func, vec![read()], rep, site)
+        };
+        let name = if part == "keys" { "key" } else { "value" };
+        let (place, value) = self.target(&f.target, call(name))?;
+        let mut body = vec![Stmt::Assign {
+            targets: vec![place],
+            value,
+        }];
+        body.extend(self.body(&f.body)?);
+        Ok(Some(vec![
+            Stmt::Assign {
+                targets: vec![iter_var],
+                value: generated_call(iter, vec![dict], iter_rep, site),
+            },
+            Stmt::While {
+                cond: call("next"),
+                body,
+                else_: self.body(&f.orelse)?,
+            },
+        ]))
     }
 
     /// The call of `range` that `iter` is, which only a `for` takes.
