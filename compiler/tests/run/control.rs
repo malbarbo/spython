@@ -442,3 +442,16 @@ fn a_conditional_expression_narrows_a_str_or_none() {
         "},
     );
 }
+
+#[test]
+fn an_if_expression_of_a_list_and_another_type_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            def f(c: bool) -> None:
+                print([1] if c else 0)
+
+            f(True)
+        "}),
+        "branches of two types"
+    );
+}

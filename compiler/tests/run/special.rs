@@ -649,3 +649,24 @@ fn eq_outside_the_accepted_form_is_unsupported() {
         assert_eq!(unsupported(source), what, "{source}");
     }
 }
+
+#[test]
+fn operator_methods_with_a_list_and_another_result_are_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            class A:
+                def __add__(self, other: 'A') -> list[int]:
+                    return [1]
+
+                def __radd__(self, other: 'A') -> int:
+                    return 1
+
+            class B(A):
+                pass
+
+            a: A = B()
+            print(a + a)
+        "}),
+        "methods of an operator with results of two types"
+    );
+}

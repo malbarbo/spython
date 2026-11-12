@@ -557,7 +557,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     .and_then(|(_, from)| self.vars.borrow().find(from))
                     .map(|(_, rep)| rep);
                 let rep = match (self.rep_of(shape), copied) {
-                    (Some(rep), Some(copied)) => Some(self.join(rep, copied)),
+                    (Some(rep), Some(copied)) => Some(
+                        self.join(rep, copied)
+                            .ok_or_else(|| unsupported(value, "a value of two types"))?,
+                    ),
                     (rep, copied) => rep.or(copied),
                 };
                 if let ast::Expr::Name(name) = target
@@ -975,8 +978,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .iter()
                 .find(|(var, _)| *var == name)
                 .map(|(_, arg)| arg.rep),
-            // A union of `str` and `None` needs no box, and any other union
-            // of values with a rep is uniform.
             Shape::Union(shapes) => {
                 let reps = shapes
                     .into_iter()
@@ -985,10 +986,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         shape => self.rep_of(Some(shape)),
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let rep = reps.iter().copied().reduce(|a, b| self.join(a, b))?;
-                // A uniform value does not hold a list yet.
-                let holds_list = reps.iter().any(|rep| rep.list().is_some());
-                (rep != Rep::Uniform || !holds_list).then_some(rep)
+                self.join_all(reps)
             }
             _ => None,
         }
@@ -1172,10 +1170,11 @@ impl Lowering<'_, '_> {
     }
 
     /// The narrowest rep that holds the values of `a` and the values of
-    /// `b`.
-    fn join(&self, a: Rep, b: Rep) -> Rep {
+    /// `b`, and `None` when a list meets a value of another type, which
+    /// no rep holds yet.
+    fn join(&self, a: Rep, b: Rep) -> Option<Rep> {
         let pair = [a, b];
-        if self.holds(a, b) {
+        Some(if self.holds(a, b) {
             a
         } else if self.holds(b, a) {
             b
@@ -1199,9 +1198,19 @@ impl Lowering<'_, '_> {
                 .all(|rep| *rep == Rep::None || rep.list() == Some(list))
         {
             Rep::ListOrNone(list)
-        } else {
+        } else if pair.iter().all(|rep| rep.list().is_none()) {
             Rep::Uniform
-        }
+        } else {
+            return None;
+        })
+    }
+
+    /// The join of all of `reps`, and `None` when `reps` is empty or has
+    /// no join.
+    fn join_all(&self, reps: impl IntoIterator<Item = Rep>) -> Option<Rep> {
+        let mut reps = reps.into_iter();
+        let first = reps.next()?;
+        reps.try_fold(first, |a, b| self.join(a, b))
     }
 }
 

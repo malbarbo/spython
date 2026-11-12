@@ -260,13 +260,18 @@ impl Lowering<'_, '_> {
         };
         let lefts = self.classes_of(left.rep(), || None);
         let rights = self.classes_of(right.rep(), || None);
-        let ret = lefts
+        let rets = lefts
             .iter()
             .filter_map(|class| method(*class, name))
             .chain(rights.iter().filter_map(|class| method(*class, reflected)))
             .map(|(func, _)| self.funcs.borrow().get(func).ret)
-            .reduce(|a, b| self.join(a, b))
-            .ok_or_else(|| unsupported(node, "this operator on an object"))?;
+            .collect::<Vec<_>>();
+        if rets.is_empty() {
+            return Err(unsupported(node, "this operator on an object"));
+        }
+        let ret = self
+            .join_all(rets)
+            .ok_or_else(|| unsupported(node, "methods of an operator with results of two types"))?;
         let site = self.site(node.range());
         self.dispatch_binary(
             ((left, None), (right, None), ret, site),
@@ -326,12 +331,13 @@ impl Lowering<'_, '_> {
         } else {
             Some(self.special_arith(node, op, operand(0), operand(1))?)
         };
-        let ret = arms
-            .iter()
-            .map(|(_, call)| call.rep())
-            .chain(rest.as_ref().map(Expr::rep))
-            .reduce(|a, b| self.join(a, b))
-            .expect("a method of the assignment");
+        let ret = self
+            .join_all(
+                arms.iter()
+                    .map(|(_, call)| call.rep())
+                    .chain(rest.as_ref().map(Expr::rep)),
+            )
+            .ok_or_else(|| unsupported(node, "methods of an operator with results of two types"))?;
         let coerce = |value| {
             self.coerce(value, ret)
                 .expect("the join holds every result")
@@ -777,7 +783,9 @@ impl Lowering<'_, '_> {
         if !shared.is_empty() {
             return self.dataclass_eq(left.0, right.0, shared, site);
         }
-        let rep = self.join(left.0.rep(), right.0.rep());
+        let rep = self
+            .join(left.0.rep(), right.0.rep())
+            .expect("list_compare takes a comparison of a list");
         let coerce = |value| self.coerce(value, rep).expect("the join holds both values");
         Ok(Expr::Compare(
             Box::new(coerce(left.0)),

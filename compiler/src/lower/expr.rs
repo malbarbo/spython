@@ -95,7 +95,9 @@ impl<'a> Lowering<'a, '_> {
             (LogicOp::Or, Rep::ListOrNone(list)) => Rep::List(list),
             _ => from,
         };
-        let rep = self.join(picked, right.rep());
+        let rep = self
+            .join(picked, right.rep())
+            .ok_or_else(|| unsupported(b, "operands of two types"))?;
         let value = if picked == from {
             Expr::LogicLeft(from)
         } else {
@@ -164,7 +166,9 @@ impl<'a> Lowering<'a, '_> {
                 let cond = self.truth_of(&i.test)?;
                 let then = self.expr(&i.body)?;
                 let else_ = self.expr(&i.orelse)?;
-                let rep = self.join(then.rep(), else_.rep());
+                let rep = self
+                    .join(then.rep(), else_.rep())
+                    .ok_or_else(|| unsupported(expr, "branches of two types"))?;
                 let widen =
                     |value| Box::new(self.coerce(value, rep).expect("the join holds both values"));
                 Ok(Expr::IfElse {
@@ -587,11 +591,9 @@ impl<'a> Lowering<'a, '_> {
         {
             // The tests of the type of a uniform value compare an object
             // with a value of another class or type.
-            let rep = operands
-                .iter()
-                .map(|(lowered, _)| lowered.rep())
-                .reduce(|a, b| self.join(a, b))
-                .expect("a comparison has a first operand");
+            let rep = self
+                .join_all(operands.iter().map(|(lowered, _)| lowered.rep()))
+                .expect("list_compare takes a comparison of a list");
             let mut operands = operands.into_iter().map(|(lowered, _)| {
                 self.coerce(lowered, rep)
                     .expect("the join holds every operand")
