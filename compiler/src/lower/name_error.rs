@@ -105,7 +105,10 @@ impl<'a> Lowering<'a, '_> {
                 .vars
                 .find("self")
                 .filter(|_| scope.is_local("self"))
-                .filter(|(_, rep)| has_attribute(Some(*rep), name))
+                .filter(|(_, rep)| match rep {
+                    Rep::Object(class) => classes.has_attribute(*class, name),
+                    rep => has_attribute(Some(*rep), name),
+                })
                 .map(|(id, _)| Binding::Local(id)),
             None => match (module.find("self"), funcs.names.get("self")) {
                 (Some((id, rep)), _) if has_attribute(Some(rep), name) => Some(Binding::Global(id)),

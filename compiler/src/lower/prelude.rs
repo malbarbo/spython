@@ -379,7 +379,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let outer = self.unit.replace(unit);
         let outer_types = self.types.replace(types.clone());
-        let signature = self.signature(def);
+        let signature = self.signature(def, None);
         self.types.replace(outer_types);
         self.unit.set(outer);
         let (id, params, ret) = signature?;

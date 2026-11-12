@@ -665,6 +665,11 @@ impl<'a> Ins<'a> {
         self
     }
 
+    pub fn struct_new_default(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.struct_new_default(ty.0);
+        self
+    }
+
     /// Tests whether a reference is a non-null reference to `ty`.
     pub fn ref_test(&mut self, ty: HeapType) -> &mut Self {
         self.0.ref_test_non_null(ty);

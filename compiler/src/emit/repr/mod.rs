@@ -94,7 +94,7 @@ impl Reprs {
         // or a list, and an item of a list may be an object or another list,
         // so the types refer to each other by the indices that they will have
         // in their rec group.
-        let layout = Layout::new(m.next_type_index(), classes.len(), lists.len());
+        let layout = Layout::new(m.next_type_index(), classes, lists.len());
         let list_types: Vec<(TypeIdx, TypeIdx)> =
             (0..lists.len()).map(|i| layout.list(i)).collect();
         let mut reprs = Reprs {
@@ -122,7 +122,12 @@ impl Reprs {
             .iter()
             .map(|class| {
                 Layout::class_struct(class, |rep| {
-                    reprs.value_type(rep).expect("a field has a value")
+                    let ty = if class.unset {
+                        reprs.local_type(rep)
+                    } else {
+                        reprs.value_type(rep)
+                    };
+                    ty.expect("a field has a value")
                 })
             })
             .collect();
@@ -285,14 +290,22 @@ impl Reprs {
 
     /// Pops an object of `class` and pushes its field at `field`. A field
     /// has the type of a value of its rep.
-    pub fn field(&self, f: &mut FuncState, class: ClassId, field: u32) {
+    pub fn field(&self, f: &mut FuncState, class: ClassId, field: u32, rep: Rep) {
         f.ins().struct_get(self.class(class), field);
+        if self.layout.unset(class) {
+            non_null(f, rep);
+        }
     }
 
     /// Pops a value for each field of `class` and pushes a new object of
     /// `class` with them. A value of each rep is a value of its field.
     pub fn new_object(&self, f: &mut FuncState, class: ClassId) {
         f.ins().struct_new(self.class(class));
+    }
+
+    /// Pushes a new object of `class` whose fields have no value.
+    pub fn empty_object(&self, f: &mut FuncState, class: ClassId) {
+        f.ins().struct_new_default(self.class(class));
     }
 
     /// Pops an object of `class` and a value of the field at `field`, and

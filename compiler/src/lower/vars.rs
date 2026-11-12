@@ -218,6 +218,21 @@ impl<'a> Lowering<'a, '_> {
         {
             return Err(unsupported(name, "a name near a name of the class"));
         }
+        // The suggestion of `self.x` depends on whether `__init__` has
+        // assigned the field `x` yet.
+        if let Some(scope) = self.scope.borrow().as_ref()
+            && scope.name == "__init__"
+            && let Some((_, Rep::Object(class))) = scope.vars.find("self")
+            && self
+                .classes
+                .borrow()
+                .get(class)
+                .fields
+                .iter()
+                .any(|(field, _)| field == name.id.as_str())
+        {
+            return Err(unsupported(name, "the name of a field in __init__"));
+        }
         Ok(Some(Check {
             site: self.site(name.range()),
             error: Undefined::Global(Box::new(self.name_error(name.id.as_str()))),

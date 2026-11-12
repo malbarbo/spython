@@ -454,6 +454,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 self.declare_class(class)?;
             }
             self.declare_fields()?;
+            self.declare_methods()?;
             for def in &bindings.defs {
                 self.declare_func(def)?;
                 self.declare_globals(def)?;
@@ -581,7 +582,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     fn declare_func(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
-        let (id, params, ret) = self.signature(def)?;
+        let (id, params, ret) = self.signature(def, None)?;
         let name = def.name.as_str();
         if self.vars.borrow().ids.contains_key(name) {
             return Err(unsupported(def, "a name of a function and of a variable"));
@@ -624,8 +625,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// The id of `def`, a function of the file that the lowering is in,
-    /// with the rep of each parameter and of the result.
-    fn signature(&self, def: &ast::StmtFunctionDef) -> Result<(DefId, Vec<Rep>, Rep), Error> {
+    /// with the rep of each parameter and of the result. The first
+    /// parameter of a method of `receiver` holds an object of the class.
+    fn signature(
+        &self,
+        def: &ast::StmtFunctionDef,
+        receiver: Option<ClassId>,
+    ) -> Result<(DefId, Vec<Rep>, Rep), Error> {
         // Only the prelude has generic functions, whose copy has a rep for
         // each type variable.
         let generic = def.type_params.is_some() && !self.in_prelude();
@@ -642,10 +648,22 @@ impl<'a, 'db> Lowering<'a, 'db> {
         if let Some(param) = params_of(def).nth(MAX_PARAMS) {
             return Err(unsupported(param, "a def with more than 1000 parameters"));
         }
+        if receiver.is_some()
+            && parameters
+                .args
+                .first()
+                .is_none_or(|param| param.default.is_some())
+        {
+            return Err(unsupported(&**parameters, "a method without self"));
+        }
         let info = function_info(self.model(), def).ok_or_else(|| unsupported(def, "this def"))?;
         let params = params_of(def)
             .zip(&info.params)
-            .map(|(param, info)| {
+            .enumerate()
+            .map(|(i, (param, info))| {
+                if let Some(class) = receiver.filter(|_| i == 0) {
+                    return Ok(Rep::Object(class));
+                }
                 let rep = self
                     .rep_of(Some(info.shape.clone()))
                     .ok_or_else(|| unsupported(param, "a parameter of this type"))?;
@@ -825,10 +843,17 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// which reads the parameters as the first locals. A function with a
     /// `frame` has a frame in a traceback, from the sites of its code.
     fn define(&self, id: FuncId, frame: bool, body: Vec<Stmt>) {
+        self.define_with(id, frame, &[], body);
+    }
+
+    /// [`Self::define`] of a function with a local of each rep of
+    /// `locals` after the parameters.
+    fn define_with(&self, id: FuncId, frame: bool, locals: &[Rep], body: Vec<Stmt>) {
         let sig = self.funcs.borrow().get(id).clone();
         let vars = sig
             .params
             .iter()
+            .chain(locals)
             .map(|rep| Var {
                 rep: *rep,
                 flagged: false,

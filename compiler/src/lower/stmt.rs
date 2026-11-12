@@ -9,7 +9,7 @@ use super::flow::imported_name;
 use super::{Lowering, coerce, params_of, unsupported};
 use crate::Error;
 use crate::cpython::Class;
-use crate::ir::{ArithOp, CmpOp, Expr, Place, Rep, Stmt};
+use crate::ir::{ArithOp, CmpOp, Expr, FuncId, Place, Rep, Stmt};
 
 /// The modules that a program may import. No import runs code in the
 /// compiled program.
@@ -51,6 +51,16 @@ impl<'a> Lowering<'a, '_> {
         let Some(id) = self.funcs.borrow().names.get(def.name.as_str()).copied() else {
             return Ok(Vec::new());
         };
+        self.default_values(def, id)
+    }
+
+    /// The assignment of the default of each parameter of `def`, the
+    /// function `id`, in the order of the parameters.
+    pub(super) fn default_values(
+        &self,
+        def: &ast::StmtFunctionDef,
+        id: FuncId,
+    ) -> Result<Vec<Stmt>, Error> {
         let sig = self.funcs.borrow().get(id).clone();
         params_of(def)
             .zip(&sig.defaults)

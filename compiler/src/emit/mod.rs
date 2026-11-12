@@ -1373,6 +1373,7 @@ impl Emitter<'_> {
                 }
                 self.reprs.new_object(f, *class);
             }
+            Expr::Empty(class) => self.reprs.empty_object(f, *class),
             Expr::List { list, items } => {
                 let array = self.reprs.begin_literal(f, *list, items.len());
                 for (i, item) in items.iter().enumerate() {
@@ -1386,10 +1387,10 @@ impl Emitter<'_> {
                 object,
                 class,
                 field,
-                ..
+                rep,
             } => {
                 self.expr(f, object);
-                self.reprs.field(f, *class, *field);
+                self.reprs.field(f, *class, *field, *rep);
             }
             Expr::Logic { op, left, right } => self.logic(f, *op, left, right),
             Expr::IfElse { cond, then, else_ } => {

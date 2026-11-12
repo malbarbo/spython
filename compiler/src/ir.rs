@@ -116,6 +116,10 @@ pub(crate) struct UserClass {
     pub fields: Vec<Rep>,
     /// `true` when the program assigns the fields of an object.
     pub mutable: bool,
+    /// `true` when an object starts with no value in its fields, which the
+    /// `__init__` of the class assigns. A field of a reference is then
+    /// nullable, and a read gives the value as one of its rep.
+    pub unset: bool,
     /// The objects that the class has from the start, as the members of an
     /// `Enum` are, with a literal for each field.
     pub members: Vec<Vec<Literal>>,
@@ -384,6 +388,9 @@ pub(crate) enum Expr {
         class: ClassId,
         fields: Vec<Expr>,
     },
+    /// A new object of `class`, a class with [`UserClass::unset`], whose
+    /// fields get their values from the `__init__` of the class.
+    Empty(ClassId),
     /// A new list of the type `list`, with a value of the rep of its items
     /// for each item, which the program evaluates in order.
     List {
@@ -1278,9 +1285,10 @@ impl Expr {
             | Expr::Item { rep, .. }
             | Expr::ListIndex { rep, .. }
             | Expr::Field { rep, .. } => *rep,
-            Expr::Member { class, .. } | Expr::New { class, .. } | Expr::Target(class) => {
-                Rep::Object(*class)
-            }
+            Expr::Member { class, .. }
+            | Expr::New { class, .. }
+            | Expr::Empty(class)
+            | Expr::Target(class) => Rep::Object(*class),
             Expr::List { list, .. } => Rep::List(*list),
             Expr::Logic { left, .. } => left.rep(),
             Expr::IfElse { then, .. } => then.rep(),

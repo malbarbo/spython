@@ -1,7 +1,7 @@
 //! The classes of the module. The compiler reads a fixed form of a
-//! dataclass and of an `Enum` in the text and asks the checker for the
-//! names and the types. The compiled program runs no code of the
-//! decorator, of the base nor of the annotations.
+//! dataclass, of an `Enum` and of a class with an `__init__` in the text
+//! and asks the checker for the names and the types. The compiled program
+//! runs no code of the decorator, of the base nor of the annotations.
 
 use std::collections::HashMap;
 
@@ -10,16 +10,17 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 use ty_module_resolver::KnownModule;
 use ty_python_semantic::types::KnownClass;
 use ty_python_semantic::types::lowering::{
-    ArgBinding, ClassId as CheckerClass, ClassInfo, Shape, call_bindings, class_info, expr_shape,
+    ArgBinding, ClassId as CheckerClass, ClassInfo, Shape, call_bindings, class_info,
+    declared_shape, expr_shape,
 };
 
 use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::{imported_name, names_in};
-use super::{HashSet, Lowering, Scope, Vars, coerce, unsupported};
+use super::{HashSet, Lowering, Scope, Sig, Vars, coerce, params_of, unsupported};
 use crate::Error;
-use crate::cpython::Class;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
+use crate::cpython::{Class, names};
 use crate::ir::{
     Binding, ClassId, CmpOp, Expr, FuncId, Literal, LogicOp, Place, Rep, Site, Stmt, UserClass,
     VarId,
@@ -46,6 +47,15 @@ impl<'a> Classes<'a> {
             .expect("a class of the module")
     }
 
+    /// Returns `true` if an object of `class` has the attribute `name`
+    /// once its `__init__` returns, `false` otherwise.
+    pub fn has_attribute(&self, class: ClassId, name: &str) -> bool {
+        let declared = self.get(class);
+        declared.fields.iter().any(|(field, _)| field == name)
+            || (name == "__annotations__" && !declared.fields.is_empty())
+            || names::OBJECT_ATTRIBUTES.binary_search(&name).is_ok()
+    }
+
     /// The classes of the IR.
     pub fn into_ir(self) -> Vec<UserClass> {
         self.list
@@ -53,7 +63,8 @@ impl<'a> Classes<'a> {
             .map(|class| UserClass {
                 ordered: class.ordered,
                 fields: class.fields.into_iter().map(|(_, rep)| rep).collect(),
-                mutable: class.kind == Kind::Dataclass { frozen: false },
+                mutable: class.kind.is_assignable(),
+                unset: class.kind == Kind::Plain,
                 members: class
                     .members
                     .into_iter()
@@ -67,15 +78,18 @@ impl<'a> Classes<'a> {
     }
 }
 
+/// The name and the type of each field of a class, as the checker gives
+/// them.
+type Checked = Vec<(String, Shape)>;
+
 /// A class of the module, with what the lowering knows of it.
 pub(super) struct Declared<'a> {
     pub def: &'a ast::StmtClassDef,
     /// `true` when the program asks which globals got a value first.
     pub ordered: bool,
     pub kind: Kind,
-    /// The name and the type of each field of a dataclass, as the checker
-    /// gives them.
-    pub checked: Vec<(String, Shape)>,
+    /// The fields of a dataclass or of a class of [`Kind::Plain`].
+    pub checked: Checked,
     /// The name and the rep of each field of an object of the class. A
     /// member of an `Enum` has `name` and `value`.
     pub fields: Vec<(String, Rep)>,
@@ -86,9 +100,13 @@ pub(super) struct Declared<'a> {
     /// The function that gives the `repr` of an object, once a conversion
     /// needs it.
     pub repr: Option<FuncId>,
-    /// The function that makes an object of a dataclass from a value for
-    /// each field, once a call needs it.
+    /// The function that makes an object from a value for each field of a
+    /// dataclass, or for each parameter of the `__init__` of a class of
+    /// [`Kind::Plain`], once a call needs it.
     pub init: Option<FuncId>,
+    /// The `def` of `__init__` in a class of [`Kind::Plain`], with its
+    /// function once [`Lowering::declare_methods`] declares it.
+    pub init_method: Option<(&'a ast::StmtFunctionDef, Option<FuncId>)>,
     /// The function `__eq__` of a dataclass, once a comparison needs it.
     pub eq: Option<FuncId>,
     /// The function that compares two values of a dataclass that may be
@@ -126,11 +144,20 @@ pub(super) enum Kind {
     Dataclass {
         frozen: bool,
     },
+    /// A class without a decorator and without a base, with annotated
+    /// fields that its `__init__` assigns.
+    Plain,
 }
 
 impl Kind {
     pub fn is_dataclass(self) -> bool {
         matches!(self, Kind::Dataclass { .. })
+    }
+
+    /// Returns `true` if a program may assign the fields of an object of
+    /// the class, `false` otherwise.
+    fn is_assignable(self) -> bool {
+        matches!(self, Kind::Dataclass { frozen: false } | Kind::Plain)
     }
 }
 
@@ -158,25 +185,27 @@ impl<'a> Lowering<'a, '_> {
             .then(|| self.dataclass_decorator(def))
             .transpose()?;
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        let (kind, fields, members) = if let Some(frozen) = frozen {
+        let mut init_method = None;
+        let (kind, checked, fields, members) = if let Some(frozen) = frozen {
             self.dataclass_form(def, &info)?;
-            (Kind::Dataclass { frozen }, Vec::new(), Vec::new())
+            let checked = info
+                .dataclass_fields
+                .expect("a dataclass that the checker knows")
+                .into_iter()
+                .map(|field| (field.name, field.shape))
+                .collect();
+            (Kind::Dataclass { frozen }, checked, Vec::new(), Vec::new())
+        } else if def.arguments.is_none() && info.mro.len() == 2 {
+            let (checked, init) = self.plain_form(def, &info)?;
+            init_method = init.map(|init| (init, None));
+            (Kind::Plain, checked, Vec::new(), Vec::new())
         } else {
             let members = self.enum_members(def, &info.mro, info.enum_members.as_deref())?;
             let value = members
                 .first()
                 .map_or(Rep::Int, |member| member.value.rep());
             let fields = vec![("name".to_owned(), Rep::Str), ("value".to_owned(), value)];
-            (Kind::Enum, fields, members)
-        };
-        let checked = match kind {
-            Kind::Dataclass { .. } => info
-                .dataclass_fields
-                .expect("a dataclass that the checker knows")
-                .into_iter()
-                .map(|field| (field.name, field.shape))
-                .collect(),
-            Kind::Enum => Vec::new(),
+            (Kind::Enum, Vec::new(), fields, members)
         };
         let mut classes = self.classes.borrow_mut();
         let id = ClassId::new(classes.list.len());
@@ -190,6 +219,7 @@ impl<'a> Lowering<'a, '_> {
             str: None,
             repr: None,
             init: None,
+            init_method,
             eq: None,
             eq_or_none: None,
             str_or_none: None,
@@ -201,15 +231,16 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
-    /// Gives each field of each dataclass of the module the rep of its
-    /// values, once every class of the module has an id.
+    /// Gives each field of each class of the module with fields that the
+    /// checker gives the rep of its values, once every class of the module
+    /// has an id.
     pub(super) fn declare_fields(&self) -> Result<(), Error> {
         let count = self.classes.borrow().list.len();
         for class in (0..count).map(ClassId::new) {
             let (def, checked) = {
                 let classes = self.classes.borrow();
                 let declared = classes.get(class);
-                if !declared.kind.is_dataclass() {
+                if declared.kind == Kind::Enum {
                     continue;
                 }
                 (declared.def, declared.checked.clone())
@@ -238,6 +269,39 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
+    /// Declares the `__init__` of each class of [`Kind::Plain`], once each
+    /// field has its rep.
+    pub(super) fn declare_methods(&self) -> Result<(), Error> {
+        let count = self.classes.borrow().list.len();
+        for class in (0..count).map(ClassId::new) {
+            let Some((def, _)) = self.classes.borrow().get(class).init_method else {
+                continue;
+            };
+            let (id, params, ret) = self.signature(def, Some(class))?;
+            let defaults = {
+                let mut vars = self.vars.borrow_mut();
+                params_of(def)
+                    .zip(&params)
+                    .map(|(param, rep)| param.default.as_ref().map(|_| vars.add_unnamed(*rep)))
+                    .collect()
+            };
+            let func = self.funcs.borrow_mut().add(
+                id,
+                Sig {
+                    unit: self.unit.get(),
+                    def: Some(def),
+                    params,
+                    defaults,
+                    doctest: None,
+                    ret,
+                    types: Vec::new(),
+                },
+            );
+            self.classes.borrow_mut().get_mut(class).init_method = Some((def, Some(func)));
+        }
+        Ok(())
+    }
+
     /// The class of `def`, a `class` statement that the lowering finds in
     /// the code.
     pub(super) fn class_of(&self, def: &ast::StmtClassDef) -> Result<ClassId, Error> {
@@ -259,13 +323,18 @@ impl<'a> Lowering<'a, '_> {
     /// for the first default that is an object of a dataclass.
     pub(super) fn class_body(&self, def: &ast::StmtClassDef) -> Result<Vec<Stmt>, Error> {
         let class = self.class_of(def)?;
-        let (fields, defaults) = {
+        let (kind, fields, defaults, init) = {
             let classes = self.classes.borrow();
             let declared = classes.get(class);
-            if !declared.kind.is_dataclass() {
+            if declared.kind == Kind::Enum {
                 return Ok(Vec::new());
             }
-            (declared.fields.clone(), declared.defaults.clone())
+            (
+                declared.kind,
+                declared.fields.clone(),
+                declared.defaults.clone(),
+                declared.init_method.and_then(|(_, func)| func),
+            )
         };
         let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
         if def.body.iter().any(ast::Stmt::is_ann_assign_stmt) {
@@ -287,7 +356,11 @@ impl<'a> Lowering<'a, '_> {
             namespace,
             class: Some(def.start()),
         });
-        let body = self.class_defaults(def, &fields, &defaults);
+        let body = if kind == Kind::Plain {
+            self.plain_body(def, init).map(|body| (body, None))
+        } else {
+            self.class_defaults(def, &fields, &defaults)
+        };
         let scope = self.scope.take().expect("the scope of the class");
         let (body, mutable) = body?;
         // The body of a class reads no variable of its own.
@@ -391,6 +464,41 @@ impl<'a> Lowering<'a, '_> {
             targets: vec![Place::Global(var)],
             value: lowered,
         })
+    }
+
+    /// The code of the body of `def`, a class of [`Kind::Plain`] whose
+    /// `__init__` has the function `init`. The body evaluates the
+    /// annotation of each field, and the `def` of `__init__` evaluates the
+    /// annotations and the defaults of its parameters.
+    fn plain_body(
+        &self,
+        def: &ast::StmtClassDef,
+        init: Option<FuncId>,
+    ) -> Result<Vec<Stmt>, Error> {
+        let mut body = Vec::new();
+        for stmt in &def.body {
+            match stmt {
+                ast::Stmt::AnnAssign(field) => {
+                    self.check_annotations(std::iter::once(&*field.annotation))?;
+                }
+                ast::Stmt::FunctionDef(method) => {
+                    let func = init.expect("the function of __init__");
+                    body.extend(self.default_values(method, func)?);
+                    let annotations = params_of(method)
+                        .filter_map(|param| param.annotation())
+                        .chain(method.returns.as_deref());
+                    self.check_annotations(annotations)?;
+                    self.scope
+                        .borrow_mut()
+                        .as_mut()
+                        .expect("the scope of the class body")
+                        .namespace
+                        .push(method.name.to_string());
+                }
+                _ => {}
+            }
+        }
+        Ok(body)
     }
 
     /// Returns `true` if a value of `shape` may be a list or an object of a
@@ -502,7 +610,9 @@ impl<'a> Lowering<'a, '_> {
         // The checker rejects an assignment to a field of a frozen
         // dataclass, whose fields the struct keeps immutable.
         let class = match self.rep_of(expr_shape(self.model(), &attr.value)) {
-            Some(Rep::Object(class)) if self.is_mutable(class) => class,
+            Some(Rep::Object(class)) if self.classes.borrow().get(class).kind.is_assignable() => {
+                class
+            }
             _ => return Err(unsupported(attr, "this target")),
         };
         let object = self.expr(&attr.value)?;
@@ -534,8 +644,9 @@ impl<'a> Lowering<'a, '_> {
         if let Some(func) = str {
             return Ok(func);
         }
-        // The `str` of an object of a dataclass is its `repr`.
-        let func = if kind.is_dataclass() {
+        // The `str` of an object of a dataclass is its `repr`, and so is
+        // the one of an object of a class without `__str__`.
+        let func = if kind != Kind::Enum {
             self.class_repr(class)?
         } else {
             let body = vec![Stmt::Return(Some(Expr::Concat {
@@ -565,6 +676,16 @@ impl<'a> Lowering<'a, '_> {
             return self.dataclass_repr(class);
         }
         let name = def.name.to_string();
+        if kind == Kind::Plain {
+            // CPython writes the address of the object too, which changes
+            // from one run to the next.
+            let body = vec![Stmt::Return(Some(Expr::Str(format!(
+                "<__main__.{name} object>"
+            ))))];
+            let func = self.generated(vec![Rep::Object(class)], Rep::Str, body);
+            self.classes.borrow_mut().get_mut(class).repr = Some(func);
+            return Ok(func);
+        }
         let value = self.repr_at(self.own_field(class, 1), Site::NONE)?;
         let body = vec![Stmt::Return(Some(Expr::Join {
             parts: vec![
@@ -670,8 +791,11 @@ impl<'a> Lowering<'a, '_> {
         name: &ast::ExprName,
         class: ClassId,
     ) -> Result<Expr, Error> {
-        if !self.is_dataclass(class) {
-            return Err(unsupported(call, "a call of this class"));
+        let kind = self.classes.borrow().get(class).kind;
+        match kind {
+            Kind::Enum => return Err(unsupported(call, "a call of this class")),
+            Kind::Plain => return self.construct_plain(call, name, class),
+            Kind::Dataclass { .. } => {}
         }
         let init = self.class_init(class);
         let sig = self.funcs.borrow().get(init).clone();
@@ -707,6 +831,81 @@ impl<'a> Lowering<'a, '_> {
             check: None,
         };
         self.after(Binding::Class(class), name, value)
+    }
+
+    /// The object of `class`, a class of [`Kind::Plain`], that `call`
+    /// makes. A class without `__init__` takes no argument, as the checker
+    /// tells.
+    fn construct_plain(
+        &self,
+        call: &ast::ExprCall,
+        name: &ast::ExprName,
+        class: ClassId,
+    ) -> Result<Expr, Error> {
+        let Some((def, init)) = self.plain_init(class) else {
+            return self.after(Binding::Class(class), name, Expr::Empty(class));
+        };
+        let sig = self.funcs.borrow().get(init).clone();
+        let names: Vec<&str> = params_of(def)
+            .skip(1)
+            .map(|param| param.name().as_str())
+            .collect();
+        // The index of a parameter of the checker may count `self`, and the
+        // name finds the parameter.
+        let bindings: Vec<ArgBinding> = call_bindings(self.model(), call)
+            .ok_or_else(|| unsupported(call, "a call with these arguments"))?
+            .into_iter()
+            .map(|binding| ArgBinding {
+                parameter: binding
+                    .parameter_name
+                    .as_deref()
+                    .and_then(|param| names.iter().position(|name| *name == param)),
+                parameter_name: binding.parameter_name,
+                parameter_shape: None,
+            })
+            .collect();
+        let (args, order) = self.arguments(call, &sig, Some(&bindings))?;
+        let value = Expr::Call {
+            func: init,
+            args,
+            order,
+            rep: Rep::Object(class),
+            site: self.call_site(init, call),
+            check: None,
+        };
+        self.after(Binding::Class(class), name, value)
+    }
+
+    /// The `def` of the `__init__` of `class`, a class of [`Kind::Plain`],
+    /// with the function that makes an empty object, calls the `__init__`
+    /// with it and the arguments, and returns it. The function has no
+    /// frame, and `None` stands for a class without `__init__`.
+    fn plain_init(&self, class: ClassId) -> Option<(&'a ast::StmtFunctionDef, FuncId)> {
+        let (def, method) = self.classes.borrow().get(class).init_method?;
+        let method = method.expect("a declared __init__");
+        if let Some(func) = self.classes.borrow().get(class).init {
+            return Some((def, func));
+        }
+        let sig = self.funcs.borrow().get(method).clone();
+        let params = sig.params.get(1..).unwrap_or_default().to_vec();
+        let defaults = sig.defaults.get(1..).unwrap_or_default().to_vec();
+        let object = Rep::Object(class);
+        let func = self.reserve_with(params.clone(), object, defaults, true);
+        let local = params.len();
+        let args = std::iter::once(param(local, object))
+            .chain(params.iter().enumerate().map(|(i, rep)| param(i, *rep)))
+            .collect();
+        let body = vec![
+            Stmt::Assign {
+                targets: vec![Place::Local(VarId::new(local))],
+                value: Expr::Empty(class),
+            },
+            Stmt::Expr(generated_call(method, args, Rep::None, Site::NONE)),
+            Stmt::Return(Some(param(local, object))),
+        ];
+        self.define_with(func, false, &[object], body);
+        self.classes.borrow_mut().get_mut(class).init = Some(func);
+        Some((def, func))
     }
 
     /// The function that makes an object of `class`, a dataclass, with the
@@ -1294,6 +1493,77 @@ impl<'a> Lowering<'a, '_> {
         Ok(())
     }
 
+    /// The name and the type of each field of `def`, a class without a
+    /// decorator and without a base, together with the `def` of its
+    /// `__init__`. `info` is what the checker gives for the class. Each
+    /// field has an annotation in the body, and the `__init__` assigns
+    /// each field first, with a value that does not read `self`.
+    fn plain_form(
+        &self,
+        def: &'a ast::StmtClassDef,
+        info: &ClassInfo,
+    ) -> Result<(Checked, Option<&'a ast::StmtFunctionDef>), Error> {
+        if def.type_params.is_some() {
+            return Err(unsupported(def, "a generic class"));
+        }
+        let mut checked = Vec::new();
+        let mut init = None;
+        for (i, stmt) in def.body.iter().enumerate() {
+            match stmt {
+                ast::Stmt::Pass(_) => {}
+                ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => {}
+                ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
+                ast::Stmt::AnnAssign(
+                    field @ ast::StmtAnnAssign {
+                        target,
+                        value: None,
+                        simple: true,
+                        ..
+                    },
+                ) if target.is_name_expr() => {
+                    let name = target.as_name_expr().expect("a name").id.to_string();
+                    let shape = declared_shape(self.model(), field)
+                        .ok_or_else(|| unsupported(stmt, "a field of this type"))?;
+                    checked.push((name, shape));
+                }
+                ast::Stmt::FunctionDef(method) if method.name.as_str() == "__init__" => {
+                    if init.is_some() {
+                        return Err(unsupported(method, "two methods of the same name"));
+                    }
+                    init = Some(method);
+                }
+                ast::Stmt::FunctionDef(method) => {
+                    return Err(unsupported(method, "a method other than __init__"));
+                }
+                _ => return Err(unsupported(stmt, "this statement in a class")),
+            }
+        }
+        if let Some(attribute) = info
+            .instance_attributes
+            .iter()
+            .find(|attribute| !checked.iter().any(|(name, _)| *name == attribute.name))
+        {
+            return Err(unsupported(
+                def,
+                &format!(
+                    "the attribute {} without an annotation in the class",
+                    attribute.name
+                ),
+            ));
+        }
+        let assigned = init.map(assigned_first).unwrap_or_default();
+        if let Some(field) = dataclass_fields(def)
+            .zip(&checked)
+            .find(|(_, (name, _))| !assigned.contains(&name.as_str()))
+        {
+            return Err(unsupported(
+                field.0,
+                "a field that __init__ does not assign before anything else",
+            ));
+        }
+        Ok((checked, init))
+    }
+
     /// Returns `true` if `expr` reads the function `dataclass` of the
     /// standard library through a name that an import binds before `def`,
     /// as `dataclass` or `dataclasses.dataclass` does, `false` otherwise.
@@ -1359,6 +1629,39 @@ fn imports(stmt: &ast::Stmt, name: &str) -> bool {
             .any(|alias| imported_name(alias, true) == name),
         _ => false,
     }
+}
+
+/// The fields that `init`, an `__init__`, assigns in its first statements,
+/// each with a value that does not read `self`. No other code runs before
+/// them, so each one has its value before any read.
+fn assigned_first(init: &ast::StmtFunctionDef) -> Vec<&str> {
+    let Some(receiver) = init.parameters.args.first() else {
+        return Vec::new();
+    };
+    let receiver = receiver.name().as_str();
+    let mut assigned = Vec::new();
+    for (i, stmt) in init.body.iter().enumerate() {
+        match stmt {
+            ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
+            ast::Stmt::Assign(ast::StmtAssign { targets, value, .. })
+                if names_in(value)
+                    .iter()
+                    .all(|name| name.id.as_str() != receiver) =>
+            {
+                let [ast::Expr::Attribute(attr)] = &**targets else {
+                    break;
+                };
+                match &*attr.value {
+                    ast::Expr::Name(name) if name.id.as_str() == receiver => {
+                        assigned.push(attr.attr.as_str());
+                    }
+                    _ => break,
+                }
+            }
+            _ => break,
+        }
+    }
+    assigned
 }
 
 /// The object in the first parameter of a function of the compiler for an

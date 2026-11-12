@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use engine::Level;
 use engine::check::check_source;
 
+mod classes;
 mod control;
 mod corpus;
 mod dataclasses;
