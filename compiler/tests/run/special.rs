@@ -377,6 +377,77 @@ fn an_exception_in_add_has_the_frame_of_the_method() {
     );
 }
 
+/// `+=` calls `__iadd__` when the class of the object on the left has
+/// it, and takes the value of `+` otherwise. The target gets the result.
+#[test]
+fn an_augmented_assignment_calls_iadd() {
+    same_as_cpython(
+        "an_augmented_assignment_calls_iadd",
+        indoc! {"
+            class Conta:
+                saldo: int
+
+                def __init__(self, saldo: int) -> None:
+                    self.saldo = saldo
+
+                def __add__(self, valor: int) -> 'Conta':
+                    print('add', self.saldo)
+                    return Conta(self.saldo + valor)
+
+                def __repr__(self) -> str:
+                    return 'Conta(' + str(self.saldo) + ')'
+
+
+            class Poupanca(Conta):
+                def __iadd__(self, valor: int) -> 'Poupanca':
+                    print('iadd', self.saldo)
+                    self.saldo += valor
+                    return self
+
+
+            class Lista:
+                n: int
+
+                def __init__(self) -> None:
+                    self.n = 0
+
+                def __iadd__(self, valor: int) -> 'Lista':
+                    self.n += 1 // valor
+                    return self
+
+
+            class Caixa:
+                c: Conta
+
+                def __init__(self, c: Conta) -> None:
+                    self.c = c
+
+
+            def deposita(c: Conta) -> Conta:
+                c += 10
+                return c
+
+
+            a = Conta(1)
+            b = a
+            a += 5
+            print(a, b, a is b)
+            p = Poupanca(2)
+            q = p
+            p += 3
+            print(p, q, p is q)
+            print(deposita(Conta(1)), deposita(Poupanca(1)))
+            k = Caixa(Poupanca(7))
+            k.c += 1
+            print(k.c)
+            lista = Lista()
+            lista += 1
+            print(lista.n)
+            lista += 0
+        "},
+    );
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [

@@ -2530,6 +2530,13 @@ const COMPILED_SPECIAL: &[&str] = &[
     "__pow__",
     "__rpow__",
     "__neg__",
+    "__iadd__",
+    "__isub__",
+    "__imul__",
+    "__itruediv__",
+    "__ifloordiv__",
+    "__imod__",
+    "__ipow__",
 ];
 
 /// Returns `true` if `name` is the name of a special method, as `__eq__`

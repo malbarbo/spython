@@ -281,6 +281,80 @@ impl Lowering<'_, '_> {
         )
     }
 
+    /// `left op= right` of an augmented assignment `node`, the value that
+    /// goes to the target. An object on the left whose class has the
+    /// method of the assignment, as `__iadd__` for `+=`, calls it, and the
+    /// other values take the value of `left op right`.
+    pub(super) fn augmented(
+        &self,
+        node: &impl Ranged,
+        op: ast::Operator,
+        (left, left_node): (Expr, &impl Ranged),
+        (right, right_node): (Expr, &ast::Expr),
+    ) -> Result<Expr, Error> {
+        let method = |class, name| self.method(class, name).and_then(|method| method.func);
+        let name = inplace_method(op);
+        let lefts = self.classes_of(left.rep(), || None);
+        let inplace = |class| name.and_then(|name| method(class, name));
+        if !lefts.iter().any(|class| inplace(*class).is_some()) {
+            return self.binary(node, op, (left, left_node), (right, right_node));
+        }
+        let Rep::Object(class) = left.rep() else {
+            return Err(unsupported(node, "an operator on an object of a union"));
+        };
+        let site = self.site(node.range());
+        if let Some(func) = inplace(class)
+            && lefts.iter().all(|left| inplace(*left) == Some(func))
+        {
+            return self.call_operator(node, func, left, right, site);
+        }
+        let reps = [left.rep(), right.rep()];
+        let operand = |i| param(i, if i == 0 { reps[0] } else { reps[1] });
+        let mut arms = Vec::new();
+        for class in &lefts {
+            if let Some(func) = inplace(*class) {
+                let exact = Expr::AsExact {
+                    value: Box::new(operand(0)),
+                    class: *class,
+                };
+                let call = self.call_operator(node, func, exact, operand(1), Site::NONE)?;
+                arms.push((*class, call));
+            }
+        }
+        let rest = if lefts.iter().all(|left| inplace(*left).is_some()) {
+            None
+        } else {
+            Some(self.special_arith(node, op, operand(0), operand(1))?)
+        };
+        let ret = arms
+            .iter()
+            .map(|(_, call)| call.rep())
+            .chain(rest.as_ref().map(Expr::rep))
+            .reduce(|a, b| self.join(a, b))
+            .expect("a method of the assignment");
+        let coerce = |value| {
+            self.coerce(value, ret)
+                .expect("the join holds every result")
+        };
+        let mut body: Vec<Stmt> = arms
+            .into_iter()
+            .map(|(class, call)| Stmt::If {
+                cond: Expr::IsExact {
+                    value: Box::new(operand(0)),
+                    class,
+                },
+                then: vec![Stmt::Return(Some(coerce(call)))],
+                else_: Vec::new(),
+            })
+            .collect();
+        body.push(match rest {
+            Some(value) => Stmt::Return(Some(coerce(value))),
+            None => Stmt::Unreachable,
+        });
+        let func = self.generated(reps.to_vec(), ret, body);
+        Ok(generated_call(func, vec![left, right], ret, site))
+    }
+
     /// `-operand` of `u`, an object, which calls `__neg__` of its class.
     pub(super) fn special_neg(&self, u: &ast::ExprUnaryOp, operand: Expr) -> Result<Expr, Error> {
         let Rep::Object(class) = operand.rep() else {
@@ -494,6 +568,22 @@ fn arith_methods(op: ast::Operator) -> Option<(&'static str, &'static str)> {
         ast::Operator::FloorDiv => Some(("__floordiv__", "__rfloordiv__")),
         ast::Operator::Mod => Some(("__mod__", "__rmod__")),
         ast::Operator::Pow => Some(("__pow__", "__rpow__")),
+        _ => None,
+    }
+}
+
+/// The method of the augmented assignment of `op`, as `__iadd__` for `+=`,
+/// and `None` for an operator that the compiler does not call on an
+/// object.
+fn inplace_method(op: ast::Operator) -> Option<&'static str> {
+    match op {
+        ast::Operator::Add => Some("__iadd__"),
+        ast::Operator::Sub => Some("__isub__"),
+        ast::Operator::Mult => Some("__imul__"),
+        ast::Operator::Div => Some("__itruediv__"),
+        ast::Operator::FloorDiv => Some("__ifloordiv__"),
+        ast::Operator::Mod => Some("__imod__"),
+        ast::Operator::Pow => Some("__ipow__"),
         _ => None,
     }
 }
