@@ -837,14 +837,23 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 from dataclasses import dataclass
 
                 @dataclass
+                class Q(object):
+                    y: int
+            "},
+            "a dataclass with a base",
+        ),
+        (
+            indoc! {"
+                from dataclasses import dataclass
+
                 class P:
-                    x: int
+                    pass
 
                 @dataclass
                 class Q(P):
                     y: int
             "},
-            "a dataclass with a base",
+            "a class without a decorator as the base of a dataclass",
         ),
         (
             indoc! {"
@@ -1147,5 +1156,99 @@ fn a_special_method_in_a_dataclass_is_unsupported() {
                     return True
         "}),
         "a special method in a dataclass"
+    );
+}
+
+/// A dataclass that extends a dataclass has the fields of the base first,
+/// and a field that it declares again keeps its place with the new
+/// default. Each class writes its own `__repr__`, and takes the `__str__`
+/// and the methods of the base.
+#[test]
+fn a_dataclass_extends_a_dataclass() {
+    same_as_cpython(
+        "a_dataclass_extends_a_dataclass",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Ponto:
+                x: int
+                y: int = 0
+
+                def soma(self) -> int:
+                    return self.x + self.y
+
+                def __repr__(self) -> str:
+                    return 'P' + str(self.x)
+
+            @dataclass
+            class Ponto3(Ponto):
+                z: int = 5
+                y: int = 1
+
+            @dataclass
+            class Rotulado(Ponto3):
+                nome: str = 'r'
+
+                def __str__(self) -> str:
+                    return self.nome + '!'
+
+            def mostra(p: Ponto) -> None:
+                print(p, repr(p), p.soma())
+
+            p = Ponto3(1)
+            print(p, Ponto3(1, 2, 3), Ponto3(x=4, z=6), p.soma())
+            mostra(Ponto(7))
+            mostra(p)
+            mostra(Rotulado(2, nome='a'))
+            pontos: list[Ponto] = [Ponto(1), Ponto3(1), Rotulado(1)]
+            print(pontos)
+        "},
+    );
+}
+
+/// Two objects of dataclasses are equal when they are of the same class
+/// and their fields are equal, through a value of any of their classes
+/// and of a union.
+#[test]
+fn objects_of_two_dataclasses_are_not_equal() {
+    same_as_cpython(
+        "objects_of_two_dataclasses_are_not_equal",
+        indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass(frozen=True)
+            class A:
+                x: int
+
+            @dataclass(frozen=True)
+            class B(A):
+                pass
+
+            @dataclass(frozen=True)
+            class C(A):
+                y: int = 0
+
+            def iguais(a: A, b: A) -> bool:
+                return a == b
+
+            def talvez(a: A | None, b: B) -> bool:
+                return a == b
+
+            def uniao(a: A | int, b: A | int) -> bool:
+                return a == b
+
+            a = A(1)
+            b = B(1)
+            c = C(1)
+            print(iguais(a, A(1)), iguais(a, b), iguais(b, B(1)), iguais(b, a))
+            print(iguais(c, C(1)), iguais(c, C(1, 2)), iguais(b, c), a != b)
+            print(talvez(None, b), talvez(b, B(1)), talvez(a, b), b == B(1), b != a)
+            print(uniao(a, 1), uniao(b, B(1)), uniao(c, a), uniao(1, 1))
+            xs: list[A] = [a, b]
+            ys: list[A] = [A(1), B(1)]
+            zs: list[A] = [b, a]
+            print(xs == ys, xs == zs)
+        "},
     );
 }

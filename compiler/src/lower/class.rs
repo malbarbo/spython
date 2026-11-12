@@ -146,8 +146,12 @@ pub(super) struct Declared<'a> {
     /// `true` when the `__init__` of a class of [`Kind::Plain`], its own
     /// or the one that it takes, lets `self` escape.
     pub init_escapes: bool,
-    /// The fields of a dataclass or of a class of [`Kind::Plain`].
+    /// The fields that the body of a dataclass or of a class of
+    /// [`Kind::Plain`] annotates, in the order of the body.
     pub checked: Checked,
+    /// The node of the annotation and the type of each field, in the
+    /// order of `fields`.
+    pub nodes: Vec<(&'a ast::StmtAnnAssign, Shape)>,
     /// The name and the rep of each field of an object of the class. A
     /// member of an `Enum` has `name` and `value`.
     pub fields: Vec<(String, Rep)>,
@@ -262,19 +266,10 @@ impl<'a> Lowering<'a, '_> {
             .then(|| self.dataclass_decorator(def))
             .transpose()?;
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
-        let base = match frozen {
-            Some(_) => None,
-            None => self.program_base(def, &info)?,
-        };
+        let base = self.program_base(def, &info, frozen)?;
         let mut init_escapes = false;
         let (kind, checked, fields, members, methods) = if let Some(frozen) = frozen {
-            let methods = self.dataclass_form(def, &info)?;
-            let checked = info
-                .dataclass_fields
-                .expect("a dataclass that the checker knows")
-                .into_iter()
-                .map(|field| (field.name, field.shape))
-                .collect();
+            let (checked, methods) = self.dataclass_form(def, &info, base)?;
             let kind = Kind::Dataclass { frozen };
             (kind, checked, Vec::new(), Vec::new(), methods)
         } else if base.is_some() || (def.arguments.is_none() && info.mro.len() == 2) {
@@ -299,6 +294,7 @@ impl<'a> Lowering<'a, '_> {
             base,
             init_escapes,
             checked,
+            nodes: Vec::new(),
             fields,
             members,
             str: None,
@@ -335,39 +331,52 @@ impl<'a> Lowering<'a, '_> {
                 }
                 let base = declared.base.map(|base| {
                     let base = classes.get(base);
-                    (base.fields.clone(), base.defaults.clone())
+                    (
+                        base.fields.clone(),
+                        base.defaults.clone(),
+                        base.nodes.clone(),
+                    )
                 });
                 (declared.def, declared.checked.clone(), base)
             };
             // The fields of the base come first, and a field that the class
-            // declares again keeps its place.
-            let (mut fields, mut defaults): (Vec<(String, Rep)>, Vec<Option<VarId>>) =
-                base.unwrap_or_default();
+            // declares again keeps its place, with the default of the class.
+            let (mut fields, mut defaults, mut nodes) = base.unwrap_or_default();
             for ((name, shape), node) in checked.into_iter().zip(dataclass_fields(def)) {
                 let rep = self
-                    .rep_of(Some(shape))
+                    .rep_of(Some(shape.clone()))
                     .filter(|rep| *rep != Rep::None)
                     .ok_or_else(|| unsupported(node, "a field of this type"))?;
-                if let Some((_, inherited)) = fields.iter().find(|(field, _)| *field == name) {
-                    if *inherited != rep {
-                        return Err(unsupported(
-                            node,
-                            "a field of another type than in the base",
-                        ));
-                    }
-                    continue;
-                }
                 let default = node
                     .value
                     .as_ref()
                     .map(|_| self.vars.borrow_mut().add_unnamed(rep));
-                fields.push((name, rep));
-                defaults.push(default);
+                match fields.iter().position(|(field, _)| *field == name) {
+                    Some(i) => {
+                        let inherited = fields.get(i).expect("a field of the base").1;
+                        // The checker rejects a field of another type, which
+                        // the struct of a subclass cannot have.
+                        if inherited != rep {
+                            return Err(unsupported(
+                                node,
+                                "a field of another type than in the base",
+                            ));
+                        }
+                        *defaults.get_mut(i).expect("a field of the base") = default;
+                        *nodes.get_mut(i).expect("a field of the base") = (node, shape);
+                    }
+                    None => {
+                        fields.push((name, rep));
+                        defaults.push(default);
+                        nodes.push((node, shape));
+                    }
+                }
             }
             let mut classes = self.classes.borrow_mut();
             let declared = classes.get_mut(class);
             declared.fields = fields;
             declared.defaults = defaults;
+            declared.nodes = nodes;
         }
         Ok(())
     }
@@ -583,7 +592,6 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<(Vec<Stmt>, Option<Stmt>), Error> {
         let mut body = Vec::new();
         let mut mutable = None;
-        let mut fields = fields.iter().zip(defaults);
         for stmt in &def.body {
             match stmt {
                 // A member of an `Enum` joins the namespace.
@@ -598,7 +606,13 @@ impl<'a> Lowering<'a, '_> {
                     }
                 }
                 ast::Stmt::AnnAssign(node) => {
-                    let ((name, rep), var) = fields.next().expect("a field of the class");
+                    let target = node.target.as_name_expr().expect("a name").id.as_str();
+                    let i = fields
+                        .iter()
+                        .position(|(name, _)| name == target)
+                        .expect("a field of the class");
+                    let (name, rep) = fields.get(i).expect("a field of the class");
+                    let var = defaults.get(i).expect("a field of the class");
                     if let (Some(value), Some(var)) = (node.value.as_deref(), var) {
                         body.push(self.class_default(
                             def,
@@ -1070,9 +1084,22 @@ impl<'a> Lowering<'a, '_> {
 
     /// The function of the method `name` of `class`, `__str__` or
     /// `__repr__`, and `None` when neither the class nor a class that it
-    /// descends from defines it.
+    /// descends from defines it. A dataclass takes no `__repr__` from its
+    /// base.
     fn conversion(&self, class: ClassId, name: &str) -> Result<Option<FuncId>, Error> {
-        let Some(method) = self.method(class, name) else {
+        // The decorator of each dataclass writes its own `__repr__`.
+        let method = if name == "__repr__" && self.is_dataclass(class) {
+            self.classes
+                .borrow()
+                .get(class)
+                .methods
+                .iter()
+                .find(|method| method.def.name.as_str() == name)
+                .copied()
+        } else {
+            self.method(class, name)
+        };
+        let Some(method) = method else {
             return Ok(None);
         };
         let func = method.func();
@@ -1551,7 +1578,7 @@ impl<'a> Lowering<'a, '_> {
     fn dataclasses_of(&self, (lowered, node): &(Expr, &ast::Expr)) -> Vec<ClassId> {
         match lowered.rep() {
             Rep::Object(class) | Rep::ObjectOrNone(class) if self.is_dataclass(class) => {
-                vec![class]
+                self.descendants(class)
             }
             Rep::Uniform => self.uniform_dataclasses(expr_shape(self.model(), node)),
             _ => Vec::new(),
@@ -1687,10 +1714,10 @@ impl<'a> Lowering<'a, '_> {
         if let Some(func) = self.classes.borrow().get(class).eq {
             return Ok(func);
         }
-        let (def, fields) = {
+        let (fields, nodes) = {
             let classes = self.classes.borrow();
             let declared = classes.get(class);
-            (declared.def, declared.fields.clone())
+            (declared.fields.clone(), declared.nodes.clone())
         };
         let object = Rep::Object(class);
         let func = self.reserve(vec![object, object], Rep::Bool);
@@ -1699,13 +1726,11 @@ impl<'a> Lowering<'a, '_> {
         let line = 10 + fields.len().max(1);
         let site = self.dataclass_site("__eq__", line);
         let other = || param(1, object);
-        let shapes = self.classes.borrow().get(class).checked.clone();
         let same = fields
             .iter()
-            .zip(dataclass_fields(def))
-            .zip(shapes)
+            .zip(nodes)
             .enumerate()
-            .map(|(i, (((_, rep), node), (_, shape)))| {
+            .map(|(i, ((_, rep), (node, shape)))| {
                 let field = u32::try_from(i).expect("fewer than 2^32 fields");
                 let theirs = Expr::Field {
                     object: Box::new(other()),
@@ -1765,38 +1790,73 @@ impl<'a> Lowering<'a, '_> {
 
     /// The function that compares two values of `class`, a dataclass, that
     /// may be `None`. A value is equal to `None` when it is `None`, and the
-    /// `__eq__` of the class compares two objects. The function has no
-    /// frame.
+    /// `__eq__` of the class of an object compares it with another object
+    /// of the same class. Objects of two classes are equal when they are
+    /// the same object, since the `__eq__` of each gives `NotImplemented`.
+    /// The function has no frame.
     fn eq_or_none(&self, class: ClassId) -> Result<FuncId, Error> {
         if let Some(func) = self.classes.borrow().get(class).eq_or_none {
             return Ok(func);
         }
-        let eq = self.class_eq(class)?;
         let param = |i| param(i, Rep::ObjectOrNone(class));
         let narrow = |i| Expr::Narrow {
             value: Box::new(param(i)),
             rep: Rep::Object(class),
         };
-        let body = Expr::IfElse {
-            cond: Box::new(Expr::Logic {
+        let mut body = vec![Stmt::If {
+            cond: Expr::Logic {
                 op: LogicOp::Or,
                 left: Box::new(Expr::IsNone(Box::new(param(0)))),
                 right: Box::new(Expr::IsNone(Box::new(param(1)))),
-            }),
-            then: Box::new(Expr::Is(Box::new(param(0)), Box::new(param(1)))),
-            else_: Box::new(generated_call(
+            },
+            then: vec![Stmt::Return(Some(Expr::Is(
+                Box::new(param(0)),
+                Box::new(param(1)),
+            )))],
+            else_: Vec::new(),
+        }];
+        let classes = self.descendants(class);
+        if let [only] = *classes {
+            let eq = self.class_eq(only)?;
+            body.push(Stmt::Return(Some(generated_call(
                 eq,
                 vec![narrow(0), narrow(1)],
                 Rep::Bool,
                 Site::NONE,
-            )),
-        };
+            ))));
+        } else {
+            for exact in classes {
+                let eq = self.class_eq(exact)?;
+                let is_exact = |i| Expr::IsExact {
+                    value: Box::new(narrow(i)),
+                    class: exact,
+                };
+                let as_exact = |i| Expr::AsExact {
+                    value: Box::new(narrow(i)),
+                    class: exact,
+                };
+                body.push(Stmt::If {
+                    cond: Expr::Logic {
+                        op: LogicOp::And,
+                        left: Box::new(is_exact(0)),
+                        right: Box::new(is_exact(1)),
+                    },
+                    then: vec![Stmt::Return(Some(generated_call(
+                        eq,
+                        vec![as_exact(0), as_exact(1)],
+                        Rep::Bool,
+                        Site::NONE,
+                    )))],
+                    else_: Vec::new(),
+                });
+            }
+            body.push(Stmt::Return(Some(Expr::Is(
+                Box::new(param(0)),
+                Box::new(param(1)),
+            ))));
+        }
         let or_none = Rep::ObjectOrNone(class);
-        let func = self.generated(
-            vec![or_none, or_none],
-            Rep::Bool,
-            vec![Stmt::Return(Some(body))],
-        );
+        let func = self.generated(vec![or_none, or_none], Rep::Bool, body);
         self.classes.borrow_mut().get_mut(class).eq_or_none = Some(func);
         Ok(func)
     }
@@ -2008,20 +2068,23 @@ impl<'a> Lowering<'a, '_> {
         Ok(frozen)
     }
 
-    /// Checks that `def`, a class with a decorator, has the form of a
-    /// dataclass that the compiler takes. `info` is what the checker gives
-    /// for the class.
+    /// Checks that `def`, a class with a decorator, with `base` or without
+    /// a base, has the form of a dataclass that the compiler takes, and
+    /// gives the name and the type of each field of its body, together
+    /// with its methods. `info` is what the checker gives for the class.
     fn dataclass_form(
         &self,
         def: &'a ast::StmtClassDef,
         info: &ClassInfo,
-    ) -> Result<Vec<Method<'a>>, Error> {
-        if def
-            .arguments
-            .as_deref()
-            .is_some_and(|arguments| !arguments.is_empty())
-            || def.type_params.is_some()
-            || info.mro.len() != 2
+        base: Option<ClassId>,
+    ) -> Result<(Checked, Vec<Method<'a>>), Error> {
+        if def.type_params.is_some()
+            || (base.is_none()
+                && (def
+                    .arguments
+                    .as_deref()
+                    .is_some_and(|arguments| !arguments.is_empty())
+                    || info.mro.len() != 2))
         {
             return Err(unsupported(def, "a dataclass with a base"));
         }
@@ -2061,10 +2124,22 @@ impl<'a> Lowering<'a, '_> {
                 _ => return Err(unsupported(stmt, "this statement in a dataclass")),
             }
         }
+        // The fields of the base come first, and a field that the class
+        // declares again keeps its place with the default of the class.
+        let mut merged: Vec<(&str, bool)> = Vec::new();
+        for ancestor in self.ancestors(base) {
+            for node in dataclass_fields(ancestor) {
+                let name = node.target.as_name_expr().expect("a name").id.as_str();
+                merge_field(&mut merged, name, node.value.is_some());
+            }
+        }
+        for (name, default) in &fields {
+            merge_field(&mut merged, name, *default);
+        }
         // The checker leaves out of the fields an annotation such as
         // `ClassVar`, which the text alone does not tell apart.
-        let agrees = checked.len() == fields.len()
-            && checked.iter().zip(&fields).all(|(field, (name, default))| {
+        let agrees = checked.len() == merged.len()
+            && checked.iter().zip(&merged).all(|(field, (name, default))| {
                 field.name == *name && field.has_default == *default
             });
         if !agrees {
@@ -2073,16 +2148,43 @@ impl<'a> Lowering<'a, '_> {
                 "a dataclass whose fields the checker computes otherwise",
             ));
         }
-        Ok(methods)
+        let own = fields
+            .iter()
+            .map(|(name, _)| {
+                let field = checked
+                    .iter()
+                    .find(|field| field.name == *name)
+                    .expect("a field that the checker knows");
+                ((*name).to_owned(), field.shape.clone())
+            })
+            .collect();
+        Ok((own, methods))
+    }
+
+    /// The `class` statement of `base` and of each class that it descends
+    /// from, from the first one, and none without a base.
+    fn ancestors(&self, base: Option<ClassId>) -> Vec<&'a ast::StmtClassDef> {
+        let classes = self.classes.borrow();
+        let mut ancestors: Vec<_> = base
+            .into_iter()
+            .flat_map(|base| classes.chain(base))
+            .map(|class| classes.get(class).def)
+            .collect();
+        ancestors.reverse();
+        ancestors
     }
 
     /// The class of the program that `def` extends, when its one base is a
     /// name of such a class, and `None` otherwise. `info` is what the
-    /// checker gives for the class.
+    /// checker gives for the class, and `frozen` tells whether a dataclass
+    /// is frozen, and `None` stands for a class without a decorator. A
+    /// dataclass extends a dataclass, frozen as it is, and a class without
+    /// a decorator extends one without a decorator.
     fn program_base(
         &self,
         def: &ast::StmtClassDef,
         info: &ClassInfo,
+        frozen: Option<bool>,
     ) -> Result<Option<ClassId>, Error> {
         let Some(arguments) = def.arguments.as_deref() else {
             return Ok(None);
@@ -2097,10 +2199,20 @@ impl<'a> Lowering<'a, '_> {
         if info.mro.get(1).and_then(|class| classes.ids.get(class)) != Some(&base) {
             return Err(unsupported(name, "this base"));
         }
-        match classes.get(base).kind {
-            Kind::Plain => Ok(Some(base)),
-            Kind::Enum => Err(unsupported(name, "an Enum as a base")),
-            Kind::Dataclass { .. } => Err(unsupported(name, "a dataclass as a base")),
+        match (classes.get(base).kind, frozen) {
+            (Kind::Plain, None) => Ok(Some(base)),
+            (Kind::Dataclass { frozen: theirs }, Some(ours)) if theirs == ours => Ok(Some(base)),
+            (Kind::Enum, _) => Err(unsupported(name, "an Enum as a base")),
+            (Kind::Dataclass { .. }, None) => Err(unsupported(name, "a dataclass as a base")),
+            (Kind::Plain, Some(_)) => Err(unsupported(
+                name,
+                "a class without a decorator as the base of a dataclass",
+            )),
+            // The checker rejects such a base, which raises `TypeError`.
+            (Kind::Dataclass { .. }, Some(_)) => Err(unsupported(
+                name,
+                "a dataclass with a base that is frozen otherwise",
+            )),
         }
     }
 
@@ -2155,17 +2267,7 @@ impl<'a> Lowering<'a, '_> {
         // The fields of the classes that the class descends from come
         // first, each with the node of its annotation.
         let mut fields: Vec<(&str, TextRange)> = Vec::new();
-        let ancestors: Vec<&'a ast::StmtClassDef> = {
-            let classes = self.classes.borrow();
-            let mut ancestors: Vec<_> = base
-                .into_iter()
-                .flat_map(|base| classes.chain(base))
-                .map(|class| classes.get(class).def)
-                .collect();
-            ancestors.reverse();
-            ancestors
-        };
-        for ancestor in ancestors {
+        for ancestor in self.ancestors(base) {
             for node in dataclass_fields(ancestor) {
                 let name = node.target.as_name_expr().expect("a name").id.as_str();
                 if !fields.iter().any(|(field, _)| *field == name) {
@@ -2278,6 +2380,16 @@ fn imports(stmt: &ast::Stmt, name: &str) -> bool {
             .iter()
             .any(|alias| imported_name(alias, true) == name),
         _ => false,
+    }
+}
+
+/// Adds the field `name` to `fields`, the name of each field of a dataclass
+/// with whether it has a default. A field that `fields` has keeps its
+/// place and takes the default.
+fn merge_field<'n>(fields: &mut Vec<(&'n str, bool)>, name: &'n str, default: bool) {
+    match fields.iter_mut().find(|(field, _)| *field == name) {
+        Some(field) => field.1 = default,
+        None => fields.push((name, default)),
     }
 }
 
