@@ -7,6 +7,7 @@ from __spython_prelude__.intrinsics import (
     list_reserve,
     list_set_len,
     list_truncate,
+    same,
     set_item,
 )
 from __spython_prelude__.slices import (
@@ -67,9 +68,10 @@ def extend[T](xs: list[T], ys: list[T]) -> None:
 
 
 def contains[T](x: T, xs: list[T]) -> bool:
-    """`x in xs`, which compares each item with `x`, with the item on the left."""
+    """`x in xs`, which compares each item with `x`, with the item on the left. An item that is
+    `x` itself is equal to it without the comparison."""
     for i in range(len(xs)):
-        if item(xs, i) == x:
+        if same(item(xs, i), x) or item(xs, i) == x:
             return True
     return False
 
@@ -80,7 +82,7 @@ def index[T](
     """The index of the first item of `xs` equal to `x`, between `start` and `stop`, which go
     from the end when they are negative."""
     for i in range(slice_start(start, len(xs)), slice_end(stop, len(xs))):
-        if item(xs, i) == x:
+        if same(item(xs, i), x) or item(xs, i) == x:
             return i
     raise ValueError(repr(x) + " is not in list")
 
@@ -88,7 +90,7 @@ def index[T](
 def count[T](xs: list[T], x: T) -> int:
     n = 0
     for i in range(len(xs)):
-        if item(xs, i) == x:
+        if same(item(xs, i), x) or item(xs, i) == x:
             n += 1
     return n
 
@@ -96,7 +98,7 @@ def count[T](xs: list[T], x: T) -> int:
 def remove[T](xs: list[T], x: T) -> None:
     """Removes the first item of `xs` equal to `x`."""
     for i in range(len(xs)):
-        if item(xs, i) == x:
+        if same(item(xs, i), x) or item(xs, i) == x:
             pop(xs, i)
             return
     raise ValueError("list.remove(x): x not in list")
@@ -189,7 +191,8 @@ def repr_or_none[T](xs: list[T] | None) -> str:
 
 
 def eq[T](xs: list[T] | None, ys: list[T] | None) -> bool:
-    """`xs == ys`, which compares the items in order, with the item of `xs` on the left."""
+    """`xs == ys`, which compares the items in order, with the item of `xs` on the left. Two
+    items that are the same object are equal without the comparison."""
     if xs is ys:
         return True
     if xs is None or ys is None:
@@ -197,6 +200,6 @@ def eq[T](xs: list[T] | None, ys: list[T] | None) -> bool:
     if len(xs) != len(ys):
         return False
     for i in range(len(xs)):
-        if not item(xs, i) == item(ys, i):
+        if not (same(item(xs, i), item(ys, i)) or item(xs, i) == item(ys, i)):
             return False
     return True

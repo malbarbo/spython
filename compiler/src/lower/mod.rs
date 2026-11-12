@@ -314,8 +314,9 @@ type PreludeKey<'a> = (File, &'a str, Vec<TypeArg>);
 type PreludeParams = (Vec<Shape>, Vec<String>);
 
 /// What a type variable of a copy of a generic function of the prelude
-/// stands for. `classes` has the dataclasses that a uniform value of the
-/// variable may be, whose `==` compares the fields.
+/// stands for. `classes` has the classes that a uniform value of the
+/// variable may be whose `==` is other than the identity, the dataclasses
+/// and the classes with `__eq__` or `__ne__`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct TypeArg {
     pub(super) rep: Rep,
@@ -938,7 +939,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             Shape::List(item) => {
                 let rep = self.rep_of(Some((*item).clone()))?;
                 let classes = match rep {
-                    Rep::Uniform => self.uniform_dataclasses(Some(*item)),
+                    Rep::Uniform => self.uniform_eq_classes(Some(*item)),
                     _ => Vec::new(),
                 };
                 Some(Rep::List(self.list_of(TypeArg { rep, classes })))

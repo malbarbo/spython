@@ -1669,8 +1669,29 @@ impl<'a> Lowering<'a, '_> {
     /// The dataclasses that a uniform value of `shape` may be, in the order
     /// of their ids.
     pub(super) fn uniform_dataclasses(&self, shape: Option<Shape>) -> Vec<ClassId> {
+        self.uniform_classes(shape, |class| self.is_dataclass(class))
+    }
+
+    /// The classes that a uniform value of `shape` may be and whose `==`
+    /// is other than the identity, the dataclasses and the classes with
+    /// `__eq__` or `__ne__`, in the order of their ids.
+    pub(super) fn uniform_eq_classes(&self, shape: Option<Shape>) -> Vec<ClassId> {
+        self.uniform_classes(shape, |class| {
+            self.is_dataclass(class)
+                || self.method(class, "__eq__").is_some()
+                || self.method(class, "__ne__").is_some()
+        })
+    }
+
+    /// The classes that a uniform value of `shape` may be and that `keep`
+    /// takes, in the order of their ids.
+    fn uniform_classes(
+        &self,
+        shape: Option<Shape>,
+        keep: impl Fn(ClassId) -> bool,
+    ) -> Vec<ClassId> {
         let mut found = self.classes_in(shape);
-        found.retain(|class| self.is_dataclass(*class));
+        found.retain(|class| keep(*class));
         found.sort_by_key(|class| class.index());
         found.dedup();
         found

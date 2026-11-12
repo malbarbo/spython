@@ -7,6 +7,10 @@ class StrBuilder:
 
     def __setitem__(self, index: int, code_point: int) -> None: ...
 
+def same[T](a: T, b: T) -> bool:
+    """Returns `True` if `a` and `b` are the same object, `False` otherwise. A value of a type
+    without a reference, as an `int`, is never the same object. Neither argument has an effect."""
+
 def builder_new(length: int) -> StrBuilder:
     """A builder of `length` code points, each of them 0."""
 

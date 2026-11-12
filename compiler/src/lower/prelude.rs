@@ -483,6 +483,16 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 let rep = self.list_item(list.rep().list()?);
                 Some(Expr::Item { list, index, rep })
             }),
+            // A value of a rep without a reference stands for an object
+            // that the program can only compare with `==`.
+            "same" => arg().zip(arg()).map(|(a, b)| match a.rep() {
+                Rep::Object(_)
+                | Rep::ObjectOrNone(_)
+                | Rep::List(_)
+                | Rep::ListOrNone(_)
+                | Rep::Uniform => Expr::Is(a, b),
+                _ => Expr::Bool(false),
+            }),
             "list_capacity" => arg().map(Expr::ListCapacity),
             "list_reserve" => arg().zip(arg()).map(|(list, capacity)| Expr::ListReserve {
                 list,

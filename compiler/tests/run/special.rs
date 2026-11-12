@@ -123,6 +123,38 @@ fn an_exception_in_eq_has_the_frame_of_the_method() {
     );
 }
 
+/// `in`, `count`, `index`, `remove` and `==` of lists take an item that is
+/// the object itself as equal, without a call of `__eq__`.
+#[test]
+fn a_list_tests_the_identity_before_eq() {
+    same_as_cpython(
+        "a_list_tests_the_identity_before_eq",
+        indoc! {"
+            class P:
+                x: int
+
+                def __init__(self, x: int) -> None:
+                    self.x = x
+
+                def __eq__(self, other: object) -> bool:
+                    print('eq', self.x)
+                    return False
+
+            a = P(1)
+            b = P(2)
+            print(a in [a], [a].count(a), [b, a].index(a), [a] == [a], [a] != [a])
+            xs = [b, a]
+            xs.remove(a)
+            print(len(xs), a in [b], [a].count(b))
+            ys: list[P | int] = [a, 1]
+            print(a in ys, 1 in ys, ys.count(a), ys == ys)
+            zs = [[a]]
+            print([a] in zs, zs == [[a]])
+            xs.remove(a)
+        "},
+    );
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [
