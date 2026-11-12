@@ -8,7 +8,7 @@ mod uniform;
 
 use std::collections::HashMap;
 
-use wasm_encoder::{BlockType, ConstExpr, StorageType, ValType};
+use wasm_encoder::{BlockType, ConstExpr, HeapType, StorageType, ValType};
 
 use super::module::{
     Composite, FuncIdx, FuncState, GlobalIdx, Ins, Label, LocalIdx, ModuleState, TypeIdx,
@@ -237,42 +237,53 @@ impl Reprs {
     /// Defines the function that gives the `repr` of a value of a union,
     /// after the test of its type.
     fn add_repr_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
-        let ty = m.func_type(&[self.uniform.val_type()], &[self.str.val_type(false)]);
+        let results = [self.str.val_type(false)];
+        let classes = (0..self.classes.len()).map(ClassId::new).collect();
+        self.add_uniform_dispatch(m, &results, classes, |reprs, m, f, rep| match rep {
+            Rep::None => reprs.str.literal(m, f, "None"),
+            Rep::Str => {
+                f.ins().call(reprs.str_repr.expect("the repr of a str"));
+            }
+            Rep::Object(class) => {
+                let repr = reprs.class_reprs.get(class.index()).copied().flatten();
+                f.ins().call(repr.expect("the repr of each class"));
+            }
+            rep => reprs.str_of(m, f, rep),
+        })
+    }
+
+    /// Defines a function that takes a value of a union, tests its type,
+    /// and runs `on` with the rep of its value, which `on` finds on the
+    /// stack in the form of that rep. `None` has no value on the stack. A
+    /// value of a class out of `classes` stops the program.
+    fn add_uniform_dispatch(
+        &mut self,
+        m: &mut ModuleState,
+        results: &[ValType],
+        classes: Vec<ClassId>,
+        on: fn(&mut Self, &mut ModuleState, &mut FuncState, Rep),
+    ) -> FuncIdx {
+        let ty = m.func_type(&[self.uniform.val_type()], results);
         let mut f = FuncState::new(1);
         let value = f.param(0);
         f.ins().local_get(value).ref_is_null();
         f.if_(BlockType::Empty);
-        self.str.literal(m, &mut f, "None");
+        on(self, m, &mut f, Rep::None);
         f.ins().return_();
         f.end();
-        for (rep, box_type) in self.uniform.boxes(m) {
-            f.ins().local_get(value).ref_test(box_type);
+        let boxes = self.uniform.boxes(m).into_iter();
+        let str = self.str.type_index().heap_type();
+        let objects = classes
+            .into_iter()
+            .map(|class| (Rep::Object(class), self.class(class).heap_type()));
+        let tests: Vec<(Rep, HeapType)> = boxes.chain([(Rep::Str, str)]).chain(objects).collect();
+        for (rep, ty) in tests {
+            f.ins().local_get(value).ref_test(ty);
             f.if_(BlockType::Empty);
             f.ins().local_get(value);
             self.narrow(m, &mut f, Rep::Uniform, rep);
-            self.str_of(m, &mut f, rep);
+            on(self, m, &mut f, rep);
             f.ins().return_();
-            f.end();
-        }
-        let str = self.str.type_index().heap_type();
-        f.ins().local_get(value).ref_test(str);
-        f.if_(BlockType::Empty);
-        f.ins().local_get(value);
-        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
-        f.ins()
-            .call(self.str_repr.expect("the repr of a str"))
-            .return_();
-        f.end();
-        for (i, repr) in self.class_reprs.clone().into_iter().enumerate() {
-            let class = ClassId::new(i);
-            let repr = repr.expect("the repr of each class");
-            f.ins()
-                .local_get(value)
-                .ref_test(self.class(class).heap_type());
-            f.if_(BlockType::Empty);
-            f.ins().local_get(value);
-            self.narrow(m, &mut f, Rep::Uniform, Rep::Object(class));
-            f.ins().call(repr).return_();
             f.end();
         }
         f.ins().unreachable();
@@ -1550,49 +1561,12 @@ impl Reprs {
     /// Defines the function that writes a value of a union, after the
     /// test of its type.
     fn add_write_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
-        let ty = m.func_type(&[self.uniform.val_type()], &[]);
-        let mut f = FuncState::new(1);
-        let value = f.param(0);
-        f.ins().local_get(value).ref_is_null();
-        f.if_(BlockType::Empty);
-        self.write(m, &mut f, Rep::None);
-        f.ins().return_();
-        f.end();
-        for (rep, box_type) in self.uniform.boxes(m) {
-            f.ins().local_get(value).ref_test(box_type);
-            f.if_(BlockType::Empty);
-            f.ins().local_get(value);
-            self.narrow(m, &mut f, Rep::Uniform, rep);
-            self.write(m, &mut f, rep);
-            f.ins().return_();
-            f.end();
-        }
-        let str = self.str.type_index().heap_type();
-        f.ins().local_get(value).ref_test(str);
-        f.if_(BlockType::Empty);
-        f.ins().local_get(value);
-        self.narrow(m, &mut f, Rep::Uniform, Rep::Str);
-        self.str.write(&mut f);
-        f.ins().return_();
-        f.end();
         // The print of a union makes the `str` of each class in its type.
-        for i in 0..self.classes.len() {
-            let class = ClassId::new(i);
-            if self.class_strs.get(i).copied().flatten().is_none() {
-                continue;
-            }
-            f.ins()
-                .local_get(value)
-                .ref_test(self.class(class).heap_type());
-            f.if_(BlockType::Empty);
-            f.ins().local_get(value);
-            self.narrow(m, &mut f, Rep::Uniform, Rep::Object(class));
-            self.write(m, &mut f, Rep::Object(class));
-            f.ins().return_();
-            f.end();
-        }
-        f.ins().unreachable();
-        m.add_func(ty, f.finish())
+        let classes = (0..self.classes.len())
+            .filter(|&i| self.class_strs.get(i).copied().flatten().is_some())
+            .map(ClassId::new)
+            .collect();
+        self.add_uniform_dispatch(m, &[], classes, |reprs, m, f, rep| reprs.write(m, f, rep))
     }
 }
 
