@@ -788,13 +788,7 @@ impl Lowering<'_, '_> {
     /// The call of `method` of `special_eq` with `object` as `self` and
     /// `other` as the uniform value of the other operand.
     fn call_eq(&self, (func, not): (FuncId, bool), object: Expr, other: Expr, site: Site) -> Expr {
-        let receiver = *self
-            .funcs
-            .borrow()
-            .get(func)
-            .params
-            .first()
-            .expect("a method has self");
+        let receiver = self.self_rep(func);
         let other = self
             .coerce(other, Rep::Uniform)
             .expect("a uniform value holds any value");

@@ -1013,15 +1013,20 @@ impl<'a> Lowering<'a, '_> {
         Ok(self.classes.borrow().resolved > start)
     }
 
-    /// The class of the first parameter of `func`, a method.
-    fn receiver(&self, func: FuncId) -> ClassId {
-        self.funcs
+    /// The rep of the first parameter of `func`, a method.
+    pub(super) fn self_rep(&self, func: FuncId) -> Rep {
+        *self
+            .funcs
             .borrow()
             .get(func)
             .params
             .first()
-            .and_then(|rep| rep.class())
             .expect("a method has self")
+    }
+
+    /// The class of the first parameter of `func`, a method.
+    fn receiver(&self, func: FuncId) -> ClassId {
+        self.self_rep(func).class().expect("self is an object")
     }
 
     /// The code of a function with `params`, the first an object of
@@ -1039,15 +1044,7 @@ impl<'a> Lowering<'a, '_> {
         ret: Rep,
     ) -> Vec<Stmt> {
         let call = |func: FuncId, object: Expr| {
-            let receiver = self
-                .funcs
-                .borrow()
-                .get(func)
-                .params
-                .first()
-                .copied()
-                .expect("a method has self");
-            let args = std::iter::once(widen(object, receiver))
+            let args = std::iter::once(widen(object, self.self_rep(func)))
                 .chain(
                     params
                         .iter()
@@ -1063,12 +1060,7 @@ impl<'a> Lowering<'a, '_> {
                 vec![Stmt::Return(Some(value))]
             }
         };
-        let serves_all = |func: FuncId| {
-            let receiver = self.funcs.borrow().get(func).params.first().copied();
-            receiver
-                .and_then(Rep::class)
-                .is_some_and(|receiver| self.descends(class, receiver))
-        };
+        let serves_all = |func: FuncId| self.descends(class, self.receiver(func));
         let shared = arms
             .iter()
             .map(|(_, func)| *func)
