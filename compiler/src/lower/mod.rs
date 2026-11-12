@@ -957,11 +957,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         for i in 0..count {
             self.class_repr(ClassId::new(i))?;
         }
-        let str = self.prelude.iter().find(|unit| unit.prelude == Some("str"));
-        match str {
-            Some(unit) => self.prelude_func(unit.file, "repr_of"),
-            None => Ok(None),
-        }
+        self.prelude_named("str", "repr_of")
     }
 
     /// A new site for the instruction at `range`, in the code that the

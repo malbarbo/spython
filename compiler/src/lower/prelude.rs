@@ -277,7 +277,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// The function `name` of the module `module` of the prelude.
-    fn prelude_named(&self, module: &str, name: &str) -> Result<Option<FuncId>, Error> {
+    pub(super) fn prelude_named(&self, module: &str, name: &str) -> Result<Option<FuncId>, Error> {
         match self.prelude_unit(module) {
             Some(unit) => self.prelude_func(unit.file, name),
             None => Ok(None),
