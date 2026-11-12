@@ -95,19 +95,16 @@ impl<'a, 'db> Lowering<'a, 'db> {
         for arg in &call.arguments.args {
             given.push(self.expr(arg)?);
         }
-        let unit = self.prelude_unit(module);
-        let reps: Vec<Rep> = given.iter().map(Expr::rep).collect();
-        let (func, shapes) = match unit {
-            Some(unit) => self.prelude_for(call, unit, name, &reps)?,
+        let (func, args) = match self.prelude_unit(module) {
+            Some(unit) => self.generic_args(
+                call,
+                (unit, name),
+                given,
+                (true, "a call of this method with these arguments"),
+            )?,
             None => None,
         }
         .ok_or_else(|| unsupported(call, "a call of this method"))?;
-        let args = self.prelude_args(
-            call,
-            (func, &shapes),
-            given,
-            (true, "a call of this method with these arguments"),
-        )?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
     }
@@ -124,21 +121,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .iter()
             .map(|arg| self.expr(arg))
             .collect::<Result<Vec<_>, _>>()?;
-        let reps: Vec<Rep> = given.iter().map(Expr::rep).collect();
-        let unit = self
-            .prelude
-            .iter()
-            .find(|unit| unit.file == def.file)
-            .expect("a module of the prelude");
-        let (func, shapes) = self
-            .prelude_for(call, unit, &def.name, &reps)?
+        let unit = self.prelude_unit_of(def.file);
+        let (func, args) = self
+            .generic_args(
+                call,
+                (unit, &def.name),
+                given,
+                (false, "a call with these arguments"),
+            )?
             .expect("a function of the prelude");
-        let args = self.prelude_args(
-            call,
-            (func, &shapes),
-            given,
-            (false, "a call with these arguments"),
-        )?;
         let site = self.call_site(func, call);
         Ok(self.prelude_call_of(func, args, site))
     }
@@ -151,7 +142,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
         name: &str,
         args: Vec<Expr>,
     ) -> Result<Expr, Error> {
-        self.list_call_at(node, name, args, self.site(node.range()))
+        let (func, args) = self.list_args(node, name, args)?;
+        let site = self.call_site(func, node);
+        Ok(self.prelude_call_of(func, args, site))
     }
 
     /// [`Self::list_call`] with the call at `site`.
@@ -162,21 +155,48 @@ impl<'a, 'db> Lowering<'a, 'db> {
         args: Vec<Expr>,
         site: Site,
     ) -> Result<Expr, Error> {
+        let (func, args) = self.list_args(node, name, args)?;
+        let raises = self.funcs.borrow().raises.get(func.index()).copied();
+        Ok(self.prelude_call_of(func, args, raises.unwrap_or(true).then_some(site)))
+    }
+
+    /// The function `name` of the module `list` of the prelude, in the copy
+    /// for the reps of `given`, with `given` as its arguments.
+    fn list_args(
+        &self,
+        node: &impl Ranged,
+        name: &str,
+        given: Vec<Expr>,
+    ) -> Result<(FuncId, Vec<Expr>), Error> {
         let unit = self
             .prelude_unit("list")
             .expect("the module list of the prelude");
-        let reps: Vec<Rep> = args.iter().map(Expr::rep).collect();
-        let (func, shapes) = self
-            .prelude_for(node, unit, name, &reps)?
-            .expect("a function of the module list");
-        let args = self.prelude_args(
+        let found = self.generic_args(
             node,
-            (func, &shapes),
-            args,
+            (unit, name),
+            given,
             (false, "a call with these arguments"),
         )?;
-        let raises = self.funcs.borrow().raises.get(func.index()).copied();
-        Ok(self.prelude_call_of(func, args, raises.unwrap_or(true).then_some(site)))
+        Ok(found.expect("a function of the module list"))
+    }
+
+    /// The function `name` of `unit`, a module of the prelude, in the copy
+    /// for the reps of `given`, with `given` as its arguments, as
+    /// [`Self::prelude_args`] converts them for the call at `node`. `None`
+    /// when the module has no such function.
+    fn generic_args(
+        &self,
+        node: &impl Ranged,
+        (unit, name): (&'a Unit<'a, 'db>, &str),
+        given: Vec<Expr>,
+        (defaults, count): (bool, &str),
+    ) -> Result<Option<(FuncId, Vec<Expr>)>, Error> {
+        let reps: Vec<Rep> = given.iter().map(Expr::rep).collect();
+        let Some((func, shapes)) = self.prelude_for(node, unit, name, &reps)? else {
+            return Ok(None);
+        };
+        let args = self.prelude_args(node, (func, &shapes), given, (defaults, count))?;
+        Ok(Some((func, args)))
     }
 
     /// `given` as the arguments of `func`, a function of the prelude whose
@@ -209,18 +229,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// The `repr` of `value`, a list or a list or `None`, at `site`, which
     /// the module `list` of the prelude gives.
     pub(super) fn list_repr(&self, value: Expr, site: Site) -> Result<Expr, Error> {
-        let rep = value.rep();
-        let name = match rep {
+        let name = match value.rep() {
             Rep::List(_) => "repr_of",
             _ => "repr_or_none",
         };
-        let unit = self
-            .prelude_unit("list")
-            .expect("the module list of the prelude");
-        let (func, _) = self
-            .prelude_for(&TextRange::default(), unit, name, &[rep])?
-            .expect("the repr of a list");
-        Ok(self.prelude_call_of(func, vec![value], Some(site)))
+        self.list_call_at(&TextRange::default(), name, vec![value], site)
     }
 
     /// The function that gives the `repr` of a list of the type `list`,
@@ -246,6 +259,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .find(|unit| unit.file == def.file)
             .and_then(|unit| unit.defs.get(def.name.as_str()))
             .is_some_and(|def| def.type_params.is_some())
+    }
+
+    /// The module of the prelude in `file`.
+    fn prelude_unit_of(&self, file: File) -> &'a Unit<'a, 'db> {
+        self.prelude
+            .iter()
+            .find(|unit| unit.file == file)
+            .expect("a module of the prelude")
     }
 
     /// The module `module` of the prelude.
