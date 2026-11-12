@@ -116,9 +116,8 @@ pub const FUNCTION_ATTRIBUTES: &[&str] = &[
     "__setattr__", "__sizeof__", "__str__", "__subclasshook__", "__type_params__",
 ];
 
-/// The attributes of an object of a class without a decorator and without
-/// a base, besides its fields and `__annotations__`, sorted for a binary
-/// search.
+/// The attributes of an object of a class without a base, besides its
+/// fields, its methods and `__annotations__`, sorted for a binary search.
 #[rustfmt::skip]
 pub const OBJECT_ATTRIBUTES: &[&str] = &[
     "__class__", "__delattr__", "__dict__", "__dir__", "__doc__", "__eq__", "__firstlineno__",
@@ -126,6 +125,15 @@ pub const OBJECT_ATTRIBUTES: &[&str] = &[
     "__init_subclass__", "__le__", "__lt__", "__module__", "__ne__", "__new__", "__reduce__",
     "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__static_attributes__", "__str__",
     "__subclasshook__", "__weakref__",
+];
+
+/// The attributes that the decorator `dataclass` adds to an object, sorted
+/// for a binary search.
+pub const DATACLASS_ATTRIBUTES: &[&str] = &[
+    "__dataclass_fields__",
+    "__dataclass_params__",
+    "__match_args__",
+    "__replace__",
 ];
 
 /// The modules of the standard library of CPython 3.13, sorted for a

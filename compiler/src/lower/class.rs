@@ -59,6 +59,8 @@ impl<'a> Classes<'a> {
                 .any(|method| method.def.name.as_str() == name)
             || (name == "__annotations__" && !declared.fields.is_empty())
             || names::OBJECT_ATTRIBUTES.binary_search(&name).is_ok()
+            || (declared.kind.is_dataclass()
+                && names::DATACLASS_ATTRIBUTES.binary_search(&name).is_ok())
     }
 
     /// The classes of the IR.
@@ -205,7 +207,7 @@ impl<'a> Lowering<'a, '_> {
         let info = class_info(self.model(), def).ok_or_else(|| unsupported(def, "this class"))?;
         let mut methods = Vec::new();
         let (kind, checked, fields, members) = if let Some(frozen) = frozen {
-            self.dataclass_form(def, &info)?;
+            methods = self.dataclass_form(def, &info)?;
             let checked = info
                 .dataclass_fields
                 .expect("a dataclass that the checker knows")
@@ -361,17 +363,13 @@ impl<'a> Lowering<'a, '_> {
     /// for the first default that is an object of a dataclass.
     pub(super) fn class_body(&self, def: &ast::StmtClassDef) -> Result<Vec<Stmt>, Error> {
         let class = self.class_of(def)?;
-        let (kind, fields, defaults) = {
+        let (fields, defaults) = {
             let classes = self.classes.borrow();
             let declared = classes.get(class);
             if declared.kind == Kind::Enum {
                 return Ok(Vec::new());
             }
-            (
-                declared.kind,
-                declared.fields.clone(),
-                declared.defaults.clone(),
-            )
+            (declared.fields.clone(), declared.defaults.clone())
         };
         let mut namespace: Vec<String> = CLASS_NAMESPACE.map(str::to_owned).into();
         if def.body.iter().any(ast::Stmt::is_ann_assign_stmt) {
@@ -393,11 +391,7 @@ impl<'a> Lowering<'a, '_> {
             namespace,
             class: Some(def.start()),
         });
-        let body = if kind == Kind::Plain {
-            self.plain_body(def, class).map(|body| (body, None))
-        } else {
-            self.class_defaults(def, &fields, &defaults)
-        };
+        let body = self.class_statements(def, class, &fields, &defaults);
         let scope = self.scope.take().expect("the scope of the class");
         let (body, mutable) = body?;
         // The body of a class reads no variable of its own.
@@ -426,22 +420,57 @@ impl<'a> Lowering<'a, '_> {
         Ok(stmts)
     }
 
-    /// The assignment of each default of `def`, a dataclass with `fields`
-    /// and `defaults`, in the scope of its body, and the raise of the
-    /// decorator for the first default that is an object of a dataclass.
-    fn class_defaults(
+    /// The code of the body of `def`, the class `class` with `fields` and
+    /// `defaults`, in the scope of the body. The body evaluates the default
+    /// and the annotation of each field, and the `def` of each method
+    /// evaluates the defaults and the annotations of its parameters. The
+    /// second value is the raise of the decorator of a dataclass for the
+    /// first default that is an object of a mutable dataclass.
+    fn class_statements(
         &self,
         def: &ast::StmtClassDef,
+        class: ClassId,
         fields: &[(String, Rep)],
         defaults: &[Option<VarId>],
     ) -> Result<(Vec<Stmt>, Option<Stmt>), Error> {
         let mut body = Vec::new();
         let mut mutable = None;
-        for ((node, (name, rep)), var) in dataclass_fields(def).zip(fields).zip(defaults) {
-            if let (Some(value), Some(var)) = (node.value.as_deref(), var) {
-                body.push(self.class_default(def, value, name, *rep, *var, &mut mutable)?);
+        let mut fields = fields.iter().zip(defaults);
+        for stmt in &def.body {
+            match stmt {
+                ast::Stmt::AnnAssign(node) => {
+                    let ((name, rep), var) = fields.next().expect("a field of the class");
+                    if let (Some(value), Some(var)) = (node.value.as_deref(), var) {
+                        body.push(self.class_default(
+                            def,
+                            value,
+                            name,
+                            *rep,
+                            *var,
+                            &mut mutable,
+                        )?);
+                    }
+                    self.check_annotations(std::iter::once(&*node.annotation))?;
+                }
+                ast::Stmt::FunctionDef(method) => {
+                    let func = self
+                        .method(class, method.name.as_str())
+                        .expect("a method of the class")
+                        .func();
+                    body.extend(self.default_values(method, func)?);
+                    let annotations = params_of(method)
+                        .filter_map(|param| param.annotation())
+                        .chain(method.returns.as_deref());
+                    self.check_annotations(annotations)?;
+                    self.scope
+                        .borrow_mut()
+                        .as_mut()
+                        .expect("the scope of the class body")
+                        .namespace
+                        .push(method.name.to_string());
+                }
+                _ => {}
             }
-            self.check_annotations(std::iter::once(&*node.annotation))?;
         }
         Ok((body, mutable))
     }
@@ -501,40 +530,6 @@ impl<'a> Lowering<'a, '_> {
             targets: vec![Place::Global(var)],
             value: lowered,
         })
-    }
-
-    /// The code of the body of `def`, the class `class` of [`Kind::Plain`].
-    /// The body evaluates the annotation of each field, and the `def` of
-    /// each method evaluates the annotations and the defaults of its
-    /// parameters.
-    fn plain_body(&self, def: &ast::StmtClassDef, class: ClassId) -> Result<Vec<Stmt>, Error> {
-        let mut body = Vec::new();
-        for stmt in &def.body {
-            match stmt {
-                ast::Stmt::AnnAssign(field) => {
-                    self.check_annotations(std::iter::once(&*field.annotation))?;
-                }
-                ast::Stmt::FunctionDef(method) => {
-                    let func = self
-                        .method(class, method.name.as_str())
-                        .expect("a method of the class")
-                        .func();
-                    body.extend(self.default_values(method, func)?);
-                    let annotations = params_of(method)
-                        .filter_map(|param| param.annotation())
-                        .chain(method.returns.as_deref());
-                    self.check_annotations(annotations)?;
-                    self.scope
-                        .borrow_mut()
-                        .as_mut()
-                        .expect("the scope of the class body")
-                        .namespace
-                        .push(method.name.to_string());
-                }
-                _ => {}
-            }
-        }
-        Ok(body)
     }
 
     /// Returns `true` if a value of `shape` may be a list or an object of a
@@ -1524,7 +1519,11 @@ impl<'a> Lowering<'a, '_> {
     /// Checks that `def`, a class with a decorator, has the form of a
     /// dataclass that the compiler takes. `info` is what the checker gives
     /// for the class.
-    fn dataclass_form(&self, def: &ast::StmtClassDef, info: &ClassInfo) -> Result<(), Error> {
+    fn dataclass_form(
+        &self,
+        def: &'a ast::StmtClassDef,
+        info: &ClassInfo,
+    ) -> Result<Vec<Method<'a>>, Error> {
         if def
             .arguments
             .as_deref()
@@ -1538,8 +1537,15 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(def, "this class"));
         };
         let mut fields = Vec::new();
+        let mut methods = Vec::new();
         for (i, stmt) in def.body.iter().enumerate() {
             match stmt {
+                // The decorator writes the special methods, and keeps one
+                // that the class defines.
+                ast::Stmt::FunctionDef(method) if is_special(&method.name) => {
+                    return Err(unsupported(method, "a special method in a dataclass"));
+                }
+                ast::Stmt::FunctionDef(method) => push_method(&mut methods, method)?,
                 ast::Stmt::Pass(_) => {}
                 ast::Stmt::Expr(e) if e.value.is_ellipsis_literal_expr() => {}
                 ast::Stmt::Expr(e) if i == 0 && e.value.is_string_literal_expr() => {}
@@ -1573,7 +1579,7 @@ impl<'a> Lowering<'a, '_> {
                 "a dataclass whose fields the checker computes otherwise",
             ));
         }
-        Ok(())
+        Ok(methods)
     }
 
     /// The name and the type of each field of `def`, a class without a
@@ -1608,15 +1614,7 @@ impl<'a> Lowering<'a, '_> {
                         .ok_or_else(|| unsupported(stmt, "a field of this type"))?;
                     checked.push((name, shape));
                 }
-                ast::Stmt::FunctionDef(method) => {
-                    if methods.iter().any(|known| known.def.name == method.name) {
-                        return Err(unsupported(method, "two methods of the same name"));
-                    }
-                    methods.push(Method {
-                        def: method,
-                        func: None,
-                    });
-                }
+                ast::Stmt::FunctionDef(method) => push_method(&mut methods, method)?,
                 _ => return Err(unsupported(stmt, "this statement in a class")),
             }
         }
@@ -1715,6 +1713,27 @@ fn imports(stmt: &ast::Stmt, name: &str) -> bool {
             .any(|alias| imported_name(alias, true) == name),
         _ => false,
     }
+}
+
+/// Adds `method` to `methods`, the methods of a class before it.
+fn push_method<'a>(
+    methods: &mut Vec<Method<'a>>,
+    method: &'a ast::StmtFunctionDef,
+) -> Result<(), Error> {
+    if methods.iter().any(|known| known.def.name == method.name) {
+        return Err(unsupported(method, "two methods of the same name"));
+    }
+    methods.push(Method {
+        def: method,
+        func: None,
+    });
+    Ok(())
+}
+
+/// Returns `true` if `name` is the name of a special method, as `__eq__`
+/// is, `false` otherwise.
+fn is_special(name: &str) -> bool {
+    name.len() > 4 && name.starts_with("__") && name.ends_with("__")
 }
 
 /// The object in the first parameter of a function of the compiler for an

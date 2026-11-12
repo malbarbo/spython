@@ -853,19 +853,6 @@ fn a_dataclass_outside_the_accepted_form_has_its_own_message() {
                 @dataclass
                 class P:
                     x: int
-
-                    def f(self) -> int:
-                        return self.x
-            "},
-            "this statement in a dataclass",
-        ),
-        (
-            indoc! {"
-                from dataclasses import dataclass
-
-                @dataclass
-                class P:
-                    x: int
                     print(1)
             "},
             "this statement in a dataclass",
@@ -1098,5 +1085,67 @@ fn eq_of_a_union_with_a_dataclass_compares_the_fields() {
             us: list[P | Q | int] = [P(1), Q(1), 1]
             print(us.count(Q(1)), us.index(1), us == [P(1), Q(1), 1])
         "},
+    );
+}
+
+#[test]
+fn a_dataclass_calls_its_methods() {
+    same_as_cpython(
+        "a_dataclass_calls_its_methods",
+        indoc! {"
+            from dataclasses import dataclass
+
+            def f(x: int) -> int:
+                print('default', x)
+                return x
+
+            @dataclass
+            class Tempo:
+                horas: int
+                minutos: int = f(0)
+
+                def total(self) -> int:
+                    return self.horas * 60 + self.minutos
+
+                def soma(self, outro: 'Tempo', extra: int = f(5)) -> 'Tempo':
+                    t = self.total() + outro.total() + extra
+                    return Tempo(t // 60, t % 60)
+
+                def zera(self) -> None:
+                    self.horas = 0
+                    self.minutos = 0
+
+            @dataclass(frozen=True)
+            class Ponto:
+                x: float
+                y: float
+
+                def norma2(self) -> float:
+                    return self.x * self.x + self.y * self.y
+
+            a = Tempo(1, 30)
+            b = a.soma(Tempo(2), extra=10)
+            print(a.total(), b, b.total())
+            b.zera()
+            print(b, Ponto(3.0, 4.0).norma2())
+            print(a.soma(Tempo(0, 1 // f(0))))
+        "},
+    );
+}
+
+#[test]
+fn a_special_method_in_a_dataclass_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            from dataclasses import dataclass
+
+            @dataclass
+            class Tempo:
+                horas: int
+
+                def __repr__(self) -> str:
+                    return 'tempo'
+        "}),
+        "a special method in a dataclass"
     );
 }
