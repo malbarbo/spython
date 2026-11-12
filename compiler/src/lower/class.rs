@@ -1837,7 +1837,6 @@ impl<'a> Lowering<'a, '_> {
             CmpOp::Eq,
         ) {
             return self.special_eq(
-                node,
                 CmpOp::Eq,
                 (ours, Some(shape.clone())),
                 (theirs, Some(shape)),

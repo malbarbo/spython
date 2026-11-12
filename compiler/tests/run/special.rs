@@ -228,6 +228,61 @@ fn an_exception_in_lt_has_the_frame_of_the_method() {
     );
 }
 
+/// CPython calls the reflected method of the right object first when its
+/// class is a proper subclass of the class of the left object, even when
+/// the subclass takes the method from its base.
+#[test]
+fn a_comparison_calls_the_method_of_a_subclass_on_the_right_first() {
+    same_as_cpython(
+        "a_comparison_calls_the_method_of_a_subclass_on_the_right_first",
+        indoc! {"
+            class B:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __eq__(self, other: object) -> bool:
+                    print('B.eq', self.n)
+                    return isinstance(other, B) and self.n == other.n
+
+                def __lt__(self, other: 'B') -> bool:
+                    print('B.lt', self.n)
+                    return self.n < other.n
+
+                def __gt__(self, other: 'B') -> bool:
+                    print('B.gt', self.n)
+                    return self.n > other.n
+
+
+            class D(B):
+                def __gt__(self, other: 'B') -> bool:
+                    print('D.gt', self.n)
+                    return self.n > other.n
+
+
+            class E(D):
+                pass
+
+
+            def compara(x: B, y: B) -> None:
+                print(x == y, x != y, x < y, x > y)
+
+
+            b = B(1)
+            d = D(2)
+            e = E(3)
+            print(b == d, b < d, d == b, d < b, b != d)
+            print(d == e, d < e, e < d, b < e)
+            compara(b, d)
+            compara(d, b)
+            compara(d, e)
+            compara(e, e)
+            compara(b, b)
+        "},
+    );
+}
+
 #[test]
 fn eq_outside_the_accepted_form_is_unsupported() {
     for (source, what) in [
@@ -257,20 +312,6 @@ fn eq_outside_the_accepted_form_is_unsupported() {
                         return True
             "},
             "a method of an order other than (self, other) -> bool",
-        ),
-        (
-            indoc! {"
-                class P:
-                    def __eq__(self, other: object) -> bool:
-                        return True
-
-                class Q(P):
-                    pass
-
-                def f(p: P, q: Q) -> bool:
-                    return p == q
-            "},
-            "a comparison with an object of a subclass on the right",
         ),
         (
             indoc! {"

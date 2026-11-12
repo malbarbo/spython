@@ -8,7 +8,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 use super::class::{generated_call, param, widen};
 use super::{Lowering, unsupported};
 use crate::Error;
-use crate::ir::{ClassId, CmpOp, Expr, FuncId, Rep, Site, Stmt};
+use crate::ir::{ClassId, CmpOp, Expr, FuncId, LogicOp, Rep, Site, Stmt};
 
 /// A lowered operand, with the type that the checker gives it.
 pub(super) type Operand = (Expr, Option<Shape>);
@@ -143,7 +143,7 @@ impl Lowering<'_, '_> {
             (right.0.rep(), || right.1.clone()),
             op,
         ) {
-            return self.special_eq(c, op, left, right, site);
+            return self.special_eq(op, left, right, site);
         }
         if order_methods(op).is_some() || !object {
             return Err(unsupported(
@@ -159,10 +159,12 @@ impl Lowering<'_, '_> {
     }
 
     /// `left op right` for an order `op` of a comparison `c` at `site`, as
-    /// CPython finds it. The method of the left object comes first, as
-    /// `__lt__` for `<`, and the reflected method of the right object comes
-    /// when the left one has none, as `__gt__` for `<`. The checker proves
-    /// that one of them has the method.
+    /// CPython finds it. The reflected method of the right object, as
+    /// `__gt__` for `<`, comes first when its class descends from the class
+    /// of the left object. Then comes the method of the left object, as
+    /// `__lt__` for `<`, and the reflected method of the right object when
+    /// the left one has none. The checker proves that one of them has the
+    /// method.
     fn special_order(
         &self,
         c: &ast::ExprCompare,
@@ -179,54 +181,19 @@ impl Lowering<'_, '_> {
         {
             return Err(unsupported(c, "an order of objects of a union"));
         }
-        let method = |class, name| self.method(class, name).and_then(|method| method.func);
-        let lefts = self.classes_of(left.0.rep(), || left.1.clone());
-        let rights = self.classes_of(right.0.rep(), || right.1.clone());
-        // CPython calls the reflected method of the right object first when
-        // its class descends from the class of the left object.
-        let first = rights.iter().any(|right| {
-            method(*right, reflected).is_some()
-                && lefts
-                    .iter()
-                    .any(|left| left != right && self.descends(*right, *left))
-        });
-        if first {
-            return Err(unsupported(
-                c,
-                "a comparison with an object of a subclass on the right",
-            ));
-        }
-        if let Rep::Object(class) = left.0.rep()
-            && let Some(func) = method(class, name)
-            && lefts.iter().all(|left| method(*left, name) == Some(func))
-        {
-            return self.call_order(c, func, left.0, right.0, site);
-        }
-        let operand = |i| param(i, if i == 0 { reps[0] } else { reps[1] });
-        let mut body = Vec::new();
-        for (i, classes, name) in [(0, &lefts, name), (1, &rights, reflected)] {
-            for class in classes {
-                let Some(func) = method(*class, name) else {
-                    continue;
-                };
-                let exact = Expr::AsExact {
-                    value: Box::new(operand(i)),
-                    class: *class,
-                };
-                let call = self.call_order(c, func, exact, operand(1 - i), Site::NONE)?;
-                body.push(Stmt::If {
-                    cond: Expr::IsExact {
-                        value: Box::new(operand(i)),
-                        class: *class,
-                    },
-                    then: vec![Stmt::Return(Some(call))],
-                    else_: Vec::new(),
-                });
-            }
-        }
-        body.push(Stmt::Unreachable);
-        let func = self.generated(reps.to_vec(), Rep::Bool, body);
-        Ok(generated_call(func, vec![left.0, right.0], Rep::Bool, site))
+        let method = |class, name| {
+            self.method(class, name)
+                .and_then(|method| method.func)
+                .map(|func| (func, false))
+        };
+        self.dispatch_binary(
+            (left, right, Rep::Bool, site),
+            &|class| method(class, name),
+            &|class| method(class, reflected),
+            &|_, _| true,
+            &|(func, _), object, other, site| self.call_order(c, func, object, other, site),
+            &|_, _| Ok(vec![Stmt::Unreachable]),
+        )
     }
 
     /// The call of `func`, a method of an order, with `object` as `self`
@@ -255,84 +222,139 @@ impl Lowering<'_, '_> {
     }
 
     /// `left op right`, for `op` `==` or `!=`, at `site`, as CPython finds
-    /// it. The method of the left object comes first, and the method of
-    /// the right object comes when the left one is the one of `object`.
-    /// Without either, the objects are equal when they are the same object,
-    /// or objects of the same dataclass with equal fields.
+    /// it. The method of the right object comes first when its class
+    /// descends from the class of the left object. Then comes the method of
+    /// the left object, and the method of the right object when the left
+    /// one is the one of `object`. Without either, the objects are equal
+    /// when they are the same object, or objects of the same dataclass with
+    /// equal fields.
     pub(super) fn special_eq(
         &self,
-        node: &impl Ranged,
         op: CmpOp,
         left: Operand,
         right: Operand,
         site: Site,
     ) -> Result<Expr, Error> {
+        let (left_shape, right_shape) = (left.1.clone(), right.1.clone());
+        self.dispatch_binary(
+            (left, right, Rep::Bool, site),
+            &|class| self.eq_method(class, op),
+            &|class| self.eq_method(class, op),
+            &|_, _| true,
+            &|method, object, other, site| Ok(self.call_eq(method, object, other, site)),
+            &|v, w| {
+                let eq = self.object_eq(
+                    (v, left_shape.clone()),
+                    (w, right_shape.clone()),
+                    Site::NONE,
+                )?;
+                Ok(vec![Stmt::Return(Some(match op {
+                    CmpOp::Ne => Expr::Not(Box::new(eq)),
+                    _ => eq,
+                }))])
+            },
+        )
+    }
+
+    /// The value of a binary operator on `left` and `right`, a value of
+    /// `ret` at `site`, that calls a special method as CPython finds it.
+    /// `direct` gives the method that the operator calls on an object of a
+    /// class on the left, and `reflected` the one on the right, each with
+    /// whether the value is the `not` of the result of the method. The
+    /// reflected method of the right object comes first when its class is
+    /// a proper subclass of the class of the left object and `first` takes
+    /// the two classes. Then comes the method of the left object, and then
+    /// the reflected method of the right object. `call` calls a method with
+    /// an object and the other operand, and `rest` gives the code that runs
+    /// when no object has a method, with the two operands.
+    fn dispatch_binary(
+        &self,
+        (left, right, ret, site): (Operand, Operand, Rep, Site),
+        direct: &dyn Fn(ClassId) -> Option<(FuncId, bool)>,
+        reflected: &dyn Fn(ClassId) -> Option<(FuncId, bool)>,
+        first: &dyn Fn(ClassId, ClassId) -> bool,
+        call: &dyn Fn((FuncId, bool), Expr, Expr, Site) -> Result<Expr, Error>,
+        rest: &dyn Fn(Expr, Expr) -> Result<Vec<Stmt>, Error>,
+    ) -> Result<Expr, Error> {
         let lefts = self.classes_of(left.0.rep(), || left.1.clone());
         let rights = self.classes_of(right.0.rep(), || right.1.clone());
-        // CPython calls the method of the right object first when its class
-        // descends from the class of the left object.
-        let reflected = rights.iter().any(|right| {
-            self.eq_method(*right, op).is_some()
-                && lefts
+        // The classes on the left whose objects give the call to the
+        // reflected method of an object of each class on the right.
+        let firsts: Vec<(ClassId, Vec<ClassId>)> = rights
+            .iter()
+            .filter(|right| reflected(**right).is_some())
+            .map(|right| {
+                let ancestors = lefts
                     .iter()
-                    .any(|left| left != right && self.descends(*right, *left))
-        });
-        if reflected {
-            return Err(unsupported(
-                node,
-                "a comparison with an object of a subclass on the right",
-            ));
-        }
+                    .copied()
+                    .filter(|left| {
+                        left != right && self.descends(*right, *left) && first(*left, *right)
+                    })
+                    .collect();
+                (*right, ancestors)
+            })
+            .filter(|(_, ancestors): &(_, Vec<_>)| !ancestors.is_empty())
+            .collect();
         // An object of the left class decides when every class that it may
         // be has the same method.
-        if let Rep::Object(class) = left.0.rep()
-            && let Some(method) = self.eq_method(class, op)
-            && lefts
-                .iter()
-                .all(|left| self.eq_method(*left, op) == Some(method))
+        if firsts.is_empty()
+            && let Rep::Object(class) = left.0.rep()
+            && let Some(method) = direct(class)
+            && lefts.iter().all(|left| direct(*left) == Some(method))
         {
-            return Ok(self.call_eq(method, left.0, right.0, site));
+            return call(method, left.0, right.0, site);
         }
-        let (left_rep, right_rep) = (left.0.rep(), right.0.rep());
-        let operand = |i| param(i, if i == 0 { left_rep } else { right_rep });
+        let reps = [left.0.rep(), right.0.rep()];
+        let operand = |i| param(i, if i == 0 { reps[0] } else { reps[1] });
+        let is_exact = |i, class| Expr::IsExact {
+            value: Box::new(operand(i)),
+            class,
+        };
+        let exact = |i, class| Expr::AsExact {
+            value: Box::new(operand(i)),
+            class,
+        };
         let mut body = Vec::new();
-        for (i, classes) in [(0, &lefts), (1, &rights)] {
-            let value = || operand(i);
-            let other = || operand(1 - i);
+        let arm = |cond, i, class, method| {
+            Ok::<_, Error>(Stmt::If {
+                cond,
+                then: vec![Stmt::Return(Some(call(
+                    method,
+                    exact(i, class),
+                    operand(1 - i),
+                    Site::NONE,
+                )?))],
+                else_: Vec::new(),
+            })
+        };
+        for (right, ancestors) in firsts {
+            let method = reflected(right).expect("a reflected method");
+            let left = ancestors
+                .into_iter()
+                .map(|left| is_exact(0, left))
+                .reduce(|a, b| Expr::Logic {
+                    op: LogicOp::Or,
+                    left: Box::new(a),
+                    right: Box::new(b),
+                })
+                .expect("an ancestor on the left");
+            let cond = Expr::Logic {
+                op: LogicOp::And,
+                left: Box::new(is_exact(1, right)),
+                right: Box::new(left),
+            };
+            body.push(arm(cond, 1, right, method)?);
+        }
+        for (i, classes, method) in [(0, &lefts, direct), (1, &rights, reflected)] {
             for class in classes {
-                let Some(method) = self.eq_method(*class, op) else {
-                    continue;
-                };
-                let exact = Expr::AsExact {
-                    value: Box::new(value()),
-                    class: *class,
-                };
-                body.push(Stmt::If {
-                    cond: Expr::IsExact {
-                        value: Box::new(value()),
-                        class: *class,
-                    },
-                    then: vec![Stmt::Return(Some(self.call_eq(
-                        method,
-                        exact,
-                        other(),
-                        Site::NONE,
-                    )))],
-                    else_: Vec::new(),
-                });
+                if let Some(method) = method(*class) {
+                    body.push(arm(is_exact(i, *class), i, *class, method)?);
+                }
             }
         }
-        let eq = self.object_eq(
-            (param(0, left_rep), left.1),
-            (param(1, right_rep), right.1),
-            Site::NONE,
-        )?;
-        body.push(Stmt::Return(Some(match op {
-            CmpOp::Ne => Expr::Not(Box::new(eq)),
-            _ => eq,
-        })));
-        let func = self.generated(vec![left_rep, right_rep], Rep::Bool, body);
-        Ok(generated_call(func, vec![left.0, right.0], Rep::Bool, site))
+        body.extend(rest(operand(0), operand(1))?);
+        let func = self.generated(reps.to_vec(), ret, body);
+        Ok(generated_call(func, vec![left.0, right.0], ret, site))
     }
 
     /// The call of `method` of `special_eq` with `object` as `self` and
