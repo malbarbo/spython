@@ -200,6 +200,24 @@ pub(crate) struct Func {
     pub body: Vec<Stmt>,
 }
 
+impl Func {
+    /// A function with a frame of `frame`, whose first `params` variables
+    /// of `vars` are its parameters, which is no value and has no captures.
+    pub fn new(frame: bool, params: usize, vars: Vec<Var>, ret: Rep, body: Vec<Stmt>) -> Func {
+        Func {
+            value: None,
+            captures: Vec::new(),
+            alias: None,
+            ordered: false,
+            frame,
+            params: u32::try_from(params).expect("fewer than 2^32 parameters"),
+            vars,
+            ret,
+            body,
+        }
+    }
+}
+
 /// A variable that the code of a value captures from the function around
 /// it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

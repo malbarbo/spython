@@ -144,13 +144,7 @@ impl<'a> Lowering<'a, '_> {
                     cell: capture.cell,
                 })
                 .collect(),
-            alias: None,
-            ordered: false,
-            frame: true,
-            params: u32::try_from(scope.params).expect("fewer than 2^32 parameters"),
-            vars: scope.vars.list,
-            ret,
-            body,
+            ..Func::new(true, scope.params, scope.vars.list, ret, body)
         };
         self.lowered.borrow_mut().insert(code.index(), func);
         code

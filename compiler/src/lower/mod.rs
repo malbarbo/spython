@@ -935,17 +935,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         *self.scope.borrow_mut() = Some(scope);
         let body = self.def_body(def, &bindings, sig.ret, sig.doctest)?;
         let scope = self.scope.take().expect("the scope of the function");
-        Ok(Func {
-            value: None,
-            captures: Vec::new(),
-            alias: None,
-            ordered: false,
-            frame: !self.in_prelude(),
-            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
-            vars: scope.vars.list,
-            ret: sig.ret,
+        Ok(Func::new(
+            !self.in_prelude(),
+            sig.params.len(),
+            scope.vars.list,
+            sig.ret,
             body,
-        })
+        ))
     }
 
     /// The scope of the body of `def`, a function with parameters of
@@ -1096,6 +1092,33 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// [`Self::define`] of a function with a local of each rep of
     /// `locals` after the parameters.
     fn define_with(&self, id: FuncId, frame: bool, locals: &[Rep], body: Vec<Stmt>) {
+        let func = self.func_of_sig(id, frame, locals, body);
+        self.lowered.borrow_mut().insert(id.index(), func);
+    }
+
+    /// [`Self::define`] of the code of a value of the type of function
+    /// `ty`, without a frame.
+    fn define_value(&self, id: FuncId, ty: FuncTypeId, body: Vec<Stmt>) {
+        let func = Func {
+            value: Some(ty),
+            ..self.func_of_sig(id, false, &[], body)
+        };
+        self.lowered.borrow_mut().insert(id.index(), func);
+    }
+
+    /// Makes `id`, a function of [`Self::reserve`], call `target` in its
+    /// place.
+    fn alias(&self, id: FuncId, target: FuncId) {
+        let func = Func {
+            alias: Some(target),
+            ..self.func_of_sig(id, false, &[], Vec::new())
+        };
+        self.lowered.borrow_mut().insert(id.index(), func);
+    }
+
+    /// The function `id` with `body`, whose variables are its parameters,
+    /// from its signature, and a local of each rep of `locals`.
+    fn func_of_sig(&self, id: FuncId, frame: bool, locals: &[Rep], body: Vec<Stmt>) -> Func {
         let sig = self.funcs.borrow().get(id).clone();
         let vars = sig
             .params
@@ -1108,54 +1131,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 cell: false,
             })
             .collect();
-        let func = Func {
-            value: None,
-            captures: Vec::new(),
-            alias: None,
-            ordered: false,
-            frame,
-            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
-            vars,
-            ret: sig.ret,
-            body,
-        };
-        self.lowered.borrow_mut().insert(id.index(), func);
-    }
-
-    /// [`Self::define`] of the code of a value of the type of function
-    /// `ty`, without a frame.
-    fn define_value(&self, id: FuncId, ty: FuncTypeId, body: Vec<Stmt>) {
-        self.define(id, false, body);
-        if let Some(func) = self.lowered.borrow_mut().get_mut(&id.index()) {
-            func.value = Some(ty);
-        }
-    }
-
-    /// Makes `id`, a function of [`Self::reserve`], call `target` in its
-    /// place.
-    fn alias(&self, id: FuncId, target: FuncId) {
-        let sig = self.funcs.borrow().get(id).clone();
-        let func = Func {
-            value: None,
-            captures: Vec::new(),
-            alias: Some(target),
-            ordered: false,
-            frame: false,
-            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
-            vars: sig
-                .params
-                .iter()
-                .map(|rep| Var {
-                    rep: *rep,
-                    flagged: false,
-                    ordered: false,
-                    cell: false,
-                })
-                .collect(),
-            ret: sig.ret,
-            body: Vec::new(),
-        };
-        self.lowered.borrow_mut().insert(id.index(), func);
+        Func::new(frame, sig.params.len(), vars, sig.ret, body)
     }
 
     /// The rep of the values of `shape`, and `None` when the compiler has no
@@ -1354,17 +1330,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             funcs.push(match lowered {
                 Some(func) => func,
                 None if has_def => self.func(id)?,
-                None => Func {
-                    value: None,
-                    captures: Vec::new(),
-                    alias: None,
-                    ordered: false,
-                    frame: false,
-                    params: 0,
-                    vars: Vec::new(),
-                    ret: Rep::None,
-                    body: Vec::new(),
-                },
+                None => Func::new(false, 0, Vec::new(), Rep::None, Vec::new()),
             });
         }
         Ok(())
