@@ -6,6 +6,7 @@ a total order, and a list with a NaN, give what CPython gives."""
 from typing import Callable  # noqa: UP035
 
 from __spython_prelude__.intrinsics import (
+    Ordered,
     copy_items,
     item,
     list_capacity,
@@ -17,7 +18,7 @@ from __spython_prelude__.intrinsics import (
 from __spython_prelude__.list import copy
 
 
-def sort[T](xs: list[T], reverse: bool) -> None:
+def sort[T: Ordered](xs: list[T], reverse: bool) -> None:
     """`xs.sort(reverse=reverse)`. The list is empty while the sort runs, so a comparison that
     reads it sees no item, and one that changes it makes the sort raise at the end."""
     items = take(xs)
@@ -31,7 +32,7 @@ def sort[T](xs: list[T], reverse: bool) -> None:
     give_back(xs, items)
 
 
-def sort_key[T, K](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
+def sort_key[T, K: Ordered](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
     """`xs.sort(key=key, reverse=reverse)`, which calls `key` once for each item, in order,
     before any comparison."""
     items = take(xs)
@@ -51,13 +52,15 @@ def sort_key[T, K](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
     give_back(xs, items)
 
 
-def sorted_of[T](xs: list[T], reverse: bool) -> list[T]:
+def sorted_of[T: Ordered](xs: list[T], reverse: bool) -> list[T]:
     ys = copy(xs)
     sort(ys, reverse)
     return ys
 
 
-def sorted_key[T, K](xs: list[T], key: Callable[[T], K], reverse: bool) -> list[T]:
+def sorted_key[T, K: Ordered](
+    xs: list[T], key: Callable[[T], K], reverse: bool
+) -> list[T]:
     ys = copy(xs)
     sort_key(ys, key, reverse)
     return ys
@@ -124,7 +127,7 @@ def power_of(s1: int, n1: int, n2: int, n: int) -> int:
     return result
 
 
-def gallop_left[K](key: K, a: list[K], base: int, n: int, hint: int) -> int:
+def gallop_left[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) -> int:
     """The index `k` in `0..n` with `a[base + k - 1] < key <= a[base + k]`, which the search
     looks for from `hint`."""
     lastofs = 0
@@ -161,7 +164,7 @@ def gallop_left[K](key: K, a: list[K], base: int, n: int, hint: int) -> int:
     return ofs
 
 
-def gallop_right[K](key: K, a: list[K], base: int, n: int, hint: int) -> int:
+def gallop_right[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) -> int:
     """The index `k` in `0..n` with `a[base + k - 1] <= key < a[base + k]`, which the search
     looks for from `hint`."""
     lastofs = 0
@@ -198,7 +201,7 @@ def gallop_right[K](key: K, a: list[K], base: int, n: int, hint: int) -> int:
     return ofs
 
 
-class Sort[K, T]:
+class Sort[K: Ordered, T]:
     """The state of a sort of `keys`, which moves the items of `values` along with the keys when
     `has_values` holds."""
 
@@ -409,7 +412,7 @@ class Sort[K, T]:
         elif nb > 0:
             min_gallop = self.min_gallop
             done = False
-            while not done:
+            while True:
                 acount = 0
                 bcount = 0
                 while True:
@@ -518,7 +521,7 @@ class Sort[K, T]:
         elif na > 0:
             min_gallop = self.min_gallop
             done = False
-            while not done:
+            while True:
                 acount = 0
                 bcount = 0
                 while True:

@@ -4,11 +4,11 @@ length of the list at each turn, as the iterator of a list does."""
 # The checker of spython takes `Callable` from `typing` alone.
 from typing import Callable  # noqa: UP035
 
-from __spython_prelude__.intrinsics import item
+from __spython_prelude__.intrinsics import Ordered, item
 from __spython_prelude__.math import isfinite
 
 
-def sum_int[T](xs: list[T]) -> int:
+def sum_int[T: int](xs: list[T]) -> int:
     """`sum(xs)` of a list of `int` or of `bool`, which tests the 31 bits at each step, as `+`
     does."""
     total = 0
@@ -44,7 +44,7 @@ def sum_float(xs: list[float]) -> float | int:
     return total
 
 
-def min_of[T](xs: list[T]) -> T:
+def min_of[T: Ordered](xs: list[T]) -> T:
     """`min(xs)`, the first item that no later item is less than."""
     if len(xs) == 0:
         raise ValueError("min() iterable argument is empty")
@@ -59,7 +59,7 @@ def min_of[T](xs: list[T]) -> T:
     return best
 
 
-def max_of[T](xs: list[T]) -> T:
+def max_of[T: Ordered](xs: list[T]) -> T:
     """`max(xs)`, the first item that no later item is greater than."""
     if len(xs) == 0:
         raise ValueError("max() iterable argument is empty")
@@ -74,7 +74,7 @@ def max_of[T](xs: list[T]) -> T:
     return best
 
 
-def min_key[T, K](xs: list[T], key: Callable[[T], K]) -> T:
+def min_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
     """`min(xs, key=key)`, the first item whose key no later key is less than. `key` runs once
     for each item, before the comparison of its result."""
     if len(xs) == 0:
@@ -92,7 +92,7 @@ def min_key[T, K](xs: list[T], key: Callable[[T], K]) -> T:
     return best
 
 
-def max_key[T, K](xs: list[T], key: Callable[[T], K]) -> T:
+def max_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
     """`max(xs, key=key)`, the first item whose key no later key is greater than."""
     if len(xs) == 0:
         raise ValueError("max() iterable argument is empty")

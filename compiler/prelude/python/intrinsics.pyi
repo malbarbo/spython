@@ -1,11 +1,17 @@
 """What the prelude asks of the compiler. Each function is an instruction of the module."""
 
-from typing import NoReturn
+from typing import NoReturn, Protocol, Self
 
 class StrBuilder:
     """A `str` that the prelude still writes, one code point at a time."""
 
     def __setitem__(self, index: int, code_point: int) -> None: ...
+
+class Ordered(Protocol):
+    """A value that `<` compares with a value of its type, which `sort`, `min` and `max`
+    take."""
+
+    def __lt__(self, other: Self, /) -> bool: ...
 
 class Hash:
     """The `hash` of a value, an integer of 64 bits that only the prelude holds."""
