@@ -545,8 +545,15 @@ O grupo I fez assim:
   `&=`, `-=` e `^=` mudam o próprio `set`, como no CPython.
 - O `for` guarda o seu lugar num objeto de `SetIter`, cujo `next` segue
   `setiter_iternext`.
-- O checker dá `set[int | float]` a `set(xs)` de uma lista de `float`s, e
-  a chamada é `Unsupported`.
+- O builtin `hash` dá como `int` o mesmo `hash` que o prelude usa. Um
+  `hash` fora dos 31 bits para o programa, como as outras contas de
+  `int`, e o de um `str` quase sempre fica fora.
+- `&`, `|` e `^` de dois `int`s são uma instrução só, e o prelude usa
+  `& mask` na sondagem da tabela.
+- Uma literal sem anotação que um `for` sobre ela mesma muda, como em
+  `s = {1, 2, 3}` seguido de `for x in s: s.add(x + 3)`, tem o tipo
+  `set[Divergent]` no checker, e o programa precisa anotar `s: set[int]`.
+  O mesmo acontece com uma lista e `append`.
 
 ### Funções como valores
 
