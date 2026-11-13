@@ -145,11 +145,13 @@ impl<'a> Lowering<'a, '_> {
                     .ok_or_else(|| unsupported(arg, "an argument of this type"))
             })
             .collect::<Result<_, _>>()?;
+        let site = self.site(call.range());
         Ok(Expr::CallValue {
             callee: Box::new(callee),
             args,
             rep: ty.ret,
-            site: self.site(call.range()),
+            site,
+            limit: site,
         })
     }
 

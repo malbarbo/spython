@@ -223,3 +223,153 @@ fn a_consumer_of_another_iterable_is_unsupported() {
     );
     assert_eq!(unsupported("print(sum([1, 2], 10))\n"), "this call of sum");
 }
+
+#[test]
+fn a_consumer_takes_a_generator_expression() {
+    same_as_cpython(
+        "a_consumer_takes_a_generator_expression",
+        indoc! {"
+            xs = [3, 1, 4, 1, 5]
+            d = {'a': 1, 'b': 2}
+            print(sum(x * x for x in xs), sum(x / 2 for x in xs))
+            print(min(x for x in xs if x > 1), max(-x for x in xs))
+            print(sum(i for i in range(1, 11)), sum(i for i in range(10, 0, -2)))
+            print(sum(v for v in d.values()), sum(len(k) * v for k, v in d.items()))
+            print(any(x > 4 for x in xs), all(x > 0 for x in xs), any(k == 'b' for k in d))
+            print(all(c != 'z' for c in 'abc'), any(x > 9 for x in xs), all(s for s in {1, 2}))
+            print(sum(x * y for x in xs for y in range(x) if y % 2 == 0))
+            print(', '.join(str(x) for x in xs), '-'.join(c.upper() for c in 'abc' if c != 'b'))
+
+            def f(n: int, k: int) -> int:
+                return sum(i * k for i in range(n))
+
+            print(f(4, 3), [sum(x * y for y in xs) for x in range(3)])
+            print([max(c * v for v in range(3)) for c in range(4)])
+        "},
+    );
+}
+
+#[test]
+fn any_and_all_stop_at_the_value_that_decides() {
+    same_as_cpython(
+        "any_and_all_stop_at_the_value_that_decides",
+        indoc! {"
+            def maior(x: int) -> bool:
+                print('testa', x)
+                return 1 // x > 0
+
+            xs = [2, 1, 0]
+            print(any(maior(x) for x in xs), all(not maior(x) for x in xs))
+            print(all(maior(x) for x in xs))
+        "},
+    );
+}
+
+#[test]
+fn an_error_in_a_generator_expression_has_the_frame_genexpr() {
+    same_as_cpython(
+        "an_error_in_a_generator_expression_has_the_frame_genexpr",
+        indoc! {"
+            def inversos(xs: list[int]) -> int:
+                return sum(1 // x for x in xs)
+
+            print(inversos([1, 2]))
+            print(inversos([1, 0]))
+        "},
+    );
+    same_as_cpython(
+        "the_first_iterable_of_a_generator_runs_in_the_frame_around_it",
+        indoc! {"
+            def itens(n: int) -> list[int]:
+                return [1 // n]
+
+            print(max(x for x in itens(0)))
+        "},
+    );
+    same_as_cpython(
+        "the_parts_of_a_range_of_a_generator_run_in_order",
+        indoc! {"
+            def f(n: int) -> int:
+                print('f', n)
+                return n
+
+            print(sum(x for x in range(f(1), f(4))))
+        "},
+    );
+    same_as_cpython(
+        "max_of_an_empty_generator_raises_in_the_frame_around_it",
+        indoc! {"
+            xs = [1, 2]
+            print(max(x for x in xs if x > 5))
+        "},
+    );
+}
+
+#[test]
+fn a_name_error_in_a_generator_expression_suggests_its_locals() {
+    same_as_cpython(
+        "a_name_error_in_a_generator_expression_suggests_its_locals",
+        indoc! {"
+            def f(xs: list[int]) -> int:
+                return sum(valorr for valor in xs)
+
+            print(f([1]))
+            valorr = 2
+        "},
+    );
+    same_as_cpython(
+        "a_name_error_in_a_generator_expression_suggests_its_parameter",
+        indoc! {"
+            def f(xs: list[int]) -> int:
+                return sum(x0 for x in xs)
+
+            print(f([1]))
+            x0 = 2
+        "},
+    );
+}
+
+#[test]
+fn a_generator_expression_counts_as_a_frame_for_the_recursion_limit() {
+    same_as_cpython(
+        "a_generator_expression_counts_as_a_frame_for_the_recursion_limit",
+        indoc! {"
+            def r(n: int) -> int:
+                return 0 if n == 0 else sum(r(n - 1) + 1 for _ in range(1))
+
+            print(r(3))
+            print(r(2000))
+        "},
+    );
+}
+
+#[test]
+fn a_generator_expression_outside_a_consumer_is_unsupported() {
+    assert_eq!(
+        unsupported("xs = [1]\ng = (x for x in xs)\n"),
+        "this expression"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            class P:
+                def __lt__(self, other: 'P') -> bool:
+                    return False
+
+            print(min(p for p in [P()]))
+        "}),
+        "min or max of a generator of objects"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            class P:
+                pass
+
+            print(any(p for p in [P()]))
+        "}),
+        "any or all of a generator of objects"
+    );
+    assert_eq!(
+        unsupported("k = 2\nprint(sum(i for i in range(0, 10, k)))\n"),
+        "a generator expression over a range with this step"
+    );
+}

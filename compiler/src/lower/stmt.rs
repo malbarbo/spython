@@ -504,6 +504,18 @@ impl<'a> Lowering<'a, '_> {
         ]))
     }
 
+    /// The node of `iter` that a loop over a `dict`, a `set`, a list or a
+    /// `str` runs before it starts: the `dict` of `d.items()` or `iter`
+    /// itself.
+    pub(super) fn loop_operand<'e>(&self, iter: &'e ast::Expr) -> &'e ast::Expr {
+        let (value, part) = dict_part(iter);
+        match expr_shape(self.model(), value) {
+            Some(Shape::Dict(..)) => value,
+            Some(Shape::Set(_)) if part == "keys" => value,
+            _ => iter,
+        }
+    }
+
     /// The call of `range` that `iter` is, which only a `for` takes.
     pub(super) fn range_call<'e>(&self, iter: &'e ast::Expr) -> Option<&'e ast::ExprCall> {
         let ast::Expr::Call(call) = iter else {

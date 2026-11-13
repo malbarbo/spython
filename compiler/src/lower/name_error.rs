@@ -24,6 +24,7 @@ impl<'a> Lowering<'a, '_> {
                 .captures
                 .iter()
                 .enumerate()
+                .filter(|(_, capture)| !capture.name.is_empty())
                 .map(|(i, capture)| {
                     let index = u32::try_from(i).expect("fewer than 2^32 captures");
                     (Binding::Capture(index), capture.name.clone())

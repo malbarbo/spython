@@ -153,6 +153,9 @@ impl<'a> Lowering<'a, '_> {
     }
 
     pub(super) fn expr(&self, expr: &ast::Expr) -> Result<Expr, Error> {
+        if let Some(value) = self.substitute(expr) {
+            return Ok(value);
+        }
         match expr {
             ast::Expr::StringLiteral(s) => {
                 let value = s.value.to_str();

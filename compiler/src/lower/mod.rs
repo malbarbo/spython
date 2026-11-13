@@ -9,6 +9,7 @@ mod consumer;
 mod doctest;
 mod expr;
 mod flow;
+mod generator;
 mod hash;
 mod init;
 mod math;
@@ -86,6 +87,7 @@ pub(crate) fn lower(
         assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
         comprehension: RefCell::default(),
+        substitutes: RefCell::default(),
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
@@ -265,6 +267,10 @@ struct Lowering<'a, 'db> {
     scope: RefCell<Option<Scope>>,
     /// The comprehensions around the code of the module.
     comprehension: RefCell<Comprehension>,
+    /// The value of each part of the first iterable of the generator
+    /// expression whose code the lowering is in, by its range, which the
+    /// code around the generator runs.
+    substitutes: RefCell<Vec<(TextRange, Expr)>>,
     /// The line of the frame of each line of each function, and of the
     /// module, by the path and the name of the frame, and the number of the
     /// line.

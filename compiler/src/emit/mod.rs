@@ -1059,7 +1059,13 @@ impl Emitter<'_> {
 
     /// The call of the value of `callee` with `args`, through the code that
     /// the value holds, which takes the value before the arguments.
-    fn call_value(&mut self, f: &mut FuncState, callee: &Expr, args: &[Expr], site: Site) {
+    fn call_value(
+        &mut self,
+        f: &mut FuncState,
+        callee: &Expr,
+        args: &[Expr],
+        (site, limit): (Site, Site),
+    ) {
         let Rep::Func(ty) = callee.rep() else {
             unreachable!("a call of a value that is not a function");
         };
@@ -1078,9 +1084,19 @@ impl Emitter<'_> {
             .struct_get(self.reprs.func_value(ty), 0);
         f.free(value);
         let code = self.reprs.func_code(ty);
-        self.at(f, site, |e, f| {
+        if site == limit {
+            self.at(f, site, |e, f| {
+                e.reprs.call_fits(f);
+                e.raise_if_zero(f, &RECURSION_ERROR);
+                f.ins().call_ref(code);
+            });
+            return;
+        }
+        self.at(f, limit, |e, f| {
             e.reprs.call_fits(f);
             e.raise_if_zero(f, &RECURSION_ERROR);
+        });
+        self.at(f, site, |_, f| {
             f.ins().call_ref(code);
         });
     }
@@ -1188,8 +1204,12 @@ impl Emitter<'_> {
                 self.reprs.bool_as_int(f);
             }
             Expr::CallValue {
-                callee, args, site, ..
-            } => self.call_value(f, callee, args, *site),
+                callee,
+                args,
+                site,
+                limit,
+                ..
+            } => self.call_value(f, callee, args, (*site, *limit)),
             Expr::Closure {
                 func,
                 ty,

@@ -109,9 +109,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 "a call of a method with keyword arguments",
             ));
         }
+        // `join` makes a list of a generator first, as `PySequence_Fast`
+        // does.
+        let join = module == "str" && name == "join";
         let mut given = vec![receiver];
         for arg in &call.arguments.args {
-            given.push(self.expr(arg)?);
+            given.push(match arg {
+                ast::Expr::Generator(_) if join => self.consumed_list(call, arg)?,
+                arg => self.expr(arg)?,
+            });
         }
         let (func, args) = match self.prelude_unit(module) {
             Some(unit) => self.generic_args(

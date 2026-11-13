@@ -129,7 +129,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// The code of a value of the type of function `ty`, whose body is
     /// `body`, in `scope`, with a frame in a traceback.
-    fn define_code(&self, ty: FuncTypeId, scope: Scope, body: Vec<Stmt>) -> FuncId {
+    pub(super) fn define_code(&self, ty: FuncTypeId, scope: Scope, body: Vec<Stmt>) -> FuncId {
         let FuncType { params, ret } = self.func_type_of(ty);
         let code = self.reserve(params, ret);
         let func = Func {
@@ -158,7 +158,7 @@ impl<'a> Lowering<'a, '_> {
     /// that the lowering is in, holds for each variable of that function
     /// among the `names` that it reads, and the captures of its code. A
     /// function of the module captures nothing.
-    fn closure_captures(
+    pub(super) fn closure_captures(
         &self,
         node: &impl Ranged,
         range: TextRange,
@@ -274,7 +274,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// What `lower` gives in `scope`, and the scope after it, with the
     /// scope of the code around it back in its place.
-    fn in_scope<T>(
+    pub(super) fn in_scope<T>(
         &self,
         scope: Scope,
         lower: impl FnOnce() -> Result<T, Error>,

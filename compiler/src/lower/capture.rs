@@ -218,21 +218,38 @@ impl<'a> Walk<'a, '_> {
         *self.bindings.entry(name).or_insert(0) += count;
     }
 
-    /// Finds each `lambda` of `expr`, which captures what it reads.
+    /// Finds each `lambda` and each generator expression of `expr`, which
+    /// capture what they read.
     fn exprs(&mut self, expr: &'a ast::Expr, assigned: &HashSet<&'a str>) {
-        struct Lambdas<'a>(Vec<&'a ast::ExprLambda>);
-        impl<'a> Visitor<'a> for Lambdas<'a> {
+        #[derive(Default)]
+        struct Functions<'a> {
+            lambdas: Vec<&'a ast::ExprLambda>,
+            generators: Vec<&'a ast::ExprGenerator>,
+        }
+        impl<'a> Visitor<'a> for Functions<'a> {
             fn visit_expr(&mut self, expr: &'a ast::Expr) {
                 match expr {
-                    ast::Expr::Lambda(lambda) => self.0.push(lambda),
+                    ast::Expr::Lambda(lambda) => self.lambdas.push(lambda),
+                    // The first iterable runs in the code around the
+                    // generator.
+                    ast::Expr::Generator(generator) => {
+                        self.generators.push(generator);
+                        if let Some(first) = generator.generators.first() {
+                            self.visit_expr(&first.iter);
+                        }
+                    }
                     expr => walk_expr(self, expr),
                 }
             }
         }
-        let mut lambdas = Lambdas(Vec::new());
-        lambdas.visit_expr(expr);
-        for lambda in lambdas.0 {
+        let mut functions = Functions::default();
+        functions.visit_expr(expr);
+        for lambda in functions.lambdas {
             self.capture(lambda.range(), free_names_of_lambda(lambda), None, assigned);
+        }
+        for generator in functions.generators {
+            let names = free_names_of_generator(generator);
+            self.capture(generator.range(), names, None, assigned);
         }
     }
 
@@ -265,6 +282,14 @@ impl<'a> Walk<'a, '_> {
 pub(super) fn free_names_of_lambda(lambda: &ast::ExprLambda) -> Vec<&str> {
     let mut free = Free::default();
     free.lambda(lambda);
+    free.names()
+}
+
+/// [`free_names_of_lambda`] of the function of the generator expression
+/// `generator`, which takes the first iterable from the code around it.
+pub(super) fn free_names_of_generator(generator: &ast::ExprGenerator) -> Vec<&str> {
+    let mut free = Free::default();
+    free.comprehension(&generator.generators, &[&generator.elt], true);
     free.names()
 }
 
@@ -349,9 +374,15 @@ impl<'a> Visitor<'a> for Free<'a> {
                 self.found.push(name.id.as_str());
             }
             ast::Expr::Lambda(lambda) => self.lambda(lambda),
-            ast::Expr::ListComp(comp) => self.comprehension(&comp.generators, &[&comp.elt]),
-            ast::Expr::SetComp(comp) => self.comprehension(&comp.generators, &[&comp.elt]),
-            ast::Expr::Generator(comp) => self.comprehension(&comp.generators, &[&comp.elt]),
+            ast::Expr::ListComp(comp) => {
+                self.comprehension(&comp.generators, &[&comp.elt], false);
+            }
+            ast::Expr::SetComp(comp) => {
+                self.comprehension(&comp.generators, &[&comp.elt], false);
+            }
+            ast::Expr::Generator(comp) => {
+                self.comprehension(&comp.generators, &[&comp.elt], false);
+            }
             ast::Expr::DictComp(comp) => {
                 let values: Vec<&ast::Expr> = comp
                     .key
@@ -359,7 +390,7 @@ impl<'a> Visitor<'a> for Free<'a> {
                     .into_iter()
                     .chain([&*comp.value])
                     .collect();
-                self.comprehension(&comp.generators, &values);
+                self.comprehension(&comp.generators, &values, false);
             }
             expr => walk_expr(self, expr),
         }
@@ -368,12 +399,20 @@ impl<'a> Visitor<'a> for Free<'a> {
 
 impl<'a> Free<'a> {
     /// Visits a comprehension, whose first iterable reads the names of the
-    /// code around it. The names that a loop binds are not free in the
-    /// tests, the iterables and the values after it.
-    fn comprehension(&mut self, generators: &'a [ast::Comprehension], values: &[&'a ast::Expr]) {
+    /// code around it, and skips the first iterable when `inside`. The
+    /// names that a loop binds are not free in the tests, the iterables and
+    /// the values after it.
+    fn comprehension(
+        &mut self,
+        generators: &'a [ast::Comprehension],
+        values: &[&'a ast::Expr],
+        inside: bool,
+    ) {
         let mut bound = 0;
-        for generator in generators {
-            self.visit_expr(&generator.iter);
+        for (i, generator) in generators.iter().enumerate() {
+            if !(inside && i == 0) {
+                self.visit_expr(&generator.iter);
+            }
             let mut names = HashSet::new();
             for name in names_in(&generator.target) {
                 names.insert(name.id.as_str());

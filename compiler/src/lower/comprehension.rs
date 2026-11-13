@@ -155,7 +155,7 @@ impl<'a> Lowering<'a, '_> {
         loops
     }
 
-    fn clauses(
+    pub(super) fn clauses(
         &self,
         generators: &[ast::Comprehension],
         body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
