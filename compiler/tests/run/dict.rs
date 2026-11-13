@@ -2,7 +2,7 @@
 
 use indoc::indoc;
 
-use super::{same_as_cpython, stops_at_the_int_limit, unsupported};
+use super::{run, same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn a_function_with_a_dict_and_a_set_runs() {
@@ -631,10 +631,23 @@ fn equal_and_not_equal_of_dicts_run() {
             v = {1: Valor(1), 2: Valor(2)}
             w = {2: Valor(2), 1: Valor(1)}
             print(v == w)
+        "},
+    );
+}
+
+/// A `float` in a `dict` has no identity, so a `nan` there is never equal,
+/// even to itself. CPython takes the same object as equal and prints
+/// `True`.
+#[test]
+fn a_nan_in_a_dict_is_never_equal() {
+    let output = run(
+        "a_nan_in_a_dict_is_never_equal",
+        indoc! {"
             f = {'n': float('nan')}
             print(f == f)
         "},
     );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "False\n");
 }
 
 #[test]
