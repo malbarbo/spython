@@ -5,6 +5,7 @@ mod capture;
 mod class;
 mod closure;
 mod comprehension;
+mod consumer;
 mod doctest;
 mod expr;
 mod flow;

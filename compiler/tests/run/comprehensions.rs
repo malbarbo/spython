@@ -3,7 +3,7 @@
 
 use indoc::indoc;
 
-use super::{same_as_cpython, unsupported};
+use super::{same_as_cpython, stops_at_the_int_limit, unsupported};
 
 #[test]
 fn a_list_comprehension_makes_a_list() {
@@ -144,4 +144,82 @@ fn a_lambda_that_reads_a_name_of_a_comprehension_is_unsupported() {
         "}),
         "a lambda that reads a name of a comprehension"
     );
+}
+
+#[test]
+fn sum_min_max_any_and_all_consume_a_list() {
+    same_as_cpython(
+        "sum_min_max_any_and_all_consume_a_list",
+        indoc! {"
+            import math
+
+            xs = [3, 1, 4, 1, 5]
+            fs = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+            vazia: list[float] = []
+            print(sum(xs), sum([True, True, False]), sum(fs), sum(vazia), sum([-0.0]))
+            print(sum([1e308, 1e308, -1e308]), sum([1e100, 1.0, -1e100, 1.0]))
+            print(sum([math.inf, 1.0]), sum([math.nan, 1.0]), sum([2.5]), sum([-1e-20, -0.0]))
+            print(min(xs), max(xs), min(['b', 'a', 'c']), max([True, False]))
+            print(max([1.0, math.nan]), max([math.nan, 1.0]), min([-0.0, 0.0]), max([0.0, -0.0]))
+            print(any(xs), all(xs), any([0, 0]), all(vazia), any(['', 'a']), all([xs, [1]]))
+            print(any(['', '']), all([0.0]))
+            y = sum(vazia)
+            print(y)
+            print(max(vazia))
+        "},
+    );
+}
+
+#[test]
+fn min_and_max_of_objects_compare_with_their_methods() {
+    same_as_cpython(
+        "min_and_max_of_objects_compare_with_their_methods",
+        indoc! {"
+            class P:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __lt__(self, other: 'P') -> bool:
+                    print('lt', self.n, other.n)
+                    return 1 // (self.n - 3) < other.n
+
+                def __repr__(self) -> str:
+                    return f'P({self.n})'
+
+            class B:
+                def __bool__(self) -> bool:
+                    print('bool')
+                    return False
+
+            print(min([P(2), P(1), P(4)]), max([P(2), P(1), P(4)]))
+            print(any([B(), B()]), all([B(), B()]))
+            print(max([P(3), P(2)]))
+        "},
+    );
+}
+
+#[test]
+fn sum_of_ints_stops_at_the_int_limit() {
+    stops_at_the_int_limit(
+        "sum_of_ints_stops_at_the_int_limit",
+        indoc! {"
+            xs = [1073741823, 1]
+            print(sum(xs))
+        "},
+        "",
+        2,
+        "    print(sum(xs))\n          ~~~^^^^\n",
+        "1073741824",
+    );
+}
+
+#[test]
+fn a_consumer_of_another_iterable_is_unsupported() {
+    assert_eq!(
+        unsupported("print(min('abc'))\n"),
+        "min or max of this iterable"
+    );
+    assert_eq!(unsupported("print(sum([1, 2], 10))\n"), "this call of sum");
 }

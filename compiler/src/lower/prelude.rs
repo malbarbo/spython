@@ -278,6 +278,28 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(self.prelude_call_of(func, args, raises.unwrap_or(true).then_some(site)))
     }
 
+    /// The call at `node` of the function `name` of the module `module` of
+    /// the prelude with `args`, in the copy for the reps of `args`.
+    pub(super) fn module_call(
+        &self,
+        node: &impl Ranged,
+        module: &str,
+        name: &str,
+        args: Vec<Expr>,
+    ) -> Result<Expr, Error> {
+        let unit = self.prelude_unit(module).expect("a module of the prelude");
+        let (func, args) = self
+            .generic_args(
+                node,
+                (unit, name),
+                args,
+                (false, "a call with these arguments"),
+            )?
+            .expect("a function of the module");
+        let site = self.call_site(func, node);
+        Ok(self.prelude_call_of(func, args, site))
+    }
+
     /// The function `name` of the module `list` of the prelude, in the copy
     /// for the reps of `given`, with `given` as its arguments.
     fn list_args(

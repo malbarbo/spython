@@ -399,7 +399,7 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(call, "min or max of an iterable"));
         };
         if rest.is_empty() {
-            return Err(unsupported(call, "min or max of an iterable"));
+            return self.min_max_of(call, first, op);
         }
         let first = self.expr(first)?;
         let rep = first.rep();
