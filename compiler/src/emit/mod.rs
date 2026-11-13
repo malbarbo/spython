@@ -993,6 +993,12 @@ impl Emitter<'_> {
         f.ins().global_get(global);
     }
 
+    /// Raises `RecursionError` when a call has no room for one more frame.
+    fn check_recursion(&mut self, f: &mut FuncState) {
+        self.reprs.call_fits(f);
+        self.raise_if_zero(f, &RECURSION_ERROR);
+    }
+
     /// Pops an `i32`, and raises an exception with `message` when it is 0.
     fn raise_if_zero(&mut self, f: &mut FuncState, message: &Message) {
         f.ins().i32_eqz();
@@ -1050,8 +1056,7 @@ impl Emitter<'_> {
             // A function without a frame does not count against the limit
             // of the recursion.
             if frame {
-                e.reprs.call_fits(f);
-                e.raise_if_zero(f, &RECURSION_ERROR);
+                e.check_recursion(f);
             }
             f.ins().call(index);
         });
@@ -1086,15 +1091,13 @@ impl Emitter<'_> {
         let code = self.reprs.func_code(ty);
         if site == limit {
             self.at(f, site, |e, f| {
-                e.reprs.call_fits(f);
-                e.raise_if_zero(f, &RECURSION_ERROR);
+                e.check_recursion(f);
                 f.ins().call_ref(code);
             });
             return;
         }
         self.at(f, limit, |e, f| {
-            e.reprs.call_fits(f);
-            e.raise_if_zero(f, &RECURSION_ERROR);
+            e.check_recursion(f);
         });
         self.at(f, site, |_, f| {
             f.ins().call_ref(code);
