@@ -230,7 +230,7 @@ fn tests_from_corpus(file: &Path) -> Outcome {
         false,
     ) {
         Ok(module) => module,
-        Err(compiler::Error::Unsupported { .. }) => return Outcome::Unsupported,
+        Err(compiler::Error::Unsupported(_)) => return Outcome::Unsupported,
         Err(err) => panic!("{path}: {err:?}"),
     };
     let name = format!("corpus_tests_{}", path.replace(['/', '.'], "_"));
@@ -262,7 +262,7 @@ fn run_from_corpus(file: &Path) -> Outcome {
     let path = file.to_str().expect("a path in utf-8");
     let module = match compiler::compile(&checked.db, checked.file, path) {
         Ok(module) => module,
-        Err(compiler::Error::Unsupported { .. }) => return Outcome::Unsupported,
+        Err(compiler::Error::Unsupported(_)) => return Outcome::Unsupported,
         Err(err) => panic!("{path}: {err:?}"),
     };
     let name = format!("corpus_{}", path.replace(['/', '.'], "_"));

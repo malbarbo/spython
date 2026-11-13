@@ -80,7 +80,7 @@ pub fn test(files: &[PathBuf], level: Level, verbose: bool) -> Result<(), Spytho
 fn compile_error(file: &Path, error: &compiler::Error) -> SpythonError {
     let name = file.to_string_lossy();
     match error {
-        compiler::Error::Unsupported { range, what } => {
+        compiler::Error::Unsupported(compiler::Unsupported { range, what, .. }) => {
             let place = read_file(file)
                 .ok()
                 .and_then(|source| line_and_column(&source, usize::from(range.start())));

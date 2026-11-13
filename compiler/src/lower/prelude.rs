@@ -601,14 +601,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(Some(func))
     }
 
-    /// `result`, the lowering of code of the prelude. An error that goes
-    /// back to the code of the program is marked for
-    /// [`Self::at_expression`].
-    fn mark_prelude_error<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
-        if let Err(Error::Unsupported { range, .. }) = &result
+    /// `result`, the lowering of code of the prelude that the program asked
+    /// for. An error in it is marked for [`Self::at_expression`].
+    fn mark_prelude_error<T>(&self, mut result: Result<T, Error>) -> Result<T, Error> {
+        if let Err(Error::Unsupported(error)) = &mut result
             && !self.in_prelude()
         {
-            self.prelude_error.set(Some(*range));
+            error.in_prelude = true;
         }
         result
     }
@@ -621,12 +620,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
         expr: &ast::Expr,
         mut result: Result<T, Error>,
     ) -> Result<T, Error> {
-        if let Err(Error::Unsupported { range, .. }) = &mut result
+        if let Err(Error::Unsupported(error)) = &mut result
+            && error.in_prelude
             && !self.in_prelude()
-            && self.prelude_error.get() == Some(*range)
         {
-            self.prelude_error.set(None);
-            *range = expr.range();
+            error.in_prelude = false;
+            error.range = expr.range();
         }
         result
     }

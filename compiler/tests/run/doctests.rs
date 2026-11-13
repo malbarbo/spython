@@ -642,7 +642,7 @@ fn a_return_in_an_example_is_unsupported() {
             """
     "#};
     match compile_tests(source, Path::new("unsupported.py"), false) {
-        Err(compiler::Error::Unsupported { what, .. }) => {
+        Err(compiler::Error::Unsupported(compiler::Unsupported { what, .. })) => {
             assert_eq!(what, "a return outside a function");
         }
         _ => panic!("the program compiled"),
@@ -659,7 +659,7 @@ fn an_example_whose_value_may_be_none_is_unsupported() {
             return s
     "#};
     match compile_tests(source, Path::new("unsupported.py"), false) {
-        Err(compiler::Error::Unsupported { what, .. }) => {
+        Err(compiler::Error::Unsupported(compiler::Unsupported { what, .. })) => {
             assert_eq!(what, "an example whose value may be None");
         }
         _ => panic!("the program compiled"),
@@ -686,7 +686,7 @@ fn an_example_whose_value_may_be_an_object_or_none_is_unsupported() {
             return pontos[0]
     "#};
     match compile_tests(source, Path::new("unsupported.py"), false) {
-        Err(compiler::Error::Unsupported { what, .. }) => {
+        Err(compiler::Error::Unsupported(compiler::Unsupported { what, .. })) => {
             assert_eq!(what, "an example whose value may be None");
         }
         _ => panic!("the program compiled"),

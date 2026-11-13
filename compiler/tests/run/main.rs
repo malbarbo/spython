@@ -395,7 +395,9 @@ fn unsupported(source: &str) -> String {
 /// points at.
 fn unsupported_at(source: &str) -> (String, &str) {
     match compile(source, Path::new("unsupported.py")) {
-        Err(compiler::Error::Unsupported { range, what }) => (what, &source[range]),
+        Err(compiler::Error::Unsupported(compiler::Unsupported { range, what, .. })) => {
+            (what, &source[range])
+        }
         Err(error) => panic!("an invalid module: {error:?}"),
         Ok(_) => panic!("the program compiled"),
     }

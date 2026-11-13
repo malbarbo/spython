@@ -29,9 +29,20 @@ use wasmparser::{BinaryReaderError, Validator, WasmFeatures};
 #[derive(Debug)]
 pub enum Error {
     /// The program uses something the compiler does not cover yet.
-    Unsupported { range: TextRange, what: String },
+    Unsupported(Unsupported),
     /// The compiler made an invalid module, which is a bug in the compiler.
     Invalid(BinaryReaderError),
+}
+
+/// Something in the program that the compiler does not cover yet.
+#[derive(Debug)]
+pub struct Unsupported {
+    /// The code of the program that asks for it.
+    pub range: TextRange,
+    pub what: String,
+    /// Whether `range` is in a module of the prelude, which the lowering
+    /// replaces with the expression of the program that asked for it.
+    in_prelude: bool,
 }
 
 /// A compiled program.
