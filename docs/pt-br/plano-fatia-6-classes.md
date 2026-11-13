@@ -581,6 +581,30 @@ primeiro parâmetro e faz o cast para a struct da própria função, que é
 - A chamada de um valor de função pode lançar, como uma chamada de função
   que o compilador não conhece.
 
+O grupo J fez assim:
+
+- O valor de uma função do módulo vive num global, que um `struct.new`
+  constante cria, e cada `def` tem o seu. Um `lambda` e um `def` interno
+  fazem um valor novo a cada execução, com `ref.func`, e dois valores do
+  mesmo `lambda` não são iguais, como no CPython. `==` e `is` de funções
+  comparam a identidade.
+- A struct do tipo de função não é `final`. A struct de uma função que
+  captura variáveis é um subtipo `final` dela, e o código faz o cast uma
+  vez, na entrada.
+- Uma variável capturada guarda uma cópia quando tem uma ligação só, fora
+  de laço, e tem valor em toda captura. Qualquer outra vive numa célula,
+  com o valor e um flag. A leitura de uma célula sem valor lança o
+  `NameError` de variável livre do CPython, e a sugestão olha também as
+  capturas, depois das locais, na ordem dos nomes.
+- Um `def` interno que lê o próprio nome, ou o de um `def` que vem depois,
+  acha o nome numa célula.
+- `from typing import Callable` passa, e `Callable` só serve na anotação.
+- `print`, `str` e `repr` de uma função são `Unsupported`, porque o
+  CPython escreve o endereço. Um default num `def` interno também é,
+  porque a chamada de um valor passa todos os argumentos. Um `lambda`
+  num doctest e no corpo de uma classe são `Unsupported`.
+- Uma função não entra numa união, e `Callable | None` é `Unsupported`.
+
 ### As compreensões
 
 - Uma compreensão de lista, de `set` ou de `dict` vira um laço em linha,
