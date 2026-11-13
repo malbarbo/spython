@@ -246,6 +246,12 @@ impl Lowering<'_, '_> {
         reverse: Expr,
         copy: bool,
     ) -> Result<Expr, Error> {
+        // With a key, the prelude compares the results of the key, which
+        // `key` checks.
+        let item = list.rep().list().map(|list| self.list_item(list));
+        if key.is_none() && !item.is_some_and(is_ordered) {
+            return Err(unsupported(call, "sorted of a list of this type"));
+        }
         let (name, args) = match key {
             Some(key) => (
                 if copy { "sorted_key" } else { "sort_key" },
