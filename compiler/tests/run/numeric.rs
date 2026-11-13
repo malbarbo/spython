@@ -64,7 +64,7 @@ fn min_and_max_outside_what_the_compiler_covers_have_their_own_message() {
         unsupported(indoc! {"
             print(max('abc'))
         "}),
-        "min or max of an iterable"
+        "min or max of this iterable"
     );
     assert_eq!(
         unsupported(indoc! {"
