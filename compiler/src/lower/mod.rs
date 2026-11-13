@@ -556,8 +556,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// A read or a call may come before the assignment, as in a loop, so
     /// every variable has a rep before the lowering of the code starts.
     fn declare_vars(&self, bindings: &Bindings<'a>) -> Result<(), Error> {
-        // The lowering of a function rejects a `def` and an import in its
-        // body.
+        // The module declares its imports, classes and functions. Inside a
+        // function, a `def` is a variable.
         if self.scope.borrow().is_none() {
             for (name, alias, from) in &bindings.imports {
                 self.declare_import(name, alias, *from)?;
