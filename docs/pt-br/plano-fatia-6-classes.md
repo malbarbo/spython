@@ -623,6 +623,40 @@ O grupo J fez assim:
   e `item < atual`, e por isso `max([nan, 1.0])` é `nan` e
   `max([1.0, nan])` é `1.0`, como no CPython.
 
+O grupo K fez assim:
+
+- Uma compreensão é um bloco de comandos dentro de uma expressão. Cada
+  nome que ela liga é uma variável escondida, que não entra na sugestão de
+  um `NameError`, como no CPython 3.13. Um `lambda` dentro de uma
+  compreensão que lê um nome dela é `Unsupported`, porque os valores do
+  `lambda` dividem a célula do nome.
+- O `set` e o `dict` de uma compreensão recebem cada valor pelo `add` e
+  pelo `__setitem__` da cópia do prelude, e o traceback de um erro no
+  `hash` marca o valor, ou a chave e o valor.
+- A expressão geradora é uma função `<genexpr>` com o parâmetro `.0`, que
+  recebe a primeira parte do primeiro iterável. As outras partes de um
+  `range` vão como capturas sem nome, e todas rodam em ordem no quadro de
+  quem chama. Os nomes dos laços são locais do quadro, e a sugestão de um
+  `NameError` lá dentro acha `.0` e esses nomes, como no CPython. O
+  `RecursionError` da criação do gerador marca os parênteses dele.
+- Para `sum`, `min`, `max`, `sorted` e `join`, a função do gerador põe os
+  valores numa lista, e o consumidor roda depois, no quadro de quem chama.
+  `any` e `all` param no primeiro valor que decide. `min` e `max` de um
+  gerador de objetos, `any` e `all` de um gerador de objetos ou de uniões,
+  e `min` e `max` de um gerador com `key` são `Unsupported`, porque a
+  ordem das escritas de um método mudaria.
+- `sum`, `min`, `max`, `any` e `all` de uma lista estão em
+  `consumers.py`, e o `sum` de `float` dá o `int` 0 para a lista vazia,
+  como no CPython.
+- `sorted` aceita uma lista ou uma expressão geradora. O de um `str`, de
+  um `set` ou de um `dict` é `Unsupported`.
+- O checker recusa `xs.sort()`, porque o tipo do método é um `Overload`, e
+  recusa também um `lambda` como `key` de `min` e `max`, cujo parâmetro
+  ele não deduz. O compilador já traduz `xs.sort(key=..., reverse=...)`.
+- O prelude não tem `try`. Quando um `__lt__` ou a `key` lança no meio do
+  `sort`, a lista fica vazia, e o CPython a devolve com os itens. A
+  diferença só aparece num doctest que segue depois do erro.
+
 ### O `sort`
 
 `sort` e `sorted` portam o Timsort do CPython para o prelude, em Python.
@@ -635,6 +669,13 @@ mas o Timsort dá o mesmo resultado do CPython também com `nan` e com um
   `key` lança, a lista fica como estava.
 - `reverse=True` inverte, ordena e inverte de novo, como o CPython, e
   assim fica estável.
+- O port em `sort.py` segue o `listobject.c` do CPython 3.13, com a
+  política de merge do powersort e o `count_run` que estende uma corrida
+  descendente com iguais. Um teste compara o número e a ordem das
+  comparações com o CPython em listas de até 1500 itens, com galope e com
+  um `__lt__` incoerente.
+- A lista fica vazia durante a ordenação, como no CPython, e uma lista que
+  ganha itens nesse meio-tempo lança `list modified during sort`.
 
 ## Etapas
 
