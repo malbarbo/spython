@@ -80,6 +80,7 @@ pub(crate) fn lower(
         lists: RefCell::new(Lists::default()),
         func_types: RefCell::new(FuncTypes::default()),
         values: RefCell::new(HashMap::new()),
+        inner_defs: RefCell::new(HashMap::new()),
         assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
@@ -251,6 +252,8 @@ struct Lowering<'a, 'db> {
     /// The function that gives the value of each function of the module
     /// whose name the program reads as a value.
     values: RefCell<HashMap<FuncId, FuncId>>,
+    /// The type of function of each `def` inside a function.
+    inner_defs: RefCell<HashMap<DefId, FuncTypeId>>,
     /// The globals that a function declares with `global`, which a call may
     /// assign between a test of the value and a read.
     assigned_globals: RefCell<HashSet<String>>,
@@ -540,6 +543,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 self.declare_func(def)?;
                 self.declare_globals(def)?;
             }
+        } else {
+            for def in &bindings.defs {
+                self.declare_inner(def)?;
+            }
         }
         let keep = |name: &str| {
             self.scope
@@ -648,7 +655,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Ok(())
     }
 
-    fn declare_var(&self, name: &str, rep: Rep, value: &ast::Expr) -> Result<(), Error> {
+    fn declare_var(&self, name: &str, rep: Rep, value: &impl Ranged) -> Result<(), Error> {
         check_self(name, rep, value)?;
         let mut scope = self.scope.borrow_mut();
         let mut module = self.vars.borrow_mut();
@@ -724,6 +731,23 @@ impl<'a, 'db> Lowering<'a, 'db> {
             defs.push(func);
         }
         Ok(())
+    }
+
+    /// Declares the variable of `def`, a `def` inside a function, which
+    /// holds a value of the function.
+    fn declare_inner(&self, def: &'a ast::StmtFunctionDef) -> Result<(), Error> {
+        let (id, params, ret) = self.signature(def, None)?;
+        let ty = self.func_type(params, ret);
+        self.inner_defs.borrow_mut().insert(id, ty);
+        let local = self
+            .scope
+            .borrow()
+            .as_ref()
+            .is_some_and(|scope| scope.is_local(def.name.as_str()));
+        if !local {
+            return Err(unsupported(&def.name, "a def of a global in a function"));
+        }
+        self.declare_var(def.name.as_str(), Rep::Func(ty), &def.name)
     }
 
     /// The function of `def`, a `def` of the module.
@@ -1155,6 +1179,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     ret => self.rep_of(Some(ret))?,
                 };
                 Some(Rep::Func(self.func_type(params, ret)))
+            }
+            Shape::Function(def) if let Some(ty) = self.inner_defs.borrow().get(&def) => {
+                Some(Rep::Func(*ty))
             }
             Shape::Function(def) => {
                 let funcs = self.funcs.borrow();

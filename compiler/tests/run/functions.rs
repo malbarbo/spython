@@ -292,14 +292,6 @@ fn a_def_outside_what_the_compiler_covers_is_unsupported() {
     );
     assert_eq!(
         unsupported(indoc! {"
-            def f() -> None:
-                def g() -> None:
-                    pass
-        "}),
-        "a def in a function"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
                 def f() -> int:
                     return 1
 

@@ -257,7 +257,7 @@ impl<'a> Lowering<'a, '_> {
             ast::Stmt::Pass(_) | ast::Stmt::Global(_) => Ok(None),
             ast::Stmt::FunctionDef(def) => {
                 if self.scope.borrow().is_some() {
-                    return Err(unsupported(def, "a def in a function"));
+                    return self.inner_def(def).map(Some);
                 }
                 Ok(Some(Stmt::Def(self.def_func(def))))
             }

@@ -1,19 +1,20 @@
-//! Functions as values: the name of a function of the module and a
-//! `lambda`, with the variables that it captures.
+//! Functions as values: the name of a function of the module, a `lambda`
+//! and a `def` inside a function, with the variables that they capture.
 
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::expr_shape;
 
-use super::capture::{Captures, free_names_of_lambda};
+use super::capture::{Captures, free_names_of_def, free_names_of_lambda};
 use super::class::param;
-use super::{Lowering, Scope, ScopeCapture, Vars, check_self, unsupported};
+use super::{Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported};
 use crate::Error;
 use crate::ir::{
-    Binding, Capture, Captured, Check, CmpOp, Expr, Func, FuncId, Place, Rep, Stmt, Undefined,
+    Binding, Capture, Captured, Check, CmpOp, Expr, Func, FuncId, FuncType, FuncTypeId, Place, Rep,
+    Stmt, Undefined,
 };
 
-impl Lowering<'_, '_> {
+impl<'a> Lowering<'a, '_> {
     /// The value of `lambda`, the node `expr`, whose code is a function of
     /// its own, with the frame `<lambda>` in a traceback. The checker gives
     /// the type of each parameter from where the `lambda` goes.
@@ -54,7 +55,7 @@ impl Lowering<'_, '_> {
             namespace: Vec::new(),
             class: None,
             inner: Captures::default(),
-            captures: captures.clone(),
+            captures,
         };
         let (scope, body) = self.in_scope(scope, || {
             let value = self.expr(&lambda.body)?;
@@ -68,33 +69,78 @@ impl Lowering<'_, '_> {
                 }
             })
         });
-        let body = body?;
-        let code = self.reserve(ty_of.params.clone(), ty_of.ret);
-        self.lowered.borrow_mut().insert(
-            code.index(),
-            Func {
-                value: Some(ty),
-                captures: captures
-                    .iter()
-                    .map(|capture| Capture {
-                        rep: capture.rep,
-                        cell: capture.cell,
-                    })
-                    .collect(),
-                alias: None,
-                ordered: false,
-                frame: true,
-                params: u32::try_from(names.len()).expect("fewer than 2^32 parameters"),
-                vars: scope.vars.list,
-                ret: ty_of.ret,
-                body,
-            },
-        );
+        let code = self.define_code(ty, scope, body?);
         Ok(Expr::Closure {
             func: code,
             ty,
             captures: Some(captured),
         })
+    }
+
+    /// The assignment of the value of `def`, a `def` inside a function, to
+    /// the variable of its name. The code of the value is a function of its
+    /// own, with the frame of its name in a traceback.
+    pub(super) fn inner_def(&self, def: &'a ast::StmtFunctionDef) -> Result<Stmt, Error> {
+        if self.in_doctest() {
+            return Err(unsupported(def, "a def in a doctest"));
+        }
+        if let Some(param) = params_of(def).find(|param| param.default.is_some()) {
+            return Err(unsupported(param, "a default of a def inside a function"));
+        }
+        // A `def` inside a function evaluates its annotations.
+        let annotations = params_of(def)
+            .filter_map(|param| param.annotation())
+            .chain(def.returns.as_deref());
+        self.check_annotations(annotations)?;
+        let (_, params, ret) = self.signature(def, None)?;
+        let ty = self.func_type(params.clone(), ret);
+        let (captured, captures) =
+            self.closure_captures(def, def.range(), free_names_of_def(def))?;
+        let (scope, bindings) = self.def_scope(def, &params, ret, captures);
+        let (scope, body) = self.in_scope(scope, || self.def_body(def, &bindings, ret, None));
+        let code = self.define_code(ty, scope, body?);
+        let var = self
+            .scope
+            .borrow()
+            .as_ref()
+            .and_then(|scope| scope.vars.find(def.name.as_str()))
+            .map(|(var, _)| var)
+            .expect("the variable of the def");
+        Ok(Stmt::Assign {
+            targets: vec![Place::Local(var)],
+            value: Expr::Closure {
+                func: code,
+                ty,
+                captures: Some(captured),
+            },
+        })
+    }
+
+    /// The code of a value of the type of function `ty`, whose body is
+    /// `body`, in `scope`, with a frame in a traceback.
+    fn define_code(&self, ty: FuncTypeId, scope: Scope, body: Vec<Stmt>) -> FuncId {
+        let FuncType { params, ret } = self.func_type_of(ty);
+        let code = self.reserve(params, ret);
+        let func = Func {
+            value: Some(ty),
+            captures: scope
+                .captures
+                .iter()
+                .map(|capture| Capture {
+                    rep: capture.rep,
+                    cell: capture.cell,
+                })
+                .collect(),
+            alias: None,
+            ordered: false,
+            frame: true,
+            params: u32::try_from(scope.params).expect("fewer than 2^32 parameters"),
+            vars: scope.vars.list,
+            ret,
+            body,
+        };
+        self.lowered.borrow_mut().insert(code.index(), func);
+        code
     }
 
     /// What a new value of the function at `range`, inside the function

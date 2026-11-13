@@ -32,6 +32,8 @@ pub(super) struct Bindings<'a> {
     pub assignments: Vec<Assigned<'a>>,
     /// The target and the iterable of each `for`.
     pub loops: Vec<(&'a ast::Expr, &'a ast::Expr)>,
+    /// The `def` statements of the body, out of its `if`s and its loops
+    /// too.
     pub defs: Vec<&'a ast::StmtFunctionDef>,
     /// The `class` statements of the body, out of its `if`s and its
     /// `while`s.
@@ -41,9 +43,9 @@ pub(super) struct Bindings<'a> {
     pub imports: Vec<(&'a str, &'a ast::Alias, Option<&'a str>)>,
     /// The names of the `global` statements.
     pub globals: HashSet<&'a str>,
-    /// Each name that the body assigns, imports or takes as the target of
-    /// a `for`. Any other way to bind a name, as a `:=`, makes the lowering
-    /// of the function fail.
+    /// Each name that the body assigns, imports, takes as the target of a
+    /// `for` or binds with a `def`. Any other way to bind a name, as a
+    /// `:=`, makes the lowering of the function fail.
     pub assigned: HashSet<&'a str>,
     /// Each name of the body in the order of the code that CPython makes
     /// for it, which gives the order of the locals of a frame. The value of
@@ -137,7 +139,11 @@ impl<'a> Bindings<'a> {
                 ast::Stmt::Global(g) => self
                     .globals
                     .extend(g.names.iter().map(|name| name.id.as_str())),
-                ast::Stmt::FunctionDef(def) => self.defs.push(def),
+                ast::Stmt::FunctionDef(def) => {
+                    self.defs.push(def);
+                    self.assigned.insert(def.name.as_str());
+                    self.order.push(def.name.as_str());
+                }
                 ast::Stmt::Import(i) => {
                     for alias in &i.names {
                         self.import(alias, None);

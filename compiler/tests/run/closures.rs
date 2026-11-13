@@ -322,3 +322,129 @@ fn a_name_error_in_a_lambda_suggests_a_captured_variable() {
         "},
     );
 }
+
+#[test]
+fn a_def_inside_a_function_is_a_value_of_the_function() {
+    same_as_cpython(
+        "a_def_inside_a_function_is_a_value_of_the_function",
+        indoc! {"
+            from dataclasses import dataclass
+            from typing import Callable
+
+            contagem = 0
+
+            def fatorial(n: int) -> int:
+                def fat(k: int) -> int:
+                    if k <= 1:
+                        return 1
+                    return k * fat(k - 1)
+                return fat(n)
+
+            def contador() -> Callable[[], int]:
+                total = 0
+                def proximo() -> int:
+                    return total + 1
+                total = 10
+                return proximo
+
+            def mutuos(n: int) -> bool:
+                def par(k: int) -> bool:
+                    if k == 0:
+                        return True
+                    return impar(k - 1)
+                def impar(k: int) -> bool:
+                    if k == 0:
+                        return False
+                    return par(k - 1)
+                return par(n)
+
+            def aplica(xs: list[int]) -> list[int]:
+                fator = 3
+                def vezes(x: int) -> int:
+                    def interno() -> int:
+                        return x * fator
+                    return interno()
+                ys: list[int] = []
+                for x in xs:
+                    ys.append(vezes(x))
+                return ys
+
+            def escolhe(b: bool) -> int:
+                def conta() -> int:
+                    global contagem
+                    contagem += 1
+                    return contagem
+                conta()
+                if b:
+                    def h() -> int:
+                        return 1
+                else:
+                    def h() -> int:
+                        return 2
+                return conta() + h()
+
+            @dataclass
+            class Pilha:
+                itens: list[int]
+
+                def empilha_todos(self, xs: list[int]) -> None:
+                    def um(x: int) -> None:
+                        self.itens.append(x)
+                    for x in xs:
+                        um(x)
+
+            p = Pilha([])
+            p.empilha_todos([1, 2, 3])
+            print(fatorial(5), contador()(), mutuos(7), aplica([1, 2]))
+            print(escolhe(True), escolhe(False), contagem, p.itens)
+        "},
+    );
+}
+
+#[test]
+fn a_def_inside_a_function_has_a_frame_of_its_name() {
+    same_as_cpython(
+        "a_def_inside_a_function_has_a_frame_of_its_name",
+        indoc! {"
+            def quebra() -> None:
+                def divide(n: int) -> int:
+                    return 10 // n
+                print(divide(0))
+
+            quebra()
+        "},
+    );
+}
+
+/// A function that calls a function defined after it in the same function
+/// runs once both have a value, and raises the `NameError` of a free
+/// variable before.
+#[test]
+fn a_def_that_calls_a_later_def_raises_name_error_before_it() {
+    same_as_cpython(
+        "a_def_that_calls_a_later_def_raises_name_error_before_it",
+        indoc! {"
+            def cedo() -> None:
+                def a() -> int:
+                    return b()
+                print(a())
+                def b() -> int:
+                    return 1
+
+            cedo()
+        "},
+    );
+}
+
+#[test]
+fn a_default_of_a_def_inside_a_function_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            def f() -> int:
+                def g(n: int = 1) -> int:
+                    return n
+                return g(2)
+        "}),
+        "a default of a def inside a function"
+    );
+}
