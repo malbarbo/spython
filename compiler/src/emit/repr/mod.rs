@@ -197,7 +197,7 @@ impl Reprs {
             others.extend(
                 ListRepr::composites(items, item)
                     .into_iter()
-                    .map(|composite| (composite, true)),
+                    .map(|composite| (composite, None, true)),
             );
         }
         // The struct of a value of a type of function is open, for the
@@ -214,11 +214,11 @@ impl Reprs {
             let results = reprs.value_type(func.ret).into_iter().collect();
             others.push((
                 Composite::Struct(vec![(StorageType::Val(code.ref_to(false)), false)]),
+                None,
                 false,
             ));
-            others.push((Composite::Func(params, results), true));
+            others.push((Composite::Func(params, results), None, true));
         }
-        let mut closure_bases = Vec::new();
         for (ty, captures) in closures {
             let (value, code) = reprs.layout.func(ty.index());
             let fields = std::iter::once((StorageType::Val(code.ref_to(false)), false))
@@ -233,8 +233,7 @@ impl Reprs {
                     (StorageType::Val(ty), false)
                 }))
                 .collect();
-            others.push((Composite::Struct(fields), true));
-            closure_bases.push((others.len() - 1, value));
+            others.push((Composite::Struct(fields), Some(value), true));
         }
         // A cell holds its value and whether the variable has one.
         for rep in cells {
@@ -244,6 +243,7 @@ impl Reprs {
                     (StorageType::Val(value), true),
                     (StorageType::Val(ValType::I32), true),
                 ]),
+                None,
                 true,
             ));
         }
@@ -256,16 +256,15 @@ impl Reprs {
                     (StorageType::Val(object), false),
                     (StorageType::Val(node.ref_to(true)), false),
                 ]),
+                None,
                 true,
             ));
         }
-        composites.extend(others.iter().enumerate().map(|(i, (composite, is_final))| {
-            let base = closure_bases
+        composites.extend(
+            others
                 .iter()
-                .find(|(other, _)| *other == i)
-                .map(|(_, base)| *base);
-            (composite, base, *is_final)
-        }));
+                .map(|(composite, base, is_final)| (composite, *base, *is_final)),
+        );
         let mut group = m.rec_group(&composites);
         if guarded {
             let top = m.global(node.ref_to(true), &ConstExpr::ref_null(node.heap_type()));
