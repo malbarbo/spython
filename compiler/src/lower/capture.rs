@@ -41,21 +41,16 @@ pub(super) fn captures<'a>(
     };
     let mut assigned: HashSet<&str> = params.iter().copied().collect();
     walk.stmts(body, &mut assigned);
-    let mut cells = HashSet::new();
-    for (_, names) in &walk.found {
-        for capture in names {
-            let once = walk.bindings.get(capture.name).copied() == Some(1);
-            let always = walk
-                .found
-                .iter()
-                .flat_map(|(_, names)| names)
-                .filter(|other| other.name == capture.name)
-                .all(|other| other.before);
-            if !(once && always) {
-                cells.insert(capture.name.to_owned());
-            }
-        }
+    // Whether each captured variable has a value at every capture.
+    let mut always: HashMap<&str, bool> = HashMap::new();
+    for capture in walk.found.iter().flat_map(|(_, names)| names) {
+        *always.entry(capture.name).or_insert(true) &= capture.before;
     }
+    let cells = always
+        .into_iter()
+        .filter(|(name, always)| !(*always && walk.bindings.get(name).copied() == Some(1)))
+        .map(|(name, _)| name.to_owned())
+        .collect();
     let funcs = walk
         .found
         .into_iter()
