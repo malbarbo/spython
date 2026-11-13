@@ -1,13 +1,113 @@
-//! Functions as values: the name of a function of the module.
+//! Functions as values: the name of a function of the module and a
+//! `lambda`.
+
+use std::collections::HashSet;
 
 use ruff_python_ast as ast;
+use ruff_python_ast::visitor::{Visitor, walk_expr};
+use ty_python_semantic::types::lowering::expr_shape;
 
 use super::class::param;
-use super::{Lowering, unsupported};
+use super::{Lowering, Scope, Vars, check_self, unsupported};
 use crate::Error;
-use crate::ir::{Binding, CmpOp, Expr, FuncId, Place, Rep, Stmt};
+use crate::ir::{Binding, CmpOp, Expr, Func, FuncId, Place, Rep, Stmt};
 
 impl Lowering<'_, '_> {
+    /// The value of `lambda`, the node `expr`, whose code is a function of
+    /// its own, with the frame `<lambda>` in a traceback. The checker gives
+    /// the type of each parameter from where the `lambda` goes.
+    pub(super) fn lambda(&self, expr: &ast::Expr, lambda: &ast::ExprLambda) -> Result<Expr, Error> {
+        // The frame of a `lambda` in an example of a docstring is in the
+        // file of the example.
+        if self.in_doctest() {
+            return Err(unsupported(expr, "a lambda in a doctest"));
+        }
+        if self
+            .scope
+            .borrow()
+            .as_ref()
+            .is_some_and(|scope| scope.class.is_some())
+        {
+            return Err(unsupported(expr, "a lambda in the body of a class"));
+        }
+        let Some(Rep::Func(ty)) = self.rep_of(expr_shape(self.model(), expr)) else {
+            return Err(unsupported(expr, "a lambda of this type"));
+        };
+        let names = lambda_params(lambda)?;
+        let ty_of = self.func_type_of(ty);
+        if let Some(scope) = self.scope.borrow().as_ref()
+            && let Some(name) = free_names(lambda)
+                .into_iter()
+                .find(|name| scope.is_local(name.id.as_str()))
+        {
+            return Err(unsupported(
+                name,
+                "a lambda that reads a variable of its function",
+            ));
+        }
+        let mut vars = Vars::default();
+        for (name, rep) in names.iter().zip(&ty_of.params) {
+            check_self(name.as_str(), *rep, *name)?;
+            vars.add(name.as_str(), *rep);
+        }
+        let scope = Scope {
+            params: names.len(),
+            doctest: None,
+            name: "<lambda>".to_owned(),
+            ret: ty_of.ret,
+            locals: names.iter().map(|name| name.to_string()).collect(),
+            order: names.iter().map(|name| name.to_string()).collect(),
+            vars,
+            namespace: Vec::new(),
+            class: None,
+        };
+        let (scope, body) = self.in_scope(scope, || {
+            let value = self.expr(&lambda.body)?;
+            Ok(match ty_of.ret {
+                Rep::None => vec![Stmt::Expr(value), Stmt::Return(None)],
+                ret => {
+                    let value = self
+                        .coerce(value, ret)
+                        .ok_or_else(|| unsupported(&*lambda.body, "a lambda of this type"))?;
+                    vec![Stmt::Return(Some(value))]
+                }
+            })
+        });
+        let body = body?;
+        let code = self.reserve(ty_of.params.clone(), ty_of.ret);
+        self.lowered.borrow_mut().insert(
+            code.index(),
+            Func {
+                value: Some(ty),
+                alias: None,
+                ordered: false,
+                frame: true,
+                params: u32::try_from(names.len()).expect("fewer than 2^32 parameters"),
+                vars: scope.vars.list,
+                ret: ty_of.ret,
+                body,
+            },
+        );
+        Ok(Expr::Closure {
+            func: code,
+            ty,
+            captures: Some(Vec::new()),
+        })
+    }
+
+    /// What `lower` gives in `scope`, and the scope after it, with the
+    /// scope of the code around it back in its place.
+    fn in_scope<T>(
+        &self,
+        scope: Scope,
+        lower: impl FnOnce() -> Result<T, Error>,
+    ) -> (Scope, Result<T, Error>) {
+        let outer = self.scope.replace(Some(scope));
+        let result = lower();
+        let inner = self.scope.replace(outer).expect("the scope of the code");
+        (inner, result)
+    }
+
     /// The value of the function of the module that `name` reads. A name
     /// with more than one `def` has the function of the last `def` that
     /// ran.
@@ -90,6 +190,76 @@ impl Lowering<'_, '_> {
             self.define_value(code, ty, body);
             code
         });
-        Expr::Closure { func: code, ty }
+        Expr::Closure {
+            func: code,
+            ty,
+            captures: None,
+        }
     }
+}
+
+/// The name of each parameter of `lambda`, which takes positional
+/// arguments alone, without defaults.
+fn lambda_params(lambda: &ast::ExprLambda) -> Result<Vec<&ast::Identifier>, Error> {
+    let Some(parameters) = lambda.parameters.as_deref() else {
+        return Ok(Vec::new());
+    };
+    if !parameters.posonlyargs.is_empty()
+        || parameters.vararg.is_some()
+        || !parameters.kwonlyargs.is_empty()
+        || parameters.kwarg.is_some()
+        || parameters.args.iter().any(|param| param.default.is_some())
+    {
+        return Err(unsupported(parameters, "these parameters"));
+    }
+    Ok(parameters
+        .args
+        .iter()
+        .map(|param| &param.parameter.name)
+        .collect())
+}
+
+/// Each name that `lambda` reads and does not bind, in the order of the
+/// code, with the names that a `lambda` inside it reads and does not bind.
+fn free_names(lambda: &ast::ExprLambda) -> Vec<&ast::ExprName> {
+    struct Free<'a> {
+        /// The names that each `lambda` around the code binds.
+        bound: Vec<HashSet<&'a str>>,
+        found: Vec<&'a ast::ExprName>,
+    }
+    impl<'a> Free<'a> {
+        fn lambda(&mut self, lambda: &'a ast::ExprLambda) {
+            let params = lambda
+                .parameters
+                .iter()
+                .flat_map(|parameters| parameters.iter_non_variadic_params())
+                .map(|param| param.parameter.name.as_str())
+                .collect();
+            self.bound.push(params);
+            self.visit_expr(&lambda.body);
+            self.bound.pop();
+        }
+    }
+    impl<'a> Visitor<'a> for Free<'a> {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            match expr {
+                ast::Expr::Name(name)
+                    if !self
+                        .bound
+                        .iter()
+                        .any(|bound| bound.contains(name.id.as_str())) =>
+                {
+                    self.found.push(name);
+                }
+                ast::Expr::Lambda(lambda) => self.lambda(lambda),
+                expr => walk_expr(self, expr),
+            }
+        }
+    }
+    let mut free = Free {
+        bound: Vec::new(),
+        found: Vec::new(),
+    };
+    free.lambda(lambda);
+    free.found
 }

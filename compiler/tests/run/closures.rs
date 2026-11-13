@@ -163,3 +163,44 @@ fn a_call_of_a_function_value_with_a_keyword_is_unsupported() {
         "a call of a function value with these arguments"
     );
 }
+
+#[test]
+fn a_lambda_is_a_function_with_the_frame_lambda() {
+    same_as_cpython(
+        "a_lambda_is_a_function_with_the_frame_lambda",
+        indoc! {"
+            from typing import Callable
+
+            def aplica(f: Callable[[int], int], v: int) -> int:
+                return f(v)
+
+            base = 10
+            dobro: Callable[[int], int] = lambda x: 2 * x
+            print(dobro(4), aplica(lambda y: y + base, 5), (lambda: 'oi')())
+            fs: list[Callable[[int], int]] = []
+            i = 0
+            while i < 3:
+                fs.append(lambda n: n * n)
+                i += 1
+            print(fs[0] == fs[1], fs[0] == fs[0], fs[0](3), fs[2](4))
+            diz: Callable[[str], None] = lambda s: print('diz', s)
+            diz('a')
+            quebra: Callable[[int], int] = lambda n: 10 // n
+            print(aplica(quebra, 0))
+        "},
+    );
+}
+
+#[test]
+fn a_lambda_that_reads_a_global_before_its_assignment_raises_name_error() {
+    same_as_cpython(
+        "a_lambda_that_reads_a_global_before_its_assignment_raises_name_error",
+        indoc! {"
+            from typing import Callable
+
+            f: Callable[[], int] = lambda: depois + 1
+            print(f())
+            depois = 1
+        "},
+    );
+}

@@ -6,10 +6,10 @@ use std::ops::Range;
 
 use wasm_encoder::{
     ArrayType, BlockType, Catch, CodeSection, CompositeInnerType, CompositeType, ConstExpr,
-    DataCountSection, DataSection, EntityType, ExportKind, ExportSection, FieldType, Function,
-    FunctionSection, GlobalSection, GlobalType, HeapType, Ieee64, ImportSection, InstructionSink,
-    MemArg, MemorySection, MemoryType, Module, RefType, StorageType, StructType, SubType, TagKind,
-    TagSection, TagType, TypeSection, ValType,
+    DataCountSection, DataSection, ElementSection, Elements, EntityType, ExportKind, ExportSection,
+    FieldType, Function, FunctionSection, GlobalSection, GlobalType, HeapType, Ieee64,
+    ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module, RefType,
+    StorageType, StructType, SubType, TagKind, TagSection, TagType, TypeSection, ValType,
 };
 use wasmparser::{Parser, Payload};
 
@@ -102,6 +102,8 @@ pub(crate) struct ModuleState {
     globals: GlobalSection,
     global_count: u32,
     exports: ExportSection,
+    /// The functions that the code takes a reference to.
+    declared: Vec<u32>,
     data: DataSection,
     data_count: u32,
     /// The code `_start` runs before the program, which fills the globals,
@@ -149,6 +151,7 @@ impl ModuleState {
             globals: GlobalSection::new(),
             global_count: 0,
             exports: ExportSection::new(),
+            declared: Vec::new(),
             data: DataSection::new(),
             data_count: 0,
             init: Vec::new(),
@@ -362,6 +365,13 @@ impl ModuleState {
         GlobalIdx(self.global_count - 1)
     }
 
+    /// Declares that the code takes a reference to `func`.
+    pub fn declare_func(&mut self, func: FuncIdx) {
+        if !self.declared.contains(&func.0) {
+            self.declared.push(func.0);
+        }
+    }
+
     /// A global that holds a new struct of `ty`, whose one field is a
     /// reference to `func`.
     pub fn func_global(&mut self, ty: TypeIdx, func: FuncIdx) -> GlobalIdx {
@@ -403,7 +413,13 @@ impl ModuleState {
             .section(&self.memories)
             .section(&self.tags)
             .section(&self.globals)
-            .section(&self.exports)
+            .section(&self.exports);
+        if !self.declared.is_empty() {
+            let mut elements = ElementSection::new();
+            elements.declared(Elements::Functions(self.declared.as_slice().into()));
+            module.section(&elements);
+        }
+        module
             .section(&DataCountSection {
                 count: self.data_count,
             })
@@ -737,6 +753,11 @@ impl<'a> Ins<'a> {
 
     pub fn struct_get(&mut self, ty: TypeIdx, field: u32) -> &mut Self {
         self.0.struct_get(ty.0, field);
+        self
+    }
+
+    pub fn ref_func(&mut self, func: FuncIdx) -> &mut Self {
+        self.0.ref_func(func.0);
         self
     }
 

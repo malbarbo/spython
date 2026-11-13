@@ -212,6 +212,7 @@ impl<'a> Lowering<'a, '_> {
                 })
             }
             ast::Expr::Compare(c) => self.compare(c),
+            ast::Expr::Lambda(lambda) => self.lambda(expr, lambda),
             ast::Expr::List(list) => self.list(expr, list),
             ast::Expr::Dict(dict) => self.dict(expr, dict),
             ast::Expr::Set(set) => self.set(expr, set),

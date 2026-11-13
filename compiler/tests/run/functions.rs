@@ -432,12 +432,6 @@ fn a_call_with_a_keyword_argument_before_the_def_raises_name_error() {
 fn each_call_outside_what_the_compiler_covers_has_its_own_message() {
     assert_eq!(
         unsupported(indoc! {"
-            print((lambda: 1)())
-        "}),
-        "this expression"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
             print(hex(65))
         "}),
         "a call of a function that the module does not define"

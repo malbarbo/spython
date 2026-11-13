@@ -387,10 +387,13 @@ pub(crate) enum Expr {
     /// `-` on a `float`, which gives `-0.0` for `0.0`.
     FloatNeg(Box<Expr>),
     /// A value of the type of function `ty`, whose code is `func`, a
-    /// function with [`Func::value`].
+    /// function with [`Func::value`]. Without `captures`, the value is the
+    /// one value of the function, the same at each read, as the value of a
+    /// `def` is. With them, it is a new value, as a `lambda` makes.
     Closure {
         func: FuncId,
         ty: FuncTypeId,
+        captures: Option<Vec<Expr>>,
     },
     /// `abs` of an `int`. The result of the least `int` does not fit, and
     /// stops the program at the site.

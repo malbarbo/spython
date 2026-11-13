@@ -1018,7 +1018,24 @@ impl Emitter<'_> {
             Expr::CallValue {
                 callee, args, site, ..
             } => self.call_value(f, callee, args, *site),
-            Expr::Closure { func, ty } => {
+            Expr::Closure {
+                func,
+                ty,
+                captures: Some(captures),
+            } => {
+                let index = self.func_slots(*func).index;
+                self.m.declare_func(index);
+                f.ins().ref_func(index);
+                for capture in captures {
+                    self.expr(f, capture);
+                }
+                f.ins().struct_new(self.reprs.func_value(*ty));
+            }
+            Expr::Closure {
+                func,
+                ty,
+                captures: None,
+            } => {
                 let global = match self.values.get(func) {
                     Some(global) => *global,
                     None => {
