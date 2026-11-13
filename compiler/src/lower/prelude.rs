@@ -14,7 +14,9 @@ use super::class::{generated_call, param};
 use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, unsupported};
 use crate::Error;
 use crate::cpython::names;
-use crate::ir::{Case, ClassId, CodePointSet, Expr, FuncId, ListId, Rep, Site, Stmt};
+use crate::ir::{
+    Case, ClassId, CodePointSet, Expr, FuncId, FuncType, FuncTypeId, ListId, Rep, Site, Stmt,
+};
 
 /// Each module of the prelude that the database of `file` has, by name.
 pub(super) fn load(db: &dyn Db, file: File) -> Vec<(&'static str, Loaded<'_>)> {
@@ -103,6 +105,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
             Rep::List(_) if names::LIST_METHODS.contains(&name) => "list",
             _ => return Err(unsupported(call, "a call of this method")),
         };
+        if module == "list" && name == "sort" {
+            return self.list_sort(call, receiver);
+        }
         if !call.arguments.keywords.is_empty() {
             return Err(unsupported(
                 call,
@@ -516,8 +521,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
         };
         let (shapes, names) = &*params;
-        let types = type_map(names, shapes, args, |list| self.list_arg(list))
-            .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
+        let types = type_map(
+            names,
+            shapes,
+            args,
+            |list| self.list_arg(list),
+            |ty| self.func_type_of(ty),
+        )
+        .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
         let func = self
             .prelude_copy(unit.file, name, types)?
             .expect("a function of the module");
@@ -731,18 +742,23 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
 /// The rep of each type variable of `names` for a call with arguments of
 /// `args` of a function whose parameters have the declared types `params`.
-/// `item` gives the rep of the items of a type of list. Only a variable
-/// inside `list[...]` takes the rep of the argument, since a list of one
-/// type holds no item of another, and a bare variable takes the argument
-/// as a value of that rep. `None` when a variable gets no rep or two.
+/// `item` gives the rep of the items of a type of list, and `func` the
+/// parameters and the result of a type of function. Only a variable inside
+/// `list[...]` or `Callable[...]` takes the rep of the argument, since a
+/// list of one type holds no item of another, and a bare variable takes
+/// the argument as a value of that rep. `None` when a variable gets no rep
+/// or two.
 fn type_map(
     names: &[String],
     params: &[Shape],
     args: &[Rep],
     item: impl Fn(ListId) -> TypeArg,
+    func: impl Fn(FuncTypeId) -> FuncType,
 ) -> Option<Vec<(String, TypeArg)>> {
     let mut found: Vec<Option<TypeArg>> = names.iter().map(|_| None).collect();
-    let mut bind = |name: &str, arg: TypeArg| -> Option<()> {
+    // A type of function gives a variable its rep alone, so a variable
+    // that a list binds keeps the classes that the list gives it.
+    let mut bind = |name: &str, arg: TypeArg, rep_alone: bool| -> Option<()> {
         let Some(slot) = names
             .iter()
             .position(|var| var == name)
@@ -751,6 +767,7 @@ fn type_map(
             return Some(());
         };
         match slot {
+            Some(bound) if rep_alone && bound.rep == arg.rep => Some(()),
             Some(bound) if *bound != arg => None,
             _ => {
                 *slot = Some(arg);
@@ -766,13 +783,28 @@ fn type_map(
         {
             (shape, rep) = (member, Rep::List(list));
         }
+        // A parameter and the result of a function take the reps of the
+        // type of the function.
+        if let (Shape::Callable(shapes, ret), Rep::Func(ty)) = (shape, rep) {
+            let FuncType {
+                params,
+                ret: ret_rep,
+            } = func(ty);
+            for (shape, rep) in shapes.iter().zip(params).chain([(&**ret, ret_rep)]) {
+                if let Shape::TypeVar(name) = shape {
+                    let classes = Vec::new();
+                    bind(name, TypeArg { rep, classes }, true)?;
+                }
+            }
+            continue;
+        }
         // The item of a list, and of each list inside it.
         while let (Shape::List(inner), Rep::List(list)) = (shape, rep) {
             shape = inner;
             let arg = item(list);
             rep = arg.rep;
             if let Shape::TypeVar(name) = shape {
-                bind(name, arg)?;
+                bind(name, arg, false)?;
             }
         }
     }
@@ -840,10 +872,16 @@ mod tests {
     /// and the list 2 has lists 0 as its items.
     fn types_of(params: &[Shape], args: &[Rep]) -> Option<Vec<(String, Rep)>> {
         let items = [Rep::Int, Rep::Bool, Rep::List(ListId::new(0))];
-        let types = super::type_map(&["T".to_owned()], params, args, |list| TypeArg {
-            rep: *items.get(list.index()).expect("a list of the test"),
-            classes: Vec::new(),
-        })?;
+        let types = super::type_map(
+            &["T".to_owned()],
+            params,
+            args,
+            |list| TypeArg {
+                rep: *items.get(list.index()).expect("a list of the test"),
+                classes: Vec::new(),
+            },
+            |_| unreachable!("no function in the test"),
+        )?;
         Some(
             types
                 .into_iter()

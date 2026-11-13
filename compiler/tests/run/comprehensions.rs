@@ -373,3 +373,189 @@ fn a_generator_expression_outside_a_consumer_is_unsupported() {
         "a generator expression over a range with this step"
     );
 }
+
+#[test]
+fn sorted_sorts_a_list_and_a_generator_expression() {
+    same_as_cpython(
+        "sorted_sorts_a_list_and_a_generator_expression",
+        indoc! {"
+            import math
+
+            xs = [5, 2, 9, 1, 5, 6]
+            print(sorted(xs), xs)
+            ys = [3.0, math.nan, 1.0, 2.0]
+            print(sorted(ys), sorted(ys, reverse=True))
+            ws = ['banana', 'Abacaxi', 'uva', 'kiwi']
+            print(sorted(ws), sorted(ws, key=lambda w: len(w)))
+            print(sorted(ws, key=lambda w: w.lower(), reverse=True))
+            print(sorted(ws, key=lambda w: len(w), reverse=True), sorted(ws, key=None))
+            print(sorted(x * x for x in [-3, 1, -2]), sorted((x for x in xs), reverse=True))
+            vazia: list[int] = []
+            print(sorted(vazia), sorted([7]), sorted([True, False, True]))
+        "},
+    );
+}
+
+#[test]
+fn sorted_makes_the_comparisons_of_cpython() {
+    same_as_cpython(
+        "sorted_makes_the_comparisons_of_cpython",
+        indoc! {"
+            class Contador:
+                n: int
+                h: int
+
+                def __init__(self) -> None:
+                    self.n = 0
+                    self.h = 0
+
+
+            contador = Contador()
+
+
+            class C:
+                v: int
+                i: int
+
+                def __init__(self, v: int, i: int) -> None:
+                    self.v = v
+                    self.i = i
+
+                def __lt__(self, other: 'C') -> bool:
+                    contador.n += 1
+                    contador.h = (contador.h * 31 + self.i * 7 + other.i) % 1000003
+                    if self.v == -1 and other.v == -1:
+                        return (self.i * 13 + other.i * 7 + contador.n) % 3 == 0
+                    return self.v < other.v
+
+
+            def gera(n: int, semente: int, modo: int) -> list[C]:
+                xs: list[C] = []
+                s = semente
+                for i in range(n):
+                    s = (s * 75 + 74) % 65537
+                    if modo == 0:
+                        v = s % 10
+                    elif modo == 1:
+                        v = s
+                    elif modo == 2:
+                        v = i if s % 10 != 0 else s % 1000
+                    elif modo == 3:
+                        v = n - i if s % 7 != 0 else s % 50
+                    elif modo == 4:
+                        v = i % 37
+                    elif modo == 5:
+                        v = (i // 50) * 1000 - i if i % 100 < 50 else i
+                    elif modo == 6:
+                        v = 0 if i < n // 2 else 1000 - i
+                    elif modo == 7:
+                        v = 2 * i if i < n // 2 else 2 * (i - n // 2) + 1
+                    elif modo == 8:
+                        v = i if i < n // 3 or i > n // 3 + 40 else i - n // 4
+                    else:
+                        v = -1
+                    xs.append(C(v, i))
+                return xs
+
+
+            def marca(xs: list[C]) -> int:
+                h = 0
+                for p in range(len(xs)):
+                    h = (h * 131 + xs[p].i) % 1000003
+                return h
+
+
+            for n in [0, 1, 2, 5, 31, 64, 65, 129, 700, 1500]:
+                for modo in range(10):
+                    xs = gera(n, n + modo, modo)
+                    contador.n = 0
+                    contador.h = 0
+                    ys = sorted(xs)
+                    a1 = contador.n
+                    a2 = contador.h
+                    contador.n = 0
+                    contador.h = 0
+                    zs = sorted(xs, reverse=True)
+                    b1 = contador.n
+                    b2 = contador.h
+                    ws = sorted(xs, key=lambda c: c.v % 13)
+                    us = sorted(xs, key=lambda c: -c.v, reverse=True)
+                    print(n, modo, a1, a2, marca(ys), b1, b2, marca(zs), marca(ws), marca(us))
+        "},
+    );
+}
+
+#[test]
+fn an_error_in_a_key_or_in_lt_raises_through_sorted() {
+    same_as_cpython(
+        "an_error_in_a_key_raises_through_sorted",
+        indoc! {"
+            def chave(x: int) -> int:
+                print('chave', x)
+                return 10 // x
+
+            print(sorted([3, 1, 0, 2], key=lambda x: chave(x)))
+        "},
+    );
+    same_as_cpython(
+        "an_error_in_lt_raises_through_sorted",
+        indoc! {"
+            class P:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __lt__(self, other: 'P') -> bool:
+                    return 1 // (self.n - other.n) > 5
+
+            print(sorted([P(1), P(2), P(2)]))
+        "},
+    );
+}
+
+#[test]
+fn the_order_of_sorted_of_a_generator_is_the_order_of_cpython() {
+    same_as_cpython(
+        "the_order_of_sorted_of_a_generator_is_the_order_of_cpython",
+        indoc! {"
+            from typing import Callable
+
+            def f(n: int) -> list[int]:
+                print('iterável')
+                return [n, 1]
+
+            def dobro(n: int) -> int:
+                print('valor', n)
+                return 2 * n
+
+            def chave() -> Callable[[int], int]:
+                print('chave')
+                return lambda x: -x
+
+            def reverso() -> bool:
+                print('reverso')
+                return True
+
+            print(sorted((dobro(x) for x in f(3)), key=chave(), reverse=reverso()))
+        "},
+    );
+}
+
+#[test]
+fn sorted_of_another_iterable_is_unsupported() {
+    assert_eq!(
+        unsupported(
+            "print(sorted('cba'))
+"
+        ),
+        "sorted of this iterable"
+    );
+    assert_eq!(
+        unsupported(
+            "print(sorted([[2], [1]], key=lambda x: x))
+"
+        ),
+        "a key of this type"
+    );
+}

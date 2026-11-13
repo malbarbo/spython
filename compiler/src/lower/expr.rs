@@ -296,6 +296,7 @@ impl<'a> Lowering<'a, '_> {
                 Some("min") => self.min_max(call, MinMaxOp::Min),
                 Some("max") => self.min_max(call, MinMaxOp::Max),
                 Some("sum") => self.sum(call),
+                Some("sorted") => self.sorted(call),
                 Some("any") => self.any_all(call, "any_of"),
                 Some("all") => self.any_all(call, "all_of"),
                 _ => match self.math_member(&call.func) {
