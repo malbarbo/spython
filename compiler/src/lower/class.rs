@@ -893,6 +893,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
             vars: Vars::default(),
             namespace,
             class: Some(def.start()),
+            inner: Default::default(),
+            captures: Vec::new(),
         });
         let body = self.class_statements(def, class, &fields, &defaults);
         let scope = self.scope.take().expect("the scope of the class");

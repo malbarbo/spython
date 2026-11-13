@@ -1,6 +1,7 @@
 //! From the syntax tree and the types of the checker to the IR.
 
 mod call;
+mod capture;
 mod class;
 mod closure;
 mod doctest;
@@ -35,6 +36,7 @@ use crate::ir::{
     Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
 };
 use crate::{Docstring, Error};
+use capture::Captures;
 use class::Classes;
 use doctest::{DoctestScope, Tests};
 use flow::{Assigned, Bindings, always_returns};
@@ -322,6 +324,7 @@ impl Vars {
             rep,
             flagged: false,
             ordered: false,
+            cell: false,
         });
         VarId::new(self.list.len() - 1)
     }
@@ -481,6 +484,23 @@ struct Scope {
     namespace: Vec<String>,
     /// Where the `class` statement starts, in the body of a class.
     class: Option<TextSize>,
+    /// The variables of the function that live in a cell, and what each
+    /// function inside it captures.
+    inner: Captures,
+    /// The variables that the function captures from the function around
+    /// it, in the order of [`Func::captures`].
+    captures: Vec<ScopeCapture>,
+}
+
+/// A variable that a function captures from the function around it.
+#[derive(Clone)]
+struct ScopeCapture {
+    name: String,
+    rep: Rep,
+    /// Whether the variable lives in a cell.
+    cell: bool,
+    /// Whether the function may read the variable before it has a value.
+    unbound: bool,
 }
 
 impl Scope {
@@ -865,8 +885,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
             vars,
             namespace: Vec::new(),
             class: None,
+            inner: Captures::default(),
+            captures: Vec::new(),
         });
         self.declare_vars(&bindings)?;
+        self.declare_cells(def)?;
         let body = match sig.doctest {
             Some(docstring) => self.doctest_body(def, docstring)?,
             None => self.body(&def.body)?,
@@ -880,6 +903,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let scope = self.scope.take().expect("the scope of the function");
         Ok(Func {
             value: None,
+            captures: Vec::new(),
             alias: None,
             ordered: false,
             frame: !self.in_prelude(),
@@ -888,6 +912,27 @@ impl<'a, 'db> Lowering<'a, 'db> {
             ret: sig.ret,
             body,
         })
+    }
+
+    /// Finds what the functions inside `def` capture from it, and puts each
+    /// variable that needs one in a cell.
+    fn declare_cells(&self, def: &ast::StmtFunctionDef) -> Result<(), Error> {
+        let params: Vec<&str> = params_of(def)
+            .map(|param| param.parameter.name.as_str())
+            .collect();
+        let mut scope = self.scope.borrow_mut();
+        let scope = scope.as_mut().expect("the scope of the function");
+        let inner = capture::captures(&params, &def.body, &|name| scope.is_local(name));
+        for name in &inner.cells {
+            if let Some((id, rep)) = scope.vars.find(name) {
+                if rep == Rep::None {
+                    return Err(unsupported(&def.name, "a capture of a variable of None"));
+                }
+                scope.vars.get_mut(id).cell = true;
+            }
+        }
+        scope.inner = inner;
+        Ok(())
     }
 
     /// A new variable of `rep` that no name of the program reads, local to
@@ -958,10 +1003,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 rep: *rep,
                 flagged: false,
                 ordered: false,
+                cell: false,
             })
             .collect();
         let func = Func {
             value: None,
+            captures: Vec::new(),
             alias: None,
             ordered: false,
             frame,
@@ -988,6 +1035,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let sig = self.funcs.borrow().get(id).clone();
         let func = Func {
             value: None,
+            captures: Vec::new(),
             alias: Some(target),
             ordered: false,
             frame: false,
@@ -999,6 +1047,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                     rep: *rep,
                     flagged: false,
                     ordered: false,
+                    cell: false,
                 })
                 .collect(),
             ret: sig.ret,
@@ -1202,6 +1251,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 None if has_def => self.func(id)?,
                 None => Func {
                     value: None,
+                    captures: Vec::new(),
                     alias: None,
                     ordered: false,
                     frame: false,

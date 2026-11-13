@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::Lowering;
 use crate::cpython::{names, suggest};
-use crate::ir::{Binding, Group, Limit, NameError, Rep, VarId};
+use crate::ir::{Binding, Group, Limit, NameError, Rep};
 
 impl<'a> Lowering<'a, '_> {
     /// The `NameError` of `name` in the frame that the lowering is in, with
@@ -17,11 +17,26 @@ impl<'a> Lowering<'a, '_> {
         let mut funcs = self.funcs.borrow_mut();
         let mut imports = self.imports.borrow_mut();
         let mut classes = self.classes.borrow_mut();
-        let locals: Vec<(VarId, String)> = scope.as_ref().map_or_else(Vec::new, |scope| {
+        // A frame lists the variables that its code captures after its
+        // own, in the order of their names.
+        let locals: Vec<(Binding, String)> = scope.as_ref().map_or_else(Vec::new, |scope| {
+            let mut captures: Vec<(Binding, String)> = scope
+                .captures
+                .iter()
+                .enumerate()
+                .map(|(i, capture)| {
+                    let index = u32::try_from(i).expect("fewer than 2^32 captures");
+                    (Binding::Capture(index), capture.name.clone())
+                })
+                .collect();
+            captures.sort_by(|(_, a), (_, b)| a.cmp(b));
             scope
                 .order
                 .iter()
-                .filter_map(|local| Some((scope.vars.find(local)?.0, local.clone())))
+                .filter_map(|local| {
+                    Some((Binding::Local(scope.vars.find(local)?.0), local.clone()))
+                })
+                .chain(captures)
                 .collect()
         });
         // The names that the checker adds for the doctests are not names of
@@ -139,6 +154,8 @@ impl<'a> Lowering<'a, '_> {
             }
             Binding::Import(id) => imports.get_mut(id).ordered |= ordered,
             Binding::Class(id) => classes.get_mut(id).ordered |= ordered,
+            // A cell tells whether its variable has a value.
+            Binding::Capture(_) => {}
         };
         // The number of globals with a value is the number of ordered
         // globals with a value.
@@ -149,11 +166,11 @@ impl<'a> Lowering<'a, '_> {
             }
         }
         for local in limit.iter().flat_map(|limit| &limit.locals) {
-            flag(Binding::Local(*local), false);
+            flag(*local, false);
         }
         for group in &groups {
-            for (id, _) in &group.locals {
-                flag(Binding::Local(*id), false);
+            for (local, _) in &group.locals {
+                flag(*local, false);
             }
             for (binding, _) in &group.globals {
                 flag(*binding, group.globals.len() > 1);
@@ -257,7 +274,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::group_of;
-    use crate::ir::VarId;
+    use crate::ir::{Binding, VarId};
 
     /// The candidate that the `NameError` suggests for `name` when every
     /// candidate has a value, the first one of the nearest group.
@@ -265,7 +282,9 @@ mod tests {
         let mut groups = BTreeMap::new();
         for candidate in candidates {
             if let Some(group) = group_of(&mut groups, name, candidate) {
-                group.locals.push((VarId::new(0), (*candidate).to_owned()));
+                group
+                    .locals
+                    .push((Binding::Local(VarId::new(0)), (*candidate).to_owned()));
             }
         }
         let (_, group) = groups.into_iter().next()?;

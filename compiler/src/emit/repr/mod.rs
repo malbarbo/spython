@@ -21,9 +21,9 @@ use crate::cpython::{
     Message, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
-    ArithOp, BitOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp,
-    FuncType, FuncTypeId, ListId, ListType, Literal, MathFunc, MathFunc2, Rep, SiteFrame,
-    UserClass,
+    ArithOp, BitOp, Capture as CaptureOf, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp,
+    FloatFunc2, FloatOp, FuncType, FuncTypeId, ListId, ListType, Literal, MathFunc, MathFunc2, Rep,
+    SiteFrame, UserClass,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -91,19 +91,34 @@ pub(crate) struct Reprs {
     /// with the object and the node under it, and the global of the top of
     /// the stack, when a class guards its `repr`.
     repr_stack: Option<(TypeIdx, GlobalIdx)>,
+    /// The rep of each cell, in the order of their structs.
+    cells: Vec<Rep>,
+}
+
+/// The types of the program that the module lays out.
+#[derive(Clone, Copy)]
+pub(crate) struct Types<'p> {
+    pub classes: &'p [UserClass],
+    pub lists: &'p [ListType],
+    pub funcs: &'p [FuncType],
+    /// The type of function and the captures of each function that
+    /// captures variables.
+    pub closures: &'p [(FuncTypeId, &'p [CaptureOf])],
+    /// The rep of each cell.
+    pub cells: &'p [Rep],
 }
 
 impl Reprs {
-    /// The representations of a module with the classes `classes` and the
-    /// types of lists `lists`, which runs doctests when `tests` is `true`.
-    pub fn new(
-        m: &mut ModuleState,
-        host: &Host,
-        tests: bool,
-        classes: &[UserClass],
-        lists: &[ListType],
-        funcs: &[FuncType],
-    ) -> Self {
+    /// The representations of a module with the types of `types`, which
+    /// runs doctests when `tests` is `true`.
+    pub fn new(m: &mut ModuleState, host: &Host, tests: bool, types: &Types) -> Self {
+        let Types {
+            classes,
+            lists,
+            funcs,
+            closures,
+            cells,
+        } = *types;
         let mut str = StrRepr::ucs4(m, host);
         let exc = Exceptions::new(m, host, &mut str, tests);
         let int = IntRepr::i31(m, &mut str, &exc);
@@ -112,7 +127,11 @@ impl Reprs {
         // or a list, and an item of a list may be an object or another list,
         // so the types refer to each other by the indices that they will have
         // in their rec group.
-        let layout = Layout::new(m.next_type_index(), classes, lists.len(), funcs.len());
+        let layout = Layout::new(
+            m.next_type_index(),
+            classes,
+            (lists.len(), funcs.len(), closures.len(), cells.len()),
+        );
         let list_types: Vec<(TypeIdx, TypeIdx)> =
             (0..lists.len()).map(|i| layout.list(i)).collect();
         let mut reprs = Reprs {
@@ -138,6 +157,7 @@ impl Reprs {
             list_items: lists.iter().map(|list| list.item).collect(),
             list_reprs: Vec::new(),
             repr_stack: None,
+            cells: cells.to_vec(),
         };
         let structs: Vec<Composite> = classes
             .iter()
@@ -198,6 +218,35 @@ impl Reprs {
             ));
             others.push((Composite::Func(params, results), true));
         }
+        let mut closure_bases = Vec::new();
+        for (ty, captures) in closures {
+            let (value, code) = reprs.layout.func(ty.index());
+            let fields = std::iter::once((StorageType::Val(code.ref_to(false)), false))
+                .chain(captures.iter().map(|capture| {
+                    let ty = if capture.cell {
+                        reprs.cell_type(capture.rep).ref_to(true)
+                    } else {
+                        reprs
+                            .local_type(capture.rep)
+                            .expect("a capture has a value")
+                    };
+                    (StorageType::Val(ty), false)
+                }))
+                .collect();
+            others.push((Composite::Struct(fields), true));
+            closure_bases.push((others.len() - 1, value));
+        }
+        // A cell holds its value and whether the variable has one.
+        for rep in cells {
+            let value = reprs.local_type(*rep).expect("a cell has a value");
+            others.push((
+                Composite::Struct(vec![
+                    (StorageType::Val(value), true),
+                    (StorageType::Val(ValType::I32), true),
+                ]),
+                true,
+            ));
+        }
         let node = reprs.layout.repr_node();
         let guarded = classes.iter().any(|class| class.repr_guard);
         if guarded {
@@ -210,11 +259,13 @@ impl Reprs {
                 true,
             ));
         }
-        composites.extend(
-            others
+        composites.extend(others.iter().enumerate().map(|(i, (composite, is_final))| {
+            let base = closure_bases
                 .iter()
-                .map(|(composite, is_final)| (composite, None, *is_final)),
-        );
+                .find(|(other, _)| *other == i)
+                .map(|(_, base)| *base);
+            (composite, base, *is_final)
+        }));
         let mut group = m.rec_group(&composites);
         if guarded {
             let top = m.global(node.ref_to(true), &ConstExpr::ref_null(node.heap_type()));
@@ -552,6 +603,28 @@ impl Reprs {
             Rep::Func(ty) => Some(self.func_value(ty).ref_to(true)),
             Rep::None => None,
         }
+    }
+
+    /// The struct of a cell of `rep`.
+    pub fn cell_type(&self, rep: Rep) -> TypeIdx {
+        let cell = self
+            .cells
+            .iter()
+            .position(|other| *other == rep)
+            .expect("a rep of a cell");
+        self.layout.cell(cell)
+    }
+
+    /// The struct of a value of the function at `closure` among the
+    /// functions that capture variables.
+    pub fn closure_type(&self, closure: usize) -> TypeIdx {
+        self.layout.closure(closure)
+    }
+
+    /// Pushes a value of `rep` from a field or a local that may hold null
+    /// for a value that is never null.
+    pub fn non_null(&self, f: &mut FuncState, rep: Rep) {
+        non_null(f, rep);
     }
 
     /// The struct of a value of the type of function `ty`.

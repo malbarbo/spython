@@ -52,6 +52,9 @@ impl<'a> Lowering<'a, '_> {
     /// The value of the variable that `name` reads.
     pub(super) fn load(&self, name: &ast::ExprName) -> Result<Expr, Error> {
         let id = name.id.as_str();
+        if let Some(capture) = self.captured(name) {
+            return self.narrowed_name(name, capture);
+        }
         let local = match self.scope.borrow().as_ref() {
             Some(scope) if scope.is_local(id) => Some(
                 scope

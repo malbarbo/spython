@@ -94,6 +94,11 @@ pub(crate) struct Var {
     /// `true` when the program asks which globals got a value first. Only a
     /// flagged variable of the module is ordered.
     pub ordered: bool,
+    /// `true` for a variable of a function that a function inside it
+    /// captures, when the variable may change after the capture or may
+    /// have no value at the capture. The variable lives in a cell that the
+    /// two functions share.
+    pub cell: bool,
 }
 
 /// A function of the module.
@@ -174,6 +179,9 @@ pub(crate) struct Func {
     /// The type of function of a value whose code is this function, which
     /// takes the value before its parameters.
     pub value: Option<FuncTypeId>,
+    /// The variables that the value holds for the code, which
+    /// [`Expr::Capture`] reads.
+    pub captures: Vec<Capture>,
     /// The function that a call of this one calls in its place, with the
     /// same arguments, when this one has no code of its own. The first
     /// parameter of the other one may be of a class that this one's
@@ -190,6 +198,26 @@ pub(crate) struct Func {
     pub vars: Vec<Var>,
     pub ret: Rep,
     pub body: Vec<Stmt>,
+}
+
+/// A variable that the code of a value captures from the function around
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Capture {
+    pub rep: Rep,
+    /// `true` when the value holds the cell of the variable, and `false`
+    /// when it holds the value of the variable.
+    pub cell: bool,
+}
+
+/// What a new value of a function holds for a capture.
+pub(crate) enum Captured {
+    /// The value, for a capture without a cell.
+    Value(Expr),
+    /// The cell of a variable of the function that runs.
+    Cell(VarId),
+    /// The cell that the capture at the index of the code that runs holds.
+    Outer(u32),
 }
 
 pub(crate) enum Stmt {
@@ -393,7 +421,14 @@ pub(crate) enum Expr {
     Closure {
         func: FuncId,
         ty: FuncTypeId,
-        captures: Option<Vec<Expr>>,
+        captures: Option<Vec<Captured>>,
+    },
+    /// The variable at `index` among the captures of the code that runs, of
+    /// `rep`. A read of a cell without a value raises the error of `check`.
+    Capture {
+        index: u32,
+        rep: Rep,
+        check: Option<Check>,
     },
     /// `abs` of an `int`. The result of the least `int` does not fit, and
     /// stops the program at the site.
@@ -926,8 +961,9 @@ pub(crate) struct NameError {
 
 /// The candidates at one distance from the name.
 pub(crate) struct Group {
-    /// The first local with a value wins, in the order of the frame.
-    pub locals: Vec<(VarId, String)>,
+    /// The first local with a value wins, in the order of the frame. A
+    /// local is a variable of the function or a capture.
+    pub locals: Vec<(Binding, String)>,
     /// Otherwise the global that got a value first wins.
     pub globals: Vec<(Binding, String)>,
     /// Otherwise a name that the frame always has wins.
@@ -942,6 +978,8 @@ pub(crate) enum Binding {
     Func(FuncId),
     Import(ImportId),
     Class(ClassId),
+    /// The capture at the index of the code that runs.
+    Capture(u32),
 }
 
 pub(crate) struct Limit {
@@ -953,7 +991,7 @@ pub(crate) struct Limit {
     /// module lists its globals twice.
     pub globals: u32,
     /// The locals of the frame that count when they have a value.
-    pub locals: Vec<VarId>,
+    pub locals: Vec<Binding>,
 }
 
 /// A function of `math` of one `float` that has a builtin of the same name
@@ -1451,6 +1489,7 @@ impl Expr {
             Expr::Load { rep, .. }
             | Expr::Call { rep, .. }
             | Expr::CallValue { rep, .. }
+            | Expr::Capture { rep, .. }
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. }
             | Expr::Expect { rep, .. }

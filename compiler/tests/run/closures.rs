@@ -204,3 +204,121 @@ fn a_lambda_that_reads_a_global_before_its_assignment_raises_name_error() {
         "},
     );
 }
+
+#[test]
+fn a_lambda_captures_the_variables_of_its_function() {
+    same_as_cpython(
+        "a_lambda_captures_the_variables_of_its_function",
+        indoc! {"
+            from dataclasses import dataclass
+            from typing import Callable
+
+            @dataclass
+            class Conta:
+                saldo: float
+
+                def depositador(self) -> Callable[[float], float]:
+                    return lambda v: self.saldo + v
+
+            def soma_de(k: int) -> Callable[[int], int]:
+                return lambda x: x + k
+
+            def aninhado(a: int) -> Callable[[int], Callable[[int], int]]:
+                nome = 'x'
+                return lambda b: lambda c: a + b + c + len(nome)
+
+            def opcional(s: str | None) -> Callable[[], str]:
+                return lambda: 'nada' if s is None else s
+
+            print(soma_de(3)(4), aninhado(1)(2)(3))
+            print(Conta(1.5).depositador()(2.0))
+            print(opcional(None)(), opcional('a')())
+        "},
+    );
+}
+
+/// A variable that changes after the capture lives in a cell, and the
+/// function sees its last value, as in CPython.
+#[test]
+fn a_lambda_sees_the_last_value_of_a_variable_that_changes() {
+    same_as_cpython(
+        "a_lambda_sees_the_last_value_of_a_variable_that_changes",
+        indoc! {"
+            from typing import Callable
+
+            def lacos() -> None:
+                fs: list[Callable[[], int]] = []
+                i = 0
+                while i < 3:
+                    fs.append(lambda: i)
+                    i += 1
+                print(fs[0](), fs[1](), fs[2]())
+                gs: list[Callable[[], int]] = []
+                for j in range(3):
+                    gs.append(lambda: j * 10)
+                print(gs[0](), gs[2]())
+
+            def muda() -> None:
+                texto = 'a'
+                g: Callable[[], str] = lambda: texto + '!'
+                print(g())
+                texto = 'b'
+                print(g())
+
+            def param_muda(n: int) -> Callable[[], int]:
+                g: Callable[[], int] = lambda: n * 2
+                n = n + 1
+                return g
+
+            lacos()
+            muda()
+            print(param_muda(5)())
+        "},
+    );
+}
+
+#[test]
+fn a_lambda_that_reads_a_variable_without_a_value_raises_name_error() {
+    same_as_cpython(
+        "a_lambda_that_reads_a_variable_without_a_value_raises_name_error",
+        indoc! {"
+            from typing import Callable
+
+            def condicional(b: bool) -> Callable[[], int]:
+                if b:
+                    x = 1
+                return lambda: x
+
+            print(condicional(True)())
+            valr = 3
+
+            def antes() -> None:
+                g: Callable[[], int] = lambda: valor + 1
+                print(g())
+                valor = 1
+
+            antes()
+        "},
+    );
+}
+
+/// The suggestion of a `NameError` in the code of a `lambda` looks at the
+/// variables that the `lambda` captures, after its parameters.
+#[test]
+fn a_name_error_in_a_lambda_suggests_a_captured_variable() {
+    same_as_cpython(
+        "a_name_error_in_a_lambda_suggests_a_captured_variable",
+        indoc! {"
+            from typing import Callable
+
+            def f() -> None:
+                zeta = 1
+                contador = 1
+                g: Callable[[int], int] = lambda contadx: contadr + contador + zeta
+                print(g(1))
+
+            f()
+            contadr = 5
+        "},
+    );
+}

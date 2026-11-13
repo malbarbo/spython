@@ -10,8 +10,9 @@ use crate::ir::{ClassId, Rep, UserClass};
 /// first, each after the struct of its base, then the exact type of each
 /// class with subclasses, then the struct and the array of each type of
 /// list, then the struct of a value and the type of the code of each type
-/// of function, and then the node of the stack of the objects whose `repr`
-/// runs.
+/// of function, then the struct of the values of each function that
+/// captures variables, then the struct of a cell of each rep, and then the
+/// node of the stack of the objects whose `repr` runs.
 ///
 /// A struct of a class with subclasses is not final, and a `ref.test` on
 /// such a type costs more than one on a final type. The exact type of the
@@ -24,6 +25,8 @@ pub(crate) struct Layout {
     exacts: usize,
     lists: usize,
     funcs: usize,
+    closures: usize,
+    cells: usize,
 }
 
 /// What the layout knows of a class.
@@ -37,7 +40,11 @@ struct Shape {
 }
 
 impl Layout {
-    pub fn new(first: TypeIdx, classes: &[UserClass], lists: usize, funcs: usize) -> Self {
+    pub fn new(
+        first: TypeIdx,
+        classes: &[UserClass],
+        (lists, funcs, closures, cells): (usize, usize, usize, usize),
+    ) -> Self {
         let mut exacts = 0;
         let classes = classes
             .iter()
@@ -63,6 +70,8 @@ impl Layout {
             exacts,
             lists,
             funcs,
+            closures,
+            cells,
         }
     }
 
@@ -137,10 +146,26 @@ impl Layout {
         (ty, ty.plus(1))
     }
 
+    /// The struct of a value of the function at `closure` among the
+    /// functions that capture variables, a final subtype of the struct of
+    /// its type of function.
+    pub fn closure(&self, closure: usize) -> TypeIdx {
+        assert!(closure < self.closures, "a function that captures");
+        self.first
+            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs + closure)
+    }
+
+    /// The struct of a cell of the rep at `cell` among the reps of cells.
+    pub fn cell(&self, cell: usize) -> TypeIdx {
+        assert!(cell < self.cells, "a rep of a cell");
+        self.first
+            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs + self.closures + cell)
+    }
+
     /// The node of the stack of the objects whose `repr` runs.
     pub fn repr_node(&self) -> TypeIdx {
         self.first
-            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs)
+            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs + self.closures + self.cells)
     }
 
     /// The struct of an object of `class`, with a field of the type that

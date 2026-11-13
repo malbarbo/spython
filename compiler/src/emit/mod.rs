@@ -11,29 +11,71 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use crate::cpython::{Class, Message, RANGE_STEP_ZERO, RECURSION_ERROR};
 use crate::ir::{
-    Binding, Check, ClassId, CmpOp, Expr, Func, FuncId, ImportId, LogicOp, MinMaxOp, NameError,
-    Place, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
+    Binding, Capture, Captured, Check, ClassId, CmpOp, Expr, Func, FuncId, FuncTypeId, ImportId,
+    LogicOp, MinMaxOp, NameError, Place, Program, Rep, Site, Stmt, Tolerance, Undefined, VarId,
 };
-use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState};
-use repr::Reprs;
+use module::{CodeMap, FuncIdx, FuncState, GlobalIdx, Label, LocalIdx, ModuleState, TypeIdx};
+use repr::{Reprs, Types};
 use runtime::host::Host;
 
 /// The bytes of the module, with the place of the code of each site.
 pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let mut m = ModuleState::new();
     let host = Host::new(&mut m, program.tests.is_some());
+    // The struct of the values of each function that captures variables,
+    // and the rep of each cell.
+    let closures: Vec<(FuncTypeId, &[Capture])> = program
+        .funcs
+        .iter()
+        .filter(|func| !func.captures.is_empty())
+        .map(|func| {
+            let ty = func.value.expect("the code of a value captures");
+            (ty, func.captures.as_slice())
+        })
+        .collect();
+    let mut closure = 0;
+    let closure_of = program
+        .funcs
+        .iter()
+        .map(|func| {
+            (!func.captures.is_empty()).then(|| {
+                closure += 1;
+                closure - 1
+            })
+        })
+        .collect();
+    let mut cells: Vec<Rep> = Vec::new();
+    let reps = program.funcs.iter().flat_map(|func| {
+        let vars = func.vars.iter().filter(|var| var.cell).map(|var| var.rep);
+        let captures = func
+            .captures
+            .iter()
+            .filter(|capture| capture.cell)
+            .map(|capture| capture.rep);
+        vars.chain(captures)
+    });
+    for rep in reps {
+        if !cells.contains(&rep) {
+            cells.push(rep);
+        }
+    }
     let mut reprs = Reprs::new(
         &mut m,
         &host,
         program.tests.is_some(),
-        &program.classes,
-        &program.lists,
-        &program.func_types,
+        &Types {
+            classes: &program.classes,
+            lists: &program.lists,
+            funcs: &program.func_types,
+            closures: &closures,
+            cells: &cells,
+        },
     );
     let vars = program
         .vars
         .iter()
         .map(|var| Slots {
+            cell: None,
             value: reprs.global(&mut m, var.rep),
             defined: var
                 .flagged
@@ -142,6 +184,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         classes,
         order,
         values: HashMap::new(),
+        closure_of,
         code: Code {
             func: None,
             site: Some(site),
@@ -150,6 +193,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             target: None,
             chain: None,
             logic: None,
+            env: None,
         },
     };
     let start_ty = e.m.func_type(&[], &[]);
@@ -199,6 +243,9 @@ struct Emitter<'a> {
     /// The global of the value of each function with
     /// [`Func::value`] that the program reads.
     values: HashMap<FuncId, GlobalIdx>,
+    /// The place of each function that captures variables among them, by
+    /// the id of the function.
+    closure_of: Vec<Option<usize>>,
     code: Code,
 }
 
@@ -223,6 +270,9 @@ struct Code {
     /// The local of the left value of the [`Expr::Logic`] that the emitter
     /// is in, and `None` for a left value of `None`.
     logic: Option<LocalIdx>,
+    /// The local that holds the value of the function, as its own struct,
+    /// for the code of a value that captures variables.
+    env: Option<(LocalIdx, TypeIdx)>,
 }
 
 struct Loop {
@@ -234,6 +284,9 @@ struct Loop {
 /// a function.
 struct Slots<I> {
     value: I,
+    /// The local of the cell that holds the value, for a variable in a
+    /// cell.
+    cell: Option<I>,
     /// Not 0 once the variable has a value, for a flagged variable. An
     /// ordered variable holds the place of its first binding among the
     /// ordered globals, from 1.
@@ -265,14 +318,44 @@ impl Emitter<'_> {
                 ),
             };
             let defined = var.flagged.then(|| f.local(ValType::I32));
-            vars.push(Slots { value, defined });
+            let cell = var.cell.then(|| {
+                let ty = self.reprs.cell_type(var.rep);
+                let cell = f.local(ty.ref_to(true));
+                f.ins().struct_new_default(ty).local_set(cell);
+                cell
+            });
+            vars.push(Slots {
+                value,
+                cell,
+                defined,
+            });
         }
         // A parameter has a value from the start.
-        for slots in vars.iter().take(func.params as usize) {
+        for (slots, var) in vars.iter().zip(&func.vars).take(func.params as usize) {
             if let Some(defined) = slots.defined {
                 f.ins().i32_const(1).local_set(defined);
             }
+            if let Some(cell) = slots.cell {
+                let ty = self.reprs.cell_type(var.rep);
+                f.ins()
+                    .local_get(cell)
+                    .local_get(slots.value)
+                    .struct_set(ty, 0)
+                    .local_get(cell)
+                    .i32_const(1)
+                    .struct_set(ty, 1);
+            }
         }
+        let env = self.closure_of(id).map(|closure| {
+            let ty = self.reprs.closure_type(closure);
+            let env = f.local(ty.ref_to(true));
+            let value = f.param(0);
+            f.ins()
+                .local_get(value)
+                .ref_cast(ty.heap_type(), false)
+                .local_set(env);
+            (env, ty)
+        });
         self.code = Code {
             func: Some(id),
             site,
@@ -281,6 +364,7 @@ impl Emitter<'_> {
             target: None,
             chain: None,
             logic: None,
+            env,
         };
         let index = self.func_slots(id).index;
         let Some(site) = site else {
@@ -622,10 +706,29 @@ impl Emitter<'_> {
             }
             Place::Local(var) => {
                 let slots = self.local_slots(var);
-                let mut ins = f.ins();
-                ins.local_set(slots.value);
-                if let Some(defined) = slots.defined {
-                    ins.i32_const(1).local_set(defined);
+                let (value, cell, defined) = (slots.value, slots.cell, slots.defined);
+                match cell {
+                    Some(cell) => {
+                        let rep = self.var(place).rep;
+                        let ty = self.reprs.cell_type(rep);
+                        let temp =
+                            f.temp(self.reprs.local_type(rep).expect("a variable has a value"));
+                        f.ins()
+                            .local_set(temp)
+                            .local_get(cell)
+                            .local_get(temp)
+                            .struct_set(ty, 0)
+                            .local_get(cell)
+                            .i32_const(1)
+                            .struct_set(ty, 1);
+                        f.free(temp);
+                    }
+                    None => {
+                        f.ins().local_set(value);
+                    }
+                }
+                if let Some(defined) = defined {
+                    f.ins().i32_const(1).local_set(defined);
                 }
             }
         }
@@ -658,8 +761,64 @@ impl Emitter<'_> {
         }
         match place {
             Place::Global(var) => self.reprs.load_global(f, rep, self.global_slots(var).value),
-            Place::Local(var) => self.reprs.load(f, rep, self.local_slots(var).value),
+            Place::Local(var) => {
+                let slots = self.local_slots(var);
+                match slots.cell {
+                    Some(cell) => {
+                        f.ins()
+                            .local_get(cell)
+                            .struct_get(self.reprs.cell_type(rep), 0);
+                        self.reprs.non_null(f, rep);
+                    }
+                    None => self.reprs.load(f, rep, slots.value),
+                }
+            }
         }
+    }
+
+    /// The place of `func` among the functions that capture variables, and
+    /// `None` for a function that captures none.
+    fn closure_of(&self, func: FuncId) -> Option<usize> {
+        *self
+            .closure_of
+            .get(func.index())
+            .expect("a function of the program")
+    }
+
+    /// Pushes the capture at `index` of the code that runs, a value of
+    /// `rep`. A read of a cell without a value raises the error of `check`.
+    fn capture(&mut self, f: &mut FuncState, index: u32, rep: Rep, check: Option<&Check>) {
+        self.capture_field(f, index);
+        if self.capture_of(index).cell {
+            let ty = self.reprs.cell_type(rep);
+            if let Some(check) = check {
+                let temp = f.temp(ty.ref_to(true));
+                f.ins().local_tee(temp).struct_get(ty, 1);
+                self.raise_if_undefined(f, check);
+                f.ins().local_get(temp);
+                f.free(temp);
+            }
+            f.ins().struct_get(ty, 0);
+        }
+        self.reprs.non_null(f, rep);
+    }
+
+    /// The capture at `index` of the code that runs.
+    fn capture_of(&self, index: u32) -> Capture {
+        let func = self.code.func.expect("a capture in a function");
+        *self
+            .program
+            .funcs
+            .get(func.index())
+            .and_then(|func| func.captures.get(index as usize))
+            .expect("a capture of the code")
+    }
+
+    /// Pushes the field of the capture at `index` of the code that runs,
+    /// which is a value or a cell.
+    fn capture_field(&self, f: &mut FuncState, index: u32) {
+        let (env, ty) = self.code.env.expect("the value of the code");
+        f.ins().local_get(env).struct_get(ty, index + 1);
     }
 
     /// Pops the flag of a name, and raises the error of `check` when it is
@@ -723,7 +882,7 @@ impl Emitter<'_> {
                     .i32_add();
             }
             for local in &limit.locals {
-                self.bound(f, Binding::Local(*local));
+                self.bound(f, *local);
                 f.ins().i32_add();
             }
             f.ins().i32_const(count(limit.max)).i32_ge_u();
@@ -731,7 +890,7 @@ impl Emitter<'_> {
         }
         for group in &error.groups {
             for (local, candidate) in &group.locals {
-                self.suggest_if_bound(f, Binding::Local(*local), candidate, found, suggested);
+                self.suggest_if_bound(f, *local, candidate, found, suggested);
             }
             if let [(global, candidate)] = group.globals.as_slice() {
                 self.suggest_if_bound(f, *global, candidate, found, suggested);
@@ -806,6 +965,18 @@ impl Emitter<'_> {
     /// Pushes an `i32` that is not 0 when `binding` has a value. The flag of
     /// a local is 1.
     fn bound(&self, f: &mut FuncState, binding: Binding) {
+        // A cell tells whether its variable has a value, and a capture
+        // without one has a value.
+        if let Binding::Capture(index) = binding {
+            let capture = self.capture_of(index);
+            if capture.cell {
+                self.capture_field(f, index);
+                f.ins().struct_get(self.reprs.cell_type(capture.rep), 1);
+            } else {
+                f.ins().i32_const(1);
+            }
+            return;
+        }
         match binding {
             Binding::Local(var) => match self.local_slots(var).defined {
                 Some(defined) => f.ins().local_get(defined),
@@ -818,6 +989,7 @@ impl Emitter<'_> {
             Binding::Func(func) => f.ins().global_get(self.defined(func)),
             Binding::Import(id) => f.ins().global_get(self.import_slot(id)),
             Binding::Class(id) => f.ins().global_get(self.class_slot(id)),
+            Binding::Capture(_) => unreachable!("a capture comes first"),
         };
     }
 
@@ -1027,9 +1199,23 @@ impl Emitter<'_> {
                 self.m.declare_func(index);
                 f.ins().ref_func(index);
                 for capture in captures {
-                    self.expr(f, capture);
+                    match capture {
+                        Captured::Value(value) => self.expr(f, value),
+                        Captured::Cell(var) => {
+                            let cell = self.local_slots(*var).cell.expect("a variable in a cell");
+                            f.ins().local_get(cell);
+                        }
+                        Captured::Outer(index) => self.capture_field(f, *index),
+                    }
                 }
-                f.ins().struct_new(self.reprs.func_value(*ty));
+                let ty = match self.closure_of(*func) {
+                    Some(closure) => self.reprs.closure_type(closure),
+                    None => self.reprs.func_value(*ty),
+                };
+                f.ins().struct_new(ty);
+            }
+            Expr::Capture { index, rep, check } => {
+                self.capture(f, *index, *rep, check.as_ref());
             }
             Expr::Closure {
                 func,

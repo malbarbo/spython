@@ -1,16 +1,17 @@
 //! Functions as values: the name of a function of the module and a
-//! `lambda`.
-
-use std::collections::HashSet;
+//! `lambda`, with the variables that it captures.
 
 use ruff_python_ast as ast;
-use ruff_python_ast::visitor::{Visitor, walk_expr};
+use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::expr_shape;
 
+use super::capture::{Captures, free_names_of_lambda};
 use super::class::param;
-use super::{Lowering, Scope, Vars, check_self, unsupported};
+use super::{Lowering, Scope, ScopeCapture, Vars, check_self, unsupported};
 use crate::Error;
-use crate::ir::{Binding, CmpOp, Expr, Func, FuncId, Place, Rep, Stmt};
+use crate::ir::{
+    Binding, Capture, Captured, Check, CmpOp, Expr, Func, FuncId, Place, Rep, Stmt, Undefined,
+};
 
 impl Lowering<'_, '_> {
     /// The value of `lambda`, the node `expr`, whose code is a function of
@@ -35,16 +36,8 @@ impl Lowering<'_, '_> {
         };
         let names = lambda_params(lambda)?;
         let ty_of = self.func_type_of(ty);
-        if let Some(scope) = self.scope.borrow().as_ref()
-            && let Some(name) = free_names(lambda)
-                .into_iter()
-                .find(|name| scope.is_local(name.id.as_str()))
-        {
-            return Err(unsupported(
-                name,
-                "a lambda that reads a variable of its function",
-            ));
-        }
+        let (captured, captures) =
+            self.closure_captures(expr, lambda.range(), free_names_of_lambda(lambda))?;
         let mut vars = Vars::default();
         for (name, rep) in names.iter().zip(&ty_of.params) {
             check_self(name.as_str(), *rep, *name)?;
@@ -60,6 +53,8 @@ impl Lowering<'_, '_> {
             vars,
             namespace: Vec::new(),
             class: None,
+            inner: Captures::default(),
+            captures: captures.clone(),
         };
         let (scope, body) = self.in_scope(scope, || {
             let value = self.expr(&lambda.body)?;
@@ -79,6 +74,13 @@ impl Lowering<'_, '_> {
             code.index(),
             Func {
                 value: Some(ty),
+                captures: captures
+                    .iter()
+                    .map(|capture| Capture {
+                        rep: capture.rep,
+                        cell: capture.cell,
+                    })
+                    .collect(),
                 alias: None,
                 ordered: false,
                 frame: true,
@@ -91,8 +93,126 @@ impl Lowering<'_, '_> {
         Ok(Expr::Closure {
             func: code,
             ty,
-            captures: Some(Vec::new()),
+            captures: Some(captured),
         })
+    }
+
+    /// What a new value of the function at `range`, inside the function
+    /// that the lowering is in, holds for each variable of that function
+    /// among the `names` that it reads, and the captures of its code. A
+    /// function of the module captures nothing.
+    fn closure_captures(
+        &self,
+        node: &impl Ranged,
+        range: TextRange,
+        names: Vec<&str>,
+    ) -> Result<(Vec<Captured>, Vec<ScopeCapture>), Error> {
+        let scope = self.scope.borrow();
+        let Some(scope) = scope.as_ref() else {
+            return Ok((Vec::new(), Vec::new()));
+        };
+        let mut captured = Vec::new();
+        let mut captures = Vec::new();
+        for name in names {
+            let (value, capture) = if scope.is_local(name) {
+                let (var, rep) = scope
+                    .vars
+                    .find(name)
+                    .ok_or_else(|| unsupported(node, "a capture of a variable of this type"))?;
+                if rep == Rep::None {
+                    return Err(unsupported(node, "a capture of a variable of None"));
+                }
+                let cell = scope.inner.cells.contains(name);
+                let unbound = scope
+                    .inner
+                    .funcs
+                    .get(&range)
+                    .and_then(|names| names.iter().find(|(found, _)| found == name))
+                    .is_some_and(|(_, unbound)| *unbound);
+                let value = if cell {
+                    Captured::Cell(var)
+                } else {
+                    Captured::Value(Expr::Load {
+                        place: Place::Local(var),
+                        rep,
+                        check: None,
+                    })
+                };
+                let capture = ScopeCapture {
+                    name: name.to_owned(),
+                    rep,
+                    cell,
+                    unbound,
+                };
+                (value, capture)
+            } else if let Some((index, outer)) = scope
+                .captures
+                .iter()
+                .enumerate()
+                .find(|(_, capture)| capture.name == name)
+            {
+                let index = u32::try_from(index).expect("fewer than 2^32 captures");
+                let value = if outer.cell {
+                    Captured::Outer(index)
+                } else {
+                    Captured::Value(Expr::Capture {
+                        index,
+                        rep: outer.rep,
+                        check: None,
+                    })
+                };
+                (value, outer.clone())
+            } else {
+                continue;
+            };
+            captured.push(value);
+            captures.push(capture);
+        }
+        Ok((captured, captures))
+    }
+
+    /// The read `name` of a variable that the function that the lowering
+    /// is in captures, and `None` for a name that it does not capture.
+    pub(super) fn captured(&self, name: &ast::ExprName) -> Option<Expr> {
+        let id = name.id.as_str();
+        let (index, capture) = {
+            let scope = self.scope.borrow();
+            let (index, capture) = scope
+                .as_ref()?
+                .captures
+                .iter()
+                .enumerate()
+                .find(|(_, capture)| capture.name == id)?;
+            (index, capture.clone())
+        };
+        let check = capture.unbound.then(|| {
+            let mut error = self.name_error(id);
+            let base = format!("name '{id}' is not defined");
+            let free = format!(
+                "cannot access free variable '{id}' where it is not associated with a value \
+                 in enclosing scope"
+            );
+            error.text = error.text.replacen(&base, &free, 1);
+            error.suggested.0 = error.suggested.0.replacen(&base, &free, 1);
+            Check {
+                site: self.site(name.range()),
+                error: Undefined::Global(Box::new(error)),
+            }
+        });
+        Some(Expr::Capture {
+            index: u32::try_from(index).expect("fewer than 2^32 captures"),
+            rep: capture.rep,
+            check,
+        })
+    }
+
+    /// Returns `true` if the function that the lowering is in captures
+    /// `name`, `false` otherwise.
+    pub(super) fn captures(&self, name: &str) -> bool {
+        self.scope
+            .borrow()
+            .as_ref()
+            .is_some_and(|scope| scope.captures.iter().any(|capture| capture.name == name))
     }
 
     /// What `lower` gives in `scope`, and the scope after it, with the
@@ -217,49 +337,4 @@ fn lambda_params(lambda: &ast::ExprLambda) -> Result<Vec<&ast::Identifier>, Erro
         .iter()
         .map(|param| &param.parameter.name)
         .collect())
-}
-
-/// Each name that `lambda` reads and does not bind, in the order of the
-/// code, with the names that a `lambda` inside it reads and does not bind.
-fn free_names(lambda: &ast::ExprLambda) -> Vec<&ast::ExprName> {
-    struct Free<'a> {
-        /// The names that each `lambda` around the code binds.
-        bound: Vec<HashSet<&'a str>>,
-        found: Vec<&'a ast::ExprName>,
-    }
-    impl<'a> Free<'a> {
-        fn lambda(&mut self, lambda: &'a ast::ExprLambda) {
-            let params = lambda
-                .parameters
-                .iter()
-                .flat_map(|parameters| parameters.iter_non_variadic_params())
-                .map(|param| param.parameter.name.as_str())
-                .collect();
-            self.bound.push(params);
-            self.visit_expr(&lambda.body);
-            self.bound.pop();
-        }
-    }
-    impl<'a> Visitor<'a> for Free<'a> {
-        fn visit_expr(&mut self, expr: &'a ast::Expr) {
-            match expr {
-                ast::Expr::Name(name)
-                    if !self
-                        .bound
-                        .iter()
-                        .any(|bound| bound.contains(name.id.as_str())) =>
-                {
-                    self.found.push(name);
-                }
-                ast::Expr::Lambda(lambda) => self.lambda(lambda),
-                expr => walk_expr(self, expr),
-            }
-        }
-    }
-    let mut free = Free {
-        bound: Vec::new(),
-        found: Vec::new(),
-    };
-    free.lambda(lambda);
-    free.found
 }
