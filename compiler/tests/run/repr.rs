@@ -143,6 +143,9 @@ fn the_repr_of_a_function_is_unsupported_where_the_code_asks_for_it() {
     for (place, code) in [
         ("repr(dobro)", "repr(dobro)"),
         ("Passo(dobro)", "f: Callable[[int], int]"),
+        ("[dobro]", "print([dobro])"),
+        ("f'{[dobro]}'", "f'{[dobro]}'"),
+        ("repr([[dobro]])", "repr([[dobro]])"),
     ] {
         assert_eq!(
             unsupported_at(&source.replace("PLACE", place)),

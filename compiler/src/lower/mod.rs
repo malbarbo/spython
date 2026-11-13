@@ -96,6 +96,7 @@ pub(crate) fn lower(
         types: RefCell::new(Vec::new()),
         raises: Cell::new(false),
         uniform_repr: Cell::new(false),
+        prelude_error: Cell::new(None),
         uniform_hash: Cell::new(None),
     };
     let suite = main.module.suite().as_slice();
@@ -299,6 +300,9 @@ struct Lowering<'a, 'db> {
     raises: Cell<bool>,
     /// Whether the program gives the `repr` of a uniform value.
     uniform_repr: Cell<bool>,
+    /// The range of an error in the code of the prelude that the program
+    /// asked for, which the expression of the program takes as its own.
+    prelude_error: Cell<Option<TextRange>>,
     /// The function that gives the `hash` of a uniform value, once a table
     /// needs it.
     uniform_hash: Cell<Option<FuncId>>,

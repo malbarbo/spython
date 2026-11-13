@@ -567,7 +567,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let signature = self.signature(def, None);
         self.types.replace(outer_types);
         self.unit.set(outer);
-        let (id, params, ret) = signature?;
+        let (id, params, ret) = self.mark_prelude_error(signature)?;
         let sig = Sig {
             unit,
             def: Some(def),
@@ -595,8 +595,40 @@ impl<'a, 'db> Lowering<'a, 'db> {
         if let Some(flag) = self.funcs.borrow_mut().raises.get_mut(func.index()) {
             *flag = raises;
         }
-        self.lowered.borrow_mut().insert(func.index(), lowered?);
+        self.lowered
+            .borrow_mut()
+            .insert(func.index(), self.mark_prelude_error(lowered)?);
         Ok(Some(func))
+    }
+
+    /// `result`, the lowering of code of the prelude. An error that goes
+    /// back to the code of the program is marked for
+    /// [`Self::at_expression`].
+    fn mark_prelude_error<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
+        if let Err(Error::Unsupported { range, .. }) = &result
+            && !self.in_prelude()
+        {
+            self.prelude_error.set(Some(*range));
+        }
+        result
+    }
+
+    /// `result`, the lowering of `expr`, with an error of the prelude that
+    /// [`Self::mark_prelude_error`] marked at the range of `expr`, which is in
+    /// the file of the program.
+    pub(super) fn at_expression<T>(
+        &self,
+        expr: &ast::Expr,
+        mut result: Result<T, Error>,
+    ) -> Result<T, Error> {
+        if let Err(Error::Unsupported { range, .. }) = &mut result
+            && !self.in_prelude()
+            && self.prelude_error.get() == Some(*range)
+        {
+            self.prelude_error.set(None);
+            *range = expr.range();
+        }
+        result
     }
 
     /// The site of the call of `func` at `node`, and `None` when the call

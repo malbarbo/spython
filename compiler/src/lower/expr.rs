@@ -153,6 +153,11 @@ impl<'a> Lowering<'a, '_> {
     }
 
     pub(super) fn expr(&self, expr: &ast::Expr) -> Result<Expr, Error> {
+        let lowered = self.lower_expr(expr);
+        self.at_expression(expr, lowered)
+    }
+
+    fn lower_expr(&self, expr: &ast::Expr) -> Result<Expr, Error> {
         if let Some(value) = self.substitute(expr) {
             return Ok(value);
         }
