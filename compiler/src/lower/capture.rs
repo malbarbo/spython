@@ -403,7 +403,6 @@ impl<'a> Free<'a> {
         values: &[&'a ast::Expr],
         inside: bool,
     ) {
-        let mut bound = 0;
         for (i, generator) in generators.iter().enumerate() {
             if !(inside && i == 0) {
                 self.visit_expr(&generator.iter);
@@ -413,7 +412,6 @@ impl<'a> Free<'a> {
                 names.insert(name.id.as_str());
             }
             self.bound.push(names);
-            bound += 1;
             for test in &generator.ifs {
                 self.visit_expr(test);
             }
@@ -421,6 +419,6 @@ impl<'a> Free<'a> {
         for value in values {
             self.visit_expr(value);
         }
-        self.bound.truncate(self.bound.len() - bound);
+        self.bound.truncate(self.bound.len() - generators.len());
     }
 }
