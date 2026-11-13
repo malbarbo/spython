@@ -46,6 +46,30 @@ fn the_first_iterable_of_a_comprehension_reads_the_names_around_it() {
 }
 
 #[test]
+fn a_comprehension_calls_its_variable_that_holds_a_function() {
+    same_as_cpython(
+        "a_comprehension_calls_its_variable_that_holds_a_function",
+        indoc! {"
+            from typing import Callable
+
+            def f(x: int) -> int:
+                return x + 100
+
+            def dobro(x: int) -> int:
+                return 2 * x
+
+            fs = [dobro]
+            print([f(3) for f in fs])
+
+            def aplica(gs: list[Callable[[int], int]]) -> list[int]:
+                return [h(3) for h in gs]
+
+            print(aplica([dobro, f]))
+        "},
+    );
+}
+
+#[test]
 fn a_comprehension_inside_a_lambda_captures_the_names_it_reads() {
     same_as_cpython(
         "a_comprehension_inside_a_lambda_captures_the_names_it_reads",

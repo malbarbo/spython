@@ -52,6 +52,20 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
+    /// Returns `true` if `name` reads a variable, `false` if it reads a
+    /// function or a class. The sources are the ones of `load`.
+    pub(super) fn is_variable(&self, name: &str) -> bool {
+        let local = self
+            .scope
+            .borrow()
+            .as_ref()
+            .is_some_and(|scope| scope.is_local(name));
+        self.comprehension_var(name).is_some()
+            || self.captures(name)
+            || local
+            || self.vars.borrow().ids.contains_key(name)
+    }
+
     /// The value of the variable that `name` reads.
     pub(super) fn load(&self, name: &ast::ExprName) -> Result<Expr, Error> {
         let id = name.id.as_str();

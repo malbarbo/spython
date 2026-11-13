@@ -25,12 +25,7 @@ impl<'a> Lowering<'a, '_> {
             return self.call_value(call);
         };
         let callee = name.id.as_str();
-        let local = self
-            .scope
-            .borrow()
-            .as_ref()
-            .is_some_and(|scope| scope.is_local(callee));
-        if local || self.captures(callee) || self.vars.borrow().ids.contains_key(callee) {
+        if self.is_variable(callee) {
             return self.call_value(call);
         }
         // The checker sees no function, and binds no argument, in a name
