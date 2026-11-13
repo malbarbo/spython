@@ -7,7 +7,7 @@ use ruff_python_ast as ast;
 use ty_python_semantic::types::lowering::expr_shape;
 
 use super::generator::Consume;
-use super::{Lowering, unsupported};
+use super::{Lowering, TypeArg, unsupported};
 use crate::Error;
 use crate::ir::{Expr, MinMaxOp, Place, Rep, Stmt};
 
@@ -42,7 +42,7 @@ impl Lowering<'_, '_> {
             Some(Rep::Object(_)) if arg.is_generator_expr() => {
                 return Err(unsupported(arg, "min or max of a generator of objects"));
             }
-            Some(Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_)) => {}
+            Some(item) if is_ordered(item) => {}
             Some(_) => return Err(unsupported(arg, "min or max of a list of this type")),
             None => return Err(unsupported(arg, "min or max of this iterable")),
         }
@@ -51,6 +51,66 @@ impl Lowering<'_, '_> {
             MinMaxOp::Max => "max_of",
         };
         self.module_call(call, "consumers", name, vec![list])
+    }
+
+    /// `min` or `max` with a `key`, of a list or of two or more values of
+    /// one type, which go in a list. CPython calls `key` for each value as
+    /// it comes, and compares the result with the result of the extreme so
+    /// far, with `<` for `min` and `>` for `max`. A `key` of `None` is no
+    /// key.
+    pub(super) fn min_max_key(&self, call: &ast::ExprCall, op: MinMaxOp) -> Result<Expr, Error> {
+        let list = match &*call.arguments.args {
+            [] => return Err(unsupported(call, "min or max of an iterable")),
+            // CPython calls `key` for each value as the generator gives it.
+            [arg] if arg.is_generator_expr() => {
+                return Err(unsupported(arg, "min or max of a generator with a key"));
+            }
+            [arg] => {
+                let list = self.expr(arg)?;
+                match list.rep().list().map(|list| self.list_item(list)) {
+                    Some(item) if is_ordered(item) => list,
+                    Some(_) => return Err(unsupported(arg, "min or max of a list of this type")),
+                    None => return Err(unsupported(arg, "min or max of this iterable")),
+                }
+            }
+            args => {
+                let items = args
+                    .iter()
+                    .map(|arg| self.expr(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let rep = items.first().map(Expr::rep).expect("two or more values");
+                if !is_ordered(rep) {
+                    return Err(unsupported(call, "min or max of values of this type"));
+                }
+                if items.iter().any(|item| item.rep() != rep) {
+                    return Err(unsupported(call, "min or max of values of two types"));
+                }
+                let classes = Vec::new();
+                let list = self.list_of(TypeArg { rep, classes });
+                Expr::List { list, items }
+            }
+        };
+        let key = match &*call.arguments.keywords {
+            [keyword]
+                if keyword
+                    .arg
+                    .as_ref()
+                    .is_some_and(|arg| arg.as_str() == "key") =>
+            {
+                match &keyword.value {
+                    ast::Expr::NoneLiteral(_) => None,
+                    value => Some(self.key(value)?),
+                }
+            }
+            _ => return Err(unsupported(call, "min or max with these keyword arguments")),
+        };
+        let (name, args) = match (op, key) {
+            (MinMaxOp::Min, Some(key)) => ("min_key", vec![list, key]),
+            (MinMaxOp::Max, Some(key)) => ("max_key", vec![list, key]),
+            (MinMaxOp::Min, None) => ("min_of", vec![list]),
+            (MinMaxOp::Max, None) => ("max_of", vec![list]),
+        };
+        self.module_call(call, "consumers", name, args)
     }
 
     /// `any(xs)` or `all(xs)` of a list, which `name` gives, or of a
@@ -150,20 +210,7 @@ impl Lowering<'_, '_> {
         for keyword in &call.arguments.keywords {
             match keyword.arg.as_ref().map(ast::Identifier::as_str) {
                 Some("key") if keyword.value.is_none_literal_expr() => key = None,
-                Some("key") => {
-                    let value = self.expr(&keyword.value)?;
-                    let Rep::Func(ty) = value.rep() else {
-                        return Err(unsupported(&keyword.value, "a key of this type"));
-                    };
-                    let ret = self.func_type_of(ty).ret;
-                    if !matches!(
-                        ret,
-                        Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_)
-                    ) {
-                        return Err(unsupported(&keyword.value, "a key of this type"));
-                    }
-                    key = Some(value);
-                }
+                Some("key") => key = Some(self.key(&keyword.value)?),
                 Some("reverse") => {
                     reverse = self.expr(&keyword.value)?;
                     if reverse.rep() != Rep::Bool {
@@ -174,6 +221,19 @@ impl Lowering<'_, '_> {
             }
         }
         Ok((key, reverse))
+    }
+
+    /// The function of `node`, the `key` of `sort`, `sorted`, `min` or
+    /// `max`, whose results the prelude compares.
+    fn key(&self, node: &ast::Expr) -> Result<Expr, Error> {
+        let value = self.expr(node)?;
+        let Rep::Func(ty) = value.rep() else {
+            return Err(unsupported(node, "a key of this type"));
+        };
+        if !is_ordered(self.func_type_of(ty).ret) {
+            return Err(unsupported(node, "a key of this type"));
+        }
+        Ok(value)
     }
 
     /// The call at `call` of the function of the module `sort` of the
@@ -195,4 +255,13 @@ impl Lowering<'_, '_> {
         };
         self.module_call(call, "sort", name, args)
     }
+}
+
+/// Returns `true` if the prelude compares values of `rep` with `<` and
+/// `>`, `false` otherwise.
+fn is_ordered(rep: Rep) -> bool {
+    matches!(
+        rep,
+        Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_)
+    )
 }

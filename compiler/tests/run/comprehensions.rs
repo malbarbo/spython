@@ -559,3 +559,83 @@ fn sorted_of_another_iterable_is_unsupported() {
         "a key of this type"
     );
 }
+
+#[test]
+fn min_and_max_with_a_key_compare_the_keys() {
+    same_as_cpython(
+        "min_and_max_with_a_key_compare_the_keys",
+        indoc! {"
+            import math
+            from typing import Callable
+
+
+            def tam(w: str) -> int:
+                return len(w)
+
+
+            def absoluto(n: int) -> int:
+                return abs(n)
+
+
+            def mesmo(x: float) -> float:
+                return x
+
+
+            def k(w: str) -> int:
+                print('k', w)
+                return len(w)
+
+
+            class P:
+                n: int
+
+                def __init__(self, n: int) -> None:
+                    self.n = n
+
+                def __repr__(self) -> str:
+                    return f'P({self.n})'
+
+
+            def valor(p: P) -> int:
+                return p.n
+
+
+            ws = ['banana', 'uva', 'kiwi', 'abacate', 'figo']
+            print(min(ws, key=tam), max(ws, key=tam), max(ws, key=None))
+            print(min('b', 'aa', 'c', key=tam), max(3, -7, 5, key=absoluto))
+            fs = [2.0, math.nan, 1.0]
+            print(max(fs, key=mesmo), min(fs, key=mesmo))
+            print(max(ws, key=k))
+            ps = [P(3), P(1), P(2)]
+            print(min(ps, key=valor), max(ps, key=valor))
+            f: Callable[[str], int] = lambda w: -len(w)
+            print(min(ws, key=f))
+            vazia: list[str] = []
+            print(max(vazia, key=tam))
+        "},
+    );
+}
+
+#[test]
+fn min_and_max_of_a_generator_with_a_key_are_unsupported() {
+    let source = |call: &str| {
+        format!(
+            indoc! {"
+                def tam(w: str) -> int:
+                    return len(w)
+
+                ws = ['a']
+                print({})
+            "},
+            call
+        )
+    };
+    assert_eq!(
+        unsupported(&source("min((w for w in ws), key=tam)")),
+        "min or max of a generator with a key"
+    );
+    assert_eq!(
+        unsupported(&source("max(ws, key=tam, default='')")),
+        "min or max with these keyword arguments"
+    );
+}

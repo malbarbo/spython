@@ -1,6 +1,9 @@
 """The builtins that consume a list: `sum`, `min`, `max`, `any` and `all`. Each one reads the
 length of the list at each turn, as the iterator of a list does."""
 
+# The checker of spython takes `Callable` from `typing` alone.
+from typing import Callable  # noqa: UP035
+
 from __spython_prelude__.intrinsics import item
 from __spython_prelude__.math import isfinite
 
@@ -67,6 +70,41 @@ def max_of[T](xs: list[T]) -> T:
         # The compiler takes `max(best, x)` of no object, and T may be a class.
         if x > best:  # noqa: PLR1730
             best = x
+        i += 1
+    return best
+
+
+def min_key[T, K](xs: list[T], key: Callable[[T], K]) -> T:
+    """`min(xs, key=key)`, the first item whose key no later key is less than. `key` runs once
+    for each item, before the comparison of its result."""
+    if len(xs) == 0:
+        raise ValueError("min() iterable argument is empty")
+    best = item(xs, 0)
+    best_key = key(best)
+    i = 1
+    while i < len(xs):
+        x = item(xs, i)
+        k = key(x)
+        if k < best_key:
+            best = x
+            best_key = k
+        i += 1
+    return best
+
+
+def max_key[T, K](xs: list[T], key: Callable[[T], K]) -> T:
+    """`max(xs, key=key)`, the first item whose key no later key is greater than."""
+    if len(xs) == 0:
+        raise ValueError("max() iterable argument is empty")
+    best = item(xs, 0)
+    best_key = key(best)
+    i = 1
+    while i < len(xs):
+        x = item(xs, i)
+        k = key(x)
+        if k > best_key:
+            best = x
+            best_key = k
         i += 1
     return best
 

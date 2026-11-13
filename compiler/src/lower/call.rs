@@ -395,7 +395,7 @@ impl<'a> Lowering<'a, '_> {
     /// `bool` are two types here, because the result keeps its type.
     pub(super) fn min_max(&self, call: &ast::ExprCall, op: MinMaxOp) -> Result<Expr, Error> {
         if !call.arguments.keywords.is_empty() {
-            return Err(unsupported(call, "min or max with keyword arguments"));
+            return self.min_max_key(call, op);
         }
         let [first, rest @ ..] = &*call.arguments.args else {
             return Err(unsupported(call, "min or max of an iterable"));
