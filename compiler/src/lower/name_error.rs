@@ -12,6 +12,11 @@ impl<'a> Lowering<'a, '_> {
     /// the candidates of the suggestion of CPython. Each candidate that the
     /// program asks about gets a flag.
     pub(super) fn name_error(&self, name: &str) -> NameError {
+        self.name_error_with(name, format!("name '{name}' is not defined"))
+    }
+
+    /// [`Self::name_error`] with `base` as the text before the suggestion.
+    pub(super) fn name_error_with(&self, name: &str, base: String) -> NameError {
         let mut scope = self.scope.borrow_mut();
         let mut module = self.vars.borrow_mut();
         let mut funcs = self.funcs.borrow_mut();
@@ -180,7 +185,6 @@ impl<'a> Lowering<'a, '_> {
         if let Some(binding) = self_attr {
             flag(binding, false);
         }
-        let base = format!("name '{name}' is not defined");
         let (import, or_import) = if names::STDLIB_MODULES.binary_search(&name).is_ok() {
             (
                 format!(". Did you forget to import '{name}'?"),
@@ -260,6 +264,13 @@ fn group_of<'m>(
 
 pub(super) fn unbound_local(name: &str) -> String {
     format!("cannot access local variable '{name}' where it is not associated with a value")
+}
+
+pub(super) fn free_variable(name: &str) -> String {
+    format!(
+        "cannot access free variable '{name}' where it is not associated with a value in \
+         enclosing scope"
+    )
 }
 
 /// The prefix of the names that spython keeps for itself, which the checker

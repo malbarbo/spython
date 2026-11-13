@@ -7,6 +7,7 @@ use ty_python_semantic::types::lowering::expr_shape;
 
 use super::capture::{Captures, free_names_of_def, free_names_of_lambda};
 use super::class::param;
+use super::name_error::free_variable;
 use super::{
     Comprehension, Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported,
 };
@@ -251,14 +252,7 @@ impl<'a> Lowering<'a, '_> {
             (index, capture.clone())
         };
         let check = capture.unbound.then(|| {
-            let mut error = self.name_error(id);
-            let base = format!("name '{id}' is not defined");
-            let free = format!(
-                "cannot access free variable '{id}' where it is not associated with a value \
-                 in enclosing scope"
-            );
-            error.text = error.text.replacen(&base, &free, 1);
-            error.suggested.0 = error.suggested.0.replacen(&base, &free, 1);
+            let error = self.name_error_with(id, free_variable(id));
             Check {
                 site: self.site(name.range()),
                 error: Undefined::Global(Box::new(error)),
