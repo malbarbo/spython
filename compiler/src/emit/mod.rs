@@ -336,14 +336,7 @@ impl Emitter<'_> {
                 f.ins().i32_const(1).local_set(defined);
             }
             if let Some(cell) = slots.cell {
-                let ty = self.reprs.cell_type(var.rep);
-                f.ins()
-                    .local_get(cell)
-                    .local_get(slots.value)
-                    .struct_set(ty, 0)
-                    .local_get(cell)
-                    .i32_const(1)
-                    .struct_set(ty, 1);
+                self.set_cell(&mut f, cell, var.rep, slots.value);
             }
         }
         let env = self.closure_of(id).map(|closure| {
@@ -710,17 +703,10 @@ impl Emitter<'_> {
                 match cell {
                     Some(cell) => {
                         let rep = self.var(place).rep;
-                        let ty = self.reprs.cell_type(rep);
                         let temp =
                             f.temp(self.reprs.local_type(rep).expect("a variable has a value"));
-                        f.ins()
-                            .local_set(temp)
-                            .local_get(cell)
-                            .local_get(temp)
-                            .struct_set(ty, 0)
-                            .local_get(cell)
-                            .i32_const(1)
-                            .struct_set(ty, 1);
+                        f.ins().local_set(temp);
+                        self.set_cell(f, cell, rep, temp);
                         f.free(temp);
                     }
                     None => {
@@ -960,6 +946,19 @@ impl Emitter<'_> {
         f.ins().local_set(found);
         f.br(suggested);
         f.end();
+    }
+
+    /// Stores the value of the local `value` in `cell`, a cell of a variable
+    /// of `rep`, which then has a value.
+    fn set_cell(&self, f: &mut FuncState, cell: LocalIdx, rep: Rep, value: LocalIdx) {
+        let ty = self.reprs.cell_type(rep);
+        f.ins()
+            .local_get(cell)
+            .local_get(value)
+            .struct_set(ty, 0)
+            .local_get(cell)
+            .i32_const(1)
+            .struct_set(ty, 1);
     }
 
     /// Pushes an `i32` that is not 0 when `binding` has a value. The flag of
