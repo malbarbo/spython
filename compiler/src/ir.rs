@@ -20,6 +20,9 @@ pub(crate) struct Program {
     pub classes: Vec<UserClass>,
     /// The types of the lists of the program, by their [`ListId`].
     pub lists: Vec<ListType>,
+    /// The types of the functions that the program holds as values, by
+    /// their [`FuncTypeId`].
+    pub func_types: Vec<FuncType>,
     /// The frame of each place that can raise, by its [`Site`].
     pub sites: Vec<SiteFrame>,
     /// The function that gives the `repr` of a `str`, when the program
@@ -68,6 +71,7 @@ id! {
     ImportId, "imports";
     ClassId, "classes";
     ListId, "types of lists";
+    FuncTypeId, "types of functions";
 }
 
 /// A variable of the module, or of a function, by its place in the list
@@ -93,7 +97,7 @@ pub(crate) struct Var {
 }
 
 /// A function of the module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct FuncId(u32);
 
 /// A name of the module that an import binds.
@@ -155,7 +159,21 @@ pub(crate) struct ListType {
     pub repr: Option<FuncId>,
 }
 
+/// A type of function of the program, which the reps of its parameters
+/// and of its result tell apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct FuncTypeId(u32);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct FuncType {
+    pub params: Vec<Rep>,
+    pub ret: Rep,
+}
+
 pub(crate) struct Func {
+    /// The type of function of a value whose code is this function, which
+    /// takes the value before its parameters.
+    pub value: Option<FuncTypeId>,
     /// The function that a call of this one calls in its place, with the
     /// same arguments, when this one has no code of its own. The first
     /// parameter of the other one may be of a class that this one's
@@ -358,6 +376,12 @@ pub(crate) enum Expr {
     },
     /// `-` on a `float`, which gives `-0.0` for `0.0`.
     FloatNeg(Box<Expr>),
+    /// A value of the type of function `ty`, whose code is `func`, a
+    /// function with [`Func::value`].
+    Closure {
+        func: FuncId,
+        ty: FuncTypeId,
+    },
     /// `abs` of an `int`. The result of the least `int` does not fit, and
     /// stops the program at the site.
     IntAbs {
@@ -1283,6 +1307,8 @@ pub(crate) enum Rep {
     ListOrNone(ListId),
     /// The `hash` of CPython of a value, which only the prelude holds.
     Hash,
+    /// A value of the type of function.
+    Func(FuncTypeId),
 }
 
 /// A literal that a field of a member of an `Enum` holds.
@@ -1307,6 +1333,15 @@ impl Rep {
     pub(crate) fn class(self) -> Option<ClassId> {
         match self {
             Rep::Object(class) | Rep::ObjectOrNone(class) => Some(class),
+            _ => None,
+        }
+    }
+
+    /// The type of function of `self`, and `None` for a rep of another
+    /// type.
+    pub(crate) fn func(self) -> Option<FuncTypeId> {
+        match self {
+            Rep::Func(ty) => Some(ty),
             _ => None,
         }
     }
@@ -1415,6 +1450,7 @@ impl Expr {
             | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
             Expr::List { list, .. } => Rep::List(*list),
+            Expr::Closure { ty, .. } => Rep::Func(*ty),
             Expr::ChainLeft(rep) | Expr::ChainRight(rep) | Expr::LogicLeft(rep) => *rep,
             Expr::Logic { value, .. } => value.rep(),
             Expr::IfElse { then, .. } => then.rep(),

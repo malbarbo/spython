@@ -2,6 +2,7 @@
 
 mod call;
 mod class;
+mod closure;
 mod doctest;
 mod expr;
 mod flow;
@@ -30,8 +31,8 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{
-    ClassId, Expr, Func, FuncId, Import, ImportId, ListId, ListType, Place, Program, Rep, Site,
-    SiteFrame, Stmt, Var, VarId,
+    ClassId, Expr, Func, FuncId, FuncType, FuncTypeId, Import, ImportId, ListId, ListType, Place,
+    Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
 };
 use crate::{Docstring, Error};
 use class::Classes;
@@ -75,6 +76,8 @@ pub(crate) fn lower(
         imports: RefCell::new(Imports::default()),
         classes: RefCell::new(Classes::default()),
         lists: RefCell::new(Lists::default()),
+        func_types: RefCell::new(FuncTypes::default()),
+        values: RefCell::new(HashMap::new()),
         assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
         lines: RefCell::new(HashMap::new()),
@@ -141,6 +144,7 @@ pub(crate) fn lower(
                 })
                 .collect()
         },
+        func_types: lowering.func_types.into_inner().list,
         sites: lowering.sites.into_inner(),
         str_repr,
     })
@@ -241,6 +245,10 @@ struct Lowering<'a, 'db> {
     imports: RefCell<Imports>,
     classes: RefCell<Classes<'a>>,
     lists: RefCell<Lists>,
+    func_types: RefCell<FuncTypes>,
+    /// The function that gives the value of each function of the module
+    /// whose name the program reads as a value.
+    values: RefCell<HashMap<FuncId, FuncId>>,
     /// The globals that a function declares with `global`, which a call may
     /// assign between a test of the value and a read.
     assigned_globals: RefCell<HashSet<String>>,
@@ -358,6 +366,13 @@ struct Lists {
     /// The function that gives the `repr` of a list of each type, once the
     /// program writes one.
     reprs: Vec<Option<FuncId>>,
+}
+
+/// The types of the functions that the program holds as values.
+#[derive(Default)]
+struct FuncTypes {
+    ids: HashMap<FuncType, FuncTypeId>,
+    list: Vec<FuncType>,
 }
 
 #[derive(Default)]
@@ -864,6 +879,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let scope = self.scope.take().expect("the scope of the function");
         Ok(Func {
+            value: None,
             alias: None,
             ordered: false,
             frame: !self.in_prelude(),
@@ -945,6 +961,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             })
             .collect();
         let func = Func {
+            value: None,
             alias: None,
             ordered: false,
             frame,
@@ -956,11 +973,21 @@ impl<'a, 'db> Lowering<'a, 'db> {
         self.lowered.borrow_mut().insert(id.index(), func);
     }
 
+    /// [`Self::define`] of the code of a value of the type of function
+    /// `ty`, without a frame.
+    fn define_value(&self, id: FuncId, ty: FuncTypeId, body: Vec<Stmt>) {
+        self.define(id, false, body);
+        if let Some(func) = self.lowered.borrow_mut().get_mut(&id.index()) {
+            func.value = Some(ty);
+        }
+    }
+
     /// Makes `id`, a function of [`Self::reserve`], call `target` in its
     /// place.
     fn alias(&self, id: FuncId, target: FuncId) {
         let sig = self.funcs.borrow().get(id).clone();
         let func = Func {
+            value: None,
             alias: Some(target),
             ordered: false,
             frame: false,
@@ -1039,6 +1066,24 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 };
                 Some(Rep::List(self.list_of(TypeArg { rep, classes })))
             }
+            Shape::Callable(params, ret) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.rep_of(Some(param)))
+                    .collect::<Option<Vec<_>>>()?;
+                let ret = match *ret {
+                    Shape::None => Rep::None,
+                    ret => self.rep_of(Some(ret))?,
+                };
+                Some(Rep::Func(self.func_type(params, ret)))
+            }
+            Shape::Function(def) => {
+                let funcs = self.funcs.borrow();
+                let sig = funcs.get(*funcs.ids.get(&def)?);
+                let (params, ret) = (sig.params.clone(), sig.ret);
+                drop(funcs);
+                Some(Rep::Func(self.func_type(params, ret)))
+            }
             Shape::TypeVar(name) => self
                 .types
                 .borrow()
@@ -1057,6 +1102,20 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
             _ => None,
         }
+    }
+
+    /// The type of a function with parameters of `params` and a result of
+    /// `ret`, which the first call for it creates.
+    fn func_type(&self, params: Vec<Rep>, ret: Rep) -> FuncTypeId {
+        let mut types = self.func_types.borrow_mut();
+        let ty = FuncType { params, ret };
+        if let Some(id) = types.ids.get(&ty) {
+            return *id;
+        }
+        let id = FuncTypeId::new(types.list.len());
+        types.list.push(ty.clone());
+        types.ids.insert(ty, id);
+        id
     }
 
     /// The type of a list whose items have the type `arg`, which the first
@@ -1132,6 +1191,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 Some(func) => func,
                 None if has_def => self.func(id)?,
                 None => Func {
+                    value: None,
                     alias: None,
                     ordered: false,
                     frame: false,
@@ -1249,8 +1309,9 @@ impl Lowering<'_, '_> {
             (Rep::ListOrNone(list), _) => {
                 matches!(value, Rep::None) || value == Rep::List(list) || value == rep
             }
-            // The dispatch of a uniform value knows no list.
-            (Rep::Uniform, _) => value.list().is_none(),
+            // The dispatch of a uniform value knows no list and no
+            // function.
+            (Rep::Uniform, _) => value.list().is_none() && value.func().is_none(),
             _ => rep == value,
         }
     }
@@ -1284,7 +1345,10 @@ impl Lowering<'_, '_> {
                 .all(|rep| *rep == Rep::None || rep.list() == Some(list))
         {
             Rep::ListOrNone(list)
-        } else if pair.iter().all(|rep| rep.list().is_none()) {
+        } else if pair
+            .iter()
+            .all(|rep| rep.list().is_none() && rep.func().is_none())
+        {
             Rep::Uniform
         } else {
             return None;
@@ -1313,6 +1377,7 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
         }
         Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "a variable self of a list")),
         Rep::Hash => Err(unsupported(node, "a variable self of a hash")),
+        Rep::Func(_) => Err(unsupported(node, "a variable self of a function")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
     }
 }

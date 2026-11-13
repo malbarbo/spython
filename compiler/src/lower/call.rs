@@ -289,6 +289,9 @@ impl<'a> Lowering<'a, '_> {
                             self.class_conversion(class, false);
                         }
                     }
+                    // CPython writes the address of the function too, which
+                    // changes from one run to the next.
+                    Rep::Func(_) => return Err(unsupported(arg, "print of a function")),
                     _ => {}
                 }
                 Ok(value)
@@ -336,7 +339,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash => Err(unsupported(arg, "abs of this type")),
+            | Rep::Hash
+            | Rep::Func(_) => Err(unsupported(arg, "abs of this type")),
         }
     }
 
@@ -438,7 +442,8 @@ impl<'a> Lowering<'a, '_> {
                 | Rep::ObjectOrNone(_)
                 | Rep::List(_)
                 | Rep::ListOrNone(_)
-                | Rep::Hash,
+                | Rep::Hash
+                | Rep::Func(_),
                 _,
             ) => Err(unsupported(arg, "round of this type")),
         }
@@ -458,7 +463,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash => Err(unsupported(digits, "round to this number of digits")),
+            | Rep::Hash
+            | Rep::Func(_) => Err(unsupported(digits, "round to this number of digits")),
         }
     }
 
@@ -554,7 +560,8 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::ObjectOrNone(_)
                     | Rep::List(_)
                     | Rep::ListOrNone(_)
-                    | Rep::Hash => Err(unsupported(arg, "float of this type")),
+                    | Rep::Hash
+                    | Rep::Func(_) => Err(unsupported(arg, "float of this type")),
                 }
             }
             _ => Err(unsupported(call, "this call of float")),
@@ -612,6 +619,11 @@ impl<'a> Lowering<'a, '_> {
                 }
             }
             Rep::Hash => unreachable!("the prelude writes no hash"),
+            // CPython writes the address of the function too, which changes
+            // from one run to the next.
+            Rep::Func(_) => {
+                return Err(unsupported(&TextRange::default(), "the repr of a function"));
+            }
         })
     }
 
@@ -637,7 +649,8 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::ObjectOrNone(_)
                     | Rep::List(_)
                     | Rep::ListOrNone(_)
-                    | Rep::Hash => Err(unsupported(arg, "int of this type")),
+                    | Rep::Hash
+                    | Rep::Func(_) => Err(unsupported(arg, "int of this type")),
                 }
             }
             ([arg, base], []) => self.int_with_base(call, arg, base),

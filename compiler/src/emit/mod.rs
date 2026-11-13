@@ -5,6 +5,8 @@ pub(crate) mod module;
 mod repr;
 mod runtime;
 
+use std::collections::HashMap;
+
 use wasm_encoder::{BlockType, ConstExpr, ValType};
 
 use crate::cpython::{Class, Message, RANGE_STEP_ZERO, RECURSION_ERROR};
@@ -26,6 +28,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         program.tests.is_some(),
         &program.classes,
         &program.lists,
+        &program.func_types,
     );
     let vars = program
         .vars
@@ -51,7 +54,10 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
                 .map(|var| reprs.local_type(var.rep).expect("a parameter has a value"))
                 .collect();
             let results: Vec<ValType> = reprs.value_type(func.ret).into_iter().collect();
-            let ty = m.func_type(&params, &results);
+            let ty = match func.value {
+                Some(ty) => reprs.func_code(ty),
+                None => m.func_type(&params, &results),
+            };
             Some(FuncSlots {
                 index: m.reserve(ty),
                 // No `def` binds a function of the prelude.
@@ -135,6 +141,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         imports,
         classes,
         order,
+        values: HashMap::new(),
         code: Code {
             func: None,
             site: Some(site),
@@ -189,6 +196,9 @@ struct Emitter<'a> {
     /// its flag at its first binding, when the program has an ordered
     /// global.
     order: Option<GlobalIdx>,
+    /// The global of the value of each function with
+    /// [`Func::value`] that the program reads.
+    values: HashMap<FuncId, GlobalIdx>,
     code: Code,
 }
 
@@ -240,12 +250,14 @@ struct FuncSlots {
 
 impl Emitter<'_> {
     fn func(&mut self, id: FuncId, func: &Func) {
-        let mut f = FuncState::new(func.params);
+        // The code of a value takes the value before the parameters.
+        let first = u32::from(func.value.is_some());
+        let mut f = FuncState::new(first + func.params);
         let site = func.frame.then(|| f.local(ValType::I32));
         let mut vars = Vec::new();
         for (i, var) in func.vars.iter().enumerate() {
             let value = match u32::try_from(i) {
-                Ok(param) if param < func.params => f.param(param),
+                Ok(param) if param < func.params => f.param(first + param),
                 _ => f.local(
                     self.reprs
                         .local_type(var.rep)
@@ -974,6 +986,18 @@ impl Emitter<'_> {
             Expr::BoolAsInt(operand) => {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);
+            }
+            Expr::Closure { func, ty } => {
+                let global = match self.values.get(func) {
+                    Some(global) => *global,
+                    None => {
+                        let index = self.func_slots(*func).index;
+                        let global = self.m.func_global(self.reprs.func_value(*ty), index);
+                        self.values.insert(*func, global);
+                        global
+                    }
+                };
+                f.ins().global_get(global);
             }
             Expr::Arith {
                 op,

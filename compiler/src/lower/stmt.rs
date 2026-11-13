@@ -14,7 +14,7 @@ use crate::ir::{ArithOp, CmpOp, Expr, FuncId, Place, Rep, Stmt};
 
 /// The modules that a program may import. No import runs code in the
 /// compiled program.
-const MODULES: [&str; 3] = ["math", "enum", "dataclasses"];
+const MODULES: [&str; 4] = ["math", "enum", "dataclasses", "typing"];
 
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
@@ -302,10 +302,12 @@ impl<'a> Lowering<'a, '_> {
                     return Err(unsupported(alias, "an import of every name"));
                 }
                 // The compiler reads `Enum`, `auto` and `dataclass` in the
-                // form of a class alone, and every name of `math` at its use.
+                // form of a class alone, `Callable` in an annotation alone,
+                // and every name of `math` at its use.
                 let known = |name: &str| match module {
                     "enum" => ["Enum", "auto"].contains(&name),
                     "dataclasses" => name == "dataclass",
+                    "typing" => name == "Callable",
                     _ => true,
                 };
                 if let Some(alias) = i.names.iter().find(|alias| !known(alias.name.as_str())) {

@@ -288,7 +288,7 @@ fn a_def_outside_what_the_compiler_covers_is_unsupported() {
 
             print(f)
         "}),
-        "a function as a value"
+        "print of a function"
     );
     assert_eq!(
         unsupported(indoc! {"

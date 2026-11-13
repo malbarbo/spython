@@ -12,6 +12,7 @@ use engine::Level;
 use engine::check::check_source;
 
 mod classes;
+mod closures;
 mod control;
 mod corpus;
 mod dataclasses;

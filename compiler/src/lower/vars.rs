@@ -95,7 +95,7 @@ impl<'a> Lowering<'a, '_> {
                 return Err(unsupported(name, "a name of an import as a value"));
             }
             if self.funcs.borrow().names.contains_key(id) {
-                return Err(unsupported(name, "a function as a value"));
+                return self.func_value(name);
             }
             if self.classes.borrow().names.contains_key(id) {
                 return Err(unsupported(name, "a class as a value"));

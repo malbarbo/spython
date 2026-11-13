@@ -65,6 +65,8 @@ pub(crate) enum Composite {
     Struct(Vec<(StorageType, bool)>),
     /// An array of the type, which is mutable when the `bool` is `true`.
     Array(StorageType, bool),
+    /// A function with the parameters and the results.
+    Func(Vec<ValType>, Vec<ValType>),
 }
 
 /// The index of an exception tag in the module.
@@ -214,6 +216,12 @@ impl ModuleState {
                     Composite::Array(element_type, mutable) => {
                         CompositeInnerType::Array(ArrayType(field(&(*element_type, *mutable))))
                     }
+                    Composite::Func(params, results) => {
+                        CompositeInnerType::Func(wasm_encoder::FuncType::new(
+                            params.iter().copied(),
+                            results.iter().copied(),
+                        ))
+                    }
                 };
                 SubType {
                     is_final,
@@ -352,6 +360,16 @@ impl ModuleState {
         );
         self.global_count += 1;
         GlobalIdx(self.global_count - 1)
+    }
+
+    /// A global that holds a new struct of `ty`, whose one field is a
+    /// reference to `func`.
+    pub fn func_global(&mut self, ty: TypeIdx, func: FuncIdx) -> GlobalIdx {
+        let init = ConstExpr::extended([
+            wasm_encoder::Instruction::RefFunc(func.0),
+            wasm_encoder::Instruction::StructNew(ty.0),
+        ]);
+        self.global(ty.ref_to(true), &init)
     }
 
     pub fn passive_data(&mut self, bytes: Vec<u8>) -> DataIdx {

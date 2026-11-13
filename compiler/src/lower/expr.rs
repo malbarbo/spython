@@ -545,6 +545,7 @@ impl<'a> Lowering<'a, '_> {
             }),
             Rep::None => Err(unsupported(node, "str of None")),
             Rep::Hash => Err(unsupported(node, "str of a hash")),
+            Rep::Func(_) => Err(unsupported(node, "str of a function")),
             Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
             // The `str` of a list is its `repr`.
             Rep::List(_) | Rep::ListOrNone(_) => self.repr_of(lowered, range),
@@ -638,7 +639,13 @@ impl<'a> Lowering<'a, '_> {
                     // A value that the checker narrows to `None` has no
                     // reference, and gets the null of the other class.
                     let reference = |value: Expr, other: Rep| match (value.rep(), other) {
-                        (rep, _) if rep.class().is_some() || rep.list().is_some() => Some(value),
+                        (rep, _)
+                            if rep.class().is_some()
+                                || rep.list().is_some()
+                                || rep.func().is_some() =>
+                        {
+                            Some(value)
+                        }
                         (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
                             self.coerce(value, Rep::ObjectOrNone(class))
                         }
@@ -740,6 +747,22 @@ impl<'a> Lowering<'a, '_> {
                 self.coerce(lowered, rep)
                     .expect("the join holds every operand")
             });
+            let first = operands.next().expect("a comparison has a first operand");
+            return Ok(Expr::Compare(
+                Box::new(first),
+                ops.into_iter().zip(operands).collect(),
+            ));
+        }
+        // A function is equal to itself alone.
+        if let Some((first, _)) = operands.first()
+            && let rep @ Rep::Func(_) = first.rep()
+        {
+            if operands.iter().any(|(lowered, _)| lowered.rep() != rep)
+                || ops.iter().any(|op| !matches!(op, CmpOp::Eq | CmpOp::Ne))
+            {
+                return Err(unsupported(c, "this comparison of functions"));
+            }
+            let mut operands = operands.into_iter().map(|(lowered, _)| lowered);
             let first = operands.next().expect("a comparison has a first operand");
             return Ok(Expr::Compare(
                 Box::new(first),
@@ -1068,7 +1091,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash => Err(unsupported(
+            | Rep::Hash
+            | Rep::Func(_) => Err(unsupported(
                 operand,
                 "an operator on a value that is not an int",
             )),
@@ -1092,7 +1116,8 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         | Rep::ObjectOrNone(_)
         | Rep::List(_)
         | Rep::ListOrNone(_)
-        | Rep::Hash => Err(unsupported(
+        | Rep::Hash
+        | Rep::Func(_) => Err(unsupported(
             operand,
             "an operator on a value that is not a number",
         )),

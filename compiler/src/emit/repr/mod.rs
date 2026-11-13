@@ -21,8 +21,9 @@ use crate::cpython::{
     Message, STR_INDEX_OUT_OF_RANGE,
 };
 use crate::ir::{
-    ArithOp, BitOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp, ListId,
-    ListType, Literal, MathFunc, MathFunc2, Rep, SiteFrame, UserClass,
+    ArithOp, BitOp, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp, FloatFunc2, FloatOp,
+    FuncType, FuncTypeId, ListId, ListType, Literal, MathFunc, MathFunc2, Rep, SiteFrame,
+    UserClass,
 };
 use float::FloatRepr;
 use int::IntRepr;
@@ -101,6 +102,7 @@ impl Reprs {
         tests: bool,
         classes: &[UserClass],
         lists: &[ListType],
+        funcs: &[FuncType],
     ) -> Self {
         let mut str = StrRepr::ucs4(m, host);
         let exc = Exceptions::new(m, host, &mut str, tests);
@@ -110,7 +112,7 @@ impl Reprs {
         // or a list, and an item of a list may be an object or another list,
         // so the types refer to each other by the indices that they will have
         // in their rec group.
-        let layout = Layout::new(m.next_type_index(), classes, lists.len());
+        let layout = Layout::new(m.next_type_index(), classes, lists.len(), funcs.len());
         let list_types: Vec<(TypeIdx, TypeIdx)> =
             (0..lists.len()).map(|i| layout.list(i)).collect();
         let mut reprs = Reprs {
@@ -172,25 +174,55 @@ impl Reprs {
         let mut others = Vec::new();
         for (list, &(_, items)) in lists.iter().zip(&list_types) {
             let item = reprs.local_type(list.item).expect("an item has a value");
-            others.extend(ListRepr::composites(items, item));
+            others.extend(
+                ListRepr::composites(items, item)
+                    .into_iter()
+                    .map(|composite| (composite, true)),
+            );
+        }
+        // The struct of a value of a type of function is open, for the
+        // values whose code captures variables.
+        for (i, func) in funcs.iter().enumerate() {
+            let (value, code) = reprs.layout.func(i);
+            let params = std::iter::once(value.ref_to(true))
+                .chain(
+                    func.params
+                        .iter()
+                        .map(|rep| reprs.local_type(*rep).expect("a parameter has a value")),
+                )
+                .collect();
+            let results = reprs.value_type(func.ret).into_iter().collect();
+            others.push((
+                Composite::Struct(vec![(StorageType::Val(code.ref_to(false)), false)]),
+                false,
+            ));
+            others.push((Composite::Func(params, results), true));
         }
         let node = reprs.layout.repr_node();
         let guarded = classes.iter().any(|class| class.repr_guard);
         if guarded {
             let object = reprs.uniform.val_type();
-            others.push(Composite::Struct(vec![
-                (StorageType::Val(object), false),
-                (StorageType::Val(node.ref_to(true)), false),
-            ]));
+            others.push((
+                Composite::Struct(vec![
+                    (StorageType::Val(object), false),
+                    (StorageType::Val(node.ref_to(true)), false),
+                ]),
+                true,
+            ));
         }
-        composites.extend(others.iter().map(|composite| (composite, None, true)));
+        composites.extend(
+            others
+                .iter()
+                .map(|(composite, is_final)| (composite, None, *is_final)),
+        );
         let mut group = m.rec_group(&composites);
         if guarded {
             let top = m.global(node.ref_to(true), &ConstExpr::ref_null(node.heap_type()));
             reprs.repr_stack = Some((group.pop().expect("the node of the stack"), top));
         }
         let listed: Vec<TypeIdx> = list_types.iter().flat_map(|(a, b)| [*a, *b]).collect();
-        let group_lists = group.split_off(reprs.layout.class_types());
+        let mut group_lists = group.split_off(reprs.layout.class_types());
+        group_lists.truncate(listed.len());
         debug_assert_eq!(group_lists, listed, "the lists in their rec group");
         group.truncate(classes.len());
         debug_assert_eq!(
@@ -517,8 +549,19 @@ impl Reprs {
             Rep::Object(class) | Rep::ObjectOrNone(class) => Some(self.class(class).ref_to(true)),
             Rep::List(list) | Rep::ListOrNone(list) => Some(self.list_type(list).ref_to(true)),
             Rep::Hash => Some(ValType::I64),
+            Rep::Func(ty) => Some(self.func_value(ty).ref_to(true)),
             Rep::None => None,
         }
+    }
+
+    /// The struct of a value of the type of function `ty`.
+    pub fn func_value(&self, ty: FuncTypeId) -> TypeIdx {
+        self.layout.func(ty.index()).0
+    }
+
+    /// The type of the code of a value of the type of function `ty`.
+    pub fn func_code(&self, ty: FuncTypeId) -> TypeIdx {
+        self.layout.func(ty.index()).1
     }
 
     /// The struct of a list of the type `list`.
@@ -565,6 +608,7 @@ impl Reprs {
                 ConstExpr::ref_null(self.list_type(list).heap_type())
             }
             Rep::Hash => ConstExpr::i64_const(0),
+            Rep::Func(ty) => ConstExpr::ref_null(self.func_value(ty).heap_type()),
             Rep::None => unreachable!("a variable of rep None"),
         };
         m.global(ty, &init)
@@ -787,7 +831,13 @@ impl Reprs {
             | Rep::ListOrNone(_) => {
                 f.ins().ref_is_null();
             }
-            Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::List(_) | Rep::Hash => {
+            Rep::Int
+            | Rep::Float
+            | Rep::Bool
+            | Rep::Str
+            | Rep::List(_)
+            | Rep::Hash
+            | Rep::Func(_) => {
                 f.ins().drop().i32_const(0);
             }
         }
@@ -859,7 +909,8 @@ impl Reprs {
                 };
                 f.ins().call(func);
             }
-            Rep::Object(_) | Rep::ObjectOrNone(_) => {
+            // A function is true.
+            Rep::Object(_) | Rep::ObjectOrNone(_) | Rep::Func(_) => {
                 f.ins().ref_is_null().i32_eqz();
             }
             Rep::List(list) => {
@@ -916,7 +967,8 @@ impl Reprs {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash => unreachable!("the str of {rep:?}"),
+            | Rep::Hash
+            | Rep::Func(_) => unreachable!("the str of {rep:?}"),
         }
     }
 
@@ -1624,8 +1676,9 @@ impl Reprs {
                     CmpOp::Ge => ins.i32_ge_u(),
                 };
             }
-            // A member of an `Enum` is equal to itself alone.
-            Rep::Object(_) | Rep::ObjectOrNone(_) => {
+            // A member of an `Enum` and a function are equal to themselves
+            // alone.
+            Rep::Object(_) | Rep::ObjectOrNone(_) | Rep::Func(_) => {
                 let mut ins = f.ins();
                 match op {
                     CmpOp::Eq => ins.ref_eq(),
@@ -1711,6 +1764,7 @@ impl Reprs {
                 f.free(value);
             }
             Rep::Hash => unreachable!("the prelude writes no hash"),
+            Rep::Func(_) => unreachable!("a write of a function"),
         }
     }
 

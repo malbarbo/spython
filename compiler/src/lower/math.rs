@@ -278,7 +278,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash => Err(unsupported(arg, "a function of math of this type")),
+            | Rep::Hash
+            | Rep::Func(_) => Err(unsupported(arg, "a function of math of this type")),
         }
     }
 
@@ -297,7 +298,8 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash => Err(unsupported(arg, "a function of math of this type")),
+            | Rep::Hash
+            | Rep::Func(_) => Err(unsupported(arg, "a function of math of this type")),
         }
     }
 

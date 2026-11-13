@@ -9,7 +9,9 @@ use crate::ir::{ClassId, Rep, UserClass};
 /// The types of the rec group, from `first`. The struct of each class comes
 /// first, each after the struct of its base, then the exact type of each
 /// class with subclasses, then the struct and the array of each type of
-/// list, and then the node of the stack of the objects whose `repr` runs.
+/// list, then the struct of a value and the type of the code of each type
+/// of function, and then the node of the stack of the objects whose `repr`
+/// runs.
 ///
 /// A struct of a class with subclasses is not final, and a `ref.test` on
 /// such a type costs more than one on a final type. The exact type of the
@@ -21,6 +23,7 @@ pub(crate) struct Layout {
     /// The number of classes with subclasses.
     exacts: usize,
     lists: usize,
+    funcs: usize,
 }
 
 /// What the layout knows of a class.
@@ -34,7 +37,7 @@ struct Shape {
 }
 
 impl Layout {
-    pub fn new(first: TypeIdx, classes: &[UserClass], lists: usize) -> Self {
+    pub fn new(first: TypeIdx, classes: &[UserClass], lists: usize, funcs: usize) -> Self {
         let mut exacts = 0;
         let classes = classes
             .iter()
@@ -59,6 +62,7 @@ impl Layout {
             classes,
             exacts,
             lists,
+            funcs,
         }
     }
 
@@ -123,9 +127,20 @@ impl Layout {
         (ty, ty.plus(1))
     }
 
+    /// The struct of a value of the type of function at `func`, and the
+    /// type of its code, which takes the value before the parameters.
+    pub fn func(&self, func: usize) -> (TypeIdx, TypeIdx) {
+        assert!(func < self.funcs, "a type of function of the program");
+        let ty = self
+            .first
+            .plus(self.class_types() + 2 * self.lists + 2 * func);
+        (ty, ty.plus(1))
+    }
+
     /// The node of the stack of the objects whose `repr` runs.
     pub fn repr_node(&self) -> TypeIdx {
-        self.first.plus(self.class_types() + 2 * self.lists)
+        self.first
+            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs)
     }
 
     /// The struct of an object of `class`, with a field of the type that

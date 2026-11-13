@@ -197,9 +197,10 @@ fn has_attribute(rep: Option<Rep>, name: &str) -> bool {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
-            | Rep::Hash,
+            | Rep::Hash
+            | Rep::Func(_),
         ) => {
-            unreachable!("a self of a union, of a class or of a hash")
+            unreachable!("a self of a union, of a class, of a hash or of a function")
         }
         None => names::FUNCTION_ATTRIBUTES,
     };
