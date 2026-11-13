@@ -5,12 +5,10 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::expr_shape;
 
-use super::capture::{Captures, free_names_of_def, free_names_of_lambda};
+use super::capture::{free_names_of_def, free_names_of_lambda};
 use super::class::param;
 use super::name_error::free_variable;
-use super::{
-    Comprehension, Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported,
-};
+use super::{Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported};
 use crate::Error;
 use crate::ir::{
     Binding, Capture, Captured, Check, CmpOp, Expr, Func, FuncId, FuncType, FuncTypeId, Place, Rep,
@@ -62,20 +60,15 @@ impl<'a> Lowering<'a, '_> {
             check_self(name.as_str(), *rep, *name)?;
             vars.add(name.as_str(), *rep);
         }
-        let scope = Scope {
-            params: names.len(),
-            doctest: None,
-            name: "<lambda>".to_owned(),
-            ret: ty_of.ret,
-            locals: names.iter().map(|name| name.to_string()).collect(),
-            order: names.iter().map(|name| name.to_string()).collect(),
+        let order = names.iter().map(|name| name.to_string()).collect();
+        let scope = Scope::function(
+            "<lambda>".to_owned(),
+            names.len(),
+            ty_of.ret,
             vars,
-            namespace: Vec::new(),
-            class: None,
-            inner: Captures::default(),
+            order,
             captures,
-            comprehension: Comprehension::default(),
-        };
+        );
         let (scope, body) = self.in_scope(scope, || {
             let value = self.expr(&lambda.body)?;
             Ok(match ty_of.ret {

@@ -531,6 +531,32 @@ struct ScopeCapture {
 }
 
 impl Scope {
+    /// The scope of a function named `name` whose locals are `order`, of
+    /// which the first `params` are its parameters.
+    fn function(
+        name: String,
+        params: usize,
+        ret: Rep,
+        vars: Vars,
+        order: Vec<String>,
+        captures: Vec<ScopeCapture>,
+    ) -> Scope {
+        Scope {
+            params,
+            doctest: None,
+            name,
+            ret,
+            locals: order.iter().cloned().collect(),
+            order,
+            vars,
+            namespace: Vec::new(),
+            class: None,
+            inner: Captures::default(),
+            captures,
+            comprehension: Comprehension::default(),
+        }
+    }
+
     /// Returns `true` if `name` is a local of the function, `false` when
     /// the function reads it from the module.
     fn is_local(&self, name: &str) -> bool {
@@ -952,18 +978,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .map(str::to_owned)
             .collect();
         let scope = Scope {
-            params: params.len(),
-            doctest: None,
-            name: def.name.to_string(),
-            ret,
             locals,
-            order,
-            vars,
-            namespace: Vec::new(),
-            class: None,
-            inner: Captures::default(),
-            captures,
-            comprehension: Comprehension::default(),
+            ..Scope::function(
+                def.name.to_string(),
+                params.len(),
+                ret,
+                vars,
+                order,
+                captures,
+            )
         };
         (scope, bindings)
     }

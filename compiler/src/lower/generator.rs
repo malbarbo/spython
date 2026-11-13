@@ -7,9 +7,9 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
-use super::capture::{Captures, free_names_of_generator};
+use super::capture::free_names_of_generator;
 use super::flow::names_in;
-use super::{Comprehension, Lowering, Scope, ScopeCapture, Vars, unsupported};
+use super::{Lowering, Scope, ScopeCapture, Vars, unsupported};
 use crate::Error;
 use crate::ir::{Captured, Expr, Place, Rep, Stmt};
 
@@ -149,20 +149,7 @@ impl Lowering<'_, '_> {
                 },
             ));
         }
-        let scope = Scope {
-            params: 1,
-            doctest: None,
-            name: "<genexpr>".to_owned(),
-            ret,
-            locals: order.iter().cloned().collect(),
-            order,
-            vars,
-            namespace: Vec::new(),
-            class: None,
-            inner: Captures::default(),
-            captures,
-            comprehension: Comprehension::default(),
-        };
+        let scope = Scope::function("<genexpr>".to_owned(), 1, ret, vars, order, captures);
         let ty = self.func_type(vec![first_rep], ret);
         let (scope, body) = self.in_scope(scope, || {
             *self.substitutes.borrow_mut() = substitutes;
