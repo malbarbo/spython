@@ -39,6 +39,9 @@ simplecode engine protocol, in `ENGINE.md` of the simplecode repository.
 Run `make check` and `make test-rs` before you call a change done. Do not
 leave test files in the root of the repository.
 
+When a stage of a plan is done, run `/code-review` and then `/simplify` on
+the commits of the stage.
+
 If the REPL fails with `ImportError: No such frozen object named
 _frozen_importlib`, the frozen stdlib cache is stale. Run `cargo clean -p
 rustpython-pylib`.
