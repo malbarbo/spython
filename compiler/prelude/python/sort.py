@@ -51,10 +51,10 @@ def sort_items[T: Ordered](items: list[T], reverse: bool) -> None:
     if len(items) > 1:
         empty: list[T] = []
         if reverse:
-            reverse_items(items, 0, len(items))
+            items.reverse()
         Sort(items, empty, False).run()
         if reverse:
-            reverse_items(items, 0, len(items))
+            items.reverse()
 
 
 def sort_items_key[T, K: Ordered](
@@ -69,18 +69,17 @@ def sort_items_key[T, K: Ordered](
         i += 1
     if len(items) > 1:
         if reverse:
-            reverse_items(keys, 0, len(keys))
-            reverse_items(items, 0, len(items))
+            keys.reverse()
+            items.reverse()
         Sort(keys, items, True).run()
         if reverse:
-            reverse_items(items, 0, len(items))
+            items.reverse()
 
 
 def take[T](xs: list[T]) -> list[T]:
     """A new list with the items of `xs`, which becomes empty and without an array."""
     items = copy(xs)
-    list_truncate(xs, 0)
-    list_reserve(xs, 0)
+    xs.clear()
     return items
 
 
