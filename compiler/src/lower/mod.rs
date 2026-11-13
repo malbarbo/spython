@@ -831,12 +831,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             return Err(unsupported(def, "this def"));
         }
         let parameters = &def.parameters;
-        if !parameters.posonlyargs.is_empty()
-            || parameters.vararg.is_some()
-            || parameters.kwarg.is_some()
-        {
-            return Err(unsupported(&**parameters, "these parameters"));
-        }
+        check_params(parameters)?;
         if let Some(param) = params_of(def).nth(MAX_PARAMS) {
             return Err(unsupported(param, "a def with more than 1000 parameters"));
         }
@@ -1523,6 +1518,18 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
         Rep::Func(_) => Err(unsupported(node, "a variable self of a function")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
     }
+}
+
+/// Checks that `parameters` has no positional-only parameter, no `*args`
+/// and no `**kwargs`.
+fn check_params(parameters: &ast::Parameters) -> Result<(), Error> {
+    if !parameters.posonlyargs.is_empty()
+        || parameters.vararg.is_some()
+        || parameters.kwarg.is_some()
+    {
+        return Err(unsupported(parameters, "these parameters"));
+    }
+    Ok(())
 }
 
 /// The read of a variable that [`Lowering::hold`] gives.

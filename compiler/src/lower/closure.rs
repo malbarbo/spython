@@ -8,7 +8,9 @@ use ty_python_semantic::types::lowering::expr_shape;
 use super::capture::{free_names_of_def, free_names_of_lambda};
 use super::class::param;
 use super::name_error::free_variable;
-use super::{Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported};
+use super::{
+    Lowering, Scope, ScopeCapture, Vars, check_params, check_self, params_of, unsupported,
+};
 use crate::Error;
 use crate::ir::{
     Binding, Capture, Captured, Check, CmpOp, Expr, Func, FuncId, FuncType, FuncTypeId, Place, Rep,
@@ -370,10 +372,8 @@ fn lambda_params(lambda: &ast::ExprLambda) -> Result<Vec<&ast::Identifier>, Erro
     let Some(parameters) = lambda.parameters.as_deref() else {
         return Ok(Vec::new());
     };
-    if !parameters.posonlyargs.is_empty()
-        || parameters.vararg.is_some()
-        || !parameters.kwonlyargs.is_empty()
-        || parameters.kwarg.is_some()
+    check_params(parameters)?;
+    if !parameters.kwonlyargs.is_empty()
         || parameters.args.iter().any(|param| param.default.is_some())
     {
         return Err(unsupported(parameters, "these parameters"));
