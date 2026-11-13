@@ -336,26 +336,40 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// `for target in iter` over a list or a `str`, as a `while` over an
-    /// index. The test reads the length of the list each time, so an
-    /// `append` in the body makes the loop longer, as the iterator of
-    /// CPython does. The iterable runs once, before the loop.
     fn for_(&self, f: &'a ast::StmtFor) -> Result<Vec<Stmt>, Error> {
         if f.is_async {
             return Err(unsupported(f, "this statement"));
         }
-        if let Some(range) = self.range_call(&f.iter) {
-            return self.for_range(f, range).map(|stmt| vec![stmt]);
+        self.for_loop(&f.target, &f.iter, &mut || self.body(&f.body), &f.orelse)
+    }
+
+    /// `for target in iter` with the code that `body` gives, which the
+    /// lowering lowers once the target has its value, and the `else` of
+    /// `else_`. A loop over a list or a `str` is a `while` over an index.
+    /// The test reads the length of the list each time, so an `append` in
+    /// the body makes the loop longer, as the iterator of CPython does.
+    /// The iterable runs once, before the loop.
+    pub(super) fn for_loop(
+        &self,
+        target: &'a ast::Expr,
+        iter: &'a ast::Expr,
+        body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
+        else_: &'a [ast::Stmt],
+    ) -> Result<Vec<Stmt>, Error> {
+        if let Some(range) = self.range_call(iter) {
+            return self
+                .for_range(target, range, body, else_)
+                .map(|stmt| vec![stmt]);
         }
-        if let Some(stmts) = self.for_dict(f)? {
+        if let Some(stmts) = self.for_dict(target, iter, body, else_)? {
             return Ok(stmts);
         }
-        let seq = self.expr(&f.iter)?;
+        let seq = self.expr(iter)?;
         let rep = seq.rep();
         if !matches!(rep, Rep::List(_) | Rep::Str) {
-            return Err(unsupported(&*f.iter, "a for over this type"));
+            return Err(unsupported(iter, "a for over this type"));
         }
-        let site = self.site(f.iter.range());
+        let site = self.site(iter.range());
         let (seq_var, index) = (self.hidden_var(rep), self.hidden_var(Rep::Int));
         let read = |place, rep| {
             Box::new(Expr::Load {
@@ -376,10 +390,10 @@ impl<'a> Lowering<'a, '_> {
                 site,
             },
         };
-        let (target, item) = self.target(&f.target, item)?;
-        let mut body = vec![
+        let (place, item) = self.target(target, item)?;
+        let mut lowered = vec![
             Stmt::Assign {
-                targets: vec![target],
+                targets: vec![place],
                 value: item,
             },
             Stmt::Assign {
@@ -392,7 +406,7 @@ impl<'a> Lowering<'a, '_> {
                 },
             },
         ];
-        body.extend(self.body(&f.body)?);
+        lowered.extend(body()?);
         let len = Expr::Len {
             operand: read(seq_var, rep),
             site,
@@ -408,8 +422,8 @@ impl<'a> Lowering<'a, '_> {
             },
             Stmt::While {
                 cond: Expr::Compare(read(index, Rep::Int), vec![(CmpOp::Lt, len)]),
-                body,
-                else_: self.body(&f.orelse)?,
+                body: lowered,
+                else_: self.body(else_)?,
             },
         ])
     }
@@ -420,8 +434,14 @@ impl<'a> Lowering<'a, '_> {
     /// or of `SetIter` of the prelude holds the place of the loop, and its
     /// method `next` raises the errors of a `dict` or a `set` that changes,
     /// at the iterable.
-    fn for_dict(&self, f: &'a ast::StmtFor) -> Result<Option<Vec<Stmt>>, Error> {
-        let (value, part) = dict_part(&f.iter);
+    fn for_dict(
+        &self,
+        target: &'a ast::Expr,
+        iter: &'a ast::Expr,
+        body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
+        else_: &'a [ast::Stmt],
+    ) -> Result<Option<Vec<Stmt>>, Error> {
+        let (value, part) = dict_part(iter);
         match expr_shape(self.model(), value) {
             Some(Shape::Dict(..)) => {}
             Some(Shape::Set(_)) if part == "keys" => {}
@@ -429,9 +449,9 @@ impl<'a> Lowering<'a, '_> {
         }
         let dict = self.expr(value)?;
         let Rep::Object(class) = dict.rep() else {
-            return Err(unsupported(&*f.iter, "a for over this type"));
+            return Err(unsupported(iter, "a for over this type"));
         };
-        let site = self.site(f.iter.range());
+        let site = self.site(iter.range());
         let iter = self.method_func(class, "iter").expect("a copy with iter");
         let iter_rep = self.funcs.borrow().get(iter).ret;
         let iter_class = iter_rep.class().expect("an object of an iterator");
@@ -448,7 +468,7 @@ impl<'a> Lowering<'a, '_> {
             let rep = self.funcs.borrow().get(func).ret;
             generated_call(func, vec![read()], rep, site)
         };
-        let mut body = match (part, &*f.target) {
+        let mut lowered = match (part, target) {
             ("items", ast::Expr::Tuple(tuple)) if tuple.elts.len() == 2 => {
                 let mut assigns = Vec::new();
                 for (target, name) in tuple.elts.iter().zip(["key", "value"]) {
@@ -470,7 +490,7 @@ impl<'a> Lowering<'a, '_> {
                 }]
             }
         };
-        body.extend(self.body(&f.body)?);
+        lowered.extend(body()?);
         Ok(Some(vec![
             Stmt::Assign {
                 targets: vec![iter_var],
@@ -478,8 +498,8 @@ impl<'a> Lowering<'a, '_> {
             },
             Stmt::While {
                 cond: call("next"),
-                body,
-                else_: self.body(&f.orelse)?,
+                body: lowered,
+                else_: self.body(else_)?,
             },
         ]))
     }
@@ -495,7 +515,13 @@ impl<'a> Lowering<'a, '_> {
     /// `for target in range(...)`, with the arguments in the order of the
     /// call. `range(stop)` starts at 0, and the step is 1 without a third
     /// argument.
-    fn for_range(&self, f: &'a ast::StmtFor, range: &ast::ExprCall) -> Result<Stmt, Error> {
+    fn for_range(
+        &self,
+        target: &'a ast::Expr,
+        range: &ast::ExprCall,
+        body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
+        else_: &'a [ast::Stmt],
+    ) -> Result<Stmt, Error> {
         if !range.arguments.keywords.is_empty() {
             return Err(unsupported(range, "a range with these arguments"));
         }
@@ -512,14 +538,14 @@ impl<'a> Lowering<'a, '_> {
             (Some(start), Some(stop), Some(step), None) => (start, stop, step),
             _ => return Err(unsupported(range, "a range with these arguments")),
         };
-        let (var, _) = self.place(&f.target, Rep::Int)?;
+        let (var, _) = self.place(target, Rep::Int)?;
         Ok(Stmt::ForRange {
             var,
             start,
             stop,
             step,
-            body: self.body(&f.body)?,
-            else_: self.body(&f.orelse)?,
+            body: body()?,
+            else_: self.body(else_)?,
             site: self.site(range.range()),
         })
     }
