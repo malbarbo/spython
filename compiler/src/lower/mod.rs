@@ -853,10 +853,41 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     fn func_of(&self, sig: &Sig<'a, 'db>) -> Result<Func, Error> {
         let def = sig.def.expect("a function with a def");
+        let (mut scope, bindings) = self.def_scope(def, &sig.params, sig.ret, Vec::new());
+        scope.doctest = sig.doctest.map(|docstring| DoctestScope {
+            owner: docstring.owner.clone(),
+            example: None,
+        });
+        *self.scope.borrow_mut() = Some(scope);
+        let body = self.def_body(def, &bindings, sig.ret, sig.doctest)?;
+        let scope = self.scope.take().expect("the scope of the function");
+        Ok(Func {
+            value: None,
+            captures: Vec::new(),
+            alias: None,
+            ordered: false,
+            frame: !self.in_prelude(),
+            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
+            vars: scope.vars.list,
+            ret: sig.ret,
+            body,
+        })
+    }
+
+    /// The scope of the body of `def`, a function with parameters of
+    /// `params`, a result of `ret` and the captures `captures`, together
+    /// with what the body binds.
+    fn def_scope(
+        &self,
+        def: &'a ast::StmtFunctionDef,
+        params: &[Rep],
+        ret: Rep,
+        captures: Vec<ScopeCapture>,
+    ) -> (Scope, Bindings<'a>) {
         let mut vars = Vars::default();
         let mut locals = HashSet::new();
         let mut order = Vec::new();
-        for (param, rep) in params_of(def).zip(&sig.params) {
+        for (param, rep) in params_of(def).zip(params) {
             let name = param.parameter.name.as_str();
             vars.add(name, *rep);
             locals.insert(name.to_owned());
@@ -872,46 +903,45 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .filter(|name| locals.contains(*name) && seen.insert(*name))
             .map(str::to_owned)
             .collect();
-        *self.scope.borrow_mut() = Some(Scope {
-            params: sig.params.len(),
-            doctest: sig.doctest.map(|docstring| DoctestScope {
-                owner: docstring.owner.clone(),
-                example: None,
-            }),
+        let scope = Scope {
+            params: params.len(),
+            doctest: None,
             name: def.name.to_string(),
-            ret: sig.ret,
+            ret,
             locals,
             order,
             vars,
             namespace: Vec::new(),
             class: None,
             inner: Captures::default(),
-            captures: Vec::new(),
-        });
-        self.declare_vars(&bindings)?;
+            captures,
+        };
+        (scope, bindings)
+    }
+
+    /// The code of `def`, whose result has `ret`, in the scope of its body,
+    /// which `bindings` gives. The body of a function of a docstring runs
+    /// the examples of `doctest`.
+    fn def_body(
+        &self,
+        def: &'a ast::StmtFunctionDef,
+        bindings: &Bindings<'a>,
+        ret: Rep,
+        doctest: Option<&'a Docstring>,
+    ) -> Result<Vec<Stmt>, Error> {
+        self.declare_vars(bindings)?;
         self.declare_cells(def)?;
-        let body = match sig.doctest {
+        let body = match doctest {
             Some(docstring) => self.doctest_body(def, docstring)?,
             None => self.body(&def.body)?,
         };
-        if sig.ret != Rep::None && !always_returns(&def.body) {
+        if ret != Rep::None && !always_returns(&def.body) {
             return Err(unsupported(
                 &def.name,
                 "a function that may end without a return",
             ));
         }
-        let scope = self.scope.take().expect("the scope of the function");
-        Ok(Func {
-            value: None,
-            captures: Vec::new(),
-            alias: None,
-            ordered: false,
-            frame: !self.in_prelude(),
-            params: u32::try_from(sig.params.len()).expect("fewer than 2^32 parameters"),
-            vars: scope.vars.list,
-            ret: sig.ret,
-            body,
-        })
+        Ok(body)
     }
 
     /// Finds what the functions inside `def` capture from it, and puts each

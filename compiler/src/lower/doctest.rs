@@ -50,7 +50,7 @@ impl<'a> Lowering<'a, '_> {
     /// its own and reports its outcome.
     pub(super) fn doctest_body(
         &self,
-        def: &ast::StmtFunctionDef,
+        def: &'a ast::StmtFunctionDef,
         docstring: &Docstring,
     ) -> Result<Vec<Stmt>, Error> {
         let lines = &self.unit.get().lines;

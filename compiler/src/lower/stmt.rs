@@ -17,7 +17,7 @@ use crate::ir::{ArithOp, CmpOp, Expr, FuncId, Place, Rep, Stmt};
 const MODULES: [&str; 4] = ["math", "enum", "dataclasses", "typing"];
 
 impl<'a> Lowering<'a, '_> {
-    pub(super) fn body(&self, body: &[ast::Stmt]) -> Result<Vec<Stmt>, Error> {
+    pub(super) fn body(&self, body: &'a [ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
         for stmt in body {
             if let ast::Stmt::FunctionDef(def) = stmt
@@ -99,7 +99,7 @@ impl<'a> Lowering<'a, '_> {
             .collect()
     }
 
-    fn stmt(&self, stmt: &ast::Stmt) -> Result<Option<Stmt>, Error> {
+    fn stmt(&self, stmt: &'a ast::Stmt) -> Result<Option<Stmt>, Error> {
         match stmt {
             ast::Stmt::Expr(e) => {
                 let value = self.expr(&e.value)?;
@@ -337,7 +337,7 @@ impl<'a> Lowering<'a, '_> {
     /// index. The test reads the length of the list each time, so an
     /// `append` in the body makes the loop longer, as the iterator of
     /// CPython does. The iterable runs once, before the loop.
-    fn for_(&self, f: &ast::StmtFor) -> Result<Vec<Stmt>, Error> {
+    fn for_(&self, f: &'a ast::StmtFor) -> Result<Vec<Stmt>, Error> {
         if f.is_async {
             return Err(unsupported(f, "this statement"));
         }
@@ -417,7 +417,7 @@ impl<'a> Lowering<'a, '_> {
     /// or of `SetIter` of the prelude holds the place of the loop, and its
     /// method `next` raises the errors of a `dict` or a `set` that changes,
     /// at the iterable.
-    fn for_dict(&self, f: &ast::StmtFor) -> Result<Option<Vec<Stmt>>, Error> {
+    fn for_dict(&self, f: &'a ast::StmtFor) -> Result<Option<Vec<Stmt>>, Error> {
         let (value, part) = dict_part(&f.iter);
         match expr_shape(self.model(), value) {
             Some(Shape::Dict(..)) => {}
@@ -492,7 +492,7 @@ impl<'a> Lowering<'a, '_> {
     /// `for target in range(...)`, with the arguments in the order of the
     /// call. `range(stop)` starts at 0, and the step is 1 without a third
     /// argument.
-    fn for_range(&self, f: &ast::StmtFor, range: &ast::ExprCall) -> Result<Stmt, Error> {
+    fn for_range(&self, f: &'a ast::StmtFor, range: &ast::ExprCall) -> Result<Stmt, Error> {
         if !range.arguments.keywords.is_empty() {
             return Err(unsupported(range, "a range with these arguments"));
         }
