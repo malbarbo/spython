@@ -24,26 +24,17 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
     let host = Host::new(&mut m, program.tests.is_some());
     // The struct of the values of each function that captures variables,
     // and the rep of each cell.
-    let closures: Vec<(FuncTypeId, &[Capture])> = program
-        .funcs
-        .iter()
-        .filter(|func| !func.captures.is_empty())
-        .map(|func| {
+    let mut closures: Vec<(FuncTypeId, &[Capture])> = Vec::new();
+    let mut closure_of = Vec::new();
+    for func in &program.funcs {
+        if func.captures.is_empty() {
+            closure_of.push(None);
+        } else {
+            closure_of.push(Some(closures.len()));
             let ty = func.value.expect("the code of a value captures");
-            (ty, func.captures.as_slice())
-        })
-        .collect();
-    let mut closure = 0;
-    let closure_of = program
-        .funcs
-        .iter()
-        .map(|func| {
-            (!func.captures.is_empty()).then(|| {
-                closure += 1;
-                closure - 1
-            })
-        })
-        .collect();
+            closures.push((ty, &func.captures));
+        }
+    }
     let mut cells: Vec<Rep> = Vec::new();
     let reps = program.funcs.iter().flat_map(|func| {
         let vars = func.vars.iter().filter(|var| var.cell).map(|var| var.rep);
