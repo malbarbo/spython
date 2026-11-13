@@ -16,6 +16,10 @@ use crate::ir::{ArithOp, CmpOp, Expr, FuncId, Place, Rep, Stmt};
 /// compiled program.
 const MODULES: [&str; 4] = ["math", "enum", "dataclasses", "typing"];
 
+/// The modules of [`MODULES`] that a program imports with `from` alone,
+/// for a name that only an annotation reads.
+const FROM_ONLY: [&str; 1] = ["typing"];
+
 impl<'a> Lowering<'a, '_> {
     pub(super) fn body(&self, body: &'a [ast::Stmt]) -> Result<Vec<Stmt>, Error> {
         let mut lowered = Vec::new();
@@ -283,11 +287,10 @@ impl<'a> Lowering<'a, '_> {
                 }))
             }
             ast::Stmt::Import(i) => {
-                if let Some(alias) = i
-                    .names
-                    .iter()
-                    .find(|alias| !MODULES.contains(&alias.name.as_str()))
-                {
+                if let Some(alias) = i.names.iter().find(|alias| {
+                    let name = alias.name.as_str();
+                    !MODULES.contains(&name) || FROM_ONLY.contains(&name)
+                }) {
                     return Err(unsupported(alias, "an import of this module"));
                 }
                 self.import(stmt, &i.names, false)

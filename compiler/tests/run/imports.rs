@@ -75,7 +75,7 @@ fn an_import_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             from typing import Final
         "}),
-        "an import from this module"
+        "an import of this name"
     );
     assert_eq!(
         unsupported(indoc! {"
