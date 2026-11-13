@@ -7,9 +7,9 @@ use ruff_python_ast as ast;
 use ty_python_semantic::types::lowering::expr_shape;
 
 use super::generator::Consume;
-use super::{Lowering, TypeArg, unsupported};
+use super::{Lowering, TypeArg, read, unsupported};
 use crate::Error;
-use crate::ir::{Expr, MinMaxOp, Place, Rep, Stmt};
+use crate::ir::{Expr, MinMaxOp, Rep, Stmt};
 
 impl Lowering<'_, '_> {
     /// `sum(xs)` of a list of `int`, of `bool` or of `float`.
@@ -160,23 +160,9 @@ impl Lowering<'_, '_> {
         };
         let (mut stmts, values) = self.generator_call(call, generator, Consume::List)?;
         let (key, reverse) = self.sort_options(call)?;
-        let mut hold = |value: Expr| {
-            let rep = value.rep();
-            let var = self.hidden_var(rep);
-            stmts.push(Stmt::Assign {
-                targets: vec![var],
-                value,
-            });
-            (var, rep)
-        };
-        let read = |(place, rep): (Place, Rep)| Expr::Load {
-            place,
-            rep,
-            check: None,
-        };
-        let key = key.map(|key| read(hold(key)));
-        let reverse = read(hold(reverse));
-        let list = hold(values);
+        let key = key.map(|key| read(self.hold(&mut stmts, key)));
+        let reverse = read(self.hold(&mut stmts, reverse));
+        let list = self.hold(&mut stmts, values);
         stmts.push(Stmt::Expr(self.sort_call(
             call,
             read(list),

@@ -1042,6 +1042,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
     }
 
+    /// A new hidden variable that holds `value`, by an assignment at the end
+    /// of `stmts`, with its rep.
+    fn hold(&self, stmts: &mut Vec<Stmt>, value: Expr) -> (Place, Rep) {
+        let rep = value.rep();
+        let var = self.hidden_var(rep);
+        stmts.push(Stmt::Assign {
+            targets: vec![var],
+            value,
+        });
+        (var, rep)
+    }
+
     /// A function that the compiler writes, without a frame in a
     /// traceback, with a parameter of each rep of `params` and the code of
     /// `body`, which reads the parameters as the first locals.
@@ -1510,6 +1522,15 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
         Rep::Hash => Err(unsupported(node, "a variable self of a hash")),
         Rep::Func(_) => Err(unsupported(node, "a variable self of a function")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
+    }
+}
+
+/// The read of a variable that [`Lowering::hold`] gives.
+fn read((place, rep): (Place, Rep)) -> Expr {
+    Expr::Load {
+        place,
+        rep,
+        check: None,
     }
 }
 

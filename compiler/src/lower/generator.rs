@@ -9,7 +9,7 @@ use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::capture::free_names_of_generator;
 use super::flow::names_in;
-use super::{Lowering, Scope, ScopeCapture, Vars, unsupported};
+use super::{Lowering, Scope, ScopeCapture, Vars, read, unsupported};
 use crate::Error;
 use crate::ir::{Captured, Expr, Place, Rep, Stmt};
 
@@ -85,18 +85,8 @@ impl Lowering<'_, '_> {
         let mut stmts = Vec::new();
         let mut operands = Vec::new();
         for (node, value) in self.generator_operands(&first.iter)? {
-            let rep = value.rep();
-            let var = self.hidden_var(rep);
-            stmts.push(Stmt::Assign {
-                targets: vec![var],
-                value,
-            });
-            let read = Expr::Load {
-                place: var,
-                rep,
-                check: None,
-            };
-            operands.push((node, read));
+            let held = self.hold(&mut stmts, value);
+            operands.push((node, read(held)));
         }
         let mut operands = operands.into_iter();
         let (first_node, first_arg) = operands.next().expect("an iterable with a part");
