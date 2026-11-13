@@ -965,32 +965,33 @@ impl Emitter<'_> {
     /// Pushes an `i32` that is not 0 when `binding` has a value. The flag of
     /// a local is 1.
     fn bound(&self, f: &mut FuncState, binding: Binding) {
-        // A cell tells whether its variable has a value, and a capture
-        // without one has a value.
-        if let Binding::Capture(index) = binding {
-            let capture = self.capture_of(index);
-            if capture.cell {
-                self.capture_field(f, index);
-                f.ins().struct_get(self.reprs.cell_type(capture.rep), 1);
-            } else {
-                f.ins().i32_const(1);
+        let global = match binding {
+            Binding::Local(var) => {
+                match self.local_slots(var).defined {
+                    Some(defined) => f.ins().local_get(defined),
+                    // A parameter has a value from the start.
+                    None => f.ins().i32_const(1),
+                };
+                return;
             }
-            return;
-        }
-        match binding {
-            Binding::Local(var) => match self.local_slots(var).defined {
-                Some(defined) => f.ins().local_get(defined),
-                // A parameter has a value from the start.
-                None => f.ins().i32_const(1),
-            },
-            Binding::Global(var) => f
-                .ins()
-                .global_get(self.global_slots(var).defined.expect("a flagged global")),
-            Binding::Func(func) => f.ins().global_get(self.defined(func)),
-            Binding::Import(id) => f.ins().global_get(self.import_slot(id)),
-            Binding::Class(id) => f.ins().global_get(self.class_slot(id)),
-            Binding::Capture(_) => unreachable!("a capture comes first"),
+            // A cell tells whether its variable has a value, and a capture
+            // without one has a value.
+            Binding::Capture(index) => {
+                let capture = self.capture_of(index);
+                if capture.cell {
+                    self.capture_field(f, index);
+                    f.ins().struct_get(self.reprs.cell_type(capture.rep), 1);
+                } else {
+                    f.ins().i32_const(1);
+                }
+                return;
+            }
+            Binding::Global(var) => self.global_slots(var).defined.expect("a flagged global"),
+            Binding::Func(func) => self.defined(func),
+            Binding::Import(id) => self.import_slot(id),
+            Binding::Class(id) => self.class_slot(id),
         };
+        f.ins().global_get(global);
     }
 
     /// Pops an `i32`, and raises an exception with `message` when it is 0.
