@@ -5,6 +5,7 @@ use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::{Shape, expr_shape};
 
 use super::class::generated_call;
+use super::generator::Consume;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{
@@ -302,8 +303,8 @@ impl<'a> Lowering<'a, '_> {
                 Some("max") => self.min_max(call, MinMaxOp::Max),
                 Some("sum") => self.sum(call),
                 Some("sorted") => self.sorted(call),
-                Some("any") => self.any_all(call, "any_of"),
-                Some("all") => self.any_all(call, "all_of"),
+                Some("any") => self.any_all(call, Consume::Any),
+                Some("all") => self.any_all(call, Consume::All),
                 _ => match self.math_member(&call.func) {
                     Some((imported, member)) => self.math_call(call, imported, &member),
                     None => self.call(call),

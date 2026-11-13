@@ -113,10 +113,10 @@ impl Lowering<'_, '_> {
         self.module_call(call, "consumers", name, args)
     }
 
-    /// `any(xs)` or `all(xs)` of a list, which `name` gives, or of a
+    /// `any(xs)` or `all(xs)`, which `consume` gives, of a list or of a
     /// generator expression, whose function stops at the first value that
     /// decides.
-    pub(super) fn any_all(&self, call: &ast::ExprCall, name: &str) -> Result<Expr, Error> {
+    pub(super) fn any_all(&self, call: &ast::ExprCall, consume: Consume) -> Result<Expr, Error> {
         let ([arg], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
             return Err(unsupported(call, "this call of any or all"));
         };
@@ -129,17 +129,17 @@ impl Lowering<'_, '_> {
             ) {
                 return Err(unsupported(arg, "any or all of a generator of objects"));
             }
-            let consume = if name == "any_of" {
-                Consume::Any
-            } else {
-                Consume::All
-            };
             return self.generator(call, generator, consume);
         }
         let list = self.expr(arg)?;
         if list.rep().list().is_none() {
             return Err(unsupported(arg, "any or all of this iterable"));
         }
+        let name = match consume {
+            Consume::Any => "any_of",
+            Consume::All => "all_of",
+            Consume::List => unreachable!("any or all"),
+        };
         self.module_call(call, "consumers", name, vec![list])
     }
 }
