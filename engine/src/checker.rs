@@ -112,7 +112,6 @@ pub fn check_file_annotations(
         in_class: false,
         in_function: false,
         in_doctest: false,
-        callee: None,
         diagnostics: Vec::new(),
     };
     checker.visit_body(module.suite());
@@ -131,9 +130,6 @@ struct Checker<'a> {
     in_class: bool,
     in_function: bool,
     in_doctest: bool,
-    /// The function of the call that the visit enters, which is the next
-    /// expression that `check_dynamic_expr` sees.
-    callee: Option<TextRange>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -532,8 +528,7 @@ impl Checker<'_> {
     /// Report `expr` if its type is dynamic and the types of its parts are
     /// not. A name takes its type from where it is bound, and the report
     /// goes there.
-    fn check_dynamic_expr(&mut self, expr: &Expr) {
-        let is_callee = self.callee.take() == Some(expr.range());
+    fn check_dynamic_expr(&mut self, expr: &Expr, callee: bool) {
         if let Expr::Lambda(lambda) = expr
             && let Some(parameters) = &lambda.parameters
         {
@@ -556,7 +551,7 @@ impl Checker<'_> {
         };
         // The signature of a method may hold `Any`, as the `key` of
         // `list.sort` does. The call checks its arguments and its result.
-        let dynamic = if is_callee {
+        let dynamic = if callee {
             matches!(ty, Type::Dynamic(_))
         } else {
             self.is_dynamic(ty)
@@ -1446,7 +1441,15 @@ impl<'a> Visitor<'a> for Checker<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        self.check_dynamic_expr(expr);
+        self.visit_expr_at(expr, false);
+    }
+}
+
+impl Checker<'_> {
+    /// Visits `expr`, which is the function of a call when `callee` is
+    /// `true`.
+    fn visit_expr_at(&mut self, expr: &Expr, callee: bool) {
+        self.check_dynamic_expr(expr, callee);
         // In `dict[str, int]` the tuple holds the type arguments, and in
         // `Callable[[int], int]` the list holds the parameters. Neither one is
         // a literal.
@@ -1564,9 +1567,11 @@ impl<'a> Visitor<'a> for Checker<'_> {
         }
 
         if let Expr::Call(call) = expr {
-            self.callee = Some(call.func.range());
+            self.visit_expr_at(&call.func, true);
+            self.visit_arguments(&call.arguments);
+        } else {
+            walk_expr(self, expr);
         }
-        walk_expr(self, expr);
     }
 }
 
