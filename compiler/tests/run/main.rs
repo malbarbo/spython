@@ -388,8 +388,14 @@ fn runs_out_of_memory(name: &str, source: &str, frames: &str) {
 }
 
 fn unsupported(source: &str) -> String {
+    unsupported_at(source).0
+}
+
+/// What the compiler refuses in `source`, and the code that the error
+/// points at.
+fn unsupported_at(source: &str) -> (String, &str) {
     match compile(source, Path::new("unsupported.py")) {
-        Err(compiler::Error::Unsupported { what, .. }) => what,
+        Err(compiler::Error::Unsupported { range, what }) => (what, &source[range]),
         Err(error) => panic!("an invalid module: {error:?}"),
         Ok(_) => panic!("the program compiled"),
     }

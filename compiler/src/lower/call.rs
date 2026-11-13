@@ -613,11 +613,11 @@ impl<'a> Lowering<'a, '_> {
     /// The `repr` of `lowered`. The conversion covers `range`.
     pub(super) fn repr_of(&self, lowered: Expr, range: TextRange) -> Result<Expr, Error> {
         let site = self.site(range);
-        self.repr_at(lowered, site)
+        self.repr_at(lowered, site, range)
     }
 
-    /// The `repr` of `value` at `site`.
-    pub(super) fn repr_at(&self, value: Expr, site: Site) -> Result<Expr, Error> {
+    /// The `repr` of `value` at `site`, for the code at `range`.
+    pub(super) fn repr_at(&self, value: Expr, site: Site, range: TextRange) -> Result<Expr, Error> {
         Ok(match value.rep() {
             Rep::Int | Rep::Float | Rep::Bool => Expr::StrOf {
                 operand: Box::new(value),
@@ -648,7 +648,7 @@ impl<'a> Lowering<'a, '_> {
             // CPython writes the address of the function too, which changes
             // from one run to the next.
             Rep::Func(_) => {
-                return Err(unsupported(&TextRange::default(), "the repr of a function"));
+                return Err(unsupported(&range, "the repr of a function"));
             }
         })
     }

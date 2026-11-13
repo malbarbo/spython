@@ -3,9 +3,7 @@
 
 use indoc::indoc;
 
-use std::path::Path;
-
-use super::{compile, same_as_cpython, stops_at_the_int_limit, unsupported};
+use super::{same_as_cpython, stops_at_the_int_limit, unsupported, unsupported_at};
 
 #[test]
 fn a_list_comprehension_makes_a_list() {
@@ -628,13 +626,10 @@ fn sorted_of_another_iterable_is_unsupported() {
 fn sorted_of_items_that_the_prelude_cannot_order_is_unsupported() {
     for call in ["sorted([[2], [1]])", "sorted(x for x in [[1]])"] {
         let source = format!("print({call})\n");
-        let Err(compiler::Error::Unsupported { range, what }) =
-            compile(&source, Path::new("sorted.py"))
-        else {
-            panic!("sorted of a list of lists compiled");
-        };
-        assert_eq!(what, "sorted of a list of this type");
-        assert_eq!(&source[range], call);
+        assert_eq!(
+            unsupported_at(&source),
+            ("sorted of a list of this type".to_owned(), call)
+        );
     }
 }
 

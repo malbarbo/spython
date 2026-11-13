@@ -1475,7 +1475,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             self.classes.borrow_mut().get_mut(class).own_repr = Some(func);
             return Ok(func);
         }
-        let value = self.repr_at(self.own_field(class, 1), Site::NONE)?;
+        let value = self.repr_at(self.own_field(class, 1), Site::NONE, def.range())?;
         let body = vec![Stmt::Return(Some(Expr::Join {
             parts: vec![
                 Expr::Str(format!("<{name}.")),
@@ -1530,7 +1530,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }
             parts.push(Expr::Str(format!("{name}=")));
             let field = u32::try_from(i).expect("fewer than 2^32 fields");
-            parts.push(self.repr_at(self.own_field(class, field), repr_site)?);
+            // A field of a base class has no declaration in `def`.
+            let range = field_declaration(def, name).unwrap_or(def.range());
+            parts.push(self.repr_at(self.own_field(class, field), repr_site, range)?);
         }
         parts.push(Expr::Str(")".to_owned()));
         self.define(
@@ -3013,6 +3015,18 @@ fn dataclass_fields(def: &ast::StmtClassDef) -> impl Iterator<Item = &ast::StmtA
         ast::Stmt::AnnAssign(field) => Some(field),
         _ => None,
     })
+}
+
+/// The range of the declaration of the field `name` in `def`, a dataclass.
+fn field_declaration(def: &ast::StmtClassDef, name: &str) -> Option<TextRange> {
+    dataclass_fields(def)
+        .find(|field| {
+            field
+                .target
+                .as_name_expr()
+                .is_some_and(|target| target.id == name)
+        })
+        .map(Ranged::range)
 }
 
 /// Returns `true` if `expr` is an `int` literal, or the minus of one,
