@@ -342,6 +342,8 @@ fn a_set_of_a_list_takes_its_items_in_order() {
             print(s, len(s))
             vazia: list[str] = []
             print(set(vazia))
+            notas: list[float] = [7.5, 2.0, 7.5, -0.0, 0.0]
+            print(set(notas))
         "},
     );
 }
