@@ -153,7 +153,9 @@ class Set[T]:
                         self.used += 1
                         self.put(j, key, h)
                         if self.fill * 5 >= mask * 3:
-                            self.resize(self.used * 2 if self.used > 50000 else self.used * 4)
+                            self.resize(
+                                self.used * 2 if self.used > 50000 else self.used * 4
+                            )
                         return
                     if item(states, free) != 2:
                         self.add_entry(key, h)
@@ -426,6 +428,7 @@ class Set[T]:
                 if not self.discard_entry(key, h):
                     self.add_entry(key, h)
             i += 1
+
 
 class SetIter[T]:
     """A `for` over a `set`, which follows `setiter_iternext` of CPython 3.13."""

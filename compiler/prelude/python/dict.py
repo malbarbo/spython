@@ -145,7 +145,9 @@ class Dict[K, V]:
         i = 0
         while i < len(self.keys):
             if item(self.live, i):
-                new.insert(item(self.keys, i), item(self.hashes, i), item(self.values, i))
+                new.insert(
+                    item(self.keys, i), item(self.hashes, i), item(self.values, i)
+                )
                 if n != self.used:
                     raise RuntimeError("dict mutated during update")
             i += 1
