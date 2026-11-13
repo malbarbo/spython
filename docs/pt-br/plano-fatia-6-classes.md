@@ -900,6 +900,10 @@ de `str`.
   primeiro iterável, como no CPython, e o `for` passa a iterar sobre um
   iterador já criado. A tabela `substitutes`, que hoje troca as partes
   do primeiro iterável pelos valores de fora, sai nessa hora.
+- `sum`, `min` e `max` de uma expressão geradora, que hoje põem os
+  valores numa lista antes de consumi-los. Com o gerador como iterador,
+  na fatia 8, as funções de `consumers.py` passam a consumir o iterador,
+  como o CPython faz.
 
 ## O que a revisão mudou
 
