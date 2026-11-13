@@ -63,25 +63,7 @@ impl Lowering<'_, '_> {
         generator: &ast::ExprGenerator,
         consume: Consume,
     ) -> Result<(Vec<Stmt>, Expr), Error> {
-        // The frame of the generator in an example of a docstring is in the
-        // file of the example.
-        if self.in_doctest() {
-            return Err(unsupported(
-                generator,
-                "a generator expression in a doctest",
-            ));
-        }
-        if self
-            .scope
-            .borrow()
-            .as_ref()
-            .is_some_and(|scope| scope.class.is_some())
-        {
-            return Err(unsupported(
-                generator,
-                "a generator expression in the body of a class",
-            ));
-        }
+        self.check_new_frame(generator, "a generator expression")?;
         let Some(first) = generator.generators.first() else {
             return Err(unsupported(generator, "this generator expression"));
         };

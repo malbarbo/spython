@@ -17,14 +17,13 @@ use crate::ir::{
 };
 
 impl<'a> Lowering<'a, '_> {
-    /// The value of `lambda`, the node `expr`, whose code is a function of
-    /// its own, with the frame `<lambda>` in a traceback. The checker gives
-    /// the type of each parameter from where the `lambda` goes.
-    pub(super) fn lambda(&self, expr: &ast::Expr, lambda: &ast::ExprLambda) -> Result<Expr, Error> {
-        // The frame of a `lambda` in an example of a docstring is in the
-        // file of the example.
+    /// Checks that `node`, which is `what`, may have a frame of its own. The
+    /// frame of code in an example of a docstring is in the file of the
+    /// example, and the compiler has no frame for code in the body of a
+    /// class.
+    pub(super) fn check_new_frame(&self, node: &impl Ranged, what: &str) -> Result<(), Error> {
         if self.in_doctest() {
-            return Err(unsupported(expr, "a lambda in a doctest"));
+            return Err(unsupported(node, &format!("{what} in a doctest")));
         }
         if self
             .scope
@@ -32,8 +31,16 @@ impl<'a> Lowering<'a, '_> {
             .as_ref()
             .is_some_and(|scope| scope.class.is_some())
         {
-            return Err(unsupported(expr, "a lambda in the body of a class"));
+            return Err(unsupported(node, &format!("{what} in the body of a class")));
         }
+        Ok(())
+    }
+
+    /// The value of `lambda`, the node `expr`, whose code is a function of
+    /// its own, with the frame `<lambda>` in a traceback. The checker gives
+    /// the type of each parameter from where the `lambda` goes.
+    pub(super) fn lambda(&self, expr: &ast::Expr, lambda: &ast::ExprLambda) -> Result<Expr, Error> {
+        self.check_new_frame(expr, "a lambda")?;
         let Some(Rep::Func(ty)) = self.rep_of(expr_shape(self.model(), expr)) else {
             return Err(unsupported(expr, "a lambda of this type"));
         };
