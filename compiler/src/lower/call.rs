@@ -22,19 +22,16 @@ impl<'a> Lowering<'a, '_> {
             return self.method_call(call, attr);
         }
         let ast::Expr::Name(name) = &*call.func else {
-            return Err(unsupported(
-                call,
-                "a call of an expression other than a name",
-            ));
+            return self.call_value(call);
         };
         let callee = name.id.as_str();
-        if self
+        let local = self
             .scope
             .borrow()
             .as_ref()
-            .is_some_and(|scope| scope.is_local(callee))
-        {
-            return Err(unsupported(call, "a call of a local variable"));
+            .is_some_and(|scope| scope.is_local(callee));
+        if local || self.vars.borrow().ids.contains_key(callee) {
+            return self.call_value(call);
         }
         // The checker sees no function, and binds no argument, in a name
         // that the `def` has yet to bind.
@@ -121,6 +118,38 @@ impl<'a> Lowering<'a, '_> {
             rep: sig.ret,
             site: self.call_site(func, call),
             check,
+        })
+    }
+
+    /// `call` of a value of a type of function, with an argument for each
+    /// parameter, in order.
+    fn call_value(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
+        let callee = self.expr(&call.func)?;
+        let Rep::Func(ty) = callee.rep() else {
+            return Err(unsupported(&*call.func, "a call of a value of this type"));
+        };
+        let ty = self.func_type_of(ty);
+        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != ty.params.len() {
+            return Err(unsupported(
+                call,
+                "a call of a function value with these arguments",
+            ));
+        }
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .zip(&ty.params)
+            .map(|(arg, rep)| {
+                self.coerce(self.expr(arg)?, *rep)
+                    .ok_or_else(|| unsupported(arg, "an argument of this type"))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Expr::CallValue {
+            callee: Box::new(callee),
+            args,
+            rep: ty.ret,
+            site: self.site(call.range()),
         })
     }
 

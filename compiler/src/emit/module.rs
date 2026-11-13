@@ -740,6 +740,11 @@ impl<'a> Ins<'a> {
         self
     }
 
+    pub fn call_ref(&mut self, ty: TypeIdx) -> &mut Self {
+        self.0.call_ref(ty.0);
+        self
+    }
+
     pub fn struct_set(&mut self, ty: TypeIdx, field: u32) -> &mut Self {
         self.0.struct_set(ty.0, field);
         self

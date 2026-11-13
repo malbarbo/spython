@@ -434,20 +434,7 @@ fn each_call_outside_what_the_compiler_covers_has_its_own_message() {
         unsupported(indoc! {"
             print((lambda: 1)())
         "}),
-        "a call of an expression other than a name"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
-            def g() -> None:
-                pass
-
-
-            def f() -> None:
-                while True:
-                    h()  # ty: ignore[possibly-unresolved-reference]
-                    h = g
-        "}),
-        "a call of a local variable"
+        "this expression"
     );
     assert_eq!(
         unsupported(indoc! {"

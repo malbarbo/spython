@@ -348,6 +348,16 @@ pub(crate) enum Expr {
         site: Option<Site>,
         check: Option<Check>,
     },
+    /// A call of `callee`, a value of a type of function, with one argument
+    /// for each parameter of the type, of the same rep, after `callee`
+    /// runs. The call may raise at the site, as a call of a function that
+    /// the compiler does not know.
+    CallValue {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        rep: Rep,
+        site: Site,
+    },
     /// A `bool` read as an `int`, as an operand of an operator of `int`.
     BoolAsInt(Box<Expr>),
     /// An operator on two `int`s.
@@ -1437,6 +1447,7 @@ impl Expr {
             Expr::None => Rep::None,
             Expr::Load { rep, .. }
             | Expr::Call { rep, .. }
+            | Expr::CallValue { rep, .. }
             | Expr::Widen { rep, .. }
             | Expr::Narrow { rep, .. }
             | Expr::Expect { rep, .. }

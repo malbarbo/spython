@@ -1118,6 +1118,16 @@ impl<'a, 'db> Lowering<'a, 'db> {
         id
     }
 
+    /// The parameters and the result of the type of function `ty`.
+    fn func_type_of(&self, ty: FuncTypeId) -> FuncType {
+        self.func_types
+            .borrow()
+            .list
+            .get(ty.index())
+            .expect("a type of function of the program")
+            .clone()
+    }
+
     /// The type of a list whose items have the type `arg`, which the first
     /// call for it creates.
     fn list_of(&self, arg: TypeArg) -> ListId {

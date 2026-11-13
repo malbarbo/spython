@@ -885,6 +885,34 @@ impl Emitter<'_> {
         });
     }
 
+    /// The call of the value of `callee` with `args`, through the code that
+    /// the value holds, which takes the value before the arguments.
+    fn call_value(&mut self, f: &mut FuncState, callee: &Expr, args: &[Expr], site: Site) {
+        let Rep::Func(ty) = callee.rep() else {
+            unreachable!("a call of a value that is not a function");
+        };
+        self.expr(f, callee);
+        let value = f.temp(
+            self.reprs
+                .local_type(callee.rep())
+                .expect("a function has a value"),
+        );
+        f.ins().local_tee(value);
+        for arg in args {
+            self.expr(f, arg);
+        }
+        f.ins()
+            .local_get(value)
+            .struct_get(self.reprs.func_value(ty), 0);
+        f.free(value);
+        let code = self.reprs.func_code(ty);
+        self.at(f, site, |e, f| {
+            e.reprs.call_fits(f);
+            e.raise_if_zero(f, &RECURSION_ERROR);
+            f.ins().call_ref(code);
+        });
+    }
+
     /// The global that is not 0 once the `def` of `func` has run.
     fn defined(&self, func: FuncId) -> GlobalIdx {
         self.func_slots(func)
@@ -987,6 +1015,9 @@ impl Emitter<'_> {
                 self.expr(f, operand);
                 self.reprs.bool_as_int(f);
             }
+            Expr::CallValue {
+                callee, args, site, ..
+            } => self.call_value(f, callee, args, *site),
             Expr::Closure { func, ty } => {
                 let global = match self.values.get(func) {
                     Some(global) => *global,
