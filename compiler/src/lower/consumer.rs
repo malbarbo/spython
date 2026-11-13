@@ -36,16 +36,14 @@ impl Lowering<'_, '_> {
         op: MinMaxOp,
     ) -> Result<Expr, Error> {
         let list = self.consumed_list(call, arg)?;
-        match list.rep().list().map(|list| self.list_item(list)) {
-            // CPython compares each value as the generator gives it, and a
-            // method of a class may write between two values.
-            Some(Rep::Object(_)) if arg.is_generator_expr() => {
-                return Err(unsupported(arg, "min or max of a generator of objects"));
-            }
-            Some(item) if is_ordered(item) => {}
-            Some(_) => return Err(unsupported(arg, "min or max of a list of this type")),
-            None => return Err(unsupported(arg, "min or max of this iterable")),
+        // CPython compares each value as the generator gives it, and a
+        // method of a class may write between two values.
+        if arg.is_generator_expr()
+            && let Some(Rep::Object(_)) = list.rep().list().map(|list| self.list_item(list))
+        {
+            return Err(unsupported(arg, "min or max of a generator of objects"));
         }
+        let list = self.ordered_list(arg, list)?;
         let name = match op {
             MinMaxOp::Min => "min_of",
             MinMaxOp::Max => "max_of",
@@ -65,14 +63,7 @@ impl Lowering<'_, '_> {
             [arg] if arg.is_generator_expr() => {
                 return Err(unsupported(arg, "min or max of a generator with a key"));
             }
-            [arg] => {
-                let list = self.expr(arg)?;
-                match list.rep().list().map(|list| self.list_item(list)) {
-                    Some(item) if is_ordered(item) => list,
-                    Some(_) => return Err(unsupported(arg, "min or max of a list of this type")),
-                    None => return Err(unsupported(arg, "min or max of this iterable")),
-                }
-            }
+            [arg] => self.ordered_list(arg, self.expr(arg)?)?,
             args => {
                 let items = args
                     .iter()
@@ -97,10 +88,7 @@ impl Lowering<'_, '_> {
                     .as_ref()
                     .is_some_and(|arg| arg.as_str() == "key") =>
             {
-                match &keyword.value {
-                    ast::Expr::NoneLiteral(_) => None,
-                    value => Some(self.key(value)?),
-                }
+                self.optional_key(&keyword.value)?
             }
             _ => return Err(unsupported(call, "min or max with these keyword arguments")),
         };
@@ -209,8 +197,7 @@ impl Lowering<'_, '_> {
         let mut reverse = Expr::Bool(false);
         for keyword in &call.arguments.keywords {
             match keyword.arg.as_ref().map(ast::Identifier::as_str) {
-                Some("key") if keyword.value.is_none_literal_expr() => key = None,
-                Some("key") => key = Some(self.key(&keyword.value)?),
+                Some("key") => key = self.optional_key(&keyword.value)?,
                 Some("reverse") => {
                     reverse = self.expr(&keyword.value)?;
                     if reverse.rep() != Rep::Bool {
@@ -221,6 +208,25 @@ impl Lowering<'_, '_> {
             }
         }
         Ok((key, reverse))
+    }
+
+    /// `list`, the value of `arg`, the list of `min` or `max`, which has to
+    /// hold items that the prelude compares.
+    fn ordered_list(&self, arg: &ast::Expr, list: Expr) -> Result<Expr, Error> {
+        match list.rep().list().map(|list| self.list_item(list)) {
+            Some(item) if is_ordered(item) => Ok(list),
+            Some(_) => Err(unsupported(arg, "min or max of a list of this type")),
+            None => Err(unsupported(arg, "min or max of this iterable")),
+        }
+    }
+
+    /// The `key` of `sort`, `sorted`, `min` or `max` at `node`, and `None`
+    /// for a `key` of `None`, which is no key.
+    fn optional_key(&self, node: &ast::Expr) -> Result<Option<Expr>, Error> {
+        if node.is_none_literal_expr() {
+            return Ok(None);
+        }
+        self.key(node).map(Some)
     }
 
     /// The function of `node`, the `key` of `sort`, `sorted`, `min` or
