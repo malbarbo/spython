@@ -880,6 +880,12 @@ pub(crate) enum Expr {
     /// The left value of the [`Expr::Logic`] that encloses the expression,
     /// a value of `rep`.
     LogicLeft(Rep),
+    /// The statements of `stmts` and then `value`, as the loop in line of
+    /// a comprehension.
+    Block {
+        stmts: Vec<Stmt>,
+        value: Box<Expr>,
+    },
     /// `then if cond else else_`, with `then` and `else_` of the same rep.
     /// Only the value that `cond` picks runs.
     IfElse {
@@ -1507,6 +1513,7 @@ impl Expr {
             Expr::ChainLeft(rep) | Expr::ChainRight(rep) | Expr::LogicLeft(rep) => *rep,
             Expr::Logic { value, .. } => value.rep(),
             Expr::IfElse { then, .. } => then.rep(),
+            Expr::Block { value, .. } => value.rep(),
             Expr::After { value, .. }
             | Expr::DuringRepr { value, .. }
             | Expr::NotNone { value, .. } => value.rep(),

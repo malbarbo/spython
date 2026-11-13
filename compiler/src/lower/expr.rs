@@ -214,6 +214,7 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Compare(c) => self.compare(c),
             ast::Expr::Lambda(lambda) => self.lambda(expr, lambda),
             ast::Expr::List(list) => self.list(expr, list),
+            ast::Expr::ListComp(comp) => self.list_comp(expr, comp),
             ast::Expr::Dict(dict) => self.dict(expr, dict),
             ast::Expr::Set(set) => self.set(expr, set),
             ast::Expr::Subscript(sub) => {
@@ -342,7 +343,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// `node`, an item of a literal, as a value of `rep`, the rep of the
     /// items. A `bool` among `int`s is the `int` it is.
-    fn literal_item(&self, node: &ast::Expr, rep: Rep) -> Result<Expr, Error> {
+    pub(super) fn literal_item(&self, node: &ast::Expr, rep: Rep) -> Result<Expr, Error> {
         if node.is_starred_expr() {
             return Err(unsupported(node, "a starred item"));
         }

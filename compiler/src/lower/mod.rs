@@ -4,6 +4,7 @@ mod call;
 mod capture;
 mod class;
 mod closure;
+mod comprehension;
 mod doctest;
 mod expr;
 mod flow;
@@ -83,6 +84,7 @@ pub(crate) fn lower(
         inner_defs: RefCell::new(HashMap::new()),
         assigned_globals: RefCell::new(HashSet::new()),
         scope: RefCell::new(None),
+        comprehension: RefCell::default(),
         lines: RefCell::new(HashMap::new()),
         lowered: RefCell::new(HashMap::new()),
         prelude_funcs: RefCell::new(HashMap::new()),
@@ -260,6 +262,8 @@ struct Lowering<'a, 'db> {
     /// The function whose body the lowering is in, and `None` in the code
     /// of the module.
     scope: RefCell<Option<Scope>>,
+    /// The comprehensions around the code of the module.
+    comprehension: RefCell<Comprehension>,
     /// The line of the frame of each line of each function, and of the
     /// module, by the path and the name of the frame, and the number of the
     /// line.
@@ -493,6 +497,19 @@ struct Scope {
     /// The variables that the function captures from the function around
     /// it, in the order of [`Func::captures`].
     captures: Vec<ScopeCapture>,
+    comprehension: Comprehension,
+}
+
+/// The comprehensions around the code that the lowering is in, in the
+/// function or in the module.
+#[derive(Default)]
+struct Comprehension {
+    /// Each name that a comprehension binds, with its variable and its rep,
+    /// from the outermost comprehension in.
+    vars: Vec<(String, Place, Rep)>,
+    /// The number of comprehensions around the code. A target of a loop
+    /// inside one binds a new variable.
+    open: usize,
 }
 
 /// A variable that a function captures from the function around it.
@@ -939,6 +956,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             class: None,
             inner: Captures::default(),
             captures,
+            comprehension: Comprehension::default(),
         };
         (scope, bindings)
     }

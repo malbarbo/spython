@@ -351,8 +351,8 @@ impl<'a> Lowering<'a, '_> {
     /// The iterable runs once, before the loop.
     pub(super) fn for_loop(
         &self,
-        target: &'a ast::Expr,
-        iter: &'a ast::Expr,
+        target: &ast::Expr,
+        iter: &ast::Expr,
         body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
         else_: &'a [ast::Stmt],
     ) -> Result<Vec<Stmt>, Error> {
@@ -436,8 +436,8 @@ impl<'a> Lowering<'a, '_> {
     /// at the iterable.
     fn for_dict(
         &self,
-        target: &'a ast::Expr,
-        iter: &'a ast::Expr,
+        target: &ast::Expr,
+        iter: &ast::Expr,
         body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
         else_: &'a [ast::Stmt],
     ) -> Result<Option<Vec<Stmt>>, Error> {
@@ -517,7 +517,7 @@ impl<'a> Lowering<'a, '_> {
     /// argument.
     fn for_range(
         &self,
-        target: &'a ast::Expr,
+        target: &ast::Expr,
         range: &ast::ExprCall,
         body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
         else_: &'a [ast::Stmt],

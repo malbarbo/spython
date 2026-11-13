@@ -7,7 +7,9 @@ use ty_python_semantic::types::lowering::expr_shape;
 
 use super::capture::{Captures, free_names_of_def, free_names_of_lambda};
 use super::class::param;
-use super::{Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported};
+use super::{
+    Comprehension, Lowering, Scope, ScopeCapture, Vars, check_self, params_of, unsupported,
+};
 use crate::Error;
 use crate::ir::{
     Binding, Capture, Captured, Check, CmpOp, Expr, Func, FuncId, FuncType, FuncTypeId, Place, Rep,
@@ -37,8 +39,16 @@ impl<'a> Lowering<'a, '_> {
         };
         let names = lambda_params(lambda)?;
         let ty_of = self.func_type_of(ty);
-        let (captured, captures) =
-            self.closure_captures(expr, lambda.range(), free_names_of_lambda(lambda))?;
+        let free = free_names_of_lambda(lambda);
+        // Each value of a `lambda` in a comprehension shares the cell of a
+        // name of the comprehension, which the compiler does not make.
+        if self.binds_any(free.iter().copied()) {
+            return Err(unsupported(
+                expr,
+                "a lambda that reads a name of a comprehension",
+            ));
+        }
+        let (captured, captures) = self.closure_captures(expr, lambda.range(), free)?;
         let mut vars = Vars::default();
         for (name, rep) in names.iter().zip(&ty_of.params) {
             check_self(name.as_str(), *rep, *name)?;
@@ -56,6 +66,7 @@ impl<'a> Lowering<'a, '_> {
             class: None,
             inner: Captures::default(),
             captures,
+            comprehension: Comprehension::default(),
         };
         let (scope, body) = self.in_scope(scope, || {
             let value = self.expr(&lambda.body)?;

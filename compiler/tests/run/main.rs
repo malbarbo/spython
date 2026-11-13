@@ -13,6 +13,7 @@ use engine::check::check_source;
 
 mod classes;
 mod closures;
+mod comprehensions;
 mod control;
 mod corpus;
 mod dataclasses;

@@ -7,7 +7,7 @@ use ruff_python_ast as ast;
 use ruff_python_ast::visitor::{Visitor, walk_expr, walk_stmt};
 use ruff_text_size::{Ranged, TextRange};
 
-use super::flow::Bindings;
+use super::flow::{Bindings, names_in};
 
 /// The captures of the functions inside a body.
 #[derive(Default)]
@@ -349,7 +349,44 @@ impl<'a> Visitor<'a> for Free<'a> {
                 self.found.push(name.id.as_str());
             }
             ast::Expr::Lambda(lambda) => self.lambda(lambda),
+            ast::Expr::ListComp(comp) => self.comprehension(&comp.generators, &[&comp.elt]),
+            ast::Expr::SetComp(comp) => self.comprehension(&comp.generators, &[&comp.elt]),
+            ast::Expr::Generator(comp) => self.comprehension(&comp.generators, &[&comp.elt]),
+            ast::Expr::DictComp(comp) => {
+                let values: Vec<&ast::Expr> = comp
+                    .key
+                    .as_deref()
+                    .into_iter()
+                    .chain([&*comp.value])
+                    .collect();
+                self.comprehension(&comp.generators, &values);
+            }
             expr => walk_expr(self, expr),
         }
+    }
+}
+
+impl<'a> Free<'a> {
+    /// Visits a comprehension, whose first iterable reads the names of the
+    /// code around it. The names that a loop binds are not free in the
+    /// tests, the iterables and the values after it.
+    fn comprehension(&mut self, generators: &'a [ast::Comprehension], values: &[&'a ast::Expr]) {
+        let mut bound = 0;
+        for generator in generators {
+            self.visit_expr(&generator.iter);
+            let mut names = HashSet::new();
+            for name in names_in(&generator.target) {
+                names.insert(name.id.as_str());
+            }
+            self.bound.push(names);
+            bound += 1;
+            for test in &generator.ifs {
+                self.visit_expr(test);
+            }
+        }
+        for value in values {
+            self.visit_expr(value);
+        }
+        self.bound.truncate(self.bound.len() - bound);
     }
 }

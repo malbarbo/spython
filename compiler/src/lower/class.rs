@@ -19,7 +19,9 @@ use super::call::is_module;
 use super::expr::int_literal;
 use super::flow::{imported_name, names_in};
 use super::init::{Base, check_init};
-use super::{HashSet, Lowering, Scope, Sig, TypeArg, Unit, Vars, params_of, unsupported};
+use super::{
+    Comprehension, HashSet, Lowering, Scope, Sig, TypeArg, Unit, Vars, params_of, unsupported,
+};
 use crate::Error;
 use crate::cpython::dataclasses::{CLASS_NAMESPACE, mutable_default, mutable_default_frames};
 use crate::cpython::{Class, names};
@@ -895,6 +897,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             class: Some(def.start()),
             inner: Default::default(),
             captures: Vec::new(),
+            comprehension: Comprehension::default(),
         });
         let body = self.class_statements(def, class, &fields, &defaults);
         let scope = self.scope.take().expect("the scope of the class");

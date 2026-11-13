@@ -1775,6 +1775,10 @@ impl Emitter<'_> {
                     self.reprs.load(f, *rep, local);
                 }
             }
+            Expr::Block { stmts, value } => {
+                self.body(f, stmts);
+                self.expr(f, value);
+            }
             Expr::IfElse { cond, then, else_ } => {
                 self.expr(f, cond);
                 let ty = self.reprs.value_type(then.rep());

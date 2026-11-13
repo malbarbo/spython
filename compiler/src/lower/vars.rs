@@ -30,6 +30,9 @@ impl<'a> Lowering<'a, '_> {
             return Err(unsupported(target, "this target"));
         };
         let name = name.id.as_str();
+        if let Some(place) = self.comprehension_target(name, value) {
+            return Ok((place, value));
+        }
         let found = match self.scope.borrow().as_ref() {
             Some(scope) if scope.is_local(name) => scope
                 .vars
@@ -52,6 +55,14 @@ impl<'a> Lowering<'a, '_> {
     /// The value of the variable that `name` reads.
     pub(super) fn load(&self, name: &ast::ExprName) -> Result<Expr, Error> {
         let id = name.id.as_str();
+        if let Some((place, rep)) = self.comprehension_var(id) {
+            let load = Expr::Load {
+                place,
+                rep,
+                check: None,
+            };
+            return self.narrowed_name(name, load);
+        }
         if let Some(capture) = self.captured(name) {
             return self.narrowed_name(name, capture);
         }
