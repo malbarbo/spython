@@ -22,6 +22,32 @@ def sort[T: Ordered](xs: list[T], reverse: bool) -> None:
     """`xs.sort(reverse=reverse)`. The list is empty while the sort runs, so a comparison that
     reads it sees no item, and one that changes it makes the sort raise at the end."""
     items = take(xs)
+    sort_items(items, reverse)
+    give_back(xs, items)
+
+
+def sort_key[T, K: Ordered](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
+    """`xs.sort(key=key, reverse=reverse)`."""
+    items = take(xs)
+    sort_items_key(items, key, reverse)
+    give_back(xs, items)
+
+
+def sorted_of[T: Ordered](xs: list[T], reverse: bool) -> list[T]:
+    items = copy(xs)
+    sort_items(items, reverse)
+    return items
+
+
+def sorted_key[T, K: Ordered](
+    xs: list[T], key: Callable[[T], K], reverse: bool
+) -> list[T]:
+    items = copy(xs)
+    sort_items_key(items, key, reverse)
+    return items
+
+
+def sort_items[T: Ordered](items: list[T], reverse: bool) -> None:
     if len(items) > 1:
         empty: list[T] = []
         if reverse:
@@ -29,13 +55,12 @@ def sort[T: Ordered](xs: list[T], reverse: bool) -> None:
         Sort(items, empty, False).run()
         if reverse:
             reverse_items(items, 0, len(items))
-    give_back(xs, items)
 
 
-def sort_key[T, K: Ordered](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
-    """`xs.sort(key=key, reverse=reverse)`, which calls `key` once for each item, in order,
-    before any comparison."""
-    items = take(xs)
+def sort_items_key[T, K: Ordered](
+    items: list[T], key: Callable[[T], K], reverse: bool
+) -> None:
+    """Calls `key` once for each item, in order, before any comparison."""
     keys: list[K] = []
     list_reserve(keys, len(items))
     i = 0
@@ -49,21 +74,6 @@ def sort_key[T, K: Ordered](xs: list[T], key: Callable[[T], K], reverse: bool) -
         Sort(keys, items, True).run()
         if reverse:
             reverse_items(items, 0, len(items))
-    give_back(xs, items)
-
-
-def sorted_of[T: Ordered](xs: list[T], reverse: bool) -> list[T]:
-    ys = copy(xs)
-    sort(ys, reverse)
-    return ys
-
-
-def sorted_key[T, K: Ordered](
-    xs: list[T], key: Callable[[T], K], reverse: bool
-) -> list[T]:
-    ys = copy(xs)
-    sort_key(ys, key, reverse)
-    return ys
 
 
 def take[T](xs: list[T]) -> list[T]:
