@@ -16,8 +16,9 @@ use crate::ir::{Captured, Expr, Place, Rep, Stmt};
 /// What the function of a generator does with each value.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Consume {
-    /// Puts the values in a new list, which the consumer takes, as
-    /// `PySequence_Fast` does for `sum` of a list.
+    /// Puts the values in a new list, which the consumer takes. CPython
+    /// makes the list too for `join` and `sorted`, but `sum`, `min` and
+    /// `max` take the values as they come.
     List,
     /// Gives `True` at the first value that is true, for `any`.
     Any,
