@@ -603,6 +603,37 @@ corpus.
   guarda o item, o `hash` e o estado em três arrays, e o CPython guarda
   a chave e o `hash` juntos, com o estado na própria chave.
 
+  A 6c fez as funções como valores, as compreensões e os consumidores em
+  13/nov/2026. Um nome de função, um `lambda` e um `def` dentro de uma
+  função são valores, com as variáveis capturadas numa célula quando o
+  código muda o valor delas. As compreensões rodam em linha, como no
+  CPython 3.13. A expressão geradora dentro de `sum`, `min`, `max`,
+  `any`, `all`, `sorted` e `join` é uma função `<genexpr>`, com o quadro
+  que o CPython mostra no traceback. `sum`, `min`, `max`, `any` e `all`
+  estão no prelude em Python, e `sorted` porta o Timsort do CPython, que
+  compara os itens na mesma ordem e o mesmo número de vezes. O checker
+  recusa `xs.sort()`, e o compilador já o traduz pelo mesmo código de
+  `sorted`. O tempo do processo inteiro está abaixo. O programa sem o
+  `sorted`, que só monta a lista, leva 0,05 s no deno e 0,17 s no
+  `python3`.
+
+  | Caso | deno | python3 |
+  |---|---:|---:|
+  | `sorted` de 10^6 `int` | 0,37 s | 0,48 s |
+  | `sorted` de 10^6 `int` com `key=` de uma função | 0,44 s | 0,68 s |
+  | 10^7 chamadas de um `lambda` num laço | 0,18 s | 1,01 s |
+
+  O `sorted` acrescenta 27,5 KiB ao módulo de uma `list[int]`. O teste do
+  corpus verifica os arquivos de `cli/tests/inputs` no nível 4, o nível
+  dos testes de integração da CLI, e o nível 4 é o que o compilador cobre.
+  Dos 29 arquivos, o checker recusa os 15 que testam erros. Uma lista no
+  teste guarda 7 que o compilador recusa, com o motivo. Dois importam
+  `spython.image`, da fatia 7, três importam um módulo do programa, um
+  herda de `IntEnum` e de `StrEnum`, da fatia 8, e um tem uma anotação
+  que o CPython 3.13 recusa com `NameError`. O teste falha quando o
+  compilador passa a aceitar um deles. O plano mandava medir também o
+  `wasmtime compile`, que saiu porque o alvo é o V8.
+
 - **7. Imagens e programas interativos.**
 - **8. Nível 5 por partes**, até o corpus passar. Depois os inteiros
   grandes e a saída do RustPython.
