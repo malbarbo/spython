@@ -36,8 +36,7 @@ fn the_corpus_runs_as_in_cpython() {
 /// The files of the corpus, which is `cli/tests/inputs` and the
 /// `na-programacao` beside this repository, when it is there.
 fn corpus() -> Vec<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut files = python_files(&root.join("cli/tests/inputs"));
+    let mut files = python_files(&inputs());
     let book = book();
     if book.is_dir() {
         files.extend(python_files(&book));
@@ -45,6 +44,11 @@ fn corpus() -> Vec<PathBuf> {
         eprintln!("{} is missing, so the corpus leaves it out", book.display());
     }
     files
+}
+
+/// The inputs of the integration tests of the binary.
+fn inputs() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../cli/tests/inputs")
 }
 
 /// The `na-programacao` beside this repository.
@@ -65,9 +69,16 @@ const CHAPTERS: &[(&str, Level)] = &[
     ("11-recursividade", Level::Repetition),
 ];
 
-/// The level of the chapter of `file`, and the full level for a file
-/// outside those chapters.
+/// The level of the files of `cli/tests/inputs`, which the integration
+/// tests of the binary run at that level.
+const INPUTS: Level = Level::Classes;
+
+/// The level of the chapter of `file`, the level of the integration tests
+/// for a file of `cli/tests/inputs`, and the full level for another file.
 fn level(file: &Path) -> Level {
+    if file.starts_with(inputs()) {
+        return INPUTS;
+    }
     let chapter = file
         .strip_prefix(book())
         .ok()
@@ -131,19 +142,63 @@ fn the_doctests_of_the_corpus_run_as_in_the_runner() {
 }
 
 /// The highest level whose programs the compiler covers.
-const COVERED: Level = Level::Repetition;
+const COVERED: Level = Level::Classes;
+
+/// The files of `cli/tests/inputs` at a covered level that the compiler
+/// refuses, each with the reason.
+const LEFT_OUT: &[(&str, &str)] = &[
+    (
+        "ok_enum_bases.py",
+        "IntEnum and StrEnum as bases, in slice 8",
+    ),
+    (
+        "ok_forward_reference.py",
+        "an annotation that raises NameError in CPython 3.13",
+    ),
+    (
+        "ok_package_imports.py",
+        "an import of a module of the program",
+    ),
+    ("ok_point_float.py", "spython.image, in slice 7"),
+    ("ok_sequence_arguments.py", "spython.image, in slice 7"),
+    (
+        "test_package/module_a.py",
+        "an import of a module of the program",
+    ),
+    (
+        "test_package/subpackage/__init__.py",
+        "an import of a module of the program",
+    ),
+];
+
+/// Returns `true` if `file` is one of [`LEFT_OUT`], `false` otherwise.
+fn left_out(file: &Path) -> bool {
+    LEFT_OUT.iter().any(|(name, _)| file == inputs().join(name))
+}
 
 /// Asserts that the compiler covers each file of `outcomes` that the
-/// checker accepts at a level up to [`COVERED`].
+/// checker accepts at a level up to [`COVERED`], except the files of
+/// [`LEFT_OUT`], and that it still refuses those.
 fn assert_covered(outcomes: &[(&PathBuf, Outcome)]) {
     let unsupported: Vec<_> = outcomes
         .iter()
-        .filter(|(file, outcome)| *outcome == Outcome::Unsupported && level(file) <= COVERED)
+        .filter(|(file, outcome)| {
+            *outcome == Outcome::Unsupported && level(file) <= COVERED && !left_out(file)
+        })
         .map(|(file, _)| file)
         .collect();
     assert!(
         unsupported.is_empty(),
         "unsupported at a covered level: {unsupported:#?}"
+    );
+    let covered: Vec<_> = outcomes
+        .iter()
+        .filter(|(file, outcome)| *outcome != Outcome::Unsupported && left_out(file))
+        .map(|(file, _)| file)
+        .collect();
+    assert!(
+        covered.is_empty(),
+        "left out but no longer unsupported: {covered:#?}"
     );
 }
 
