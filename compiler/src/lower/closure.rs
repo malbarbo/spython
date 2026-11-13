@@ -103,20 +103,21 @@ impl<'a> Lowering<'a, '_> {
             .filter_map(|param| param.annotation())
             .chain(def.returns.as_deref());
         self.check_annotations(annotations)?;
-        let (_, params, ret) = self.signature(def, None)?;
-        let ty = self.func_type(params.clone(), ret);
+        let (var, rep) = self
+            .scope
+            .borrow()
+            .as_ref()
+            .and_then(|scope| scope.vars.find(def.name.as_str()))
+            .expect("the variable of the def");
+        let Rep::Func(ty) = rep else {
+            unreachable!("the variable of a def holds a function");
+        };
+        let FuncType { params, ret } = self.func_type_of(ty);
         let (captured, captures) =
             self.closure_captures(def, def.range(), free_names_of_def(def))?;
         let (scope, bindings) = self.def_scope(def, &params, ret, captures);
         let (scope, body) = self.in_scope(scope, || self.def_body(def, &bindings, ret, None));
         let code = self.define_code(ty, scope, body?);
-        let var = self
-            .scope
-            .borrow()
-            .as_ref()
-            .and_then(|scope| scope.vars.find(def.name.as_str()))
-            .map(|(var, _)| var)
-            .expect("the variable of the def");
         Ok(Stmt::Assign {
             targets: vec![Place::Local(var)],
             value: Expr::Closure {
