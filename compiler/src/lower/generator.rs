@@ -282,7 +282,7 @@ impl Lowering<'_, '_> {
             }
             return Ok(operands);
         }
-        let node = self.loop_operand(iter);
+        let node = self.dict_loop(iter).map_or(iter, |(dict, _)| dict);
         Ok(vec![(node.range(), self.expr(node)?)])
     }
 

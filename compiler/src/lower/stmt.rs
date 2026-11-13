@@ -441,12 +441,9 @@ impl<'a> Lowering<'a, '_> {
         body: &mut dyn FnMut() -> Result<Vec<Stmt>, Error>,
         else_: &'a [ast::Stmt],
     ) -> Result<Option<Vec<Stmt>>, Error> {
-        let (value, part) = dict_part(iter);
-        match expr_shape(self.model(), value) {
-            Some(Shape::Dict(..)) => {}
-            Some(Shape::Set(_)) if part == "keys" => {}
-            _ => return Ok(None),
-        }
+        let Some((value, part)) = self.dict_loop(iter) else {
+            return Ok(None);
+        };
         let dict = self.expr(value)?;
         let Rep::Object(class) = dict.rep() else {
             return Err(unsupported(iter, "a for over this type"));
@@ -504,15 +501,15 @@ impl<'a> Lowering<'a, '_> {
         ]))
     }
 
-    /// The node of `iter` that a loop over a `dict`, a `set`, a list or a
-    /// `str` runs before it starts: the `dict` of `d.items()` or `iter`
-    /// itself.
-    pub(super) fn loop_operand<'e>(&self, iter: &'e ast::Expr) -> &'e ast::Expr {
+    /// The `dict` or `set` of `iter` and the part of it that a loop over
+    /// `iter` goes over, when the loop takes the iterator of the prelude:
+    /// `d` and `"items"` for `d.items()`. `None` for another `iter`.
+    pub(super) fn dict_loop<'e>(&self, iter: &'e ast::Expr) -> Option<(&'e ast::Expr, &'e str)> {
         let (value, part) = dict_part(iter);
         match expr_shape(self.model(), value) {
-            Some(Shape::Dict(..)) => value,
-            Some(Shape::Set(_)) if part == "keys" => value,
-            _ => iter,
+            Some(Shape::Dict(..)) => Some((value, part)),
+            Some(Shape::Set(_)) if part == "keys" => Some((value, part)),
+            _ => None,
         }
     }
 
