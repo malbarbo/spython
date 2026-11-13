@@ -112,6 +112,7 @@ pub fn check_file_annotations(
         in_class: false,
         in_function: false,
         in_doctest: false,
+        callee: None,
         diagnostics: Vec::new(),
     };
     checker.visit_body(module.suite());
@@ -130,6 +131,9 @@ struct Checker<'a> {
     in_class: bool,
     in_function: bool,
     in_doctest: bool,
+    /// The function of the call that the visit enters, which is the next
+    /// expression that `check_dynamic_expr` sees.
+    callee: Option<TextRange>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -529,6 +533,7 @@ impl Checker<'_> {
     /// not. A name takes its type from where it is bound, and the report
     /// goes there.
     fn check_dynamic_expr(&mut self, expr: &Expr) {
+        let is_callee = self.callee.take() == Some(expr.range());
         if let Expr::Lambda(lambda) = expr
             && let Some(parameters) = &lambda.parameters
         {
@@ -549,7 +554,14 @@ impl Checker<'_> {
         let Some(ty) = expr.inferred_type(self.model) else {
             return;
         };
-        if !self.is_dynamic(ty) {
+        // The signature of a method may hold `Any`, as the `key` of
+        // `list.sort` does. The call checks its arguments and its result.
+        let dynamic = if is_callee {
+            matches!(ty, Type::Dynamic(_))
+        } else {
+            self.is_dynamic(ty)
+        };
+        if !dynamic {
             return;
         }
         let mut parts = Parts(Vec::new());
@@ -1551,6 +1563,9 @@ impl<'a> Visitor<'a> for Checker<'_> {
             _ => {}
         }
 
+        if let Expr::Call(call) = expr {
+            self.callee = Some(call.func.range());
+        }
         walk_expr(self, expr);
     }
 }

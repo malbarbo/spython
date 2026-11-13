@@ -1,0 +1,8 @@
+---
+source: cli/tests/integration.rs
+---
+STDOUT
+[1, 2, 3]
+['ccc', 'bb', 'a']
+['a', 'bb', 'ccc']
+STDERR
