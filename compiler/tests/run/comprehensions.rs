@@ -80,6 +80,63 @@ fn an_error_in_a_comprehension_has_no_frame_of_its_own() {
 }
 
 #[test]
+fn set_and_dict_comprehensions_make_a_set_and_a_dict() {
+    same_as_cpython(
+        "set_and_dict_comprehensions_make_a_set_and_a_dict",
+        indoc! {"
+            xs = [3, 1, 3, -1, -2, 1]
+            print({x * x for x in xs}, {x for x in xs if x > 5})
+            print({c: ord(c) for c in 'abca'})
+            d = {k: v * 2 for k, v in {'a': 1, 'b': 2}.items() if k != 'a'}
+            print(d, {n: [m for m in range(n)] for n in range(3)})
+            print({s.upper() for s in ['oi', 'tchau', 'oi']} == {'OI', 'TCHAU'})
+            print(len({1.0 for _ in range(3)}), {True: 1 for _ in range(1)})
+            print({b for b in [True, False, True]}, {n: n for n in {5, 6}})
+        "},
+    );
+}
+
+#[test]
+fn a_comprehension_hashes_each_key_as_it_comes() {
+    let source = |head: &str, tail: &str| {
+        format!(
+            indoc! {"
+                class K:
+                    n: int
+
+                    def __init__(self, n: int) -> None:
+                        self.n = n
+
+                    def __eq__(self, other: object) -> bool:
+                        return isinstance(other, K) and self.n == other.n
+
+                    def __hash__(self) -> int:
+                        print('hash', self.n)
+                        if self.n == 2:
+                            raise ValueError('ruim')
+                        return self.n
+
+                def v(n: int) -> int:
+                    print('v', n)
+                    return n
+
+                c = {}
+                     {}
+            "},
+            head, tail
+        )
+    };
+    same_as_cpython(
+        "a_set_comprehension_hashes_each_key_as_it_comes",
+        &source("{K(v(n))", "for n in range(3)}"),
+    );
+    same_as_cpython(
+        "a_dict_comprehension_hashes_each_key_as_it_comes",
+        &source("{K(v(n)): v(n * 10)", "for n in range(3)}"),
+    );
+}
+
+#[test]
 fn a_lambda_that_reads_a_name_of_a_comprehension_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"

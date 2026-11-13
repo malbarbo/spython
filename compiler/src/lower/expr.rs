@@ -215,6 +215,8 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Lambda(lambda) => self.lambda(expr, lambda),
             ast::Expr::List(list) => self.list(expr, list),
             ast::Expr::ListComp(comp) => self.list_comp(expr, comp),
+            ast::Expr::SetComp(comp) => self.set_comp(expr, comp),
+            ast::Expr::DictComp(comp) => self.dict_comp(expr, comp),
             ast::Expr::Dict(dict) => self.dict(expr, dict),
             ast::Expr::Set(set) => self.set(expr, set),
             ast::Expr::Subscript(sub) => {
@@ -452,7 +454,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// The copy of a generic class of the prelude whose object `expr` gives,
     /// and `None` for an `expr` of another type.
-    fn copy_of(&self, expr: &ast::Expr) -> Option<ClassId> {
+    pub(super) fn copy_of(&self, expr: &ast::Expr) -> Option<ClassId> {
         let class = self.rep_of(expr_shape(self.model(), expr))?.class()?;
         self.copy_file(class).map(|_| class)
     }

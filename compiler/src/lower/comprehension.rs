@@ -3,11 +3,13 @@
 //! and the traceback has no frame for it.
 
 use ruff_python_ast as ast;
+use ruff_text_size::{Ranged, TextRange};
 use ty_python_semantic::types::lowering::expr_shape;
 
+use super::class::generated_call;
 use super::{Comprehension, Lowering, unsupported};
 use crate::Error;
-use crate::ir::{Expr, Place, Rep, Stmt};
+use crate::ir::{ClassId, Expr, Place, Rep, Stmt};
 
 impl<'a> Lowering<'a, '_> {
     /// `[elt for ...]`, a new list with the value of `elt` for each turn of
@@ -40,6 +42,92 @@ impl<'a> Lowering<'a, '_> {
             let append = self.list_call(expr, "append", vec![read(), value])?;
             Ok(vec![Stmt::Expr(append)])
         })?);
+        Ok(Expr::Block {
+            stmts,
+            value: Box::new(read()),
+        })
+    }
+
+    /// `{elt for ...}`, a new `set` that the method `add` of the copy of
+    /// the class `Set` of the prelude fills, one value at a time, as
+    /// `SET_ADD` does. The traceback marks `elt` for an error of `add`.
+    pub(super) fn set_comp(
+        &self,
+        expr: &ast::Expr,
+        comp: &ast::ExprSetComp,
+    ) -> Result<Expr, Error> {
+        let class = self
+            .copy_of(expr)
+            .ok_or_else(|| unsupported(expr, "a set of this type"))?;
+        let add = self.method_func(class, "add").expect("Set has add");
+        let params = self.funcs.borrow().get(add).params.clone();
+        let [_, item] = params[..] else {
+            unreachable!("add takes a key");
+        };
+        let site = self.site(comp.elt.range());
+        self.filled(expr, class, &comp.generators, &mut |object| {
+            let value = self.literal_item(&comp.elt, item)?;
+            Ok(generated_call(add, vec![object, value], Rep::None, site))
+        })
+    }
+
+    /// `{key: value for ...}`, a new `dict` that the method `__setitem__`
+    /// of the copy of the class `Dict` of the prelude fills, as `MAP_ADD`
+    /// does. The key runs before the value, and the traceback marks both
+    /// for an error of `__setitem__`.
+    pub(super) fn dict_comp(
+        &self,
+        expr: &ast::Expr,
+        comp: &ast::ExprDictComp,
+    ) -> Result<Expr, Error> {
+        let Some(key) = comp.key.as_deref() else {
+            return Err(unsupported(&*comp.value, "a starred item"));
+        };
+        let class = self
+            .copy_of(expr)
+            .ok_or_else(|| unsupported(expr, "a dict of this type"))?;
+        let set = self
+            .method_func(class, "__setitem__")
+            .expect("Dict has __setitem__");
+        let params = self.funcs.borrow().get(set).params.clone();
+        let [_, key_rep, value_rep] = params[..] else {
+            unreachable!("__setitem__ takes a key and a value");
+        };
+        let site = self.site(TextRange::new(key.start(), comp.value.end()));
+        self.filled(expr, class, &comp.generators, &mut |object| {
+            let key = self.literal_item(key, key_rep)?;
+            let value = self.literal_item(&comp.value, value_rep)?;
+            Ok(generated_call(
+                set,
+                vec![object, key, value],
+                Rep::None,
+                site,
+            ))
+        })
+    }
+
+    /// A new object of `class`, a copy of a class of the prelude, with
+    /// the call that `put` gives for the object in each turn of the loops of
+    /// `generators`.
+    fn filled(
+        &self,
+        expr: &ast::Expr,
+        class: ClassId,
+        generators: &[ast::Comprehension],
+        put: &mut dyn FnMut(Expr) -> Result<Expr, Error>,
+    ) -> Result<Expr, Error> {
+        let rep = Rep::Object(class);
+        let result = self.hidden_var(rep);
+        let read = || Expr::Load {
+            place: result,
+            rep,
+            check: None,
+        };
+        let mut stmts = vec![Stmt::Assign {
+            targets: vec![result],
+            value: self.new_copy(class, Vec::new(), self.site(expr.range())),
+        }];
+        stmts.extend(self.comprehension(generators, &mut || Ok(vec![Stmt::Expr(put(read())?)]))?);
         Ok(Expr::Block {
             stmts,
             value: Box::new(read()),
