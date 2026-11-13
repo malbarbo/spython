@@ -423,6 +423,44 @@ fn sorted_sorts_a_list_and_a_generator_expression() {
 }
 
 #[test]
+fn sort_sorts_the_list_in_place() {
+    same_as_cpython(
+        "sort_sorts_the_list_in_place",
+        indoc! {"
+            import math
+
+
+            def ordena(xs: list[int]) -> None:
+                xs.sort(reverse=True)
+
+
+            xs = [5, 2, 9, 1, 5, 6]
+            ys = xs
+            xs.sort()
+            print(xs, ys)
+            ordena(ys)
+            print(xs)
+            fs = [3.0, math.nan, 1.0, 2.0]
+            fs.sort()
+            print(fs)
+            ws = ['banana', 'Abacaxi', 'uva', 'kiwi']
+            ws.sort(key=lambda w: len(w))
+            print(ws)
+            ws.sort(key=lambda w: w.lower(), reverse=True)
+            print(ws)
+            ws.sort(key=None)
+            print(ws)
+            ns = [(i * 37) % 101 for i in range(200)]
+            ns.sort(key=lambda n: n % 7)
+            print(ns)
+            vazia: list[int] = []
+            vazia.sort()
+            print(vazia)
+        "},
+    );
+}
+
+#[test]
 fn sorted_makes_the_comparisons_of_cpython() {
     same_as_cpython(
         "sorted_makes_the_comparisons_of_cpython",
