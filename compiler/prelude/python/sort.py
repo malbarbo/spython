@@ -388,8 +388,10 @@ class Sort[K: Ordered, T]:
             if self.has_values:
                 list_reserve(self.temp_values, n)
         copy_items(self.temp_keys, 0, self.keys, src, n)
+        list_set_len(self.temp_keys, n)
         if self.has_values:
             copy_items(self.temp_values, 0, self.values, src, n)
+            list_set_len(self.temp_values, n)
 
     def put(self, dest: int, saved: bool, src: int, n: int) -> None:
         """Copies `n` items to `dest`, from `src` of the room of the merge when `saved`, and of
