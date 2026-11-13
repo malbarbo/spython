@@ -895,6 +895,11 @@ de `str`.
 - A especialização pelo código de um argumento função.
 - O `hash` de identidade, quando a fatia 8 aceitar `set` de uma classe
   sem `__eq__`.
+- O `.0` da função de uma expressão geradora, quando a fatia 8 trouxer
+  `__iter__` e o gerador como valor. Ele passa a ser o iterador do
+  primeiro iterável, como no CPython, e o `for` passa a iterar sobre um
+  iterador já criado. A tabela `substitutes`, que hoje troca as partes
+  do primeiro iterável pelos valores de fora, sai nessa hora.
 
 ## O que a revisão mudou
 
