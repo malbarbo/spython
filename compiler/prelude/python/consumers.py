@@ -12,10 +12,8 @@ def sum_int[T: int](xs: list[T]) -> int:
     """`sum(xs)` of a list of `int` or of `bool`, which tests the 31 bits at each step, as `+`
     does."""
     total = 0
-    i = 0
-    while i < len(xs):
-        total = total + xs[i]
-        i += 1
+    for x in xs:
+        total = total + x
     return total
 
 
@@ -27,16 +25,17 @@ def sum_float(xs: list[float]) -> float | int:
         return 0
     total = 0 + xs[0]
     c = 0.0
-    i = 1
-    while i < len(xs):
-        x = xs[i]
+    first = True
+    for x in xs:
+        if first:
+            first = False
+            continue
         t = total + x
         if abs(total) >= abs(x):
             c += (total - t) + x
         else:
             c += (x - t) + total
         total = t
-        i += 1
     # The compensation keeps the sign of a negative sum, and does not turn an infinite sum into
     # a NaN.
     if c != 0.0 and isfinite(c):
@@ -49,13 +48,13 @@ def min_of[T: Ordered](xs: list[T]) -> T:
     if len(xs) == 0:
         raise ValueError("min() iterable argument is empty")
     best = xs[0]
-    i = 1
-    while i < len(xs):
-        x = xs[i]
+    first = True
+    for x in xs:
+        if first:
+            first = False
         # The compiler takes `min(best, x)` of no object, and T may be a class.
-        if x < best:  # noqa: PLR1730
+        elif x < best:  # noqa: PLR1730
             best = x
-        i += 1
     return best
 
 
@@ -64,13 +63,13 @@ def max_of[T: Ordered](xs: list[T]) -> T:
     if len(xs) == 0:
         raise ValueError("max() iterable argument is empty")
     best = xs[0]
-    i = 1
-    while i < len(xs):
-        x = xs[i]
+    first = True
+    for x in xs:
+        if first:
+            first = False
         # The compiler takes `max(best, x)` of no object, and T may be a class.
-        if x > best:  # noqa: PLR1730
+        elif x > best:  # noqa: PLR1730
             best = x
-        i += 1
     return best
 
 
@@ -81,14 +80,15 @@ def min_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
         raise ValueError("min() iterable argument is empty")
     best = xs[0]
     best_key = key(best)
-    i = 1
-    while i < len(xs):
-        x = xs[i]
+    first = True
+    for x in xs:
+        if first:
+            first = False
+            continue
         k = key(x)
         if k < best_key:
             best = x
             best_key = k
-        i += 1
     return best
 
 
@@ -98,30 +98,27 @@ def max_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
         raise ValueError("max() iterable argument is empty")
     best = xs[0]
     best_key = key(best)
-    i = 1
-    while i < len(xs):
-        x = xs[i]
+    first = True
+    for x in xs:
+        if first:
+            first = False
+            continue
         k = key(x)
         if k > best_key:
             best = x
             best_key = k
-        i += 1
     return best
 
 
 def any_of[T](xs: list[T]) -> bool:
-    i = 0
-    while i < len(xs):
-        if xs[i]:
+    for x in xs:
+        if x:
             return True
-        i += 1
     return False
 
 
 def all_of[T](xs: list[T]) -> bool:
-    i = 0
-    while i < len(xs):
-        if not xs[i]:
+    for x in xs:
+        if not x:
             return False
-        i += 1
     return True
