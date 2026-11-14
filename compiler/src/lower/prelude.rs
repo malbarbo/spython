@@ -661,6 +661,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             args,
             |list| self.list_arg(list),
             |ty| self.func_type_of(ty),
+            |class| self.copy_args(class),
         )
         .ok_or_else(|| unsupported(node, "a call of a generic function with these types"))?;
         let func = self
@@ -951,6 +952,7 @@ fn type_map(
     args: &[Rep],
     item: impl Fn(ListId) -> TypeArg,
     func: impl Fn(FuncTypeId) -> FuncType,
+    copy: impl Fn(ClassId) -> Option<Vec<TypeArg>>,
 ) -> Option<Vec<(String, TypeArg)>> {
     let mut found: Vec<Option<TypeArg>> = names.iter().map(|_| None).collect();
     // A type of function gives a variable its rep alone, so a variable
@@ -995,13 +997,16 @@ fn type_map(
             }
             continue;
         }
-        // The item of a list or of an array, and of each list inside it.
-        while let Some((inner, list)) = items_shape(shape, rep) {
-            shape = inner;
-            let arg = item(list);
-            rep = arg.rep;
-            if let Shape::TypeVar(name) = shape {
-                bind(name, arg, false)?;
+        // The item of a list or of an array, what each type variable of a
+        // copy of a class of the prelude stands for, and the same inside
+        // each of them.
+        let mut inner = vec![(shape, rep)];
+        while let Some((shape, rep)) = inner.pop() {
+            for (shape, arg) in type_args(shape, rep, &item, &copy) {
+                if let Shape::TypeVar(name) = shape {
+                    bind(name, arg.clone(), false)?;
+                }
+                inner.push((shape, arg.rep));
             }
         }
     }
@@ -1093,17 +1098,28 @@ fn builtin_module(class: &str, name: &str) -> Option<&'static str> {
     }
 }
 
-/// The shape of the items of a parameter of `shape`, a list or an array,
-/// with the type of list of its argument of `rep`, and `None` for a
-/// parameter of another type.
-fn items_shape(shape: &Shape, rep: Rep) -> Option<(&Shape, ListId)> {
+/// Each type argument of a parameter of `shape`, with what it stands for
+/// in an argument of `rep`. The items of a list or of an array take the
+/// type of the items of the argument, and a copy of a generic class of the
+/// prelude, which `copy` gives, takes what its type variables stand for.
+fn type_args(
+    shape: &Shape,
+    rep: Rep,
+    item: impl Fn(ListId) -> TypeArg,
+    copy: impl Fn(ClassId) -> Option<Vec<TypeArg>>,
+) -> Vec<(&Shape, TypeArg)> {
     match (shape, rep) {
-        (Shape::List(inner), Rep::List(list)) => Some((inner, list)),
-        (Shape::Instance(_, args), Rep::Array(list)) => match &args[..] {
-            [inner] => Some((inner, list)),
-            _ => None,
-        },
-        _ => None,
+        (Shape::List(inner), Rep::List(list)) => vec![(&**inner, item(list))],
+        (Shape::Instance(_, args), Rep::Array(list)) if args.len() == 1 => {
+            args.iter().map(|inner| (inner, item(list))).collect()
+        }
+        (Shape::Instance(_, shapes), Rep::Object(class) | Rep::ObjectOrNone(class)) => {
+            match copy(class) {
+                Some(args) if args.len() == shapes.len() => shapes.iter().zip(args).collect(),
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -1162,6 +1178,7 @@ mod tests {
                 classes: Vec::new(),
             },
             |_| unreachable!("no function in the test"),
+            |_| None,
         )?;
         Some(
             types

@@ -827,6 +827,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Some(self.classes.borrow().get(class).copy.as_ref()?.file)
     }
 
+    /// What each type variable of the class of `class` stands for, in the
+    /// order of the variables, when `class` is a copy of a generic class of
+    /// the prelude, and `None` otherwise.
+    pub(super) fn copy_args(&self, class: ClassId) -> Option<Vec<TypeArg>> {
+        let classes = self.classes.borrow();
+        let copy = classes.get(class).copy.as_ref()?;
+        Some(copy.types.iter().map(|(_, arg)| arg.clone()).collect())
+    }
+
     /// The function of [`Self::method`], once the lowering declares it.
     pub(super) fn method_func(&self, class: ClassId, name: &str) -> Option<FuncId> {
         self.method(class, name)?.func
