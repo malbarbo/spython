@@ -57,6 +57,7 @@ pub(crate) const ZERO_TO_A_NEGATIVE_POWER: Message = Message::new(
     Class::ZeroDivisionError,
     "0.0 cannot be raised to a negative power",
 );
+pub(crate) const NEGATIVE_SHIFT: Message = Message::new(Class::ValueError, "negative shift count");
 pub(crate) const MATH_DOMAIN_ERROR: Message = Message::new(Class::ValueError, "math domain error");
 pub(crate) const MATH_RANGE_ERROR: Message = Message::new(Class::OverflowError, "math range error");
 pub(crate) const FMA_INVALID: Message = Message::new(Class::ValueError, "invalid operation in fma");

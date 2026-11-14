@@ -1060,8 +1060,8 @@ impl Reprs {
     }
 
     /// Pops two `int`s and pushes the result of `op`.
-    pub fn int_arith(&self, f: &mut FuncState, op: ArithOp) {
-        self.int.arith(f, op);
+    pub fn int_arith(&mut self, m: &mut ModuleState, f: &mut FuncState, op: ArithOp) {
+        self.int.arith(m, f, &mut self.str, &self.exc, op);
     }
 
     /// Pops an `i64` and pushes it as an `int`. A value outside the range

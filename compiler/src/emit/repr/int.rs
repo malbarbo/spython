@@ -7,7 +7,7 @@ use wasm_encoder::{BlockType, ConstExpr, ValType};
 use super::str::StrRepr;
 use crate::cpython::{
     Class, DIVISION_BY_ZERO, INFINITY_TO_INT, MODULO_BY_ZERO, Message, NAN_TO_INT, NEGATIVE_K,
-    NEGATIVE_N,
+    NEGATIVE_N, NEGATIVE_SHIFT,
 };
 use crate::emit::module::{FuncIdx, FuncState, Ins, ModuleState};
 use crate::emit::runtime::exc::Exceptions;
@@ -52,6 +52,10 @@ pub(super) enum IntRepr {
         /// `(func (param i32 i32) (result i32))` for `**`, which the module
         /// gets at the first use.
         pow: Option<FuncIdx>,
+        /// `(func (param i32 i32) (result i32))` for `<<` and `>>`, which
+        /// the module gets at the first use.
+        lshift: Option<FuncIdx>,
+        rshift: Option<FuncIdx>,
     },
 }
 
@@ -79,6 +83,8 @@ impl IntRepr {
             lcm_end: None,
             chooses: BTreeMap::new(),
             pow: None,
+            lshift: None,
+            rshift: None,
         }
     }
 
@@ -173,7 +179,14 @@ impl IntRepr {
     }
 
     /// Pops two `int`s and pushes the result of `op`.
-    pub fn arith(&self, f: &mut FuncState, op: ArithOp) {
+    pub fn arith(
+        &mut self,
+        m: &mut ModuleState,
+        f: &mut FuncState,
+        str: &mut StrRepr,
+        exc: &Exceptions,
+        op: ArithOp,
+    ) {
         match self {
             IntRepr::I31 {
                 add,
@@ -181,16 +194,20 @@ impl IntRepr {
                 mul,
                 floor_div,
                 modulo,
+                lshift,
+                rshift,
                 ..
             } => {
                 let func = match op {
-                    ArithOp::Add => add,
-                    ArithOp::Sub => sub,
-                    ArithOp::Mul => mul,
-                    ArithOp::FloorDiv => floor_div,
-                    ArithOp::Mod => modulo,
+                    ArithOp::Add => *add,
+                    ArithOp::Sub => *sub,
+                    ArithOp::Mul => *mul,
+                    ArithOp::FloorDiv => *floor_div,
+                    ArithOp::Mod => *modulo,
+                    ArithOp::LShift => *lshift.get_or_insert_with(|| add_lshift(m, str, exc)),
+                    ArithOp::RShift => *rshift.get_or_insert_with(|| add_rshift(m, str, exc)),
                 };
-                f.ins().call(*func);
+                f.ins().call(func);
             }
         }
     }
@@ -718,6 +735,75 @@ fn add_pow(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx 
     f.end();
     f.end();
     f.ins().local_get(r).i32_wrap_i64();
+    m.add_func(ty, f.finish())
+}
+
+/// Raises `ValueError` when the count of a shift, the second parameter,
+/// is negative.
+fn check_shift_count(m: &mut ModuleState, f: &mut FuncState, str: &mut StrRepr, exc: &Exceptions) {
+    let count = f.param(1);
+    f.ins().local_get(count).i32_const(0).i32_lt_s();
+    f.if_(BlockType::Empty);
+    exc.raise(m, str, f, &NEGATIVE_SHIFT);
+    f.end();
+}
+
+/// The function of `<<`. A count of 31 or more takes any `int` but 0 out
+/// of 31 bits, and a smaller count leaves the result in an `i64`.
+fn add_lshift(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let mut f = FuncState::new(2);
+    let (a, count) = (f.param(0), f.param(1));
+    let v = f.local(ValType::I64);
+    check_shift_count(m, &mut f, str, exc);
+    f.ins().local_get(a).i32_eqz();
+    f.if_(BlockType::Empty);
+    f.ins().i32_const(0).return_();
+    f.end();
+    f.ins()
+        .local_get(count)
+        .i32_const(31)
+        .i32_ge_u()
+        .local_get(a)
+        .i64_extend_i32_s()
+        .local_get(count)
+        .i64_extend_i32_u()
+        .i64_shl()
+        .local_tee(v)
+        .i64_const(-MIN)
+        .i64_add()
+        .i64_const(MAX - MIN + 1)
+        .i64_ge_u()
+        .i32_or();
+    f.if_(BlockType::Empty);
+    exc.raise(
+        m,
+        str,
+        &mut f,
+        &Message::new(Class::Limit, &too_large("<<")),
+    );
+    f.end();
+    f.ins().local_get(v).i32_wrap_i64();
+    m.add_func(ty, f.finish())
+}
+
+/// The function of `>>`, which rounds down, as the shift of an `i32` with
+/// its sign does. A count of 31 or more gives 0 or -1, as a count of 31
+/// does.
+fn add_rshift(m: &mut ModuleState, str: &mut StrRepr, exc: &Exceptions) -> FuncIdx {
+    let ty = m.func_type(&[ValType::I32, ValType::I32], &[ValType::I32]);
+    let mut f = FuncState::new(2);
+    let (a, count) = (f.param(0), f.param(1));
+    check_shift_count(m, &mut f, str, exc);
+    f.ins()
+        .local_get(a)
+        .local_get(count)
+        .i32_const(31)
+        .local_get(count)
+        .i32_const(31)
+        .i32_lt_u()
+        .select()
+        .i32_shr_s();
     m.add_func(ty, f.finish())
 }
 

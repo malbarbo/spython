@@ -981,6 +981,9 @@ impl<'a> Lowering<'a, '_> {
                 ArithOp::Add => FloatOp::Add,
                 ArithOp::Sub => FloatOp::Sub,
                 ArithOp::Mul => FloatOp::Mul,
+                ArithOp::LShift | ArithOp::RShift => {
+                    return Err(unsupported(node, "this operator"));
+                }
                 ArithOp::FloorDiv | ArithOp::Mod => {
                     return Ok(Expr::Div {
                         op: if op == ArithOp::Mod {
@@ -1085,7 +1088,19 @@ impl<'a> Lowering<'a, '_> {
                 self.int_value(lowered, &*u.operand)
             }
             ast::UnaryOp::Not => Ok(Expr::Not(Box::new(self.value_truth(&u.operand, u)?))),
-            ast::UnaryOp::Invert => Err(unsupported(u, "this operator")),
+            // `~n` is `-n - 1`, which fits in 31 bits for each `int`.
+            ast::UnaryOp::Invert => {
+                let lowered = self.expr(&u.operand)?;
+                if lowered.rep().class().is_some() {
+                    return Err(unsupported(u, "this operator on an object"));
+                }
+                Ok(Expr::Bits {
+                    op: BitOp::Xor,
+                    left: Box::new(self.int_value(lowered, &*u.operand)?),
+                    right: Box::new(Expr::Int(-1)),
+                    rep: Rep::Int,
+                })
+            }
         }
     }
 
@@ -1164,6 +1179,8 @@ fn arith_op(op: ast::Operator) -> Option<ArithOp> {
         ast::Operator::Mult => Some(ArithOp::Mul),
         ast::Operator::FloorDiv => Some(ArithOp::FloorDiv),
         ast::Operator::Mod => Some(ArithOp::Mod),
+        ast::Operator::LShift => Some(ArithOp::LShift),
+        ast::Operator::RShift => Some(ArithOp::RShift),
         _ => None,
     }
 }

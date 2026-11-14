@@ -56,6 +56,62 @@ fn the_bit_operators_of_int_follow_python() {
 }
 
 #[test]
+fn the_shifts_and_the_inversion_of_int_follow_python() {
+    same_as_cpython(
+        "the_shifts_and_the_inversion_of_int_follow_python",
+        indoc! {"
+            def shift(n: int, k: int) -> None:
+                print(n >> k, ~n)
+
+
+            print(1 << 4, 256 >> 2, -7 >> 1, ~5, ~-1, ~0, ~True, ~False)
+            print(~1073741823, ~-1073741824, -1 << 30, 1 << 29, -1073741824 >> 1)
+            print(5 << 0, -5 << 3, 0 << 1000, -1 << 30, (-1 << 29) >> 1)
+            shift(5, 0)
+            shift(-5, 3)
+            shift(0, 1000)
+            shift(-1, 1000)
+            shift(7, 31)
+            shift(-7, 31)
+            print(True << True, 6 >> True)
+            n = 3
+            n <<= 4
+            n >>= 2
+            print(n)
+        "},
+    );
+    for (i, source) in ["print(5 << -1)", "print(0 >> -2)"].into_iter().enumerate() {
+        same_as_cpython(&format!("a_negative_count_of_a_shift_raises_{i}"), source);
+    }
+}
+
+#[test]
+fn a_shift_outside_31_bits_stops_the_program() {
+    stops_at_the_int_limit(
+        "a_shift_outside_31_bits_stops_the_program",
+        indoc! {"
+            print(1 << 29)
+            print(1 << 30)
+        "},
+        "536870912\n",
+        2,
+        "    print(1 << 30)\n          ~~^^~~~\n",
+        "of <<",
+    );
+    stops_at_the_int_limit(
+        "a_shift_by_a_large_count_stops_the_program",
+        indoc! {"
+            k = len('a' * 100)
+            print(1 << k)
+        "},
+        "",
+        2,
+        "    print(1 << k)\n          ~~^^~~\n",
+        "of <<",
+    );
+}
+
+#[test]
 fn the_comparisons_of_int_give_a_bool() {
     same_as_cpython(
         "the_comparisons_of_int_give_a_bool",

@@ -1255,7 +1255,7 @@ impl Emitter<'_> {
             } => {
                 self.expr(f, left);
                 self.expr(f, right);
-                self.at(f, *site, |e, f| e.reprs.int_arith(f, *op));
+                self.at(f, *site, |e, f| e.reprs.int_arith(&mut e.m, f, *op));
             }
             Expr::Bits {
                 op,

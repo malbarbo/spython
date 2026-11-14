@@ -1310,6 +1310,8 @@ pub(crate) enum ArithOp {
     Mul,
     FloorDiv,
     Mod,
+    LShift,
+    RShift,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

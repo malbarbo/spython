@@ -848,6 +848,7 @@ impl<'a> Ins<'a> {
         i32_or();
         i32_rem_s();
         i32_shl();
+        i32_shr_s();
         i32_shr_u();
         i32_sub();
         i32_trunc_f64_s();
