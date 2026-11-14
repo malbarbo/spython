@@ -875,11 +875,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
 /// The rep of each type variable of `names` for a call with arguments of
 /// `args` of a function whose parameters have the declared types `params`.
 /// `item` gives the rep of the items of a type of list, and `func` the
-/// parameters and the result of a type of function. Only a variable inside
+/// parameters and the result of a type of function. A variable inside
 /// `list[...]` or `Callable[...]` takes the rep of the argument, since a
 /// list of one type holds no item of another, and a bare variable takes
-/// the argument as a value of that rep. `None` when a variable gets no rep
-/// or two.
+/// the argument as a value of that rep. A variable that only bare
+/// parameters have takes the rep of their argument, unless it is uniform,
+/// whose classes the call does not know, or `None`, which no parameter
+/// holds. `None` when a variable gets no rep or two.
 fn type_map(
     names: &[String],
     params: &[Shape],
@@ -938,6 +940,28 @@ fn type_map(
             if let Shape::TypeVar(name) = shape {
                 bind(name, arg, false)?;
             }
+        }
+    }
+    let bound: Vec<bool> = found.iter().map(Option::is_some).collect();
+    for (shape, rep) in params.iter().zip(args) {
+        let Shape::TypeVar(name) = shape else {
+            continue;
+        };
+        let Some(i) = names.iter().position(|var| var == name) else {
+            continue;
+        };
+        if bound.get(i) == Some(&true) {
+            continue;
+        }
+        match found.get_mut(i) {
+            Some(slot @ None) if !matches!(rep, Rep::Uniform | Rep::None) => {
+                *slot = Some(TypeArg {
+                    rep: *rep,
+                    classes: Vec::new(),
+                });
+            }
+            Some(Some(arg)) if arg.rep == *rep => {}
+            _ => return None,
         }
     }
     names
@@ -1064,8 +1088,18 @@ mod tests {
             types_of(&[list_of(t()), list_of(t())], &[list(0), list(1)]),
             None
         );
-        assert_eq!(types_of(&[t()], &[Rep::Int]), None);
         assert_eq!(types_of(&[Shape::Int], &[Rep::Int]), None);
+    }
+
+    #[test]
+    fn a_type_variable_that_no_list_has_takes_the_rep_of_its_argument() {
+        let t = || Shape::TypeVar("T".to_owned());
+        let int = Some(vec![("T".to_owned(), Rep::Int)]);
+        assert_eq!(types_of(&[t()], &[Rep::Int]), int);
+        assert_eq!(types_of(&[t(), t()], &[Rep::Int, Rep::Int]), int);
+        assert_eq!(types_of(&[t(), t()], &[Rep::Int, Rep::Str]), None);
+        assert_eq!(types_of(&[t()], &[Rep::Uniform]), None);
+        assert_eq!(types_of(&[t()], &[Rep::None]), None);
     }
 
     #[test]
