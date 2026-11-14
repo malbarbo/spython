@@ -139,7 +139,9 @@ análise achou.
 5. A conta e a comparação com `int | float`, e o `str()`, o `print` e a
    f-string de `None` e de uma união.
 6. Uma lista, um `dict`, um `set` e uma função dentro de uma união ou de
-   um `object`, com o `print`, o `==` e o `isinstance`.
+   um `object`, com o `print`, o `==` e o `isinstance`. Antes, a lista
+   vira uma classe do prelude, como diz a seção "A lista como classe do
+   prelude".
 7. A variável com valores de dois tipos, que ganha a `Rep` da união que o
    `ty` declara para ela.
 8. `:=`, inclusive dentro de uma compreensão, onde o nome é da função em
@@ -415,8 +417,9 @@ restaura o global da exceção tratada, como toda saída de uma função com
 `StopIteration` como `__context__`, e o traceback o mostraria com
 "During handling of the above exception", o que o CPython não faz.
 
-O `for` sobre um tipo concreto não muda. Uma lista continua com o índice,
-um `str` e um `range` também, e um `enumerate(xs)` chama direto o `next()`
+O `for` sobre um `str` e sobre um `range` não muda e continua com o
+índice. Uma lista passa pelo iterador da classe `List` do prelude, como um
+`dict` e um `set`, e um `enumerate(xs)` chama direto o `next()`
 da classe `enumerate` do prelude. O `zip` para no primeiro argumento que
 termina, sem avançar os seguintes, e o item já tirado dos anteriores se
 perde. As views são vivas, e a mudança do `dict` durante a iteração por
@@ -439,14 +442,55 @@ tupla. Com o id de classe, o `Implements` é um bit numa tabela
 constante indexada pelo id, e a chamada é um `br_table` sobre o id. Os
 dois custam o mesmo com qualquer número de classes. A ordem em pré-ordem
 não serve aqui, porque a herança múltipla forma um grafo. Os valores sem
-id, que são o `str`, os números e as listas, passam por testes antes. As
-listas são um tipo wasm por item, e esse teste cresce com o programa. Se
-a sondagem S3 mostrar que ele pesa, a lista ganha o id também. Um tipo
+id, que são o `str` e os números, passam por testes antes. A lista é uma
+cópia da classe `List` e tem o id como qualquer classe. Um tipo
 cujo item tem outra `Rep`, como uma `list[int]` num `Iterable[int |
 None]`, ganha uma adaptadora que alarga o item.
 
 Um passo sobre um `Iterator[T]` faz um despacho só, que devolve o `bool`
 e o item juntos.
+
+### A lista como classe do prelude
+
+Uma `list[T]` é um objeto da cópia de `List[T]`, uma classe de `list.py`,
+como um `dict[K, V]` é um objeto de `Dict` e um `set[T]` um objeto de
+`Set`. A classe tem dois campos, `items: Array[T]` e `length: int`, e os
+métodos com os nomes do typeshed, mais `__len__`, `__getitem__`,
+`__setitem__`, `__contains__`, `__eq__`, `__repr__`, `__add__` e o
+iterador da seção "A iteração do prelude". Assim a lista entra no
+`print`, no `==`, no `isinstance`, no despacho e no id de classe pelo
+caminho de qualquer objeto, e a `Rep::ListOrNone` dá lugar à
+`Rep::ObjectOrNone`.
+
+O que fica nativo é o `Array[T]` de `intrinsics.pyi`, um array mutável do
+WasmGC com tamanho fixo, com `array_new`, `array_len`, `array_get`,
+`array_set`, `array_copy` e uma intrínseca que solta as referências de um
+trecho. O `ty` deduz o `T` de `array_new` numa variável anotada, como `a:
+Array[T] = array_new(n)`, e não numa atribuição direta a um campo. `Dict`,
+`Set`, a ordenação e os consumidores do prelude usam o `Array` direto. O
+compilador ainda sabe três nomes da classe, como já sabe o `done` de `Dict`
+e de `Set`. São eles o método que recebe os itens de uma literal, os
+métodos da fatia e o iterador do `for`.
+
+A medida de 14/nov/2026, no deno 2.9.6 com o V8 15.0, comparou `xs[i]` e
+`xs[i] = v` escritos direto com a chamada a uma função do prelude que faz
+o mesmo. No Turbofan, o V8 embute a chamada e o custo some. No Liftoff,
+onde fica uma função chamada uma vez só, a chamada custa 26%. O
+`wasm-opt -O3` embute a função, mas não recupera esses 26% no Liftoff, e
+deixa o código direto 15% mais lento. A mesma medida achou que o laço
+quente de uma função chamada uma vez roda cerca de quatro vezes mais
+devagar no Liftoff que no Turbofan, porque o V8 não troca o nível de uma
+função wasm no meio da execução. Esse custo vale para qualquer programa,
+com ou sem a classe `List`, e fica em aberto.
+
+A troca vai em passos que deixam os testes passando:
+
+1. O `Array[T]` e as suas intrínsecas, com uma intrínseca provisória que
+   dá o array dos itens de uma lista nativa.
+2. `Dict` e `Set` guardam a tabela e as entradas em `Array`.
+3. A ordenação e os consumidores leem os itens pelo `Array`.
+4. A classe `List[T]` e a troca de `list[T]` para ela, com a remoção da
+   `Rep::List`, da `Rep::ListOrNone` e do código da lista nativa.
 
 ### Classes
 
@@ -949,6 +993,10 @@ programa pequeno.
 11. O `print` escreve um endereço sintético, tirado do campo de
     identidade, que só existe nas classes que o pedem e é preenchido no
     primeiro uso.
+
+Em 14/nov/2026, depois da medida da seção "A lista como classe do
+prelude", o usuário decidiu que a lista vira a classe `List[T]` do
+prelude, antes da parte de lista do item 6.
 
 ## O que a revisão mudou
 
