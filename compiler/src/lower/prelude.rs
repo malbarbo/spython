@@ -1263,7 +1263,10 @@ mod tests {
                     d.clear()
                     e.clear()
             "}),
-            2
+            funcs(indoc! {"
+                def f(d: dict[str, int], e: dict[str, int]) -> None:
+                    d.clear()
+            "}),
         );
     }
 }

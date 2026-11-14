@@ -4,10 +4,17 @@
 The class follows the compact `dict` of CPython 3.13. Each entry has a `hash`, a key and a value,
 in the order of insertion. A table of indices gives the entry of each slot, -1 for an empty slot
 and -2 for the slot of a removed entry. A removed entry keeps its place until the table grows, so
-the growth of the table happens where it happens in CPython."""
+the growth of the table happens where it happens in CPython. The arrays of the entries have room
+for the entries that the table takes, two thirds of its slots, as in CPython."""
 
+from __spython_prelude__.arrays import copied, resized
 from __spython_prelude__.intrinsics import (
+    Array,
     Hash,
+    array_get,
+    array_len,
+    array_new,
+    array_set,
     during_repr,
     exact,
     hash_eq,
@@ -15,23 +22,21 @@ from __spython_prelude__.intrinsics import (
     hash_shift,
     hash_slot,
     in_repr,
-    item,
-    list_reserve,
-    list_set_len,
     same,
-    set_item,
 )
 
 
 class Dict[K, V]:
-    # The slots of the table. An empty list stands for the table of an empty `dict` of CPython,
+    # The slots of the table. An empty array stands for the table of an empty `dict` of CPython,
     # which takes no entry.
-    indices: list[int]
-    hashes: list[Hash]
-    keys: list[K]
-    values: list[V]
+    indices: Array[int]
+    hashes: Array[Hash]
+    keys: Array[K]
+    values: Array[V]
     # Whether each entry is in the `dict`.
-    live: list[bool]
+    live: Array[bool]
+    # How many entries the arrays hold, with the removed ones.
+    entries: int
     used: int
     # How many entries the table takes before it grows.
     usable: int
@@ -40,16 +45,17 @@ class Dict[K, V]:
     unicode: bool
 
     def __init__(self) -> None:
-        indices: list[int] = []
-        hashes: list[Hash] = []
-        keys: list[K] = []
-        values: list[V] = []
-        live: list[bool] = []
+        indices: Array[int] = array_new(0)
+        hashes: Array[Hash] = array_new(0)
+        keys: Array[K] = array_new(0)
+        values: Array[V] = array_new(0)
+        live: Array[bool] = array_new(0)
         self.indices = indices
         self.hashes = hashes
         self.keys = keys
         self.values = values
         self.live = live
+        self.entries = 0
         self.used = 0
         self.usable = 0
         self.unicode = True
@@ -61,7 +67,7 @@ class Dict[K, V]:
         ix = self.find(key, hash_of(key))
         if ix < 0:
             raise KeyError(key)
-        return item(self.values, ix)
+        return array_get(self.values, ix)
 
     def __setitem__(self, key: K, value: V) -> None:
         self.insert(key, hash_of(key), value)
@@ -75,13 +81,13 @@ class Dict[K, V]:
         if self.used != o.used:
             return False
         i = 0
-        while i < len(self.keys):
-            if item(self.live, i):
-                value = item(self.values, i)
-                ix = o.find(item(self.keys, i), item(self.hashes, i))
+        while i < self.entries:
+            if array_get(self.live, i):
+                value = array_get(self.values, i)
+                ix = o.find(array_get(self.keys, i), array_get(self.hashes, i))
                 if ix < 0:
                     return False
-                found = item(o.values, ix)
+                found = array_get(o.values, ix)
                 if not (same(value, found) or value == found):
                     return False
             i += 1
@@ -94,13 +100,13 @@ class Dict[K, V]:
         ix = self.find(key, hash_of(key))
         if ix < 0:
             return None
-        return item(self.values, ix)
+        return array_get(self.values, ix)
 
     def get_or[D](self, key: K, default: D) -> V | D:
         ix = self.find(key, hash_of(key))
         if ix < 0:
             return default
-        return item(self.values, ix)
+        return array_get(self.values, ix)
 
     def get_or_none(self, key: K) -> V | None:
         return self.get(key)
@@ -109,19 +115,19 @@ class Dict[K, V]:
         ix = self.remove(key)
         if ix < 0:
             raise KeyError(key)
-        return item(self.values, ix)
+        return array_get(self.values, ix)
 
     def pop_or[D](self, key: K, default: D) -> V | D:
         ix = self.remove(key)
         if ix < 0:
             return default
-        return item(self.values, ix)
+        return array_get(self.values, ix)
 
     def pop_or_none(self, key: K) -> V | None:
         ix = self.remove(key)
         if ix < 0:
             return None
-        return item(self.values, ix)
+        return array_get(self.values, ix)
 
     def copy(self) -> Dict[K, V]:
         """A new `dict` with the items of this one. A table with few removed entries goes to
@@ -129,12 +135,13 @@ class Dict[K, V]:
         new: Dict[K, V] = Dict()
         if self.used == 0:
             return new
-        if self.used >= len(self.keys) * 2 // 3:
-            new.indices = self.indices.copy()
-            new.hashes = self.hashes.copy()
-            new.keys = self.keys.copy()
-            new.values = self.values.copy()
-            new.live = self.live.copy()
+        if self.used >= self.entries * 2 // 3:
+            new.indices = copied(self.indices)
+            new.hashes = copied(self.hashes)
+            new.keys = copied(self.keys)
+            new.values = copied(self.values)
+            new.live = copied(self.live)
+            new.entries = self.entries
             new.used = self.used
             new.usable = self.usable
             new.unicode = self.unicode
@@ -143,10 +150,12 @@ class Dict[K, V]:
         if n > 5:
             new.resize((n * 3 + 1) // 2, self.unicode)
         i = 0
-        while i < len(self.keys):
-            if item(self.live, i):
+        while i < self.entries:
+            if array_get(self.live, i):
                 new.insert(
-                    item(self.keys, i), item(self.hashes, i), item(self.values, i)
+                    array_get(self.keys, i),
+                    array_get(self.hashes, i),
+                    array_get(self.values, i),
                 )
                 if n != self.used:
                     raise RuntimeError("dict mutated during update")
@@ -167,28 +176,16 @@ class Dict[K, V]:
         `repr`, which may change the `dict`, as `dict_repr` does."""
         parts: list[str] = []
         i = 0
-        while i < len(self.keys):
-            if item(self.live, i):
-                key = item(self.keys, i)
-                value = item(self.values, i)
+        while i < self.entries:
+            if array_get(self.live, i):
+                key = array_get(self.keys, i)
+                value = array_get(self.values, i)
                 parts.append(repr(key) + ": " + repr(value))
             i += 1
         return "{" + ", ".join(parts) + "}"
 
     def clear(self) -> None:
-        indices: list[int] = []
-        hashes: list[Hash] = []
-        keys: list[K] = []
-        values: list[V] = []
-        live: list[bool] = []
-        self.indices = indices
-        self.hashes = hashes
-        self.keys = keys
-        self.values = values
-        self.live = live
-        self.used = 0
-        self.usable = 0
-        self.unicode = True
+        self.new_table(0, True)
 
     def iter(self) -> DictIter[K, V]:
         return DictIter(self)
@@ -196,8 +193,13 @@ class Dict[K, V]:
     def pend(self, key: K, value: V) -> Dict[K, V]:
         """Keeps an item of a literal of `dict`, which [`done`] puts in the `dict` once each key
         and each value of the literal has its value, as `BUILD_MAP` of CPython does."""
-        self.keys.append(key)
-        self.values.append(value)
+        n = self.entries
+        if n == array_len(self.keys):
+            self.keys = resized(self.keys, max(8, 2 * n))
+            self.values = resized(self.values, max(8, 2 * n))
+        array_set(self.keys, n, key)
+        array_set(self.values, n, value)
+        self.entries = n + 1
         return self
 
     def done(self) -> Dict[K, V]:
@@ -205,18 +207,18 @@ class Dict[K, V]:
         and gives the `dict`."""
         keys = self.keys
         values = self.values
-        n = len(keys)
+        n = self.entries
         self.clear()
         if n > 5:
             unicode = True
             for i in range(n):
-                if not isinstance(item(keys, i), str):
+                if not isinstance(array_get(keys, i), str):
                     unicode = False
                     break
             self.resize(min((n * 3 + 1) // 2, 131072), unicode)
         for i in range(n):
-            key = item(keys, i)
-            self.insert(key, hash_of(key), item(values, i))
+            key = array_get(keys, i)
+            self.insert(key, hash_of(key), array_get(values, i))
         return self
 
     def find(self, key: K, h: Hash) -> int:
@@ -224,21 +226,21 @@ class Dict[K, V]:
         key. The key of the entry is on the left of `==`. A comparison that changes the table or
         removes the entry starts the search again, as in CPython."""
         indices = self.indices
-        size = len(indices)
+        size = array_len(indices)
         if size == 0:
             return -1
         mask = size - 1
         i = hash_slot(h, mask)
         perturb = h
         while True:
-            ix = item(indices, i)
+            ix = array_get(indices, i)
             if ix >= 0:
-                k = item(self.keys, ix)
+                k = array_get(self.keys, ix)
                 if same(k, key):
                     return ix
-                if hash_eq(item(self.hashes, ix), h):
+                if hash_eq(array_get(self.hashes, ix), h):
                     equal = k == key
-                    if not same(self.indices, indices) or not item(self.live, ix):
+                    if not same(self.indices, indices) or not array_get(self.live, ix):
                         return self.find(key, h)
                     if equal:
                         return ix
@@ -256,18 +258,18 @@ class Dict[K, V]:
         h = hash_of(key)
         ix = self.find(key, h)
         if ix >= 0:
-            set_item(self.indices, self.slot_of(h, ix), -2)
-            set_item(self.live, ix, False)
+            array_set(self.indices, self.slot_of(h, ix), -2)
+            array_set(self.live, ix, False)
             self.used -= 1
         return ix
 
     def slot_of(self, h: Hash, ix: int) -> int:
         """The slot of the entry at `ix`, whose `hash` is `h`."""
         indices = self.indices
-        mask = len(indices) - 1
+        mask = array_len(indices) - 1
         i = hash_slot(h, mask)
         perturb = h
-        while item(indices, i) != ix:
+        while array_get(indices, i) != ix:
             perturb = hash_shift(perturb)
             i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
         return i
@@ -275,10 +277,10 @@ class Dict[K, V]:
     def empty_slot(self, h: Hash) -> int:
         """The first slot for `h` that holds no entry."""
         indices = self.indices
-        mask = len(indices) - 1
+        mask = array_len(indices) - 1
         i = hash_slot(h, mask)
         perturb = h
-        while item(indices, i) >= 0:
+        while array_get(indices, i) >= 0:
             perturb = hash_shift(perturb)
             i = (i * 5 + 1 + hash_slot(perturb, mask)) & mask
         return i
@@ -286,42 +288,46 @@ class Dict[K, V]:
     def insert(self, key: K, h: Hash, value: V) -> None:
         """Puts `value` under `key`, whose `hash` is `h`. A key that the `dict` has keeps its first
         object."""
-        if len(self.indices) == 0:
+        if array_len(self.indices) == 0:
             self.new_table(8, isinstance(key, str))
         else:
             ix = self.find(key, h)
             if ix >= 0:
-                set_item(self.values, ix, value)
+                array_set(self.values, ix, value)
                 return
             if self.unicode and not isinstance(key, str):
                 self.resize(self.used * 3, False)
             if self.usable <= 0:
                 self.resize(self.used * 3, True)
-        set_item(self.indices, self.empty_slot(h), len(self.keys))
-        self.hashes.append(h)
-        self.keys.append(key)
-        self.values.append(value)
-        self.live.append(True)
+        n = self.entries
+        array_set(self.indices, self.empty_slot(h), n)
+        array_set(self.hashes, n, h)
+        array_set(self.keys, n, key)
+        array_set(self.values, n, value)
+        array_set(self.live, n, True)
+        self.entries = n + 1
         self.usable -= 1
         self.used += 1
 
     def new_table(self, size: int, unicode: bool) -> None:
-        """Gives the `dict` an empty table of `size` slots, without entries."""
-        indices: list[int] = []
-        list_reserve(indices, size)
+        """Gives the `dict` an empty table of `size` slots, without entries, and arrays with room
+        for the entries that the table takes."""
+        indices: Array[int] = array_new(size)
         for i in range(size):
-            set_item(indices, i, -1)
-        list_set_len(indices, size)
-        hashes: list[Hash] = []
-        keys: list[K] = []
-        values: list[V] = []
-        live: list[bool] = []
+            array_set(indices, i, -1)
+        room = size * 2 // 3
+        hashes: Array[Hash] = array_new(room)
+        keys: Array[K] = array_new(room)
+        values: Array[V] = array_new(room)
+        live: Array[bool] = array_new(room)
         self.indices = indices
         self.hashes = hashes
         self.keys = keys
         self.values = values
         self.live = live
-        self.usable = size * 2 // 3
+        self.entries = 0
+        self.used = 0
+        self.usable = room
         self.unicode = unicode
 
     def resize(self, minsize: int, unicode: bool) -> None:
@@ -334,16 +340,21 @@ class Dict[K, V]:
         keys = self.keys
         values = self.values
         live = self.live
+        n = self.entries
+        used = self.used
         self.new_table(size, unicode and self.unicode)
-        for i in range(len(keys)):
-            if item(live, i):
-                h = item(hashes, i)
-                set_item(self.indices, self.empty_slot(h), len(self.keys))
-                self.hashes.append(h)
-                self.keys.append(item(keys, i))
-                self.values.append(item(values, i))
-                self.live.append(True)
-        self.usable -= len(self.keys)
+        for i in range(n):
+            if array_get(live, i):
+                h = array_get(hashes, i)
+                j = self.entries
+                array_set(self.indices, self.empty_slot(h), j)
+                array_set(self.hashes, j, h)
+                array_set(self.keys, j, array_get(keys, i))
+                array_set(self.values, j, array_get(values, i))
+                array_set(self.live, j, True)
+                self.entries = j + 1
+        self.used = used
+        self.usable -= self.entries
 
 
 class DictIter[K, V]:
@@ -373,8 +384,8 @@ class DictIter[K, V]:
         if self.used != d.used:
             raise RuntimeError("dictionary changed size during iteration")
         i = self.pos
-        n = len(d.keys)
-        while i < n and not item(d.live, i):
+        n = d.entries
+        while i < n and not array_get(d.live, i):
             i += 1
         if i >= n:
             return False
@@ -386,7 +397,7 @@ class DictIter[K, V]:
         return True
 
     def key(self) -> K:
-        return item(self.d.keys, self.index)
+        return array_get(self.d.keys, self.index)
 
     def value(self) -> V:
-        return item(self.d.values, self.index)
+        return array_get(self.d.values, self.index)
