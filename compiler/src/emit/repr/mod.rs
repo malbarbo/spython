@@ -1,8 +1,8 @@
 //! How each value is laid out in wasm. No other module knows it.
 
+mod array;
 mod float;
 mod int;
-mod list;
 pub(super) mod str;
 mod uniform;
 
@@ -16,18 +16,15 @@ use super::module::{
 };
 use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
-use crate::cpython::{
-    Class, LIST_ASSIGNMENT_OUT_OF_RANGE, LIST_INDEX_OUT_OF_RANGE, MATH_DOMAIN_ERROR, MEMORY_ERROR,
-    Message, STR_INDEX_OUT_OF_RANGE,
-};
+use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
     ArithOp, BitOp, Capture as CaptureOf, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp,
     FloatFunc2, FloatOp, FuncType, FuncTypeId, ListId, ListType, Literal, MathFunc, MathFunc2, Rep,
     SiteFrame, UserClass,
 };
+use array::ArrayRepr;
 use float::FloatRepr;
 use int::IntRepr;
-use list::ListRepr;
 use str::StrRepr;
 use uniform::UniformRepr;
 
@@ -43,7 +40,7 @@ pub(crate) struct Reprs {
     float: FloatRepr,
     str: StrRepr,
     uniform: UniformRepr,
-    list: ListRepr,
+    array: ArrayRepr,
     /// `(func (param (ref null eq)))`, which writes a value of a union. A
     /// module that writes none goes without it.
     write_uniform: Option<FuncIdx>,
@@ -85,11 +82,8 @@ pub(crate) struct Reprs {
     /// The `__eq__` of each copy of a generic class of the prelude, which
     /// takes the object and a uniform value.
     copy_eqs: Vec<(ClassId, FuncIdx)>,
-    /// The rep of the items of each type of list.
-    list_items: Vec<Rep>,
-    /// The function that gives the `repr` of a list of each type, when the
-    /// program writes one.
-    list_reprs: Vec<Option<FuncIdx>>,
+    /// The rep of the items of each type of array.
+    array_items: Vec<Rep>,
     /// The struct of a node of the stack of the objects whose `repr` runs,
     /// with the object and the node under it, and the global of the top of
     /// the stack, when a class guards its `repr`.
@@ -127,22 +121,21 @@ impl Reprs {
         let int = IntRepr::i31(m, &mut str, &exc);
         let float = FloatRepr::f64(host);
         // A field of a class may hold an object of any class, its own too,
-        // or a list, and an item of a list may be an object or another list,
-        // so the types refer to each other by the indices that they will have
-        // in their rec group.
+        // or an array, and an item of an array may be an object, so the
+        // types refer to each other by the indices that they will have in
+        // their rec group.
         let layout = Layout::new(
             m.next_type_index(),
             classes,
             (lists.len(), funcs.len(), closures.len(), cells.len()),
         );
-        let list_types: Vec<(TypeIdx, TypeIdx)> =
-            (0..lists.len()).map(|i| layout.list(i)).collect();
+        let array_types: Vec<TypeIdx> = (0..lists.len()).map(|i| layout.array(i)).collect();
         let mut reprs = Reprs {
             int,
             float,
             str,
             uniform: UniformRepr::new(),
-            list: ListRepr::new(m, &list_types),
+            array: ArrayRepr::new(m, &array_types),
             write_uniform: None,
             repr_uniform: None,
             str_uniform: None,
@@ -158,8 +151,7 @@ impl Reprs {
             class_reprs: Vec::new(),
             str_repr: None,
             copy_eqs: Vec::new(),
-            list_items: lists.iter().map(|list| list.item).collect(),
-            list_reprs: Vec::new(),
+            array_items: lists.iter().map(|list| list.item).collect(),
             repr_stack: None,
             cells: cells.to_vec(),
         };
@@ -196,13 +188,9 @@ impl Reprs {
             .map(|(i, base, is_final)| (structs.get(i).expect("a class"), base, is_final))
             .collect();
         let mut others = Vec::new();
-        for (list, &(_, items)) in lists.iter().zip(&list_types) {
+        for list in lists {
             let item = reprs.local_type(list.item).expect("an item has a value");
-            others.extend(
-                ListRepr::composites(items, item)
-                    .into_iter()
-                    .map(|composite| (composite, None, true)),
-            );
+            others.push((ArrayRepr::composite(item), None, true));
         }
         // The struct of a value of a type of function is open, for the
         // values whose code captures variables.
@@ -274,10 +262,9 @@ impl Reprs {
             let top = m.global(node.ref_to(true), &ConstExpr::ref_null(node.heap_type()));
             reprs.repr_stack = Some((group.pop().expect("the node of the stack"), top));
         }
-        let listed: Vec<TypeIdx> = list_types.iter().flat_map(|(a, b)| [*a, *b]).collect();
-        let mut group_lists = group.split_off(reprs.layout.class_types());
-        group_lists.truncate(listed.len());
-        debug_assert_eq!(group_lists, listed, "the lists in their rec group");
+        let mut group_arrays = group.split_off(reprs.layout.class_types());
+        group_arrays.truncate(array_types.len());
+        debug_assert_eq!(group_arrays, array_types, "the arrays in their rec group");
         group.truncate(classes.len());
         debug_assert_eq!(
             group,
@@ -344,12 +331,6 @@ impl Reprs {
     /// whose objects the program makes.
     pub fn set_copy_eqs(&mut self, eqs: Vec<(ClassId, FuncIdx)>) {
         self.copy_eqs = eqs;
-    }
-
-    /// Takes the function that gives the `repr` of a list of each type, for
-    /// the types whose lists the program writes.
-    pub fn set_list_reprs(&mut self, reprs: Vec<Option<FuncIdx>>) {
-        self.list_reprs = reprs;
     }
 
     /// Pops a value of a union and pushes its `repr`, which may raise.
@@ -629,7 +610,6 @@ impl Reprs {
             Rep::Str | Rep::StrOrNone => Some(self.str.val_type(true)),
             Rep::Uniform => Some(self.uniform.val_type()),
             Rep::Object(class) | Rep::ObjectOrNone(class) => Some(self.class(class).ref_to(true)),
-            Rep::List(list) | Rep::ListOrNone(list) => Some(self.list_type(list).ref_to(true)),
             Rep::Array(list) => Some(self.array_type(list).ref_to(true)),
             Rep::Hash => Some(ValType::I64),
             Rep::Func(ty) => Some(self.func_value(ty).ref_to(true)),
@@ -669,14 +649,9 @@ impl Reprs {
         self.layout.func(ty.index()).1
     }
 
-    /// The struct of a list of the type `list`.
-    fn list_type(&self, list: ListId) -> TypeIdx {
-        self.list.list_type(list.index())
-    }
-
-    /// The array of the items of a list of the type `list`.
+    /// The type of an array of the type `list`.
     fn array_type(&self, list: ListId) -> TypeIdx {
-        self.list.items_type(list.index())
+        self.array.array_type(list.index())
     }
 
     /// The struct of an object of `class`.
@@ -690,7 +665,6 @@ impl Reprs {
     pub fn value_type(&self, rep: Rep) -> Option<ValType> {
         match rep {
             Rep::Str => Some(self.str.val_type(false)),
-            Rep::List(list) => Some(self.list_type(list).ref_to(false)),
             _ => self.local_type(rep),
         }
     }
@@ -713,9 +687,6 @@ impl Reprs {
             Rep::Uniform => ConstExpr::ref_null(uniform::EQ),
             Rep::Object(class) | Rep::ObjectOrNone(class) => {
                 ConstExpr::ref_null(self.class(class).heap_type())
-            }
-            Rep::List(list) | Rep::ListOrNone(list) => {
-                ConstExpr::ref_null(self.list_type(list).heap_type())
             }
             Rep::Array(list) => ConstExpr::ref_null(self.array_type(list).heap_type()),
             Rep::Hash => ConstExpr::i64_const(0),
@@ -757,12 +728,6 @@ impl Reprs {
             (Rep::None, Rep::ObjectOrNone(class)) => {
                 f.ins().ref_null(self.class(class).heap_type());
             }
-            // A list is an `eq`, and null is `None`.
-            (Rep::List(_) | Rep::ListOrNone(_), Rep::Uniform) => {}
-            (Rep::List(a), Rep::ListOrNone(b)) if a == b => {}
-            (Rep::None, Rep::ListOrNone(list)) => {
-                f.ins().ref_null(self.list_type(list).heap_type());
-            }
             _ => unreachable!("a widening of {from:?} to {to:?}"),
         }
     }
@@ -772,20 +737,8 @@ impl Reprs {
     /// have.
     pub fn narrow(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
         match (from, to) {
-            (
-                Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_) | Rep::ListOrNone(_),
-                Rep::None,
-            ) => {
+            (Rep::StrOrNone | Rep::Uniform | Rep::ObjectOrNone(_), Rep::None) => {
                 f.ins().drop();
-            }
-            (Rep::ListOrNone(a), Rep::List(b)) if a == b => {
-                f.ins().ref_as_non_null();
-            }
-            (Rep::Uniform, Rep::List(list) | Rep::ListOrNone(list)) => {
-                f.ins().ref_cast(
-                    self.list_type(list).heap_type(),
-                    matches!(to, Rep::ListOrNone(_)),
-                );
             }
             (Rep::StrOrNone, Rep::Str) => {
                 f.ins().ref_as_non_null();
@@ -819,14 +772,8 @@ impl Reprs {
     pub fn has(&mut self, m: &mut ModuleState, f: &mut FuncState, from: Rep, to: Rep) {
         let str = self.str.type_index().heap_type();
         match (from, to) {
-            (Rep::StrOrNone, Rep::Str) | (Rep::ListOrNone(_), Rep::List(_)) => {
+            (Rep::StrOrNone, Rep::Str) => {
                 f.ins().ref_is_null().i32_eqz();
-            }
-            (Rep::Uniform, Rep::List(list)) => {
-                f.ins().ref_test(self.list_type(list).heap_type());
-            }
-            (Rep::Uniform, Rep::ListOrNone(list)) => {
-                f.ins().ref_test_nullable(self.list_type(list).heap_type());
             }
             (Rep::Uniform, Rep::Int | Rep::Float | Rep::Bool) => {
                 let ty = self.uniform.box_type(m, to);
@@ -935,18 +882,13 @@ impl Reprs {
             Rep::None => {
                 f.ins().i32_const(1);
             }
-            Rep::StrOrNone
-            | Rep::Uniform
-            | Rep::Object(_)
-            | Rep::ObjectOrNone(_)
-            | Rep::ListOrNone(_) => {
+            Rep::StrOrNone | Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 f.ins().ref_is_null();
             }
             Rep::Int
             | Rep::Float
             | Rep::Bool
             | Rep::Str
-            | Rep::List(_)
             | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => {
@@ -1025,11 +967,6 @@ impl Reprs {
             Rep::Object(_) | Rep::ObjectOrNone(_) | Rep::Func(_) => {
                 f.ins().ref_is_null().i32_eqz();
             }
-            Rep::List(list) => {
-                self.list.len(f, list.index());
-                f.ins().i32_const(0).i32_ne();
-            }
-            Rep::ListOrNone(list) => self.list.truth(f, list.index()),
             Rep::Hash | Rep::Array(_) => unreachable!("the truth of {rep:?}"),
         }
     }
@@ -1077,8 +1014,6 @@ impl Reprs {
             | Rep::Uniform
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
-            | Rep::List(_)
-            | Rep::ListOrNone(_)
             | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => unreachable!("the str of {rep:?}"),
@@ -1304,64 +1239,17 @@ impl Reprs {
         self.float.round_digits(m, f, &mut self.str, &self.exc);
     }
 
-    /// Pops a `str` or a list, as `rep` says, and pushes its number of
-    /// code points or of items as an `int`.
-    pub fn len(&self, f: &mut FuncState, rep: Rep) {
-        match rep {
-            Rep::Str => {
-                self.str.len(f);
-                self.int.len_as_int(f);
-            }
-            // The length of a list is not above its capacity, which an
-            // `int` gave.
-            Rep::List(list) => {
-                self.list.len(f, list.index());
-                self.int.small_as_int(f);
-            }
-            _ => unreachable!("the len of {rep:?}"),
-        }
+    /// Pops a `str` and pushes its number of code points as an `int`.
+    pub fn len(&self, f: &mut FuncState) {
+        self.str.len(f);
+        self.int.len_as_int(f);
     }
 
-    /// Pops a list and pushes the `int` of how many items its array has
-    /// room for.
-    pub fn list_capacity(&self, f: &mut FuncState, rep: Rep) {
-        match rep {
-            Rep::Array(_) => {
-                f.ins().array_len();
-            }
-            _ => self.list.capacity(f, list_index(rep)),
-        }
+    /// Pops an array and pushes its length as an `int`. An `int` gave the
+    /// length.
+    pub fn array_len(&self, f: &mut FuncState) {
+        f.ins().array_len();
         self.int.small_as_int(f);
-    }
-
-    /// Pops a list and an `int` capacity, and gives the list an array with
-    /// room for that many items, with its items.
-    pub fn list_reserve(&self, f: &mut FuncState, rep: Rep) {
-        self.int.as_i32(f);
-        self.list.reserve(f, list_index(rep));
-    }
-
-    /// Pops a list and an `int`, and makes the list a list of that many
-    /// items.
-    pub fn list_set_len(&self, f: &mut FuncState, rep: Rep) {
-        self.int.as_i32(f);
-        self.list.set_len(f, list_index(rep));
-    }
-
-    /// Pops a list of `rep` and an `int`, not above its length, and makes
-    /// the list a list of that many items, without a reference to the items
-    /// past them.
-    pub fn list_truncate(&self, f: &mut FuncState, rep: Rep) {
-        self.int.as_i32(f);
-        self.list.truncate(f, list_index(rep), self.item_null(rep));
-    }
-
-    /// Pops a list and pushes the array of its items. An array stays as it
-    /// is.
-    pub fn list_items(&self, f: &mut FuncState, rep: Rep) {
-        if !matches!(rep, Rep::Array(_)) {
-            self.list.items(f, list_index(rep));
-        }
     }
 
     /// Pops an `int` length and pushes a new array of the type `rep` with
@@ -1369,7 +1257,7 @@ impl Reprs {
     pub fn array_new(&self, f: &mut FuncState, rep: Rep) {
         self.int.as_i32(f);
         f.ins()
-            .array_new_default(self.list.items_type(list_index(rep)));
+            .array_new_default(self.array.array_type(array_index(rep)));
     }
 
     /// Pops an array of `rep`, an `int` start and an `int` count, and drops
@@ -1382,14 +1270,14 @@ impl Reprs {
         self.int.as_i32(f);
         f.ins().local_get(count);
         f.free(count);
-        self.list.clear(f, list_index(rep), self.item_null(rep));
+        self.array.clear(f, array_index(rep), self.item_null(rep));
     }
 
-    /// The null of the items of a list or an array of `rep` when they are
+    /// The null of the items of an array of `rep` when they are
     /// references, and `None` otherwise.
     fn item_null(&self, rep: Rep) -> Option<HeapType> {
-        let item = self.list_items.get(list_index(rep));
-        match self.local_type(*item.expect("a type of list of the program")) {
+        let item = self.array_items.get(array_index(rep));
+        match self.local_type(*item.expect("a type of array of the program")) {
             Some(ValType::Ref(ty)) => Some(ty.heap_type),
             _ => None,
         }
@@ -1400,96 +1288,44 @@ impl Reprs {
         self.int.as_i32(f);
     }
 
-    /// Pops a list and an `int` index, and pushes the item at the index, of
-    /// `rep`. A negative index counts from the end, and an index out of
-    /// range raises `IndexError`.
-    pub fn list_index(&mut self, m: &mut ModuleState, f: &mut FuncState, list: Rep, rep: Rep) {
-        self.checked_index(m, f, list, &LIST_INDEX_OUT_OF_RANGE);
-        self.list_item(f, list, rep);
-    }
-
-    /// Pops a list and an `int` index, and sets the item at the index to
-    /// the value in `item`. A negative index counts from the end, and an
-    /// index out of range raises `IndexError`.
-    pub fn list_set(&mut self, m: &mut ModuleState, f: &mut FuncState, list: Rep, item: LocalIdx) {
-        self.checked_index(m, f, list, &LIST_ASSIGNMENT_OUT_OF_RANGE);
-        f.ins().local_get(item);
-        self.set_list_item(f, list);
-    }
-
-    /// Pops a list and an `int` index, and pushes the array of the items
-    /// and the index in range as an `i32`. A negative index counts from the
-    /// end, and an index out of range raises `IndexError` with `message`.
-    fn checked_index(
-        &mut self,
-        m: &mut ModuleState,
-        f: &mut FuncState,
-        list: Rep,
-        message: &Message,
-    ) {
-        let index = list_index(list);
-        self.int.as_i32(f);
-        let i = f.temp(ValType::I32);
-        let value = f.temp(self.list.list_type(index).ref_to(true));
-        f.ins().local_set(i).local_set(value);
-        f.ins().local_get(i).i32_const(0).i32_lt_s();
-        f.if_(BlockType::Empty);
-        f.ins().local_get(i).local_get(value);
-        self.list.len(f, index);
-        f.ins().i32_add().local_set(i);
-        f.end();
-        // A negative index past the start is a large unsigned one.
-        f.ins().local_get(i).local_get(value);
-        self.list.len(f, index);
-        f.ins().i32_ge_u();
-        f.if_(BlockType::Empty);
-        self.raise(m, f, message);
-        f.end();
-        f.ins().local_get(value);
-        self.list.items(f, index);
-        f.ins().local_get(i);
-        f.free(i);
-        f.free(value);
-    }
-
-    /// Pops the array of the items of a list and an index of
-    /// [`Self::index_of`], and pushes the item at the index, of `rep`.
-    pub fn list_item(&self, f: &mut FuncState, list: Rep, rep: Rep) {
-        self.list.item(f, list_index(list));
+    /// Pops an array of `array` and an index of [`Self::index_of`], and
+    /// pushes the item at the index, of `rep`.
+    pub fn array_item(&self, f: &mut FuncState, array: Rep, rep: Rep) {
+        self.array.item(f, array_index(array));
         // An array holds an item in the form of a local.
         non_null(f, rep);
     }
 
-    /// Pops the array of the items of a list, an index of [`Self::index_of`]
-    /// and an item, and sets the item of the array at the index.
-    pub fn set_list_item(&self, f: &mut FuncState, rep: Rep) {
-        self.list.set_item(f, list_index(rep));
+    /// Pops an array of `rep`, an index of [`Self::index_of`] and an item,
+    /// and sets the item of the array at the index.
+    pub fn set_array_item(&self, f: &mut FuncState, rep: Rep) {
+        self.array.set_item(f, array_index(rep));
     }
 
-    /// Pops the array of a list of `rep`, an `i32` index, the array of
-    /// another list of `rep`, an `i32` index and an `i32` count, and copies
-    /// that many items of the second array to the first one.
-    pub fn copy_list_items(&self, f: &mut FuncState, rep: Rep) {
-        self.list.copy_items(f, list_index(rep));
+    /// Pops an array of `rep`, an `i32` index, another array of `rep`, an
+    /// `i32` index and an `i32` count, and copies that many items of the
+    /// second array to the first one.
+    pub fn copy_array_items(&self, f: &mut FuncState, rep: Rep) {
+        self.array.copy_items(f, array_index(rep));
     }
 
     /// Starts a literal of the type `list` with `count` items, as
-    /// [`ListRepr::begin_literal`] says.
+    /// [`ArrayRepr::begin_literal`] says.
     pub fn begin_literal(&self, f: &mut FuncState, list: ListId, count: usize) -> Option<LocalIdx> {
-        self.list.begin_literal(f, list.index(), count)
+        self.array.begin_literal(f, list.index(), count)
     }
 
     /// Comes before the item at `index` of a literal.
     pub fn before_item(&self, f: &mut FuncState, array: Option<LocalIdx>, index: usize) {
-        self.list.before_item(f, array, index);
+        self.array.before_item(f, array, index);
     }
 
     /// Comes after an item of a literal of the type `list`.
     pub fn after_item(&self, f: &mut FuncState, list: ListId, array: Option<LocalIdx>) {
-        self.list.after_item(f, list.index(), array);
+        self.array.after_item(f, list.index(), array);
     }
 
-    /// Pushes the list of a literal of the type `list` with `count` items.
+    /// Pushes the array of a literal of the type `list` with `count` items.
     pub fn end_literal(
         &self,
         f: &mut FuncState,
@@ -1497,7 +1333,7 @@ impl Reprs {
         count: usize,
         array: Option<LocalIdx>,
     ) {
-        self.list.end_literal(f, list.index(), count, array);
+        self.array.end_literal(f, list.index(), count, array);
     }
 
     /// Pops a `str` and an `int`, and pushes the `str` repeated that many
@@ -1839,12 +1675,7 @@ impl Reprs {
                     _ => unreachable!("an order of objects"),
                 };
             }
-            Rep::None
-            | Rep::StrOrNone
-            | Rep::List(_)
-            | Rep::ListOrNone(_)
-            | Rep::Array(_)
-            | Rep::Hash => {
+            Rep::None | Rep::StrOrNone | Rep::Array(_) | Rep::Hash => {
                 unreachable!("a comparison of {rep:?}")
             }
         }
@@ -1904,35 +1735,9 @@ impl Reprs {
                 f.end();
                 f.free(value);
             }
-            // The `str` of a list is its `repr`.
-            Rep::List(list) => {
-                f.ins().call(self.list_repr(list));
-                self.str.write(f);
-            }
-            Rep::ListOrNone(list) => {
-                let repr = self.list_repr(list);
-                let value = f.temp(self.list_type(list).ref_to(true));
-                f.ins().local_tee(value).ref_is_null();
-                f.if_(BlockType::Empty);
-                self.write(m, f, Rep::None);
-                f.else_();
-                f.ins().local_get(value).ref_as_non_null().call(repr);
-                self.str.write(f);
-                f.end();
-                f.free(value);
-            }
             Rep::Hash | Rep::Array(_) => unreachable!("the prelude writes no {rep:?}"),
             Rep::Func(_) => unreachable!("a write of a function"),
         }
-    }
-
-    /// The function that gives the `repr` of a list of the type `list`.
-    fn list_repr(&self, list: ListId) -> FuncIdx {
-        self.list_reprs
-            .get(list.index())
-            .copied()
-            .flatten()
-            .expect("the repr of a list that the program writes")
     }
 
     /// The function that gives the `str` of an object of `class`.
@@ -2162,18 +1967,15 @@ impl Reprs {
     }
 }
 
-/// The index of the type of a list of `rep`, a list or an array.
-fn list_index(rep: Rep) -> usize {
-    match rep {
-        Rep::Array(list) => list.index(),
-        rep => rep.list().expect("a list").index(),
-    }
+/// The index of the type of an array of `rep`.
+fn array_index(rep: Rep) -> usize {
+    rep.array().expect("an array").index()
 }
 
 /// Pops a value of `rep` in the form of a local and pushes it in the form
-/// of [`Reprs::value_type`], which is non-null for a `str` and a list.
+/// of [`Reprs::value_type`], which is non-null for a `str`.
 fn non_null(f: &mut FuncState, rep: Rep) {
-    if matches!(rep, Rep::Str | Rep::List(_)) {
+    if rep == Rep::Str {
         f.ins().ref_as_non_null();
     }
 }

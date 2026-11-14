@@ -97,7 +97,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
             return self.bound_call(call, (unit, name), None);
         }
         let receiver = self.expr(&attr.value)?;
-        if let Some(class) = receiver.rep().class()
+        let list =
+            matches!(receiver.rep(), Rep::Object(_)) && self.list_class(receiver.rep()).is_some();
+        if !list
+            && let Some(class) = receiver.rep().class()
             && let Some(file) = self.copy_file(class)
         {
             return self.copy_method_call(call, attr, receiver, (class, file));
@@ -108,8 +111,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
             return self.call_method(call, attr, receiver, method);
         }
         let class = match receiver.rep() {
+            _ if list => "list",
             Rep::Str => "str",
-            Rep::List(_) => "list",
             Rep::Int | Rep::Bool => "int",
             Rep::Float => "float",
             _ => "",
@@ -508,25 +511,24 @@ impl<'a, 'db> Lowering<'a, 'db> {
     /// the module `list` of the prelude gives.
     pub(super) fn list_repr(&self, value: Expr, site: Site) -> Result<Expr, Error> {
         let name = match value.rep() {
-            Rep::List(_) => "repr_of",
+            Rep::Object(_) => "repr_of",
             _ => "repr_or_none",
         };
         self.list_call_at(&TextRange::default(), name, vec![value], site)
     }
 
-    /// The function that gives the `repr` of a list of the type `list`,
-    /// which the write of a list calls.
-    pub(super) fn list_repr_func(&self, list: ListId) -> Result<FuncId, Error> {
+    /// Lowers the function of the module `list` of the prelude that gives
+    /// the `repr` of a list of `rep`, which the `str` of the class `List`
+    /// calls when the program writes the list. A list of a value without a
+    /// `repr` fails here, at the write, and not in the code of the class.
+    pub(super) fn list_repr_func(&self, rep: Rep) -> Result<(), Error> {
         let unit = self
             .prelude_unit("list")
             .expect("the module list of the prelude");
-        let (func, _) = self
-            .prelude_for(&TextRange::default(), unit, "repr_of", &[Rep::List(list)])?
+        let object = self.list_class(rep).map(Rep::Object).expect("a list");
+        self.prelude_for(&TextRange::default(), unit, "repr_of", &[object])?
             .expect("the repr of a list");
-        if let Some(slot) = self.lists.borrow_mut().reprs.get_mut(list.index()) {
-            *slot = Some(func);
-        }
-        Ok(func)
+        Ok(())
     }
 
     /// Returns `true` if `def` is a generic function of the prelude,
@@ -844,8 +846,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 text,
                 site: self.site(call.range()),
             }),
-            "item" | "array_get" => arg().zip(arg()).and_then(|(list, index)| {
-                let rep = self.list_item(items_of(list.rep())?);
+            "array_get" => arg().zip(arg()).and_then(|(list, index)| {
+                let rep = self.list_item(list.rep().array()?);
                 Some(Expr::Item { list, index, rep })
             }),
             "array_new" => {
@@ -872,37 +874,22 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         count,
                     })
             }
-            "list_items" => arg().map(Expr::ListItems),
             // A value of a rep without a reference stands for an object
             // that the program can only compare with `==`.
             "same" => arg().zip(arg()).map(|(a, b)| match a.rep() {
-                Rep::Object(_)
-                | Rep::ObjectOrNone(_)
-                | Rep::List(_)
-                | Rep::ListOrNone(_)
-                | Rep::Array(_)
-                | Rep::Uniform => Expr::Is(a, b),
+                Rep::Object(_) | Rep::ObjectOrNone(_) | Rep::Array(_) | Rep::Uniform => {
+                    Expr::Is(a, b)
+                }
                 _ => Expr::Bool(false),
             }),
-            "list_capacity" | "array_len" => arg().map(Expr::ListCapacity),
-            "list_reserve" => arg().zip(arg()).map(|(list, capacity)| Expr::ListReserve {
-                list,
-                capacity,
-                site: self.site(call.range()),
-            }),
-            "list_set_len" => arg()
-                .zip(arg())
-                .map(|(list, len)| Expr::ListSetLen { list, len }),
-            "list_truncate" => arg()
-                .zip(arg())
-                .map(|(list, len)| Expr::ListTruncate { list, len }),
-            // The value takes the rep of the items of the list.
-            "set_item" | "array_set" => {
+            "array_len" => arg().map(Expr::ArrayLen),
+            // The value takes the rep of the items of the array.
+            "array_set" => {
                 let (list, index, value) = (arg(), arg(), arg());
                 list.zip(index)
                     .zip(value)
                     .and_then(|((list, index), value)| {
-                        let item = self.list_item(items_of(list.rep())?);
+                        let item = self.list_item(list.rep().array()?);
                         Some(Expr::SetItem {
                             list,
                             index,
@@ -910,7 +897,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         })
                     })
             }
-            "copy_items" | "array_copy" => {
+            "array_copy" => {
                 let (dst, at, src, start, count) = (arg(), arg(), arg(), arg(), arg());
                 dst.zip(at).zip(src.zip(start)).zip(count).map(
                     |(((dst, at), (src, start)), count)| Expr::CopyItems {
@@ -976,11 +963,14 @@ fn type_map(
     };
     for (shape, rep) in params.iter().zip(args) {
         let (mut shape, mut rep) = (shape, *rep);
-        // A list or `None` is a list for `list[T] | None`.
-        if let (Shape::Union(shapes), Rep::ListOrNone(list)) = (shape, rep)
-            && let Some(member) = shapes.iter().find(|shape| matches!(shape, Shape::List(_)))
+        // An object or `None` is an object for `List[T] | None`.
+        if let (Shape::Union(shapes), Rep::ObjectOrNone(class)) = (shape, rep)
+            && let [member] = &shapes
+                .iter()
+                .filter(|shape| !matches!(shape, Shape::None))
+                .collect::<Vec<_>>()[..]
         {
-            (shape, rep) = (member, Rep::List(list));
+            (shape, rep) = (member, Rep::Object(class));
         }
         // A parameter and the result of a function take the reps of the
         // type of the function.
@@ -1099,8 +1089,8 @@ fn builtin_module(class: &str, name: &str) -> Option<&'static str> {
 }
 
 /// Each type argument of a parameter of `shape`, with what it stands for
-/// in an argument of `rep`. The items of a list or of an array take the
-/// type of the items of the argument, and a copy of a generic class of the
+/// in an argument of `rep`. The items of an array take the type of the
+/// items of the argument, and a list or a copy of a generic class of the
 /// prelude, which `copy` gives, takes what its type variables stand for.
 fn type_args(
     shape: &Shape,
@@ -1109,7 +1099,12 @@ fn type_args(
     copy: impl Fn(ClassId) -> Option<Vec<TypeArg>>,
 ) -> Vec<(&Shape, TypeArg)> {
     match (shape, rep) {
-        (Shape::List(inner), Rep::List(list)) => vec![(&**inner, item(list))],
+        (Shape::List(inner), Rep::Object(class) | Rep::ObjectOrNone(class)) => {
+            match copy(class).as_deref() {
+                Some([arg]) => vec![(&**inner, arg.clone())],
+                _ => Vec::new(),
+            }
+        }
         (Shape::Instance(_, args), Rep::Array(list)) if args.len() == 1 => {
             args.iter().map(|inner| (inner, item(list))).collect()
         }
@@ -1123,15 +1118,6 @@ fn type_args(
     }
 }
 
-/// The type of list whose items `rep`, a list or an array, holds, and
-/// `None` for a rep of another type.
-fn items_of(rep: Rep) -> Option<ListId> {
-    match rep {
-        Rep::Array(list) => Some(list),
-        rep => rep.list(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use engine::Level;
@@ -1139,7 +1125,7 @@ mod tests {
     use indoc::indoc;
     use ty_python_semantic::types::lowering::Shape;
 
-    use crate::ir::{ListId, Rep};
+    use crate::ir::{ClassId, Rep};
     use crate::lower::TypeArg;
 
     /// The number of functions in the program of `source`.
@@ -1165,20 +1151,24 @@ mod tests {
     }
 
     /// The reps that [`super::type_map`] gives to `T` for `params` and
-    /// `args`, where the list 0 has items of `int`, the list 1 of `bool`,
-    /// and the list 2 has lists 0 as its items.
+    /// `args`, where the list of the class 0 has items of `int`, the list
+    /// of the class 1 of `bool`, and the list of the class 2 has lists of
+    /// the class 0 as its items.
     fn types_of(params: &[Shape], args: &[Rep]) -> Option<Vec<(String, Rep)>> {
-        let items = [Rep::Int, Rep::Bool, Rep::List(ListId::new(0))];
+        let items = [Rep::Int, Rep::Bool, list(0)];
         let types = super::type_map(
             &["T".to_owned()],
             params,
             args,
-            |list| TypeArg {
-                rep: *items.get(list.index()).expect("a list of the test"),
-                classes: Vec::new(),
-            },
+            |_| unreachable!("no array in the test"),
             |_| unreachable!("no function in the test"),
-            |_| None,
+            |class| {
+                let rep = *items.get(class.index())?;
+                Some(vec![TypeArg {
+                    rep,
+                    classes: Vec::new(),
+                }])
+            },
         )?;
         Some(
             types
@@ -1192,10 +1182,14 @@ mod tests {
         Shape::List(Box::new(shape))
     }
 
+    /// An object of the class `i` of [`types_of`], a list.
+    fn list(i: usize) -> Rep {
+        Rep::Object(ClassId::new(i))
+    }
+
     #[test]
     fn a_type_variable_takes_the_rep_of_the_items_of_a_list() {
         let t = || Shape::TypeVar("T".to_owned());
-        let list = |i| Rep::List(ListId::new(i));
         let int = Some(vec![("T".to_owned(), Rep::Int)]);
         assert_eq!(types_of(&[list_of(t()), t()], &[list(0), Rep::Bool]), int);
         assert_eq!(
@@ -1232,12 +1226,13 @@ mod tests {
 
     #[test]
     fn a_generic_function_of_the_prelude_has_a_copy_for_each_type_of_list() {
-        // `append` and the `grow` that it calls.
-        assert_eq!(funcs("xs = [1]\nxs.append(2)\nxs.append(3)\n"), 2);
+        let one = funcs("xs = [1]\nxs.append(2)\n");
+        assert_eq!(funcs("xs = [1]\nxs.append(2)\nxs.append(3)\n"), one);
         assert_eq!(
-            funcs("xs = [1]\nys = ['a']\nxs.append(2)\nys.append('b')\n"),
-            4
+            funcs("xs = [1]\nys = [2]\nxs.append(2)\nys.append(3)\n"),
+            one
         );
+        assert!(funcs("xs = [1]\nys = ['a']\nxs.append(2)\nys.append('b')\n") > one);
     }
 
     #[test]

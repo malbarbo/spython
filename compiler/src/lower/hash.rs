@@ -72,7 +72,7 @@ impl Lowering<'_, '_> {
                 Rep::Hash,
                 site,
             )),
-            Rep::List(_) | Rep::ListOrNone(_) | Rep::Array(_) | Rep::Hash | Rep::Func(_) => {
+            Rep::Array(_) | Rep::Hash | Rep::Func(_) => {
                 Err(unsupported(node, "the hash of this type"))
             }
         }
@@ -105,8 +105,7 @@ impl Lowering<'_, '_> {
                 .classes_in(Some(shape.clone()))
                 .into_iter()
                 .all(|class| self.class_hashable(class, seen)),
-            Some(Rep::List(_) | Rep::ListOrNone(_) | Rep::Array(_) | Rep::Hash | Rep::Func(_))
-            | None => false,
+            Some(Rep::Array(_) | Rep::Hash | Rep::Func(_)) | None => false,
         }
     }
 

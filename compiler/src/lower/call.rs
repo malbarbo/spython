@@ -303,11 +303,10 @@ impl<'a> Lowering<'a, '_> {
                 let value = self.expr(arg)?;
                 // The write of an object calls the `str` of its class.
                 match value.rep() {
-                    // The write of a list calls its `repr`.
-                    Rep::List(list) | Rep::ListOrNone(list) => {
-                        self.list_repr_func(list)?;
-                    }
                     Rep::Object(class) | Rep::ObjectOrNone(class) => {
+                        if self.list_class(value.rep()).is_some() {
+                            self.list_repr_func(value.rep())?;
+                        }
                         self.class_conversion(class, false);
                     }
                     Rep::Uniform => {
@@ -329,7 +328,7 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
-    /// `len` of one `str` or one list.
+    /// `len` of one `str` or one object.
     pub(super) fn len(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
         let ([arg], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
             return Err(unsupported(call, "this call of len"));
@@ -338,7 +337,7 @@ impl<'a> Lowering<'a, '_> {
         if operand.rep().class().is_some() {
             return self.special_len(call, operand);
         }
-        if !matches!(operand.rep(), Rep::Str | Rep::List(_)) {
+        if operand.rep() != Rep::Str {
             return Err(unsupported(arg, "len of this type"));
         }
         Ok(Expr::Len {
@@ -366,8 +365,6 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Uniform
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
-            | Rep::List(_)
-            | Rep::ListOrNone(_)
             | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => Err(unsupported(arg, "abs of this type")),
@@ -486,8 +483,6 @@ impl<'a> Lowering<'a, '_> {
                 | Rep::Uniform
                 | Rep::Object(_)
                 | Rep::ObjectOrNone(_)
-                | Rep::List(_)
-                | Rep::ListOrNone(_)
                 | Rep::Array(_)
                 | Rep::Hash
                 | Rep::Func(_),
@@ -508,8 +503,6 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Uniform
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
-            | Rep::List(_)
-            | Rep::ListOrNone(_)
             | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => Err(unsupported(digits, "round to this number of digits")),
@@ -548,11 +541,7 @@ impl<'a> Lowering<'a, '_> {
                 "float" => instance_of(from, Rep::Float, &[]),
                 "bool" => instance_of(from, Rep::Bool, &[]),
                 "str" => instance_of(from, Rep::Str, &[]),
-                "list" => match from {
-                    Rep::List(_) => Some(from),
-                    Rep::ListOrNone(list) => Some(Rep::List(list)),
-                    _ => None,
-                },
+                "list" => self.list_class(from).map(Rep::Object),
                 _ => return Err(unsupported(class, "isinstance with this class")),
             };
             (rep, None)
@@ -609,8 +598,6 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::Uniform
                     | Rep::Object(_)
                     | Rep::ObjectOrNone(_)
-                    | Rep::List(_)
-                    | Rep::ListOrNone(_)
                     | Rep::Array(_)
                     | Rep::Hash
                     | Rep::Func(_) => Err(unsupported(arg, "float of this type")),
@@ -650,6 +637,7 @@ impl<'a> Lowering<'a, '_> {
                 site,
             },
             Rep::Str => self.prelude_call_at("str", "repr_of", vec![value], site)?,
+            rep if self.list_class(rep).is_some() => self.list_repr(value, site)?,
             // An object may be null.
             Rep::Object(class) | Rep::ObjectOrNone(class) => generated_call(
                 self.or_none_conversion(class, true)?,
@@ -661,7 +649,6 @@ impl<'a> Lowering<'a, '_> {
                 let value = self.coerce(value, Rep::StrOrNone).expect("a str or None");
                 self.prelude_call_at("str", "repr_or_none", vec![value], site)?
             }
-            Rep::List(_) | Rep::ListOrNone(_) => self.list_repr(value, site)?,
             // The `repr` of a uniform value tests its type when it runs.
             Rep::Uniform => {
                 self.uniform_repr.set(true);
@@ -702,8 +689,6 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::Uniform
                     | Rep::Object(_)
                     | Rep::ObjectOrNone(_)
-                    | Rep::List(_)
-                    | Rep::ListOrNone(_)
                     | Rep::Array(_)
                     | Rep::Hash
                     | Rep::Func(_) => Err(unsupported(arg, "int of this type")),

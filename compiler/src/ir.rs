@@ -157,11 +157,8 @@ pub(crate) struct UserClass {
 pub(crate) struct ListId(u32);
 
 pub(crate) struct ListType {
-    /// The rep of each item of a list of the type.
+    /// The rep of each item of an array of the type.
     pub item: Rep,
-    /// The function that gives the `repr` of a list, when the program
-    /// writes one.
-    pub repr: Option<FuncId>,
 }
 
 /// A type of function of the program, which the reps of its parameters
@@ -323,16 +320,6 @@ pub(crate) enum Stmt {
         field: u32,
         value: Expr,
     },
-    /// Sets the item of a list at an `int` index to the value, which has
-    /// the rep of the items. The value runs first, then the list and then
-    /// the index, as in CPython. A negative index counts from the end, and
-    /// an index out of range raises `IndexError` at the site.
-    ListSet {
-        list: Expr,
-        index: Expr,
-        value: Expr,
-        site: Site,
-    },
     /// Sets the code point at the index of a `str` that the prelude still
     /// builds. The index is in range.
     StrSet {
@@ -370,7 +357,7 @@ pub(crate) enum Expr {
     },
     /// Whether a value is `None`, as a `bool`.
     IsNone(Box<Expr>),
-    /// Whether two objects, each of a class, of a type of list or `None`,
+    /// Whether two objects, each of a class, of a type of array or `None`,
     /// are the same object, as a `bool`.
     Is(Box<Expr>, Box<Expr>),
     /// The value of a variable. Only a read with a check may come before
@@ -532,9 +519,9 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         class: ClassId,
     },
-    /// A new list of the type `list`, with a value of the rep of its items
+    /// A new array of the type `list`, with a value of the rep of its items
     /// for each item, which the program evaluates in order.
-    List {
+    Array {
         list: ListId,
         items: Vec<Expr>,
     },
@@ -763,9 +750,8 @@ pub(crate) enum Expr {
         len: Box<Expr>,
         site: Site,
     },
-    /// How many items the array of a list has room for, or the length of
-    /// an array, as an `int`.
-    ListCapacity(Box<Expr>),
+    /// The length of an array, as an `int`.
+    ArrayLen(Box<Expr>),
     /// A new array of the type with an `int` number of items, each the
     /// default of its rep. The site is where the program runs out of
     /// memory for the array.
@@ -782,39 +768,16 @@ pub(crate) enum Expr {
         start: Box<Expr>,
         count: Box<Expr>,
     },
-    /// The array of the items of a list.
-    ListItems(Box<Expr>),
-    /// Gives a list an array with room for an `int` number of items, not
-    /// below its length, with its items. The site is where the program runs
-    /// out of memory for the array.
-    ListReserve {
-        list: Box<Expr>,
-        capacity: Box<Expr>,
-        site: Site,
-    },
-    /// Sets the length of a list to an `int` that is not above its
-    /// capacity.
-    ListSetLen {
-        list: Box<Expr>,
-        len: Box<Expr>,
-    },
-    /// Sets the length of a list to an `int` that is not above its length,
-    /// and drops the items past it.
-    ListTruncate {
-        list: Box<Expr>,
-        len: Box<Expr>,
-    },
-    /// The item of a list or of an array at an `int` index that is not
-    /// negative and is below the length, which has `rep`, the rep of the
-    /// items.
+    /// The item of an array at an `int` index that is not negative and is
+    /// below its length, which has `rep`, the rep of the items.
     Item {
         list: Box<Expr>,
         index: Box<Expr>,
         rep: Rep,
     },
-    /// Sets the item at the `int` index of an array, or of the array of a
-    /// list, to the value, which has the rep of the items. The index is not
-    /// negative and is below the length of the array.
+    /// Sets the item at the `int` index of an array to the value, which has
+    /// the rep of the items. The index is not negative and is below the
+    /// length of the array.
     SetItem {
         list: Box<Expr>,
         index: Box<Expr>,
@@ -822,8 +785,8 @@ pub(crate) enum Expr {
     },
     /// Copies `count` items of `src`, from the `int` `start`, to `dst`,
     /// from the `int` `at`, as if through a buffer, so the two ranges may
-    /// overlap. `dst` and `src` are two lists or two arrays of the same
-    /// type, and both ranges are below the length of their arrays.
+    /// overlap. `dst` and `src` are two arrays of the same type, and both
+    /// ranges are in range.
     CopyItems {
         dst: Box<Expr>,
         at: Box<Expr>,
@@ -884,15 +847,6 @@ pub(crate) enum Expr {
         index: Box<Expr>,
         site: Site,
     },
-    /// The item of a list at an `int` index, which has `rep`, the rep of
-    /// the items. A negative index counts from the end, and an index out of
-    /// range raises `IndexError` at the site.
-    ListIndex {
-        list: Box<Expr>,
-        index: Box<Expr>,
-        rep: Rep,
-        site: Site,
-    },
     /// The code points of a `str` from the `int` `start` up to the `int`
     /// `stop`, as a `str`. The slice goes from the first code point without
     /// a `start`, and to the last one without a `stop`. The site is where
@@ -903,16 +857,16 @@ pub(crate) enum Expr {
         stop: Option<Box<Expr>>,
         site: Site,
     },
-    /// `len` of a `str` or of a list. A length outside 31 bits stops the
-    /// program at the site.
+    /// `len` of a `str`. A length outside 31 bits stops the program at the
+    /// site.
     Len {
         operand: Box<Expr>,
         site: Site,
     },
-    /// The truth of an `int`, a `float`, a `str`, an object or a list, as a
-    /// `bool`. A number is true when it is not 0, and a `str` or a list when
-    /// it is not empty. `nan` is true, and `-0.0` is false. An object is
-    /// true, and `None` is false.
+    /// The truth of an `int`, a `float`, a `str` or an object, as a `bool`.
+    /// A number is true when it is not 0, and a `str` when it is not empty.
+    /// `nan` is true, and `-0.0` is false. An object is true, and `None` is
+    /// false.
     Truth(Box<Expr>),
     /// `not` on a `bool`, which may be the truth of another value.
     Not(Box<Expr>),
@@ -1412,12 +1366,7 @@ pub(crate) enum Rep {
     Object(ClassId),
     /// An object of the class or `None`.
     ObjectOrNone(ClassId),
-    /// A list of the type.
-    List(ListId),
-    /// A list of the type or `None`.
-    ListOrNone(ListId),
-    /// The array of the items of a list of the type, which only the
-    /// prelude holds.
+    /// An array of the items of the type, which only the prelude holds.
     Array(ListId),
     /// The `hash` of CPython of a value, which only the prelude holds.
     Hash,
@@ -1460,11 +1409,11 @@ impl Rep {
         }
     }
 
-    /// The type of a list of `self`, which may be `None` too, and `None`
-    /// for a rep of another type.
-    pub(crate) fn list(self) -> Option<ListId> {
+    /// The type of the items of an array of `self`, and `None` for a rep of
+    /// another type.
+    pub(crate) fn array(self) -> Option<ListId> {
         match self {
-            Rep::List(list) | Rep::ListOrNone(list) => Some(list),
+            Rep::Array(list) => Some(list),
             _ => None,
         }
     }
@@ -1512,7 +1461,7 @@ impl Expr {
             | Expr::DecimalValue(_)
             | Expr::HashSlot { .. }
             | Expr::HashAsInt { .. }
-            | Expr::ListCapacity(_)
+            | Expr::ArrayLen(_)
             | Expr::Len { .. } => Rep::Int,
             Expr::Float(_)
             | Expr::IntAsFloat(_)
@@ -1559,7 +1508,6 @@ impl Expr {
             | Expr::Narrow { rep, .. }
             | Expr::Expect { rep, .. }
             | Expr::Item { rep, .. }
-            | Expr::ListIndex { rep, .. }
             | Expr::Field { rep, .. }
             | Expr::Bits { rep, .. } => *rep,
             Expr::Member { class, .. }
@@ -1567,9 +1515,7 @@ impl Expr {
             | Expr::Empty(class)
             | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
-            Expr::List { list, .. } => Rep::List(*list),
-            Expr::ArrayNew { list, .. } => Rep::Array(*list),
-            Expr::ListItems(list) => Rep::Array(list.rep().list().expect("a list")),
+            Expr::Array { list, .. } | Expr::ArrayNew { list, .. } => Rep::Array(*list),
             Expr::Closure { ty, .. } => Rep::Func(*ty),
             Expr::ChainLeft(rep) | Expr::ChainRight(rep) | Expr::LogicLeft(rep) => *rep,
             Expr::Logic { value, .. } => value.rep(),
@@ -1582,9 +1528,6 @@ impl Expr {
             Expr::Print { .. }
             | Expr::WriteErr(_)
             | Expr::Stop { .. }
-            | Expr::ListReserve { .. }
-            | Expr::ListSetLen { .. }
-            | Expr::ListTruncate { .. }
             | Expr::ArrayClear { .. }
             | Expr::SetItem { .. }
             | Expr::CopyItems { .. } => Rep::None,

@@ -13,44 +13,40 @@ from __spython_prelude__.intrinsics import (
     array_len,
     array_new,
     array_set,
-    list_capacity,
-    list_items,
-    list_reserve,
-    list_set_len,
-    list_truncate,
-    set_item,
 )
-from __spython_prelude__.list import copy
+from __spython_prelude__.list import List, clear, copy
 
 
-def sort[T: Ordered](xs: list[T], reverse: bool) -> None:
+def sort[T: Ordered](xs: List[T], reverse: bool) -> None:
     """`xs.sort(reverse=reverse)`. The list is empty while the sort runs, so a comparison that
     reads it sees no item, and one that changes it makes the sort raise at the end."""
-    n = len(xs)
-    items = take(xs)
+    n = xs.length
+    items = xs.items
+    clear(xs)
     sort_items(items, n, reverse)
     give_back(xs, items, n)
 
 
-def sort_key[T, K: Ordered](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
+def sort_key[T, K: Ordered](xs: List[T], key: Callable[[T], K], reverse: bool) -> None:
     """`xs.sort(key=key, reverse=reverse)`."""
-    n = len(xs)
-    items = take(xs)
+    n = xs.length
+    items = xs.items
+    clear(xs)
     sort_items_key(items, n, key, reverse)
     give_back(xs, items, n)
 
 
-def sorted_of[T: Ordered](xs: list[T], reverse: bool) -> list[T]:
+def sorted_of[T: Ordered](xs: List[T], reverse: bool) -> List[T]:
     ys = copy(xs)
-    sort_items(list_items(ys), len(ys), reverse)
+    sort_items(ys.items, ys.length, reverse)
     return ys
 
 
 def sorted_key[T, K: Ordered](
-    xs: list[T], key: Callable[[T], K], reverse: bool
-) -> list[T]:
+    xs: List[T], key: Callable[[T], K], reverse: bool
+) -> List[T]:
     ys = copy(xs)
-    sort_items_key(list_items(ys), len(ys), key, reverse)
+    sort_items_key(ys.items, ys.length, key, reverse)
     return ys
 
 
@@ -82,23 +78,12 @@ def sort_items_key[T, K: Ordered](
             reverse_items(items, 0, n)
 
 
-def take[T](xs: list[T]) -> Array[T]:
-    """The array of the items of `xs`, which becomes empty and gets a new array without
-    room."""
-    items = list_items(xs)
-    xs.clear()
-    return items
-
-
-def give_back[T](xs: list[T], items: Array[T], n: int) -> None:
-    """Puts the first `n` items of `items` back in `xs`, the list that `take` emptied. Anything
+def give_back[T](xs: List[T], items: Array[T], n: int) -> None:
+    """Puts the first `n` items of `items` back in `xs`, the list that the sort emptied. Anything
     that the sort put in `xs` goes away, and a list that gained room raises."""
-    changed = len(xs) != 0 or list_capacity(xs) != 0
-    list_truncate(xs, 0)
-    list_reserve(xs, n)
-    for i in range(n):
-        set_item(xs, i, array_get(items, i))
-    list_set_len(xs, n)
+    changed = xs.length != 0 or array_len(xs.items) != 0
+    xs.items = items
+    xs.length = n
     if changed:
         raise ValueError("list modified during sort")
 

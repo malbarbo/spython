@@ -18,7 +18,7 @@ impl Lowering<'_, '_> {
             return Err(unsupported(call, "this call of sum"));
         };
         let list = self.consumed_list(call, arg)?;
-        let name = match list.rep().list().map(|list| self.list_item(list)) {
+        let name = match self.list_item_of(list.rep()) {
             Some(Rep::Int | Rep::Bool) => "sum_int",
             Some(Rep::Float) => "sum_float",
             Some(_) => return Err(unsupported(arg, "sum of a list of this type")),
@@ -39,7 +39,7 @@ impl Lowering<'_, '_> {
         // CPython compares each value as the generator gives it, and a
         // method of a class may write between two values.
         if arg.is_generator_expr()
-            && let Some(Rep::Object(_)) = list.rep().list().map(|list| self.list_item(list))
+            && let Some(Rep::Object(_)) = self.list_item_of(list.rep())
         {
             return Err(unsupported(arg, "min or max of a generator of objects"));
         }
@@ -70,15 +70,20 @@ impl Lowering<'_, '_> {
                     .map(|arg| self.expr(arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 let rep = items.first().map(Expr::rep).expect("two or more values");
-                if !is_ordered(rep) {
+                if !self.is_ordered(rep) {
                     return Err(unsupported(call, "min or max of values of this type"));
                 }
                 if items.iter().any(|item| item.rep() != rep) {
                     return Err(unsupported(call, "min or max of values of two types"));
                 }
                 let classes = Vec::new();
-                let list = self.list_of(TypeArg { rep, classes });
-                Expr::List { list, items }
+                let unit = self
+                    .prelude_unit("list")
+                    .expect("the module list of the prelude");
+                let list = self
+                    .prelude_class_of(unit, "List", vec![TypeArg { rep, classes }])
+                    .expect("the class List");
+                self.list_from(list, items, self.site(ruff_text_size::Ranged::range(call)))
             }
         };
         let key = match &*call.arguments.keywords {
@@ -120,7 +125,7 @@ impl Lowering<'_, '_> {
             return self.generator(call, generator, consume);
         }
         let list = self.expr(arg)?;
-        if list.rep().list().is_none() {
+        if self.list_class(list.rep()).is_none() {
             return Err(unsupported(arg, "any or all of this iterable"));
         }
         let name = match consume {
@@ -152,7 +157,7 @@ impl Lowering<'_, '_> {
         };
         let ast::Expr::Generator(generator) = arg else {
             let list = self.expr(arg)?;
-            if list.rep().list().is_none() {
+            if self.list_class(list.rep()).is_none() {
                 return Err(unsupported(arg, "sorted of this iterable"));
             }
             let (key, reverse) = self.sort_options(call)?;
@@ -199,8 +204,8 @@ impl Lowering<'_, '_> {
     /// `list`, the value of `arg`, the list of `min` or `max`, which has to
     /// hold items that the prelude compares.
     fn ordered_list(&self, arg: &ast::Expr, list: Expr) -> Result<Expr, Error> {
-        match list.rep().list().map(|list| self.list_item(list)) {
-            Some(item) if is_ordered(item) => Ok(list),
+        match self.list_item_of(list.rep()) {
+            Some(item) if self.is_ordered(item) => Ok(list),
             Some(_) => Err(unsupported(arg, "min or max of a list of this type")),
             None => Err(unsupported(arg, "min or max of this iterable")),
         }
@@ -222,7 +227,7 @@ impl Lowering<'_, '_> {
         let Rep::Func(ty) = value.rep() else {
             return Err(unsupported(node, "a key of this type"));
         };
-        if !is_ordered(self.func_type_of(ty).ret) {
+        if !self.is_ordered(self.func_type_of(ty).ret) {
             return Err(unsupported(node, "a key of this type"));
         }
         Ok(value)
@@ -240,8 +245,8 @@ impl Lowering<'_, '_> {
     ) -> Result<Expr, Error> {
         // With a key, the prelude compares the results of the key, which
         // `key` checks.
-        let item = list.rep().list().map(|list| self.list_item(list));
-        if key.is_none() && !item.is_some_and(is_ordered) {
+        let item = self.list_item_of(list.rep());
+        if key.is_none() && !item.is_some_and(|item| self.is_ordered(item)) {
             return Err(unsupported(call, "sorted of a list of this type"));
         }
         let (name, args) = match key {
@@ -253,13 +258,13 @@ impl Lowering<'_, '_> {
         };
         self.module_call(call, "sort", name, args)
     }
-}
 
-/// Returns `true` if the prelude compares values of `rep` with `<` and
-/// `>`, `false` otherwise.
-fn is_ordered(rep: Rep) -> bool {
-    matches!(
-        rep,
-        Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_)
-    )
+    /// Returns `true` if the prelude compares values of `rep` with `<` and
+    /// `>`, `false` otherwise. A list has no order yet.
+    fn is_ordered(&self, rep: Rep) -> bool {
+        matches!(
+            rep,
+            Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::Object(_)
+        ) && self.list_class(rep).is_none()
+    }
 }

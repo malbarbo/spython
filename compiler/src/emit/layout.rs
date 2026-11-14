@@ -1,4 +1,4 @@
-//! Where each class and each type of list of the program goes in the rec
+//! Where each class and each type of array of the program goes in the rec
 //! group of the module, and what the struct of a class holds.
 
 use wasm_encoder::{StorageType, ValType};
@@ -8,8 +8,8 @@ use crate::ir::{ClassId, Rep, UserClass};
 
 /// The types of the rec group, from `first`. The struct of each class comes
 /// first, each after the struct of its base, then the exact type of each
-/// class with subclasses, then the struct and the array of each type of
-/// list, then the struct of a value and the type of the code of each type
+/// class with subclasses, then each type of array, then the struct of a
+/// value and the type of the code of each type
 /// of function, then the struct of the values of each function that
 /// captures variables, then the struct of a cell of each rep, and then the
 /// node of the stack of the objects whose `repr` runs.
@@ -23,7 +23,7 @@ pub(crate) struct Layout {
     classes: Vec<Shape>,
     /// The number of classes with subclasses.
     exacts: usize,
-    lists: usize,
+    arrays: usize,
     funcs: usize,
     closures: usize,
     cells: usize,
@@ -43,7 +43,7 @@ impl Layout {
     pub fn new(
         first: TypeIdx,
         classes: &[UserClass],
-        (lists, funcs, closures, cells): (usize, usize, usize, usize),
+        (arrays, funcs, closures, cells): (usize, usize, usize, usize),
     ) -> Self {
         let mut exacts = 0;
         let classes = classes
@@ -68,7 +68,7 @@ impl Layout {
             first,
             classes,
             exacts,
-            lists,
+            arrays,
             funcs,
             closures,
             cells,
@@ -129,20 +129,17 @@ impl Layout {
         self.shape(class).exact.is_some()
     }
 
-    /// The struct and the array of the type of list at `list`.
-    pub fn list(&self, list: usize) -> (TypeIdx, TypeIdx) {
-        assert!(list < self.lists, "a type of list of the program");
-        let ty = self.first.plus(self.class_types() + 2 * list);
-        (ty, ty.plus(1))
+    /// The array of the type of array at `array`.
+    pub fn array(&self, array: usize) -> TypeIdx {
+        assert!(array < self.arrays, "a type of array of the program");
+        self.first.plus(self.class_types() + array)
     }
 
     /// The struct of a value of the type of function at `func`, and the
     /// type of its code, which takes the value before the parameters.
     pub fn func(&self, func: usize) -> (TypeIdx, TypeIdx) {
         assert!(func < self.funcs, "a type of function of the program");
-        let ty = self
-            .first
-            .plus(self.class_types() + 2 * self.lists + 2 * func);
+        let ty = self.first.plus(self.class_types() + self.arrays + 2 * func);
         (ty, ty.plus(1))
     }
 
@@ -152,20 +149,20 @@ impl Layout {
     pub fn closure(&self, closure: usize) -> TypeIdx {
         assert!(closure < self.closures, "a function that captures");
         self.first
-            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs + closure)
+            .plus(self.class_types() + self.arrays + 2 * self.funcs + closure)
     }
 
     /// The struct of a cell of the rep at `cell` among the reps of cells.
     pub fn cell(&self, cell: usize) -> TypeIdx {
         assert!(cell < self.cells, "a rep of a cell");
         self.first
-            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs + self.closures + cell)
+            .plus(self.class_types() + self.arrays + 2 * self.funcs + self.closures + cell)
     }
 
     /// The node of the stack of the objects whose `repr` runs.
     pub fn repr_node(&self) -> TypeIdx {
         self.first
-            .plus(self.class_types() + 2 * self.lists + 2 * self.funcs + self.closures + self.cells)
+            .plus(self.class_types() + self.arrays + 2 * self.funcs + self.closures + self.cells)
     }
 
     /// The struct of an object of `class`, with a field of the type that

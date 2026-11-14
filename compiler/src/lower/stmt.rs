@@ -143,18 +143,6 @@ impl<'a> Lowering<'a, '_> {
                         index: self.expr(&target.slice)?,
                         value: self.expr(&a.value)?,
                     })),
-                    Rep::List(list) => {
-                        let item = self.list_item(list);
-                        let value = self
-                            .coerce(self.expr(&a.value)?, item)
-                            .ok_or_else(|| unsupported(&*a.value, "an item of this type"))?;
-                        Ok(Some(Stmt::ListSet {
-                            list: container,
-                            index: self.int_operand(&target.slice)?,
-                            value,
-                            site: self.site(target.range()),
-                        }))
-                    }
                     _ => Err(unsupported(target, "an assignment to an item of this type")),
                 }
             }
@@ -209,7 +197,7 @@ impl<'a> Lowering<'a, '_> {
                 let (object, class, field, rep) = self.updated_field(attr)?;
                 let left = self.object_attribute(attr, Expr::Target(class), class)?;
                 let left = self.narrowed_field(target, attr, left)?;
-                no_list_update(&left, stmt)?;
+                self.no_list_update(&left, stmt)?;
                 let right = self.expr(value)?;
                 let value = self.augmented(stmt, *op, (left, &**target), (right, &**value))?;
                 let value = self
@@ -227,7 +215,7 @@ impl<'a> Lowering<'a, '_> {
                     return Err(unsupported(&*a.target, "this target"));
                 };
                 let left = self.load(name)?;
-                no_list_update(&left, a)?;
+                self.no_list_update(&left, a)?;
                 let right = self.expr(&a.value)?;
                 let value = self.augmented(a, a.op, (left, &a.target), (right, &a.value))?;
                 let (target, value) = self.target(&a.target, value)?;
@@ -333,7 +321,7 @@ impl<'a> Lowering<'a, '_> {
     /// without `None`.
     fn may_be_none(&self, rep: Rep, node: &ast::Expr) -> bool {
         match rep {
-            Rep::StrOrNone | Rep::ObjectOrNone(_) | Rep::ListOrNone(_) => true,
+            Rep::StrOrNone | Rep::ObjectOrNone(_) => true,
             Rep::Uniform => match expr_shape(self.model(), node) {
                 Some(Shape::Union(shapes)) => shapes.iter().any(|s| matches!(s, Shape::None)),
                 _ => true,
@@ -372,7 +360,7 @@ impl<'a> Lowering<'a, '_> {
         }
         let seq = self.expr(iter)?;
         let rep = seq.rep();
-        if !matches!(rep, Rep::List(_) | Rep::Str) {
+        if rep != Rep::Str {
             return Err(unsupported(iter, "a for over this type"));
         }
         let site = self.site(iter.range());
@@ -384,17 +372,10 @@ impl<'a> Lowering<'a, '_> {
                 check: None,
             })
         };
-        let item = match rep {
-            Rep::List(list) => Expr::Item {
-                list: read(seq_var, rep),
-                index: read(index, Rep::Int),
-                rep: self.list_item(list),
-            },
-            _ => Expr::Index {
-                value: read(seq_var, rep),
-                index: read(index, Rep::Int),
-                site,
-            },
+        let item = Expr::Index {
+            value: read(seq_var, rep),
+            index: read(index, Rep::Int),
+            site,
         };
         let (place, item) = self.target(target, item)?;
         let mut lowered = vec![
@@ -435,11 +416,11 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// `for` over a `dict`, over its `keys()`, over its `values()`, or
-    /// over its `items()` with two names as the target, or over a `set`,
-    /// and `None` for a `for` over another value. An object of `DictIter`
-    /// or of `SetIter` of the prelude holds the place of the loop, and its
-    /// method `next` raises the errors of a `dict` or a `set` that changes,
-    /// at the iterable.
+    /// over its `items()` with two names as the target, or over a `set` or
+    /// a `list`, and `None` for a `for` over another value. An object of
+    /// `DictIter`, `SetIter` or `ListIter` of the prelude holds the place
+    /// of the loop, and its method `next` raises the errors of a `dict` or
+    /// a `set` that changes, at the iterable.
     fn for_dict(
         &self,
         target: &ast::Expr,
@@ -507,14 +488,25 @@ impl<'a> Lowering<'a, '_> {
         ]))
     }
 
-    /// The `dict` or `set` of `iter` and the part of it that a loop over
-    /// `iter` goes over, when the loop takes the iterator of the prelude:
-    /// `d` and `"items"` for `d.items()`. `None` for another `iter`.
+    /// Refuses an operator with assignment, as `xs += ys`, whose target
+    /// `left` is a list. CPython changes the list in place, where `+` gives
+    /// a new one.
+    pub(super) fn no_list_update(&self, left: &Expr, node: &impl Ranged) -> Result<(), Error> {
+        match self.list_class(left.rep()) {
+            Some(_) => Err(unsupported(node, "an operator with assignment on a list")),
+            None => Ok(()),
+        }
+    }
+
+    /// The `dict`, `set` or `list` of `iter` and the part of it that a loop
+    /// over `iter` goes over, when the loop takes the iterator of the
+    /// prelude: `d` and `"items"` for `d.items()`. `None` for another
+    /// `iter`.
     pub(super) fn dict_loop<'e>(&self, iter: &'e ast::Expr) -> Option<(&'e ast::Expr, &'e str)> {
         let (value, part) = dict_part(iter);
         match expr_shape(self.model(), value) {
             Some(Shape::Dict(..)) => Some((value, part)),
-            Some(Shape::Set(_)) if part == "keys" => Some((value, part)),
+            Some(Shape::Set(_) | Shape::List(_)) if part == "keys" => Some((value, part)),
             _ => None,
         }
     }
@@ -669,14 +661,5 @@ impl<'a> Lowering<'a, '_> {
                 .map(|value| Stmt::Return(Some(value)))
                 .ok_or_else(|| unsupported(value, "a return of this type")),
         }
-    }
-}
-
-/// Refuses an operator with assignment, as `xs += ys`, whose target `left`
-/// is a list. CPython changes the list in place, where `+` gives a new one.
-fn no_list_update(left: &Expr, node: &impl Ranged) -> Result<(), Error> {
-    match left.rep().list() {
-        Some(_) => Err(unsupported(node, "an operator with assignment on a list")),
-        None => Ok(()),
     }
 }

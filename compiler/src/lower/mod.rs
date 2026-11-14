@@ -114,14 +114,20 @@ pub(crate) fn lower(
     // and its code may convert another object. The code of the `__eq__` of
     // a copy may make another copy.
     let mut str_repr = None;
+    // The classes up to here have the function of their `repr`.
+    let mut with_repr = 0;
     loop {
-        if lowering.uniform_repr.get() && str_repr.is_none() {
-            str_repr = Some(lowering.uniform_reprs()?);
+        let classes = lowering.classes.borrow().list.len();
+        if lowering.uniform_repr.get() && (str_repr.is_none() || with_repr < classes) {
+            str_repr = Some(lowering.uniform_reprs(with_repr..classes)?);
+            with_repr = classes;
         }
         let resolved = lowering.resolve_slots()?;
         let eqs = lowering.declare_copy_eqs();
         lowering.lower_queue(&mut funcs)?;
-        if !resolved && !eqs && (str_repr.is_some() || !lowering.uniform_repr.get()) {
+        let classes = lowering.classes.borrow().list.len();
+        let reprs = lowering.uniform_repr.get() && (str_repr.is_none() || with_repr < classes);
+        if !resolved && !eqs && !reprs {
             break;
         }
     }
@@ -146,11 +152,7 @@ pub(crate) fn lower(
             lists
                 .args
                 .into_iter()
-                .zip(lists.reprs)
-                .map(|(arg, repr)| ListType {
-                    item: arg.rep,
-                    repr,
-                })
+                .map(|arg| ListType { item: arg.rep })
                 .collect()
         },
         func_types: lowering.func_types.into_inner().list,
@@ -379,16 +381,13 @@ pub(super) struct TypeArg {
     pub(super) classes: Vec<ClassId>,
 }
 
-/// The types of the lists of the program.
+/// The types of the arrays of the program.
 #[derive(Default)]
 struct Lists {
-    /// The type of a list of each type of item.
+    /// The type of an array of each type of item.
     ids: HashMap<TypeArg, ListId>,
-    /// The type of the items of each type of list, by its id.
+    /// The type of the items of each type of array, by its id.
     args: Vec<TypeArg>,
-    /// The function that gives the `repr` of a list of each type, once the
-    /// program writes one.
-    reprs: Vec<Option<FuncId>>,
 }
 
 /// The types of the functions that the program holds as values.
@@ -648,9 +647,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         Some(shape) => self.rep_of(Some(shape)),
                         None if self.range_call(iter).is_some() => Some(Rep::Int),
                         None => match self.rep_of(expr_shape(self.model(), iter)) {
-                            Some(Rep::List(list)) => Some(self.list_item(list)),
                             Some(Rep::Str) => Some(Rep::Str),
-                            _ => None,
+                            Some(rep) => self.list_item_of(rep),
+                            None => None,
                         },
                     };
                     vec![(*target, rep)]
@@ -1205,12 +1204,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .copied()
                 .map(Rep::Object),
             Shape::List(item) => {
-                let rep = self.rep_of(Some((*item).clone()))?;
-                let classes = match rep {
-                    Rep::Uniform => self.uniform_eq_classes(Some(*item)),
-                    _ => Vec::new(),
-                };
-                Some(Rep::List(self.list_of(TypeArg { rep, classes })))
+                let unit = self.prelude_unit("list")?;
+                self.prelude_class(unit, "List", vec![*item])
+                    .map(Rep::Object)
             }
             Shape::Callable(params, ret) => {
                 let params = params
@@ -1286,7 +1282,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         let list = ListId::new(lists.args.len());
         lists.args.push(arg.clone());
-        lists.reprs.push(None);
         lists.ids.insert(arg, list);
         list
     }
@@ -1320,7 +1315,32 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .clone()
     }
 
-    /// The rep of each item of a list of the type `list`.
+    /// Returns `true` if a uniform value may hold a value of `rep`, `false`
+    /// otherwise. The dispatch of a uniform value knows no list, no
+    /// function and no array yet.
+    fn in_uniform(&self, rep: Rep) -> bool {
+        self.list_class(rep).is_none() && rep.func().is_none() && !matches!(rep, Rep::Array(_))
+    }
+
+    /// The copy of the class `List` of the prelude whose objects `rep`
+    /// holds, which may hold `None` too, and `None` for a rep of another
+    /// type.
+    pub(super) fn list_class(&self, rep: Rep) -> Option<ClassId> {
+        let class = rep.class()?;
+        let unit = self.prelude_unit("list")?;
+        let is_list = self.copy_file(class) == Some(unit.file)
+            && self.classes.borrow().get(class).def.name.as_str() == "List";
+        is_list.then_some(class)
+    }
+
+    /// The rep of each item of a list of `rep`, which may hold `None` too,
+    /// and `None` for a rep of another type.
+    pub(super) fn list_item_of(&self, rep: Rep) -> Option<Rep> {
+        let args = self.copy_args(self.list_class(rep)?)?;
+        Some(args.first().expect("the type of the items").rep)
+    }
+
+    /// The rep of each item of an array of the type `list`.
     fn list_item(&self, list: ListId) -> Rep {
         self.lists
             .borrow()
@@ -1356,11 +1376,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
     }
 
     /// Makes the function that gives the `repr` of a `str` and of an object
-    /// of each class, which the `repr` of a uniform value calls, and
-    /// returns the one of the `str`.
-    fn uniform_reprs(&self) -> Result<Option<FuncId>, Error> {
-        let count = self.classes.borrow().list.len();
-        for i in 0..count {
+    /// of each class in `classes`, which the `repr` of a uniform value
+    /// calls, and returns the one of the `str`.
+    fn uniform_reprs(&self, classes: std::ops::Range<usize>) -> Result<Option<FuncId>, Error> {
+        for i in classes {
             self.class_conversion(ClassId::new(i), true);
         }
         self.prelude_named("str", "repr_of")
@@ -1456,10 +1475,7 @@ impl Lowering<'_, '_> {
             }
             (Rep::ObjectOrNone(_), Rep::None) => true,
             (Rep::StrOrNone, _) => matches!(value, Rep::Str | Rep::None | Rep::StrOrNone),
-            (Rep::ListOrNone(list), _) => {
-                matches!(value, Rep::None) || value == Rep::List(list) || value == rep
-            }
-            (Rep::Uniform, _) => in_uniform(value),
+            (Rep::Uniform, _) => self.in_uniform(value),
             _ => rep == value,
         }
     }
@@ -1487,13 +1503,7 @@ impl Lowering<'_, '_> {
             })
         }) {
             Rep::ObjectOrNone(class)
-        } else if let Some(list) = a.list().or(b.list())
-            && pair
-                .iter()
-                .all(|rep| *rep == Rep::None || rep.list() == Some(list))
-        {
-            Rep::ListOrNone(list)
-        } else if pair.iter().all(|rep| in_uniform(*rep)) {
+        } else if pair.iter().all(|rep| self.in_uniform(*rep)) {
             Rep::Uniform
         } else {
             return None;
@@ -1509,13 +1519,6 @@ impl Lowering<'_, '_> {
     }
 }
 
-/// Returns `true` if a uniform value may hold a value of `rep`, `false`
-/// otherwise. The dispatch of a uniform value knows no list, no function
-/// and no array.
-fn in_uniform(rep: Rep) -> bool {
-    rep.list().is_none() && rep.func().is_none() && !matches!(rep, Rep::Array(_))
-}
-
 /// Refuses a variable `self` of a union or of a class. The suggestion of a
 /// `NameError` looks for an attribute in the value of `self`, and the
 /// compiler knows the attributes of each builtin rep but not which one a
@@ -1527,7 +1530,6 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
         Rep::Object(_) | Rep::ObjectOrNone(_) => {
             Err(unsupported(node, "a variable self of a class"))
         }
-        Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "a variable self of a list")),
         Rep::Hash | Rep::Array(_) => Err(unsupported(node, "a variable self of this type")),
         Rep::Func(_) => Err(unsupported(node, "a variable self of a function")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
@@ -1565,8 +1567,8 @@ fn unsupported(node: &impl Ranged, what: &str) -> Error {
 
 /// Each name of `target`, the target of a `for` over `iter`, with the type
 /// of its values, when `iter` is a `dict`, its `keys()`, its `values()`,
-/// or its `items()` with two names as the target, or a `set`. `None` for
-/// another `for`.
+/// or its `items()` with two names as the target, or a `set` or a `list`.
+/// `None` for another `for`.
 fn dict_loop<'e>(
     model: &SemanticModel<'_>,
     target: &'e ast::Expr,
@@ -1575,7 +1577,9 @@ fn dict_loop<'e>(
     let (value, part) = dict_part(iter);
     let (key, value) = match expr_shape(model, value)? {
         Shape::Dict(key, value) => (key, value),
-        Shape::Set(item) if part == "keys" => return Some(vec![(target, *item)]),
+        Shape::Set(item) | Shape::List(item) if part == "keys" => {
+            return Some(vec![(target, *item)]);
+        }
         _ => return None,
     };
     match (part, target) {

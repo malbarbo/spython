@@ -19,11 +19,12 @@ impl<'a> Lowering<'a, '_> {
         expr: &ast::Expr,
         comp: &ast::ExprListComp,
     ) -> Result<Expr, Error> {
-        let Some(Rep::List(list)) = self.rep_of(expr_shape(self.model(), expr)) else {
+        let rep = self.rep_of(expr_shape(self.model(), expr));
+        let Some(list) = rep.and_then(|rep| self.list_class(rep)) else {
             return Err(unsupported(expr, "a list of this type"));
         };
-        let rep = Rep::List(list);
-        let item = self.list_item(list);
+        let rep = Rep::Object(list);
+        let item = self.list_item_of(rep).expect("a list");
         let result = self.hidden_var(rep);
         let read = || Expr::Load {
             place: result,
@@ -32,10 +33,7 @@ impl<'a> Lowering<'a, '_> {
         };
         let mut stmts = vec![Stmt::Assign {
             targets: vec![result],
-            value: Expr::List {
-                list,
-                items: Vec::new(),
-            },
+            value: self.list_of_items(list, &[], self.site(expr.range()))?,
         }];
         stmts.extend(self.comprehension(&comp.generators, &mut || {
             let value = self.literal_item(&comp.elt, item)?;

@@ -183,14 +183,15 @@ impl Lowering<'_, '_> {
             check: None,
         };
         let mut stmts = Vec::new();
-        let last = match (consume, ret) {
-            (Consume::List, Rep::List(list)) => {
+        let list = match consume {
+            Consume::List => self.list_class(ret),
+            _ => None,
+        };
+        let last = match (consume, list) {
+            (Consume::List, Some(list)) => {
                 stmts.push(Stmt::Assign {
                     targets: vec![result],
-                    value: Expr::List {
-                        list,
-                        items: Vec::new(),
-                    },
+                    value: self.list_from(list, Vec::new(), self.site(generator.range())),
                 });
                 read()
             }
@@ -198,9 +199,10 @@ impl Lowering<'_, '_> {
             _ => Expr::Bool(true),
         };
         stmts.extend(self.clauses(&generator.generators, &mut || {
-            let put = match (consume, ret) {
-                (Consume::List, Rep::List(list)) => {
-                    let value = self.literal_item(&generator.elt, self.list_item(list))?;
+            let put = match (consume, list) {
+                (Consume::List, Some(list)) => {
+                    let item = self.list_item_of(Rep::Object(list)).expect("a list");
+                    let value = self.literal_item(&generator.elt, item)?;
                     Stmt::Expr(self.list_call(&*generator.elt, "append", vec![read(), value])?)
                 }
                 (Consume::Any, _) => Stmt::If {

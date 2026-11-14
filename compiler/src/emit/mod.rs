@@ -136,7 +136,6 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
             .collect(),
         index(program.str_repr),
     );
-    reprs.set_list_reprs(program.lists.iter().map(|list| index(list.repr)).collect());
     reprs.set_copy_eqs(
         program
             .classes
@@ -524,22 +523,6 @@ impl Emitter<'_> {
                 self.code.target = outer;
                 f.free(target);
                 self.reprs.set_field(f, *class, *field);
-            }
-            Stmt::ListSet {
-                list,
-                index,
-                value,
-                site,
-            } => {
-                self.expr(f, value);
-                let rep = value.rep();
-                let item = f.temp(self.reprs.local_type(rep).expect("an item has a value"));
-                f.ins().local_set(item);
-                self.expr(f, list);
-                self.expr(f, index);
-                let list = list.rep();
-                self.at(f, *site, |e, f| e.reprs.list_set(&mut e.m, f, list, item));
-                f.free(item);
             }
             Stmt::StrSet {
                 builder,
@@ -1560,9 +1543,9 @@ impl Emitter<'_> {
                 self.expr(f, len);
                 self.at(f, *site, |e, f| e.reprs.str_new(f));
             }
-            Expr::ListCapacity(list) => {
-                self.expr(f, list);
-                self.reprs.list_capacity(f, list.rep());
+            Expr::ArrayLen(array) => {
+                self.expr(f, array);
+                self.reprs.array_len(f);
             }
             Expr::ArrayNew { list, len, site } => {
                 self.expr(f, len);
@@ -1579,55 +1562,18 @@ impl Emitter<'_> {
                 self.expr(f, count);
                 self.reprs.array_clear(f, array.rep());
             }
-            Expr::ListItems(list) => {
-                self.expr(f, list);
-                self.reprs.list_items(f, list.rep());
-            }
-            Expr::ListReserve {
-                list,
-                capacity,
-                site,
-            } => {
-                self.expr(f, list);
-                self.expr(f, capacity);
-                let rep = list.rep();
-                self.at(f, *site, |e, f| e.reprs.list_reserve(f, rep));
-            }
-            Expr::ListSetLen { list, len } => {
-                self.expr(f, list);
-                self.expr(f, len);
-                self.reprs.list_set_len(f, list.rep());
-            }
-            Expr::ListTruncate { list, len } => {
-                self.expr(f, list);
-                self.expr(f, len);
-                self.reprs.list_truncate(f, list.rep());
-            }
-            Expr::ListIndex {
-                list,
-                index,
-                rep,
-                site,
-            } => {
-                self.expr(f, list);
-                self.expr(f, index);
-                let list = list.rep();
-                self.at(f, *site, |e, f| e.reprs.list_index(&mut e.m, f, list, *rep));
-            }
             Expr::Item { list, index, rep } => {
                 self.expr(f, list);
-                self.reprs.list_items(f, list.rep());
                 self.expr(f, index);
                 self.reprs.index_of(f);
-                self.reprs.list_item(f, list.rep(), *rep);
+                self.reprs.array_item(f, list.rep(), *rep);
             }
             Expr::SetItem { list, index, value } => {
                 self.expr(f, list);
-                self.reprs.list_items(f, list.rep());
                 self.expr(f, index);
                 self.reprs.index_of(f);
                 self.expr(f, value);
-                self.reprs.set_list_item(f, list.rep());
+                self.reprs.set_array_item(f, list.rep());
             }
             Expr::CopyItems {
                 dst,
@@ -1636,18 +1582,15 @@ impl Emitter<'_> {
                 start,
                 count,
             } => {
-                let rep = dst.rep();
                 self.expr(f, dst);
-                self.reprs.list_items(f, rep);
                 self.expr(f, at);
                 self.reprs.index_of(f);
                 self.expr(f, src);
-                self.reprs.list_items(f, rep);
                 self.expr(f, start);
                 self.reprs.index_of(f);
                 self.expr(f, count);
                 self.reprs.index_of(f);
-                self.reprs.copy_list_items(f, rep);
+                self.reprs.copy_array_items(f, dst.rep());
             }
             Expr::CodePoint { value, index } => {
                 self.expr(f, value);
@@ -1732,8 +1675,7 @@ impl Emitter<'_> {
             }
             Expr::Len { operand, site } => {
                 self.expr(f, operand);
-                let rep = operand.rep();
-                self.at(f, *site, |e, f| e.reprs.len(f, rep));
+                self.at(f, *site, |e, f| e.reprs.len(f));
             }
             Expr::Truth(operand) => {
                 self.expr(f, operand);
@@ -1788,7 +1730,7 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.as_exact(f, *class);
             }
-            Expr::List { list, items } => {
+            Expr::Array { list, items } => {
                 let array = self.reprs.begin_literal(f, *list, items.len());
                 for (i, item) in items.iter().enumerate() {
                     self.reprs.before_item(f, array, i);
@@ -2030,14 +1972,7 @@ impl Emitter<'_> {
             }
             // The write of an object calls the `str` of its class, and the
             // write of a list the `repr` of the list.
-            if matches!(
-                rep,
-                Rep::Uniform
-                    | Rep::Object(_)
-                    | Rep::ObjectOrNone(_)
-                    | Rep::List(_)
-                    | Rep::ListOrNone(_)
-            ) {
+            if matches!(rep, Rep::Uniform | Rep::Object(_) | Rep::ObjectOrNone(_)) {
                 self.at(f, site, |e, f| e.reprs.write(&mut e.m, f, rep));
             } else {
                 self.reprs.write(&mut self.m, f, rep);

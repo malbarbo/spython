@@ -217,8 +217,6 @@ fn has_attribute(rep: Option<Rep>, name: &str) -> bool {
             | Rep::Uniform
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
-            | Rep::List(_)
-            | Rep::ListOrNone(_)
             | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_),

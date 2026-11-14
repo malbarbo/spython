@@ -381,11 +381,23 @@ impl<'a, 'db> Lowering<'a, 'db> {
         name: &str,
         args: Vec<Shape>,
     ) -> Option<ClassId> {
-        let def = *unit.classes.get(name)?;
         let args = args
             .into_iter()
             .map(|shape| self.type_arg(shape))
             .collect::<Option<Vec<_>>>()?;
+        self.prelude_class_of(unit, name, args)
+    }
+
+    /// The copy of the generic class `name` of the module of `unit` for
+    /// what each of its type variables stands for in `args`, which the
+    /// first call for it creates.
+    pub(super) fn prelude_class_of(
+        &self,
+        unit: &'a Unit<'a, 'db>,
+        name: &str,
+        args: Vec<TypeArg>,
+    ) -> Option<ClassId> {
+        let def = *unit.classes.get(name)?;
         let key = (unit.file, name.to_owned(), args.clone());
         if let Some(&class) = self.classes.borrow().copies.get(&key) {
             return Some(class);
@@ -1023,12 +1035,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
     ) -> Result<Stmt, Error> {
         let lowered = self.expr(value)?;
         let object = match lowered.rep() {
+            rep @ Rep::Object(_) if self.list_class(rep).is_some() => Some("list".to_owned()),
             Rep::Object(class) if self.is_mutable(class) => Some(format!(
                 "__main__.{}",
                 self.classes.borrow().get(class).def.name
             )),
-            Rep::List(_) => Some("list".to_owned()),
-            Rep::ObjectOrNone(_) | Rep::ListOrNone(_) | Rep::Uniform
+            Rep::ObjectOrNone(_) | Rep::Uniform
                 if self.may_be_mutable(expr_shape(self.model(), value)) =>
             {
                 return Err(unsupported(
@@ -2248,6 +2260,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
         shape: Shape,
     ) -> Result<Expr, Error> {
         let rep = ours.rep();
+        if let Some(list) = self.list_class(rep) {
+            let rep = Rep::ObjectOrNone(list);
+            let coerced = |value| self.coerce(value, rep).expect("a list or None");
+            return self.list_call_at(node, "eq", vec![coerced(ours), coerced(theirs)], site);
+        }
         if self.calls_eq(
             (rep, || Some(shape.clone())),
             (rep, || Some(shape.clone())),
@@ -2259,11 +2276,6 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 (theirs, Some(shape)),
                 site,
             );
-        }
-        if let Some(list) = rep.list() {
-            let rep = Rep::ListOrNone(list);
-            let coerced = |value| self.coerce(value, rep).expect("a list or None");
-            return self.list_call_at(node, "eq", vec![coerced(ours), coerced(theirs)], site);
         }
         let classes = self.uniform_dataclasses(Some(shape));
         if !classes.is_empty() {

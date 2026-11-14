@@ -157,32 +157,3 @@ def array_copy[T](
 def array_clear[T](a: Array[T], start: int, count: int) -> None:
     """Sets `count` items of `a`, from `start`, to the default of their type, so the items that
     were there may go. The range is in range."""
-
-def list_items[T](xs: list[T]) -> Array[T]:
-    """The array of the items of `xs`, which may have room past `len(xs)`."""
-
-def list_capacity[T](xs: list[T]) -> int:
-    """How many items the array of `xs` has room for."""
-
-def list_reserve[T](xs: list[T], capacity: int) -> None:
-    """Gives `xs` an array with room for `capacity` items, which is not below `len(xs)`, with the
-    items of `xs`."""
-
-def list_set_len[T](xs: list[T], n: int) -> None:
-    """Makes `xs` a list of its first `n` items, where `n` is not above the capacity of `xs`. An
-    item past the old length has the value that the prelude set there."""
-
-def list_truncate[T](xs: list[T], n: int) -> None:
-    """Makes `xs` a list of its first `n` items, where `n` is not above `len(xs)`, and drops the
-    items past them, so they may go."""
-
-def set_item[T](xs: list[T], index: int, x: T) -> None:
-    """Sets the item at `index` of the array of `xs`, which is not negative and is below the
-    capacity of `xs`, to `x`."""
-
-def item[T](xs: list[T], index: int) -> T:
-    """The item of `xs` at `index`, which is not negative and is below `len(xs)`."""
-
-def copy_items[T](dst: list[T], at: int, src: list[T], start: int, count: int) -> None:
-    """Copies `count` items of `src`, from `start`, to the array of `dst`, from `at`, as if through
-    a buffer, so the two ranges may overlap. Both ranges are below the capacity of their lists."""

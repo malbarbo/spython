@@ -9,7 +9,7 @@ use super::generator::Consume;
 use super::{Lowering, unsupported};
 use crate::Error;
 use crate::ir::{
-    ArithOp, BitOp, ClassId, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep,
+    ArithOp, BitOp, ClassId, CmpOp, DivOp, Expr, FloatOp, FuncId, LogicOp, MinMaxOp, Rep, Site,
 };
 
 /// The range of an `int`, which has to fit in 31 bits.
@@ -127,7 +127,6 @@ impl<'a> Lowering<'a, '_> {
         let picked = match (op, from) {
             (LogicOp::Or, Rep::StrOrNone) => Rep::Str,
             (LogicOp::Or, Rep::ObjectOrNone(class)) => Rep::Object(class),
-            (LogicOp::Or, Rep::ListOrNone(list)) => Rep::List(list),
             _ => from,
         };
         let rep = self
@@ -233,22 +232,17 @@ impl<'a> Lowering<'a, '_> {
             ast::Expr::Set(set) => self.set(expr, set),
             ast::Expr::Subscript(sub) => {
                 let value = self.expr(&sub.value)?;
-                if value.rep().class().is_some() {
-                    let index = self.expr(&sub.slice)?;
-                    return self.special_getitem(sub, value, index);
-                }
-                if let Rep::List(list) = value.rep() {
+                if matches!(value.rep(), Rep::Object(_)) && self.list_class(value.rep()).is_some() {
                     if let ast::Expr::Slice(slice) = &*sub.slice {
                         return self.list_slice(sub, value, slice);
                     }
                     let index = self.int_operand(&sub.slice)?;
-                    let item = Expr::ListIndex {
-                        list: Box::new(value),
-                        index: Box::new(index),
-                        rep: self.list_item(list),
-                        site: self.site(sub.range()),
-                    };
+                    let item = self.special_getitem(sub, value, index)?;
                     return self.narrowed_place(expr, item, "the item", sub.range());
+                }
+                if value.rep().class().is_some() {
+                    let index = self.expr(&sub.slice)?;
+                    return self.special_getitem(sub, value, index);
                 }
                 if value.rep() != Rep::Str {
                     return Err(unsupported(&*sub.value, "a subscript of this type"));
@@ -350,16 +344,44 @@ impl<'a> Lowering<'a, '_> {
     /// The list of the literal `list`, whose type the checker gives, as the
     /// annotation of `xs: list[int] = [True]` does.
     fn list(&self, expr: &ast::Expr, list: &ast::ExprList) -> Result<Expr, Error> {
-        let Some(Rep::List(id)) = self.rep_of(expr_shape(self.model(), expr)) else {
+        let rep = self.rep_of(expr_shape(self.model(), expr));
+        let Some(class) = rep.and_then(|rep| self.list_class(rep)) else {
             return Err(unsupported(list, "a list of this type"));
         };
-        let item = self.list_item(id);
-        let items = list
-            .elts
+        let site = self.site(expr.range());
+        self.list_of_items(class, &list.elts, site)
+    }
+
+    /// A new list of the copy `class` of `List`, with an item for each of
+    /// `elts`, which run in order.
+    pub(super) fn list_of_items(
+        &self,
+        class: ClassId,
+        elts: &[ast::Expr],
+        site: Site,
+    ) -> Result<Expr, Error> {
+        let item = self.list_item_of(Rep::Object(class)).expect("a list");
+        let items = elts
             .iter()
             .map(|elt| self.literal_item(elt, item))
             .collect::<Result<_, _>>()?;
-        Ok(Expr::List { list: id, items })
+        Ok(self.list_from(class, items, site))
+    }
+
+    /// A new list of the copy `class` of `List` with `items`, which have
+    /// the rep of its items. The method `done` takes the array of the
+    /// items.
+    pub(super) fn list_from(&self, class: ClassId, items: Vec<Expr>, site: Site) -> Expr {
+        let done = self.method_func(class, "done").expect("List has done");
+        let params = self.funcs.borrow().get(done).params.clone();
+        let [_, Rep::Array(array)] = params[..] else {
+            unreachable!("done takes an array");
+        };
+        let args = vec![
+            self.new_copy(class, Vec::new(), site),
+            Expr::Array { list: array, items },
+        ];
+        generated_call(done, args, Rep::Object(class), site)
     }
 
     /// `node`, an item of a literal, as a value of `rep`, the rep of the
@@ -420,18 +442,13 @@ impl<'a> Lowering<'a, '_> {
         let site = self.site(expr.range());
         let done = self.method_func(class, "done").expect("Set has done");
         let params = self.funcs.borrow().get(done).params.clone();
-        let [_, Rep::List(list)] = params[..] else {
+        let [_, items] = params[..] else {
             unreachable!("done takes a list");
         };
-        let item = self.list_item(list);
-        let items = set
-            .elts
-            .iter()
-            .map(|elt| self.literal_item(elt, item))
-            .collect::<Result<_, _>>()?;
+        let list = self.list_class(items).expect("done takes a list");
         let args = vec![
             self.new_copy(class, Vec::new(), site),
-            Expr::List { list, items },
+            self.list_of_items(list, &set.elts, site)?,
         ];
         Ok(generated_call(done, args, Rep::Object(class), site))
     }
@@ -582,7 +599,7 @@ impl<'a> Lowering<'a, '_> {
                 })
             }
             // The `str` of a list is its `repr`.
-            Rep::List(_) | Rep::ListOrNone(_) => self.repr_of(lowered, range),
+            rep if self.list_class(rep).is_some() => self.repr_of(lowered, range),
             Rep::Object(_) | Rep::ObjectOrNone(_) => {
                 let func = self
                     .object_str(lowered.rep())?
@@ -673,18 +690,9 @@ impl<'a> Lowering<'a, '_> {
                     // A value that the checker narrows to `None` has no
                     // reference, and gets the null of the other class.
                     let reference = |value: Expr, other: Rep| match (value.rep(), other) {
-                        (rep, _)
-                            if rep.class().is_some()
-                                || rep.list().is_some()
-                                || rep.func().is_some() =>
-                        {
-                            Some(value)
-                        }
+                        (rep, _) if rep.class().is_some() || rep.func().is_some() => Some(value),
                         (Rep::None, Rep::Object(class) | Rep::ObjectOrNone(class)) => {
                             self.coerce(value, Rep::ObjectOrNone(class))
-                        }
-                        (Rep::None, Rep::List(list) | Rep::ListOrNone(list)) => {
-                            self.coerce(value, Rep::ListOrNone(list))
                         }
                         _ => None,
                     };
@@ -707,15 +715,15 @@ impl<'a> Lowering<'a, '_> {
         {
             let sub = self.expr(left)?;
             let s = self.expr(right)?;
-            if s.rep().class().is_some() {
-                let is_in = self.special_contains(c, sub, s)?;
+            if self.list_class(s.rep()).is_some() {
+                let is_in = self.list_in(c, sub, (s, right))?;
                 return Ok(match op {
                     ast::CmpOp::In => is_in,
                     _ => Expr::Not(Box::new(is_in)),
                 });
             }
-            if s.rep().list().is_some() {
-                let is_in = self.list_in(c, sub, (s, right))?;
+            if s.rep().class().is_some() {
+                let is_in = self.special_contains(c, sub, s)?;
                 return Ok(match op {
                     ast::CmpOp::In => is_in,
                     _ => Expr::Not(Box::new(is_in)),
@@ -749,7 +757,7 @@ impl<'a> Lowering<'a, '_> {
             .collect::<Result<Vec<_>, Error>>()?;
         if operands
             .iter()
-            .any(|(lowered, _)| lowered.rep().list().is_some())
+            .any(|(lowered, _)| self.list_class(lowered.rep()).is_some())
         {
             return self.list_compare(c, ops, operands);
         }
@@ -855,13 +863,15 @@ impl<'a> Lowering<'a, '_> {
     ) -> Result<Expr, Error> {
         let what = ("a chain of comparisons of lists", "an order of lists");
         self.equality(c, (ops, operands), what, |(left, _), (right, _)| {
+            let (a, b) = (self.list_class(left.rep()), self.list_class(right.rep()));
             let list = match (left.rep(), right.rep()) {
-                (a, b) if a.list().is_some() && a.list() == b.list() => a.list(),
-                (a, Rep::None) | (Rep::None, a) => a.list(),
+                _ if a.is_some() && a == b => a,
+                (_, Rep::None) => a,
+                (Rep::None, _) => b,
                 _ => None,
             }
             .ok_or_else(|| unsupported(c, "a comparison of two types of list"))?;
-            let rep = Rep::ListOrNone(list);
+            let rep = Rep::ObjectOrNone(list);
             let coerced = |value| self.coerce(value, rep).expect("a list or None");
             self.list_call(c, "eq", vec![coerced(left), coerced(right)])
         })
@@ -901,7 +911,7 @@ impl<'a> Lowering<'a, '_> {
         x: Expr,
         (xs, node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
-        let Rep::List(_) = xs.rep() else {
+        let Rep::Object(_) = xs.rep() else {
             return Err(unsupported(node, "in of a list that may be None"));
         };
         self.list_call(c, "contains", vec![x, xs])
@@ -916,6 +926,19 @@ impl<'a> Lowering<'a, '_> {
         (left, left_node): (Expr, &ast::Expr),
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
+        let lists = (self.list_class(left.rep()), self.list_class(right.rep()));
+        match (op, left.rep(), right.rep(), lists) {
+            (ast::Operator::Add, Rep::Object(a), Rep::Object(b), (Some(_), Some(_))) if a == b => {
+                return self.list_call(node, "concat", vec![left, right]);
+            }
+            (ast::Operator::Add, _, _, (Some(_), Some(_))) => {
+                return Err(unsupported(node, "a + of two types of list"));
+            }
+            (_, _, _, (Some(_), _) | (_, Some(_))) => {
+                return Err(unsupported(node, "this operator"));
+            }
+            _ => {}
+        }
         if left.rep().class().is_some() || right.rep().class().is_some() {
             return self.special_arith(node, (op, augmented), left, right);
         }
@@ -923,15 +946,6 @@ impl<'a> Lowering<'a, '_> {
             return self.number_arith(node, op, (left, left_node), (right, right_node));
         }
         match (op, left.rep(), right.rep()) {
-            (ast::Operator::Add, Rep::List(a), Rep::List(b)) if a == b => {
-                return self.list_call(node, "concat", vec![left, right]);
-            }
-            (ast::Operator::Add, a, b) if a.list().is_some() && b.list().is_some() => {
-                return Err(unsupported(node, "a + of two types of list"));
-            }
-            (_, a, b) if a.list().is_some() || b.list().is_some() => {
-                return Err(unsupported(node, "this operator"));
-            }
             (ast::Operator::Add, Rep::Str, Rep::Str) => {
                 return Ok(Expr::Concat {
                     left: Box::new(left),
@@ -1210,8 +1224,6 @@ impl<'a> Lowering<'a, '_> {
             | Rep::Uniform
             | Rep::Object(_)
             | Rep::ObjectOrNone(_)
-            | Rep::List(_)
-            | Rep::ListOrNone(_)
             | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => Err(unsupported(
@@ -1236,8 +1248,6 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         | Rep::Uniform
         | Rep::Object(_)
         | Rep::ObjectOrNone(_)
-        | Rep::List(_)
-        | Rep::ListOrNone(_)
         | Rep::Array(_)
         | Rep::Hash
         | Rep::Func(_) => Err(unsupported(
