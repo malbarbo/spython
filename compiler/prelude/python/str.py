@@ -262,21 +262,137 @@ def found_at_most(s: str, sub: str, i: int) -> bool:
     return i + len(sub) <= len(s) and found_at(s, sub, i)
 
 
-def split(s: str) -> list[str]:
-    """`s.split()`, the parts of `s` between the runs of white space of `str.isspace`."""
+def split(s: str, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """The parts of `s` between the occurrences of `sep`, from the left, with
+    at most `maxsplit` splits when it is not negative."""
+    if sep is None:
+        return split_space(s, maxsplit)
+    m = len(sep)
+    if m == 0:
+        raise ValueError("empty separator")
+    n = len(s)
+    limit = split_limit(n, maxsplit)
+    parts: list[str] = []
+    start = 0
+    i = 0
+    while len(parts) < limit and i <= n - m:
+        if found_at(s, sep, i):
+            parts.append(s[start:i])
+            i += m
+            start = i
+        else:
+            i += 1
+    parts.append(s[start:])
+    return parts
+
+
+def split_space(s: str, maxsplit: int) -> list[str]:
+    """`s.split(None, maxsplit)`, the parts of `s` between the runs of white
+    space of `str.isspace`. After the last split, the rest keeps the white
+    space at its end."""
+    n = len(s)
+    limit = split_limit(n, maxsplit)
+    parts: list[str] = []
+    i = 0
+    while len(parts) < limit:
+        while i < n and is_space(code_point(s, i)):
+            i += 1
+        if i == n:
+            return parts
+        j = i
+        while i < n and not is_space(code_point(s, i)):
+            i += 1
+        parts.append(s[j:i])
+    while i < n and is_space(code_point(s, i)):
+        i += 1
+    if i < n:
+        parts.append(s[i:])
+    return parts
+
+
+def rsplit(s: str, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """The parts of `s` between the occurrences of `sep`, from the right,
+    with at most `maxsplit` splits when it is not negative."""
+    if sep is None:
+        return rsplit_space(s, maxsplit)
+    m = len(sep)
+    if m == 0:
+        raise ValueError("empty separator")
+    limit = split_limit(len(s), maxsplit)
+    parts: list[str] = []
+    end = len(s)
+    i = end - m
+    while len(parts) < limit and i >= 0:
+        if found_at(s, sep, i):
+            parts.append(s[i + m : end])
+            end = i
+            i -= m
+        else:
+            i -= 1
+    parts.append(s[:end])
+    parts.reverse()
+    return parts
+
+
+def rsplit_space(s: str, maxsplit: int) -> list[str]:
+    """`s.rsplit(None, maxsplit)`, [`split_space`] from the right."""
+    limit = split_limit(len(s), maxsplit)
+    parts: list[str] = []
+    i = len(s) - 1
+    while len(parts) < limit:
+        while i >= 0 and is_space(code_point(s, i)):
+            i -= 1
+        if i < 0:
+            parts.reverse()
+            return parts
+        j = i + 1
+        while i >= 0 and not is_space(code_point(s, i)):
+            i -= 1
+        parts.append(s[i + 1 : j])
+    while i >= 0 and is_space(code_point(s, i)):
+        i -= 1
+    if i >= 0:
+        parts.append(s[: i + 1])
+    parts.reverse()
+    return parts
+
+
+def split_limit(n: int, maxsplit: int) -> int:
+    """The most parts before the last that a split of a `str` of length `n`
+    makes, where a negative `maxsplit` sets no limit."""
+    if maxsplit < 0 or maxsplit > n:
+        return n
+    return maxsplit
+
+
+def splitlines(s: str, keepends: bool = False) -> list[str]:
+    """The lines of `s`, where `\\r\\n` is one line break, with the line breaks
+    when `keepends` holds."""
     parts: list[str] = []
     n = len(s)
     i = 0
     while i < n:
-        while i < n and is_space(code_point(s, i)):
-            i += 1
         j = i
-        while j < n and not is_space(code_point(s, j)):
-            j += 1
-        if i < j:
-            parts.append(s[i:j])
-        i = j
+        while i < n and not is_line_break(code_point(s, i)):
+            i += 1
+        end = i
+        if i < n:
+            if code_point(s, i) == 13 and i + 1 < n and code_point(s, i + 1) == 10:
+                i += 2
+            else:
+                i += 1
+            if keepends:
+                end = i
+        parts.append(s[j:end])
     return parts
+
+
+def is_line_break(c: int) -> bool:
+    """Returns `True` if `str.splitlines` breaks a line at `c`, `False`
+    otherwise."""
+    if c < 128:
+        return 10 <= c <= 13 or 28 <= c <= 30
+    return c == 0x85 or c == 0x2028 or c == 0x2029
 
 
 def join(s: str, parts: list[str]) -> str:

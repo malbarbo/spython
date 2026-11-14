@@ -324,7 +324,7 @@ fn lower_gives_the_final_sigma_at_the_end_of_a_word() {
 fn a_method_of_a_str_that_the_prelude_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-            print('a b'.splitlines())
+            print('ab'.format('x'))
         "}),
         "a call of this method"
     );
@@ -729,21 +729,36 @@ fn a_method_of_str_takes_keyword_arguments() {
 }
 
 #[test]
-fn split_with_arguments_is_unsupported() {
-    for source in [
+fn split_takes_a_separator_and_a_most_number_of_splits() {
+    same_as_cpython(
+        "split_takes_a_separator_and_a_most_number_of_splits",
+        indoc! {r#"
+            for s in ['a,b,,c', ',a,', '', ',', 'aaa', 'a, b, c']:
+                print(s.split(','), s.rsplit(','), s.split(',', 1), s.rsplit(',', 1))
+                print(s.split('aa'), s.rsplit('aa'), s.split(', '), s.split(',', 0), s.split(',', -2))
+            for s in ['  a  b c  ', '', '   ', 'a\u3000b\x1cc', 'abc']:
+                print(s.split(), s.rsplit(), s.split(None, 1), s.rsplit(None, 1))
+                print(s.split(maxsplit=0), s.rsplit(maxsplit=0), s.split(maxsplit=2), s.rsplit(maxsplit=2))
+            def at(s: str) -> str:
+                print('at', s)
+                return s
+            print('a-b-c'.split(maxsplit=len(at('1')), sep=at('-')))
+            print('a-b-c'.rsplit(sep='-', maxsplit=1))
+            for s in ['a\nb\r\nc\rd', 'a\n\nb\n', '', '\n', 'a\x0bb\x0cc\x1cd\x1de\x1ef\x85g\u2028h\u2029i', 'x\r']:
+                print(s.splitlines(), s.splitlines(True), s.splitlines(keepends=True))
+        "#},
+    );
+}
+
+#[test]
+fn split_raises_for_an_empty_separator() {
+    same_as_cpython(
+        "split_raises_for_an_empty_separator",
         indoc! {"
-            ws = 'a,b'.split(',')
+            print('a'.rsplit('x'))
+            print('a'.split(''))
         "},
-        indoc! {"
-            ws = 'a b'.split(None, 1)
-        "},
-    ] {
-        assert_eq!(
-            unsupported(source),
-            "a call of this method with these arguments",
-            "{source}"
-        );
-    }
+    );
 }
 
 #[test]
