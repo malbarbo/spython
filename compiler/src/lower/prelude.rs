@@ -852,8 +852,9 @@ impl<'a, 'db> Lowering<'a, 'db> {
             }),
             "array_new" => {
                 let annotated = self.annotation.get();
-                let Some((_, Rep::Array(array))) =
-                    annotated.filter(|(range, _)| *range == call.range())
+                let file = self.unit.get().file;
+                let Some((_, _, Rep::Array(array))) =
+                    annotated.filter(|(at, range, _)| *at == file && *range == call.range())
                 else {
                     return Err(unsupported(call, "an array without an annotation"));
                 };

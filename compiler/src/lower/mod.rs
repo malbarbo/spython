@@ -302,11 +302,12 @@ struct Lowering<'a, 'db> {
     raises: Cell<bool>,
     /// Whether the program gives the `repr` of a uniform value.
     uniform_repr: Cell<bool>,
-    /// The range of the value of the annotated assignment that the lowering
-    /// is in, with the rep of its annotation. The checker gives no type to
-    /// a call of `array_new`, which takes the type of its array from the
-    /// annotation when the call is the value.
-    annotation: Cell<Option<(TextRange, Rep)>>,
+    /// The file and the range of the value of the annotated assignment of
+    /// the prelude that the lowering is in, when the value is a call, with
+    /// the rep of its annotation. The checker gives no type to a call of
+    /// `array_new`, which takes the type of its array from the annotation
+    /// when the call is the value.
+    annotation: Cell<Option<(File, TextRange, Rep)>>,
     /// The function that gives the `hash` of a uniform value, once a table
     /// needs it.
     uniform_hash: Cell<Option<FuncId>>,

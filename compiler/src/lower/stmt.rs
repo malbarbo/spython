@@ -181,8 +181,13 @@ impl<'a> Lowering<'a, '_> {
                     ..
                 },
             ) => {
-                let rep = self.rep_of(declared_shape(self.model(), ann));
-                let outer = self.annotation.replace(rep.map(|rep| (value.range(), rep)));
+                let annotation = if self.in_prelude() && value.is_call_expr() {
+                    self.rep_of(declared_shape(self.model(), ann))
+                        .map(|rep| (self.unit.get().file, value.range(), rep))
+                } else {
+                    None
+                };
+                let outer = self.annotation.replace(annotation);
                 let lowered = self.expr(value);
                 self.annotation.set(outer);
                 let (target, value) = self.target(target, lowered?)?;
