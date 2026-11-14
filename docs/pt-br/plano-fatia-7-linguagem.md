@@ -127,9 +127,12 @@ análise achou.
    cada uma. Ele falha quando o checker aceita uma sonda que o compilador
    recusa e ela não está na lista do que falta. Cada parte tira itens da
    lista, e a 7k a esvazia.
-2. `print` com `sep`, `end` e `flush`, inclusive `sep=None` e `end=None`.
+2. `print` com `sep`, `end` e `flush`, inclusive `sep=None` e `end=None`,
+   escrito no prelude em Python e chamado pela ligação de argumentos da
+   seção "Argumentos nomeados".
 3. `split` com separador e `maxsplit`, `rsplit`, `splitlines` e os
-   argumentos nomeados dos métodos de `str`.
+   argumentos nomeados dos métodos de `str` e de `list`, pela mesma
+   ligação.
 4. `~`, `<<`, `>>`, `pow` com três argumentos, `bin`, `oct`, `hex`,
    `ascii`, `int.bit_length`, `int.bit_count` e `float.is_integer`.
 5. A conta e a comparação com `int | float`, e o `str()`, o `print` e a
@@ -264,7 +267,9 @@ análise achou.
     `str.lower` e `f = obj.m`, e um valor de função cujos parâmetros têm
     outra `Rep`.
 44. `*args`, `**kwargs`, o `/`, a chamada com `*xs` e `**d`, os
-    decoradores de função, o default num `lambda` e num `def` interno.
+    decoradores de função, o default num `lambda` e num `def` interno,
+    tudo pela ligação de argumentos da seção "Argumentos nomeados", no
+    aluno e no prelude.
 45. `nonlocal`.
 
 **7h. Exceções**
@@ -551,6 +556,25 @@ Um builtin, um método de `str` e um método ligado viram valor por uma
 função adaptadora, gerada por uso, que tem a assinatura do tipo de
 função esperado. A mesma adaptadora converte os parâmetros quando a `Rep`
 difere, como `def f(x: object)` onde se espera `Callable[[int], int]`.
+
+### Argumentos nomeados
+
+Uma chamada tem um único caminho, seja ela de uma função do aluno, de
+uma função do prelude ou de um método de `str` e de `list`. O `ty` liga
+cada argumento a um parâmetro da assinatura que ele conhece, a do `def`
+do aluno ou a do typeshed, e o compilador usa essa ligação para pôr os
+argumentos na ordem dos parâmetros, completar os defaults e manter a
+ordem de avaliação. A função do aluno já é chamada assim. O método do
+prelude passa a ser chamado assim também, e por isso o `def` do prelude
+tem os mesmos nomes de parâmetro que o typeshed. Um teste compara as
+duas assinaturas. O parâmetro só posicional do typeshed fica certo sem
+código a mais, porque o checker recusa `s.count("a", start=1)` como o
+CPython recusa.
+
+O builtin que dá para escrever em Python, como `print`, `sorted`, `min`
+e `max`, vai para o prelude e ganha o mesmo caminho. O que fica em
+Rust, como `int(x, base=)` e `math.isclose`, lê os argumentos da mesma
+ligação do `ty`, e não compara nomes no AST.
 
 ### Exceções como objetos
 
