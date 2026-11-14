@@ -84,6 +84,9 @@ def is_case_ignorable(code_point: int) -> bool:
 def natural_power(base: int, exp: int) -> int:
     """`base ** exp` for an `exp` that is not negative. A power outside 31 bits stops the program."""
 
+def mul_mod(a: int, b: int, m: int) -> int:
+    """`a * b % m` for an `m` that is not 0, without a product outside 31 bits."""
+
 def title_at(code_point: int, index: int) -> int:
     """The code point at `index` of the title case of the code point, or -1 past its end."""
 

@@ -129,7 +129,7 @@ fn pow_of_two_values_is_the_power_operator() {
 fn pow_outside_what_the_compiler_covers_has_its_own_message() {
     assert_eq!(
         unsupported(indoc! {"
-            print(pow(3, 4, 5))
+            print(pow(base=3, exp=4))
         "}),
         "this call of pow"
     );

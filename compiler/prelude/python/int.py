@@ -3,6 +3,7 @@
 from __spython_prelude__.intrinsics import (
     code_point,
     decimal_value,
+    mul_mod,
     natural_power,
     stop,
 )
@@ -14,6 +15,53 @@ def power(base: int, exp: int) -> int | float:
     if exp < 0:
         return float(base) ** float(exp)
     return natural_power(base, exp)
+
+
+def power_mod(base: int, exp: int, mod: int) -> int:
+    """`pow(base, exp, mod)`, as `long_pow` of CPython gives it. A negative
+    `exp` takes the inverse of `base` modulo `mod`. Each value stays in the
+    range of `% mod`, which is the range of the result."""
+    if mod == 0:
+        raise ValueError("pow() 3rd argument cannot be 0")
+    if mod == 1 or mod == -1:
+        return 0
+    b = base % mod
+    r = 1 % mod
+    if exp < 0:
+        b = inverse_mod(b, mod) % mod
+        # `-exp` of the least `int` does not fit, so `r` takes one factor
+        # first.
+        r = b
+        exp = -(exp + 1)
+    while exp > 0:
+        if exp % 2 == 1:
+            r = mul_mod(r, b, mod)
+        exp = exp // 2
+        if exp > 0:
+            b = mul_mod(b, b, mod)
+    return r
+
+
+def inverse_mod(a: int, mod: int) -> int:
+    """A value whose product with `a` is 1 modulo `mod`, for an `a` in the
+    range of `% mod`, by the algorithm of Euclid. Each remainder keeps the
+    sign of `mod`, and `t1 * a` is `r1` modulo `mod`. The loop stops at a
+    remainder of 1 or -1, before the last coefficient, which may not fit."""
+    r0 = mod
+    r1 = a
+    t0 = 0
+    t1 = 1
+    while r1 != 1 and r1 != -1:
+        if r1 == 0:
+            raise ValueError("base is not invertible for the given modulus")
+        q = r0 // r1
+        r = r0 - q * r1
+        r0 = r1
+        r1 = r
+        t = t0 - q * t1
+        t0 = t1
+        t1 = t
+    return t1 * r1
 
 
 def length(n: int) -> int:

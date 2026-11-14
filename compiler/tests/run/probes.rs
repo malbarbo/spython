@@ -15,7 +15,6 @@ use super::corpus::{Outcome, each_file, python_files, run_at};
 const EXPECTED: &[(&str, Outcome, &str)] = &[
     ("abc", Rejected, "part 7f"),
     ("abc_abstract", Rejected, "part 7f"),
-    ("abs_pow3", Unsupported, "part 7a"),
     ("abs_special", Unsupported, "part 7f"),
     ("ann_in_init", Unsupported, "part 7f"),
     ("assert_never", Unsupported, "part 7a"),

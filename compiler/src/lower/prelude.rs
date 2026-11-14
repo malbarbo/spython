@@ -749,6 +749,10 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 exp,
                 site: self.site(call.range()),
             }),
+            "mul_mod" => {
+                let (a, b, m) = (arg(), arg(), arg());
+                a.zip(b).zip(m).map(|((a, b), m)| Expr::MulMod { a, b, m })
+            }
             "code_point" => arg()
                 .zip(arg())
                 .map(|(value, index)| Expr::CodePoint { value, index }),

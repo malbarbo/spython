@@ -325,6 +325,34 @@ fn a_power_of_two_ints_has_the_type_that_its_exponent_gives() {
 }
 
 #[test]
+fn pow_with_a_modulus_follows_python() {
+    same_as_cpython(
+        "pow_with_a_modulus_follows_python",
+        indoc! {"
+            def show(b: int, e: int, m: int) -> None:
+                print(pow(b, e, m))
+
+
+            print(pow(2, 10, 7), pow(-2, 3, 5), pow(2, 3, -5), pow(3, 0, -5), pow(5, 0, 1), pow(2, 3, None))
+            show(3, -1, 7)
+            show(-3, -5, 11)
+            show(3, -1, -7)
+            show(0, -1, 1)
+            show(1073741822, 1073741823, 1073741823)
+            show(-1073741824, -1073741824, 1073741823)
+            show(1073741823, 1073741823, -1073741824)
+            show(3, -1073741824, -1073741824)
+        "},
+    );
+    for (i, source) in ["print(pow(2, 3, 0))", "print(pow(2, -1, 4))"]
+        .into_iter()
+        .enumerate()
+    {
+        same_as_cpython(&format!("pow_with_a_bad_modulus_raises_{i}"), source);
+    }
+}
+
+#[test]
 fn a_power_outside_31_bits_stops_the_program() {
     stops_at_the_int_limit(
         "a_power_outside_31_bits_stops_the_program",

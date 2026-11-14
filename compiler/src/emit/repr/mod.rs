@@ -1119,6 +1119,12 @@ impl Reprs {
         self.int.pow(m, f, &mut self.str, &self.exc);
     }
 
+    /// Pops `a`, `b` and `m`, three `int`s with an `m` that is not 0, and
+    /// pushes `a * b % m`.
+    pub fn int_mul_mod(&self, f: &mut FuncState) {
+        self.int.mul_mod(f);
+    }
+
     /// Pops `n` and `k` and pushes `math.comb(n, k)` or `math.perm(n, k)`,
     /// by `choice`, or raises the error of a negative `int` or of a result
     /// that does not fit.

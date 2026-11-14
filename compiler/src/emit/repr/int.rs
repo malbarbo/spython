@@ -249,6 +249,49 @@ impl IntRepr {
         }
     }
 
+    /// Pops `a`, `b` and `m` and pushes `a * b % m`. The rest of an `i64`
+    /// takes the sign of the dividend, and `%` the sign of `m`, so `m`
+    /// goes back into a rest that is not 0 when the two signs differ.
+    pub fn mul_mod(&self, f: &mut FuncState) {
+        match self {
+            IntRepr::I31 { .. } => {
+                let (b, m, r) = (
+                    f.temp(ValType::I32),
+                    f.temp(ValType::I32),
+                    f.temp(ValType::I32),
+                );
+                f.ins()
+                    .local_set(m)
+                    .local_set(b)
+                    .i64_extend_i32_s()
+                    .local_get(b)
+                    .i64_extend_i32_s()
+                    .i64_mul()
+                    .local_get(m)
+                    .i64_extend_i32_s()
+                    .i64_rem_s()
+                    .i32_wrap_i64()
+                    .local_tee(r)
+                    .local_get(m)
+                    .i32_const(0)
+                    .local_get(r)
+                    .i32_const(0)
+                    .i32_ne()
+                    .local_get(r)
+                    .local_get(m)
+                    .i32_xor()
+                    .i32_const(0)
+                    .i32_lt_s()
+                    .i32_and()
+                    .select()
+                    .i32_add();
+                f.free(r);
+                f.free(m);
+                f.free(b);
+            }
+        }
+    }
+
     /// Pops an `int` and a number of digits, and pushes the `int` rounded
     /// to those digits.
     pub fn round(&mut self, m: &mut ModuleState, f: &mut FuncState) {

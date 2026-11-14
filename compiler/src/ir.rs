@@ -628,6 +628,13 @@ pub(crate) enum Expr {
         exp: Box<Expr>,
         site: Site,
     },
+    /// `a * b % m` of three `int`s, with an `m` that is not 0. The product
+    /// does not leave 64 bits, and the rest fits in 31 bits.
+    MulMod {
+        a: Box<Expr>,
+        b: Box<Expr>,
+        m: Box<Expr>,
+    },
     /// `math.comb(n, k)` or `math.perm(n, k)` of two `int`s, by `choice`.
     /// A negative `int` raises `ValueError` at the site, and a result that
     /// does not fit in an `int` stops the program there.
@@ -1467,6 +1474,7 @@ impl Expr {
             | Expr::IntLcm { .. }
             | Expr::IntChoose { .. }
             | Expr::IntPow { .. }
+            | Expr::MulMod { .. }
             | Expr::IntRound { .. }
             | Expr::FloatAsInt { .. }
             | Expr::CodePoint { .. }

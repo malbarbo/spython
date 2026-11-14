@@ -1410,6 +1410,12 @@ impl Emitter<'_> {
                 self.expr(f, exp);
                 self.at(f, *site, |e, f| e.reprs.int_pow(&mut e.m, f));
             }
+            Expr::MulMod { a, b, m } => {
+                self.expr(f, a);
+                self.expr(f, b);
+                self.expr(f, m);
+                self.reprs.int_mul_mod(f);
+            }
             Expr::IntChoose { choice, n, k, site } => {
                 self.expr(f, n);
                 self.expr(f, k);

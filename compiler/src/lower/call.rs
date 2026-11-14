@@ -417,10 +417,19 @@ impl<'a> Lowering<'a, '_> {
         Ok(Expr::MinMax { op, args })
     }
 
-    /// `pow(a, b)`, which is `a ** b`.
+    /// `pow(a, b)`, which is `a ** b`, and `pow(a, b, m)` of three `int`s,
+    /// which the prelude defines.
     pub(super) fn pow(&self, call: &ast::ExprCall) -> Result<Expr, Error> {
-        let ([base, exp], []) = (&*call.arguments.args, &*call.arguments.keywords) else {
-            return Err(unsupported(call, "this call of pow"));
+        let (base, exp) = match (&*call.arguments.args, &*call.arguments.keywords) {
+            ([base, exp] | [base, exp, ast::Expr::NoneLiteral(_)], []) => (base, exp),
+            ([base, exp, modulus], []) => {
+                let args = [base, exp, modulus]
+                    .into_iter()
+                    .map(|arg| self.int_operand(arg))
+                    .collect::<Result<_, _>>()?;
+                return self.prelude_call(call, "int", "power_mod", args);
+            }
+            _ => return Err(unsupported(call, "this call of pow")),
         };
         let left = self.expr(base)?;
         let right = self.expr(exp)?;
