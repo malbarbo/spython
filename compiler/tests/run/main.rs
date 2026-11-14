@@ -32,6 +32,7 @@ mod memory;
 mod name_error;
 mod numeric;
 mod print;
+mod probes;
 mod raise;
 mod recursion;
 mod repr;

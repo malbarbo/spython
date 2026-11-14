@@ -1,0 +1,1 @@
+print("xax".strip("x"))

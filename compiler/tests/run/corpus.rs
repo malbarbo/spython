@@ -91,7 +91,7 @@ fn level(file: &Path) -> Level {
 }
 
 /// The outcome of `run` for each of `files`, in the order of the files.
-fn each_file(files: &[PathBuf], run: fn(&Path) -> Outcome) -> Vec<(&PathBuf, Outcome)> {
+pub(super) fn each_file(files: &[PathBuf], run: fn(&Path) -> Outcome) -> Vec<(&PathBuf, Outcome)> {
     let next = AtomicUsize::new(0);
     let outcomes = Mutex::new(Vec::new());
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
@@ -202,8 +202,8 @@ fn assert_covered(outcomes: &[(&PathBuf, Outcome)]) {
     );
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Outcome {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Outcome {
     Rejected,
     Unsupported,
     /// The program stopped at the limit of an `int`.
@@ -256,7 +256,13 @@ fn tests_from_corpus(file: &Path) -> Outcome {
 
 /// Checks, compiles and runs `file`, and runs it in CPython too.
 fn run_from_corpus(file: &Path) -> Outcome {
-    let Ok(checked) = engine::check::check_file_keeping_db(file, level(file)) else {
+    run_at(file, level(file))
+}
+
+/// Checks `file` at `level`, compiles and runs it, and runs it in CPython
+/// too.
+pub(super) fn run_at(file: &Path, level: Level) -> Outcome {
+    let Ok(checked) = engine::check::check_file_keeping_db(file, level) else {
         return Outcome::Rejected;
     };
     let path = file.to_str().expect("a path in utf-8");
@@ -279,7 +285,7 @@ fn run_from_corpus(file: &Path) -> Outcome {
 }
 
 /// The `.py` files under `dir`, in a fixed order.
-fn python_files(dir: &Path) -> Vec<PathBuf> {
+pub(super) fn python_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut dirs = vec![dir.to_path_buf()];
     while let Some(dir) = dirs.pop() {

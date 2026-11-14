@@ -1,0 +1,1 @@
+print("ab".endswith("b"))

@@ -1,0 +1,9 @@
+class P:
+    x: int
+    def __init__(self, x: int) -> None:
+        self.x = x
+    def __eq__(self, o: object) -> bool:
+        return isinstance(o, P) and o.x == self.x
+    def __hash__(self) -> int:
+        return self.x
+print(len({P(1), P(1), P(2)}))

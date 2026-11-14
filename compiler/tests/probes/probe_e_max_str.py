@@ -1,0 +1,1 @@
+print(max("a", "b"))
