@@ -352,3 +352,14 @@ fn float_of_a_str_reads_it_as_cpython_does() {
         );
     }
 }
+
+#[test]
+fn is_integer_of_a_float_follows_python() {
+    same_as_cpython(
+        "is_integer_of_a_float_follows_python",
+        indoc! {"
+            for x in [2.0, 2.5, -0.0, -3.0, 1e300, 1e-300, float('inf'), float('-inf'), float('nan')]:
+                print(x, x.is_integer())
+        "},
+    );
+}

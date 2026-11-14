@@ -99,10 +99,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
         }
         // The module `str` of the prelude defines each method of `str`
         // that it has under the name of the method, among other functions,
-        // and the module `list` each method of `list`.
+        // and the modules `list`, `int` and `float` each method of their
+        // type. A `bool` takes the methods of `int`.
+        let public = |attributes: &[&str]| !name.starts_with('_') && attributes.contains(&name);
         let module = match receiver.rep() {
-            Rep::Str if !name.starts_with('_') && names::STR_ATTRIBUTES.contains(&name) => "str",
+            Rep::Str if public(names::STR_ATTRIBUTES) => "str",
             Rep::List(_) if names::LIST_METHODS.contains(&name) => "list",
+            Rep::Int | Rep::Bool if public(names::INT_ATTRIBUTES) => "int",
+            Rep::Float if public(names::FLOAT_ATTRIBUTES) => "float",
             _ => return Err(unsupported(call, "a call of this method")),
         };
         if module == "list" && name == "sort" {
@@ -1326,6 +1330,17 @@ mod stubs {
     #[test]
     fn a_method_of_list_has_the_parameters_of_the_stub() {
         let wrong = mismatches(Some("list"), "list.py", names::LIST_METHODS);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn a_method_of_int_and_float_has_the_parameters_of_the_stub() {
+        let mut wrong = mismatches(Some("int"), "int.py", names::INT_ATTRIBUTES);
+        wrong.extend(mismatches(
+            Some("float"),
+            "float.py",
+            names::FLOAT_ATTRIBUTES,
+        ));
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 

@@ -127,6 +127,22 @@ fn bin_oct_and_hex_write_an_int_in_their_base() {
 }
 
 #[test]
+fn the_methods_of_the_bits_of_int_follow_python() {
+    same_as_cpython(
+        "the_methods_of_the_bits_of_int_follow_python",
+        indoc! {"
+            def show(n: int) -> None:
+                print(n, n.bit_length(), n.bit_count(), n.is_integer())
+
+
+            for n in [0, 1, -1, 5, -5, 8, -8, 255, 1073741823, -1073741824, -1073741823]:
+                show(n)
+            print((10).bit_length(), (7).bit_count())
+        "},
+    );
+}
+
+#[test]
 fn the_comparisons_of_int_give_a_bool() {
     same_as_cpython(
         "the_comparisons_of_int_give_a_bool",

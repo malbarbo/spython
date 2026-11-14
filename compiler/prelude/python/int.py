@@ -10,6 +10,37 @@ from __spython_prelude__.intrinsics import (
 from __spython_prelude__.str import is_space, repr_of
 
 
+def bit_length(n: int) -> int:
+    """`int.bit_length`, the number of bits of `abs(n)` without the zeros
+    on the left."""
+    # The bits come from a value that is not positive, since the least
+    # `int` has no opposite. `-(m // -2)` halves `m` toward 0.
+    m = n
+    if n > 0:
+        m = -n
+    bits = 0
+    while m != 0:
+        m = -(m // -2)
+        bits += 1
+    return bits
+
+
+def bit_count(n: int) -> int:
+    """`int.bit_count`, the number of ones among the bits of `abs(n)`."""
+    m = n
+    if n > 0:
+        m = -n
+    ones = 0
+    while m != 0:
+        ones -= m % -2
+        m = -(m // -2)
+    return ones
+
+
+def is_integer(n: int) -> bool:
+    return True
+
+
 def power(base: int, exp: int) -> int | float:
     """`base ** exp`, which is a `float` for a negative `exp`, as in Python."""
     if exp < 0:

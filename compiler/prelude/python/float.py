@@ -10,6 +10,11 @@ from __spython_prelude__.intrinsics import (
 from __spython_prelude__.str import repr_of
 
 
+def is_integer(x: float) -> bool:
+    """`float.is_integer`. An infinity and a NaN leave a NaN as the rest."""
+    return x % 1.0 == 0.0
+
+
 def float_of_str(s: str) -> float:
     """`float(s)`, which takes each decimal digit to ASCII and each white
     space to a space, as `int(s)` does. An underscore goes between two
