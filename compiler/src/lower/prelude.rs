@@ -857,10 +857,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 else {
                     return Err(unsupported(call, "an array without an annotation"));
                 };
-                arg().map(|len| Expr::ArrayNew {
-                    array,
-                    len,
-                    site: self.site(call.range()),
+                // No code writes an item of an array of no items, so each
+                // one may be the same array.
+                arg().map(|len| match *len {
+                    Expr::Int(0) => Expr::Array {
+                        array,
+                        items: Vec::new(),
+                    },
+                    _ => Expr::ArrayNew {
+                        array,
+                        len,
+                        site: self.site(call.range()),
+                    },
                 })
             }
             "array_clear" => {
