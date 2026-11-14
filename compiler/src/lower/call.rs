@@ -734,8 +734,13 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// The name of the function or the class of the builtins that `func`
-    /// reads. `None` when `func` reads neither.
+    /// reads. `None` when `func` reads neither. A method through its type,
+    /// as `float.hex`, is a function of the builtins for the checker, and
+    /// `func` has to be a name.
     pub(super) fn builtin_name(&self, func: &ast::Expr) -> Option<String> {
+        if !func.is_name_expr() {
+            return None;
+        }
         let (name, file) = match expr_shape(self.model(), func)? {
             Shape::Function(def) => (def.name, def.file),
             Shape::Class(class) => (class.name, class.file),
