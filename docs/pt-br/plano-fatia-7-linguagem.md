@@ -133,7 +133,9 @@ análise achou.
    argumentos nomeados dos métodos de `str` e de `list`, pela mesma
    ligação.
 4. `~`, `<<`, `>>`, `pow` com três argumentos, `bin`, `oct`, `hex`,
-   `ascii`, `int.bit_length`, `int.bit_count` e `float.is_integer`.
+   `ascii`, `int.bit_length`, `int.bit_count`, `float.is_integer`,
+   `float.hex`, `float.fromhex`, `conjugate`, `real`, `imag`,
+   `numerator` e `denominator`.
 5. A conta e a comparação com `int | float`, e o `str()`, o `print` e a
    f-string de `None` e de uma união.
 6. Uma lista, um `dict`, um `set` e uma função dentro de uma união ou de
@@ -166,9 +168,9 @@ análise achou.
     troca `a, b = b, a`.
 16. A tupla como parâmetro, resultado, item de lista, chave de `dict`,
     item de `set` e chave de `sort`, como em `key=lambda s: (len(s), s)`.
-17. `divmod`, `partition`, `rpartition`, `startswith` e `endswith` com uma
-    tupla, `math.frexp`, `math.modf`, `dict.popitem` e
-    `isinstance(x, (A, B))`.
+17. `divmod`, `as_integer_ratio`, `partition`, `rpartition`,
+    `startswith` e `endswith` com uma tupla, `math.frexp`, `math.modf`,
+    `dict.popitem` e `isinstance(x, (A, B))`.
 18. `NamedTuple`, uma tupla gerada com nomes nos campos, com o `repr`
     `P(x=1, y=2)` e o desempacotamento, o índice e o `==` da tupla.
 
@@ -324,7 +326,7 @@ A parte tem quatro etapas, cada uma com o seu portão.
 | `async`, `await`, `async for`, `async with` | o spython não tem `asyncio` nem outro laço de eventos |
 | `open` e os arquivos | o resultado é dinâmico, e o navegador não tem arquivos |
 | `complex` | decisão 11 do plano do backend |
-| `bytes`, `bytearray`, `memoryview`, `str.encode` | pedem um tipo novo, sem uso para o aluno |
+| `bytes`, `bytearray`, `memoryview`, `str.encode`, `int.to_bytes`, `int.from_bytes` | pedem um tipo novo, sem uso para o aluno |
 | metaclasse, `__new__`, `__init_subclass__`, `__getattr__`, `__getattribute__`, `__setattr__`, `__delattr__`, descritor além de `property`, `__slots__`, `__del__` | mudam o significado de um atributo ou da criação de um objeto enquanto o programa roda |
 | `del obj.attr`, e a escrita pela classe num atributo sem `ClassVar`, como `C.n = 7` | o campo do struct existe sempre |
 | um campo que a subclasse redeclara com outro tipo | um campo mutável não muda de tipo num subtipo |
