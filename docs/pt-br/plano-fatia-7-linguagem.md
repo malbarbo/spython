@@ -127,9 +127,8 @@ análise achou.
    cada uma. Ele falha quando o checker aceita uma sonda que o compilador
    recusa e ela não está na lista do que falta. Cada parte tira itens da
    lista, e a 7k a esvazia.
-2. `print` com `sep`, `end` e `flush`, inclusive `sep=None` e `end=None`,
-   escrito no prelude em Python e chamado pela ligação de argumentos da
-   seção "Argumentos nomeados".
+2. O `print` com `sep`, `end` e `flush` vai para a 7g, no item 44,
+   porque é escrito no prelude com `*values`.
 3. `split` com separador e `maxsplit`, `rsplit`, `splitlines` e os
    argumentos nomeados dos métodos de `str` e de `list`, pela mesma
    ligação.
@@ -269,7 +268,10 @@ análise achou.
 44. `*args`, `**kwargs`, o `/`, a chamada com `*xs` e `**d`, os
     decoradores de função, o default num `lambda` e num `def` interno,
     tudo pela ligação de argumentos da seção "Argumentos nomeados", no
-    aluno e no prelude.
+    aluno e no prelude, com a cópia por forma da chamada da seção
+    "Funções com `*args`". O `print` com `sep`, `end`, `flush` e
+    `sep=None` e `end=None` vem em seguida, escrito no prelude, e o portão
+    é o tempo do `print` de hoje.
 45. `nonlocal`.
 
 **7h. Exceções**
@@ -572,9 +574,28 @@ código a mais, porque o checker recusa `s.count("a", start=1)` como o
 CPython recusa.
 
 O builtin que dá para escrever em Python, como `print`, `sorted`, `min`
-e `max`, vai para o prelude e ganha o mesmo caminho. O que fica em
+e `max`, vai para o prelude e ganha o mesmo caminho. Quanto menos o
+compilador souber de um builtin, melhor, porque o prelude passa a
+exercitar o que o programa do aluno também usa. O que fica em
 Rust, como `int(x, base=)` e `math.isclose`, lê os argumentos da mesma
 ligação do `ty`, e não compara nomes no AST.
+
+### Funções com `*args`
+
+Uma função com `*args: T` recebe uma tupla, e um `T` como `object` pede
+uma caixa para cada valor e a escolha do método pelo tipo em tempo de
+execução. Quando a chamada tem o número de argumentos e a `Rep` de cada
+um conhecidos, o compilador faz uma cópia da função para essa forma, como
+já faz com as classes genéricas do prelude. Na cópia, o `*args` vira
+parâmetros, a caixa some e o despacho fica estático. A cópia vale para
+toda função com `*args`, do aluno e do prelude. A chamada com `*xs` de
+tamanho desconhecido usa a função sem cópia.
+
+O `print` do prelude é o caso que mede a cópia. Ele converte cada valor
+para `str` e escreve a parte, o `sep` e o `end` por uma intrínseca, como o
+`builtin_print` do CPython faz com o `write` do arquivo. O `file=` com um
+objeto que tem `write` entra quando houver um destino além da saída
+padrão, e não muda o compilador.
 
 ### Exceções como objetos
 
