@@ -889,20 +889,20 @@ de `str`.
 - Um id `i32` imutável na raiz e o `br_table`, se um programa tiver
   muitos corpos num ponto de chamada. A medida empata com a cadeia até 16.
   O id em pré-ordem daria também o `isinstance` por intervalo, a proposta
-  B do jwonder.
+  B do jwonder. O item 32 da fatia 7 o traz, atrás de uma abstração de
+  despacho.
 - O REPL, com o id de classe e a tabela de funções para as classes de
   entradas posteriores.
 - A especialização pelo código de um argumento função.
-- O `hash` de identidade, quando a fatia 8 aceitar `set` de uma classe
+- O `hash` de identidade, quando a fatia 7 aceitar `set` de uma classe
   sem `__eq__`.
-- O `.0` da função de uma expressão geradora, quando a fatia 8 trouxer
-  `__iter__` e o gerador como valor. Ele passa a ser o iterador do
-  primeiro iterável, como no CPython, e o `for` passa a iterar sobre um
-  iterador já criado. A tabela `substitutes`, que hoje troca as partes
+- O `.0` da função de uma expressão geradora, quando a fatia 11 trouxer
+  o gerador como valor. Ele passa a ser o iterador do primeiro iterável,
+  como no CPython, e o `for` passa a iterar sobre um iterador já criado. A tabela `substitutes`, que hoje troca as partes
   do primeiro iterável pelos valores de fora, sai nessa hora.
 - `sum`, `min` e `max` de uma expressão geradora, que hoje põem os
   valores numa lista antes de consumi-los. Com o gerador como iterador,
-  na fatia 8, as funções de `consumers.py` passam a consumir o iterador,
+  na fatia 11, as funções de `consumers.py` passam a consumir o iterador,
   como o CPython faz.
 
 ## O que a revisão mudou
