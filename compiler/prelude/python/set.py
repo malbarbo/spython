@@ -6,7 +6,11 @@ The class follows `setobject.c` of CPython 3.13. Each slot of the table holds an
 slot before it jumps, as CPython does, so the items come out in the order of CPython."""
 
 from __spython_prelude__.intrinsics import (
+    Array,
     Hash,
+    array_get,
+    array_new,
+    array_set,
     during_repr,
     exact,
     hash_eq,
@@ -14,29 +18,25 @@ from __spython_prelude__.intrinsics import (
     hash_shift,
     hash_slot,
     in_repr,
-    item,
-    list_reserve,
-    list_set_len,
     same,
-    set_item,
 )
 
 
 class Set[T]:
     # The item of each slot. Only a slot in use holds one.
-    keys: list[T]
-    hashes: list[Hash]
+    keys: Array[T]
+    hashes: Array[Hash]
     # 0 for an empty slot, 1 for a slot in use and 2 for the slot of a removed item.
-    states: list[int]
+    states: Array[int]
     # How many slots are not empty.
     fill: int
     used: int
     mask: int
 
     def __init__(self) -> None:
-        keys: list[T] = []
-        hashes: list[Hash] = []
-        states: list[int] = []
+        keys: Array[T] = array_new(0)
+        hashes: Array[Hash] = array_new(0)
+        states: Array[int] = array_new(0)
         self.keys = keys
         self.hashes = hashes
         self.states = states
@@ -74,34 +74,26 @@ class Set[T]:
 
     def new_table(self, size: int) -> None:
         """Gives the `set` an empty table of `size` slots, and keeps `fill` and `used`."""
-        keys: list[T] = []
-        list_reserve(keys, size)
-        list_set_len(keys, size)
-        hashes: list[Hash] = []
-        list_reserve(hashes, size)
-        list_set_len(hashes, size)
-        states: list[int] = []
-        list_reserve(states, size)
-        for i in range(size):
-            set_item(states, i, 0)
-        list_set_len(states, size)
+        keys: Array[T] = array_new(size)
+        hashes: Array[Hash] = array_new(size)
+        states: Array[int] = array_new(size)
         self.keys = keys
         self.hashes = hashes
         self.states = states
         self.mask = size - 1
 
     def put(self, i: int, key: T, h: Hash) -> None:
-        set_item(self.keys, i, key)
-        set_item(self.hashes, i, h)
-        set_item(self.states, i, 1)
+        array_set(self.keys, i, key)
+        array_set(self.hashes, i, h)
+        array_set(self.states, i, 1)
 
-    def changed(self, keys: list[T], i: int, key: T) -> bool:
+    def changed(self, keys: Array[T], i: int, key: T) -> bool:
         """Returns `True` if the comparison with `key`, the item of slot `i` of the table `keys`,
         changed the table or the slot, `False` otherwise. An item without a reference has no
         `__eq__` that changes the `set`."""
-        if not same(self.keys, keys) or item(self.states, i) != 1:
+        if not same(self.keys, keys) or array_get(self.states, i) != 1:
             return True
-        return same(key, key) and not same(item(keys, i), key)
+        return same(key, key) and not same(array_get(keys, i), key)
 
     def find(self, key: T, h: Hash) -> int:
         """The slot of `key`, whose `hash` is `h`, or -1 when the `set` has no such item. The item
@@ -116,11 +108,11 @@ class Set[T]:
             j = i
             last = i + 9 if i + 9 <= mask else i
             while j <= last:
-                state = item(states, j)
+                state = array_get(states, j)
                 if state == 0:
                     return -1
-                if state == 1 and hash_eq(item(self.hashes, j), h):
-                    k = item(keys, j)
+                if state == 1 and hash_eq(array_get(self.hashes, j), h):
+                    k = array_get(keys, j)
                     if same(k, key):
                         return j
                     equal = k == key
@@ -146,7 +138,7 @@ class Set[T]:
             j = i
             last = i + 9 if i + 9 <= mask else i
             while j <= last:
-                state = item(states, j)
+                state = array_get(states, j)
                 if state == 0:
                     if free < 0:
                         self.fill += 1
@@ -157,15 +149,15 @@ class Set[T]:
                                 self.used * 2 if self.used > 50000 else self.used * 4
                             )
                         return
-                    if item(states, free) != 2:
+                    if array_get(states, free) != 2:
                         self.add_entry(key, h)
                         return
                     self.used += 1
                     self.put(free, key, h)
                     return
                 if state == 1:
-                    if hash_eq(item(self.hashes, j), h):
-                        k = item(keys, j)
+                    if hash_eq(array_get(self.hashes, j), h):
+                        k = array_get(keys, j)
                         if same(k, key):
                             return
                         equal = k == key
@@ -191,7 +183,7 @@ class Set[T]:
             j = i
             last = i + 9 if i + 9 <= mask else i
             while j <= last:
-                if item(states, j) == 0:
+                if array_get(states, j) == 0:
                     self.put(j, key, h)
                     return
                 j += 1
@@ -213,8 +205,8 @@ class Set[T]:
         self.new_table(size)
         self.fill = self.used
         for i in range(n):
-            if item(states, i) == 1:
-                self.insert_clean(item(keys, i), item(hashes, i))
+            if array_get(states, i) == 1:
+                self.insert_clean(array_get(keys, i), array_get(hashes, i))
 
     def discard_entry(self, key: T, h: Hash) -> bool:
         """Removes `key`, whose `hash` is `h`. Returns `True` if the `set` had `key`, `False`
@@ -222,7 +214,7 @@ class Set[T]:
         i = self.find(key, h)
         if i < 0:
             return False
-        set_item(self.states, i, 2)
+        array_set(self.states, i, 2)
         self.used -= 1
         return True
 
@@ -236,8 +228,8 @@ class Set[T]:
             self.resize((self.used + other.used) * 2)
         if self.fill == 0 and self.mask == other.mask and other.fill == other.used:
             for i in range(other.mask + 1):
-                if item(other.states, i) == 1:
-                    self.put(i, item(other.keys, i), item(other.hashes, i))
+                if array_get(other.states, i) == 1:
+                    self.put(i, array_get(other.keys, i), array_get(other.hashes, i))
             self.fill = other.fill
             self.used = other.used
             return
@@ -245,13 +237,15 @@ class Set[T]:
             self.fill = other.used
             self.used = other.used
             for i in range(other.mask + 1):
-                if item(other.states, i) == 1:
-                    self.insert_clean(item(other.keys, i), item(other.hashes, i))
+                if array_get(other.states, i) == 1:
+                    self.insert_clean(
+                        array_get(other.keys, i), array_get(other.hashes, i)
+                    )
             return
         i = 0
         while i <= other.mask:
-            if item(other.states, i) == 1:
-                self.add_entry(item(other.keys, i), item(other.hashes, i))
+            if array_get(other.states, i) == 1:
+                self.add_entry(array_get(other.keys, i), array_get(other.hashes, i))
             i += 1
 
     def copy(self) -> Set[T]:
@@ -273,8 +267,8 @@ class Set[T]:
         the items, as in `set_repr`."""
         items: list[T] = []
         for i in range(self.mask + 1):
-            if item(self.states, i) == 1:
-                items.append(item(self.keys, i))
+            if array_get(self.states, i) == 1:
+                items.append(array_get(self.keys, i))
         parts: list[str] = []
         for x in items:
             parts.append(repr(x))
@@ -315,8 +309,8 @@ class Set[T]:
             return False
         i = 0
         while i <= self.mask:
-            if item(self.states, i) == 1:
-                if other.find(item(self.keys, i), item(self.hashes, i)) < 0:
+            if array_get(self.states, i) == 1:
+                if other.find(array_get(self.keys, i), array_get(self.hashes, i)) < 0:
                     return False
             i += 1
         return True
@@ -344,9 +338,9 @@ class Set[T]:
             small = self
         i = 0
         while i <= small.mask:
-            if item(small.states, i) == 1:
-                key = item(small.keys, i)
-                h = item(small.hashes, i)
+            if array_get(small.states, i) == 1:
+                key = array_get(small.keys, i)
+                h = array_get(small.hashes, i)
                 if big.find(key, h) >= 0:
                     result.add_entry(key, h)
             i += 1
@@ -374,9 +368,9 @@ class Set[T]:
         rest: Set[T] = Set()
         i = 0
         while i <= self.mask:
-            if item(self.states, i) == 1:
-                key = item(self.keys, i)
-                h = item(self.hashes, i)
+            if array_get(self.states, i) == 1:
+                key = array_get(self.keys, i)
+                h = array_get(self.hashes, i)
                 if other.find(key, h) < 0:
                     rest.add_entry(key, h)
             i += 1
@@ -396,8 +390,8 @@ class Set[T]:
             other = self & other
         i = 0
         while i <= other.mask:
-            if item(other.states, i) == 1:
-                self.discard_entry(item(other.keys, i), item(other.hashes, i))
+            if array_get(other.states, i) == 1:
+                self.discard_entry(array_get(other.keys, i), array_get(other.hashes, i))
             i += 1
         if self.fill - self.used > self.mask // 4:
             self.resize(self.used * 2 if self.used > 50000 else self.used * 4)
@@ -422,9 +416,9 @@ class Set[T]:
         `set_symmetric_difference_update_set` does."""
         i = 0
         while i <= other.mask:
-            if item(other.states, i) == 1:
-                key = item(other.keys, i)
-                h = item(other.hashes, i)
+            if array_get(other.states, i) == 1:
+                key = array_get(other.keys, i)
+                h = array_get(other.hashes, i)
                 if not self.discard_entry(key, h):
                     self.add_entry(key, h)
             i += 1
@@ -455,7 +449,7 @@ class SetIter[T]:
             raise RuntimeError("Set changed size during iteration")
         i = self.pos
         mask = s.mask
-        while i <= mask and item(s.states, i) != 1:
+        while i <= mask and array_get(s.states, i) != 1:
             i += 1
         self.pos = i + 1
         if i > mask:
@@ -464,4 +458,4 @@ class SetIter[T]:
         return True
 
     def key(self) -> T:
-        return item(self.s.keys, self.index)
+        return array_get(self.s.keys, self.index)
