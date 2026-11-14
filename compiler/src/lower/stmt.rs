@@ -360,7 +360,11 @@ impl<'a> Lowering<'a, '_> {
         }
         let seq = self.expr(iter)?;
         let rep = seq.rep();
-        if rep != Rep::Str {
+        let list = match rep {
+            Rep::Object(_) => self.list_class(rep),
+            _ => None,
+        };
+        if rep != Rep::Str && list.is_none() {
             return Err(unsupported(iter, "a for over this type"));
         }
         let site = self.site(iter.range());
@@ -372,10 +376,38 @@ impl<'a> Lowering<'a, '_> {
                 check: None,
             })
         };
-        let item = Expr::Index {
-            value: read(seq_var, rep),
-            index: read(index, Rep::Int),
-            site,
+        // A list reads its length and its array at each turn, as the
+        // iterator of a list of CPython does.
+        let (item, len) = match list {
+            Some(class) => {
+                let field = |name| {
+                    let (field, rep) = self.named_field(class, name);
+                    Box::new(Expr::Field {
+                        object: read(seq_var, rep),
+                        class,
+                        field,
+                        rep,
+                    })
+                };
+                let item = Expr::Item {
+                    array: field("items"),
+                    index: read(index, Rep::Int),
+                    rep: self.list_item_of(rep).expect("a list"),
+                };
+                (item, *field("length"))
+            }
+            None => {
+                let item = Expr::Index {
+                    value: read(seq_var, rep),
+                    index: read(index, Rep::Int),
+                    site,
+                };
+                let len = Expr::Len {
+                    operand: read(seq_var, rep),
+                    site,
+                };
+                (item, len)
+            }
         };
         let (place, item) = self.target(target, item)?;
         let mut lowered = vec![
@@ -394,10 +426,6 @@ impl<'a> Lowering<'a, '_> {
             },
         ];
         lowered.extend(body()?);
-        let len = Expr::Len {
-            operand: read(seq_var, rep),
-            site,
-        };
         Ok(vec![
             Stmt::Assign {
                 targets: vec![seq_var],
@@ -416,11 +444,11 @@ impl<'a> Lowering<'a, '_> {
     }
 
     /// `for` over a `dict`, over its `keys()`, over its `values()`, or
-    /// over its `items()` with two names as the target, or over a `set` or
-    /// a `list`, and `None` for a `for` over another value. An object of
-    /// `DictIter`, `SetIter` or `ListIter` of the prelude holds the place
-    /// of the loop, and its method `next` raises the errors of a `dict` or
-    /// a `set` that changes, at the iterable.
+    /// over its `items()` with two names as the target, or over a `set`,
+    /// and `None` for a `for` over another value. An object of `DictIter`
+    /// or of `SetIter` of the prelude holds the place of the loop, and its
+    /// method `next` raises the errors of a `dict` or a `set` that changes,
+    /// at the iterable.
     fn for_dict(
         &self,
         target: &ast::Expr,
@@ -498,15 +526,14 @@ impl<'a> Lowering<'a, '_> {
         }
     }
 
-    /// The `dict`, `set` or `list` of `iter` and the part of it that a loop
-    /// over `iter` goes over, when the loop takes the iterator of the
-    /// prelude: `d` and `"items"` for `d.items()`. `None` for another
-    /// `iter`.
+    /// The `dict` or `set` of `iter` and the part of it that a loop over
+    /// `iter` goes over, when the loop takes the iterator of the prelude:
+    /// `d` and `"items"` for `d.items()`. `None` for another `iter`.
     pub(super) fn dict_loop<'e>(&self, iter: &'e ast::Expr) -> Option<(&'e ast::Expr, &'e str)> {
         let (value, part) = dict_part(iter);
         match expr_shape(self.model(), value) {
             Some(Shape::Dict(..)) => Some((value, part)),
-            Some(Shape::Set(_) | Shape::List(_)) if part == "keys" => Some((value, part)),
+            Some(Shape::Set(_)) if part == "keys" => Some((value, part)),
             _ => None,
         }
     }

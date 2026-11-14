@@ -848,6 +848,20 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Some(copy.types.iter().map(|(_, arg)| arg.clone()).collect())
     }
 
+    /// The place and the rep of the field `name` of `class`, which the
+    /// class has.
+    pub(super) fn named_field(&self, class: ClassId, name: &str) -> (u32, Rep) {
+        let classes = self.classes.borrow();
+        let (field, (_, rep)) = classes
+            .get(class)
+            .fields
+            .iter()
+            .enumerate()
+            .find(|(_, (field, _))| *field == name)
+            .expect("a field of the class");
+        (u32::try_from(field).expect("few fields"), *rep)
+    }
+
     /// The function of [`Self::method`], once the lowering declares it.
     pub(super) fn method_func(&self, class: ClassId, name: &str) -> Option<FuncId> {
         self.method(class, name)?.func

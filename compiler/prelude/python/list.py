@@ -66,33 +66,6 @@ class List[T]:
     def __repr__(self) -> str:
         return repr_of(self)
 
-    def iter(self) -> ListIter[T]:
-        return ListIter(self)
-
-
-class ListIter[T]:
-    """A `for` over a `list`, which reads the length of the list at each turn, as the iterator of
-    a list of CPython does."""
-
-    xs: List[T]
-    # The index of the item of the last turn.
-    index: int
-
-    def __init__(self, xs: List[T]) -> None:
-        self.xs = xs
-        self.index = -1
-
-    def next(self) -> bool:
-        """Goes to the next item, and returns `False` past the last one."""
-        i = self.index + 1
-        if i >= self.xs.length:
-            return False
-        self.index = i
-        return True
-
-    def key(self) -> T:
-        return array_get(self.xs.items, self.index)
-
 
 def append[T](xs: List[T], x: T) -> None:
     n = xs.length
