@@ -531,7 +531,7 @@ impl<'a> Lowering<'a, '_> {
                                 let text = if field.conversion == ast::ConversionFlag::Repr {
                                     self.repr_of(value, field.range())?
                                 } else {
-                                    self.str_of(value, &*field.expression, field.range())?
+                                    self.str_of(value, &field.expression, field.range())?
                                 };
                                 match text {
                                     Expr::Str(text) => literal(&mut parts, &text),
@@ -557,7 +557,7 @@ impl<'a> Lowering<'a, '_> {
     pub(super) fn str_of(
         &self,
         lowered: Expr,
-        node: &impl Ranged,
+        node: &ast::Expr,
         range: TextRange,
     ) -> Result<Expr, Error> {
         match lowered.rep() {
@@ -572,7 +572,15 @@ impl<'a> Lowering<'a, '_> {
             }
             Rep::Hash => Err(unsupported(node, "str of a hash")),
             Rep::Func(_) => Err(unsupported(node, "str of a function")),
-            Rep::Uniform => Err(unsupported(node, "str of a union")),
+            Rep::Uniform => {
+                for class in self.classes_in(expr_shape(self.model(), node)) {
+                    self.class_conversion(class, false);
+                }
+                Ok(Expr::UniformStr {
+                    value: Box::new(lowered),
+                    site: self.site(range),
+                })
+            }
             // The `str` of a list is its `repr`.
             Rep::List(_) | Rep::ListOrNone(_) => self.repr_of(lowered, range),
             Rep::Object(_) | Rep::ObjectOrNone(_) => {

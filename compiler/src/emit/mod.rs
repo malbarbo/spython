@@ -1520,6 +1520,10 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.at(f, *site, |e, f| e.reprs.uniform_repr(&mut e.m, f));
             }
+            Expr::UniformStr { value, site } => {
+                self.expr(f, value);
+                self.at(f, *site, |e, f| e.reprs.uniform_str(&mut e.m, f));
+            }
             Expr::UniformEq {
                 left,
                 right,

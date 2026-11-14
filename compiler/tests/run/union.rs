@@ -190,6 +190,86 @@ fn print_writes_a_value_of_a_union_as_its_type_says() {
 }
 
 #[test]
+fn the_str_of_a_union_is_the_str_of_its_value() {
+    same_as_cpython(
+        "the_str_of_a_union_is_the_str_of_its_value",
+        indoc! {r#"
+            from dataclasses import dataclass
+            from enum import Enum
+
+
+            class Cor(Enum):
+                AZUL = 'azul'
+
+
+            class A:
+                def __str__(self) -> str:
+                    return 'um A'
+
+
+            class B:
+                def __repr__(self) -> str:
+                    return 'B()'
+
+
+            @dataclass
+            class P:
+                x: int
+
+
+            def pick(i: int) -> int | float | bool | str | None | A | B | P | Cor:
+                if i == 0:
+                    return -7
+                if i == 1:
+                    return 2.5
+                if i == 2:
+                    return True
+                if i == 3:
+                    return "it's"
+                if i == 4:
+                    return A()
+                if i == 5:
+                    return B()
+                if i == 6:
+                    return P(1)
+                if i == 7:
+                    return Cor.AZUL
+                return None
+
+
+            for i in range(9):
+                print(str(pick(i)), f'[{pick(i)}]', str(pick(i)) + '!')
+            n: int | None = None
+            print(str(n), f'{n}')
+            n = 3
+            print(str(n), f'{n}')
+        "#},
+    );
+}
+
+#[test]
+fn the_str_of_an_object_in_a_union_raises_where_its_str_raises() {
+    same_as_cpython(
+        "the_str_of_an_object_in_a_union_raises_where_its_str_raises",
+        indoc! {"
+            class A:
+                def __str__(self) -> str:
+                    raise ValueError('no')
+
+
+            def pick(i: int) -> int | A:
+                if i == 0:
+                    return 1
+                return A()
+
+
+            print(f'{pick(0)}', str(pick(0)))
+            t = 'x' + f'{pick(1)}'
+        "},
+    );
+}
+
+#[test]
 fn a_value_of_a_union_compares_as_its_type_does() {
     same_as_cpython(
         "a_value_of_a_union_compares_as_its_type_does",

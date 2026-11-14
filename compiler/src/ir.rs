@@ -726,6 +726,12 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         site: Site,
     },
+    /// The `str` of a uniform value, as a `str`. The `str` of an object
+    /// may raise, at the site.
+    UniformStr {
+        value: Box<Expr>,
+        site: Site,
+    },
     /// Whether two uniform values are equal, as a `bool`. Two objects of
     /// a class of `eqs` go to the function beside the class, which may
     /// raise at the site, and the rest compare as [`Expr::Compare`] does.
@@ -1463,6 +1469,7 @@ impl Expr {
             | Expr::StrNew { .. }
             | Expr::Slice { .. }
             | Expr::UniformRepr { .. }
+            | Expr::UniformStr { .. }
             | Expr::Captured
             | Expr::CapturedException
             | Expr::Index { .. } => Rep::Str,

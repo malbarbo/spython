@@ -58,6 +58,9 @@ pub(crate) struct Reprs {
     /// `repr` of a value of a union. A module that gives none goes without
     /// it.
     repr_uniform: Option<FuncIdx>,
+    /// `(func (param (ref null eq)) (result (ref $Str)))`, which gives the
+    /// `str` of a value of a union.
+    str_uniform: Option<FuncIdx>,
     /// `(func (param (ref null eq)) (result i32))`, which gives the truth
     /// of a value of a union, true for an object.
     truth_uniform: Option<FuncIdx>,
@@ -142,6 +145,7 @@ impl Reprs {
             list: ListRepr::new(m, &list_types),
             write_uniform: None,
             repr_uniform: None,
+            str_uniform: None,
             truth_uniform: None,
             hash_uniform: None,
             compare_uniform: None,
@@ -359,6 +363,34 @@ impl Reprs {
             }
         };
         f.ins().call(func);
+    }
+
+    /// Pops a value of a union and pushes its `str`, which may raise.
+    pub fn uniform_str(&mut self, m: &mut ModuleState, f: &mut FuncState) {
+        let func = match self.str_uniform {
+            Some(func) => func,
+            None => {
+                let func = self.add_str_uniform(m);
+                self.str_uniform = Some(func);
+                func
+            }
+        };
+        f.ins().call(func);
+    }
+
+    /// Defines the function that gives the `str` of a value of a union,
+    /// after the test of its type.
+    fn add_str_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
+        let results = [self.str.val_type(false)];
+        let classes = self.str_classes();
+        self.add_uniform_dispatch(m, &results, classes, |reprs, m, f, rep| match rep {
+            Rep::None => reprs.str.literal(m, f, "None"),
+            Rep::Str => {}
+            Rep::Object(class) => {
+                f.ins().call(reprs.class_str(class));
+            }
+            rep => reprs.str_of(m, f, rep),
+        })
     }
 
     /// Defines the function that gives the `repr` of a value of a union,
@@ -2072,8 +2104,8 @@ impl Reprs {
     }
 
     /// The classes with a function for the `str` of their objects. The
-    /// `print` of a union makes it for each class in the type of the
-    /// union.
+    /// `print` and the `str` of a union make it for each class in the type
+    /// of the union.
     fn str_classes(&self) -> Vec<ClassId> {
         (0..self.layout.classes())
             .filter(|&i| self.class_strs.get(i).copied().flatten().is_some())
