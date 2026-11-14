@@ -402,3 +402,15 @@ fn a_method_of_a_number_as_a_value_is_unsupported() {
         ("this attribute".to_owned(), "x.hex")
     );
 }
+
+#[test]
+fn a_method_through_its_type_follows_python() {
+    same_as_cpython(
+        "a_method_through_its_type_follows_python",
+        indoc! {"
+            xs = [3, 1]
+            list.append(xs, 2)
+            print(float.hex(1.5), str.upper('a'), int.bit_length(255), str.split('a b', sep=' '), xs)
+        "},
+    );
+}

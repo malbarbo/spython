@@ -85,8 +85,18 @@ impl<'a, 'db> Lowering<'a, 'db> {
         {
             return self.super_call(call, attr, sup);
         }
-        let receiver = self.expr(&attr.value)?;
         let name = attr.attr.as_str();
+        // A method through its type, as `float.fromhex(s)` or
+        // `str.upper(s)`, takes each argument in the place of a parameter.
+        if let ast::Expr::Name(_) = &*attr.value
+            && let Some(class) = self.builtin_name(&attr.value)
+        {
+            let unit = builtin_module(&class, name)
+                .and_then(|module| self.prelude_unit(module))
+                .ok_or_else(|| unsupported(call, "a call of this method"))?;
+            return self.bound_call(call, (unit, name), None);
+        }
+        let receiver = self.expr(&attr.value)?;
         if let Some(class) = receiver.rep().class()
             && let Some(file) = self.copy_file(class)
         {
@@ -97,18 +107,15 @@ impl<'a, 'db> Lowering<'a, 'db> {
         {
             return self.call_method(call, attr, receiver, method);
         }
-        // The module `str` of the prelude defines each method of `str`
-        // that it has under the name of the method, among other functions,
-        // and the modules `list`, `int` and `float` each method of their
-        // type. A `bool` takes the methods of `int`.
-        let public = |attributes: &[&str]| !name.starts_with('_') && attributes.contains(&name);
-        let module = match receiver.rep() {
-            Rep::Str if public(names::STR_ATTRIBUTES) => "str",
-            Rep::List(_) if names::LIST_METHODS.contains(&name) => "list",
-            Rep::Int | Rep::Bool if public(names::INT_ATTRIBUTES) => "int",
-            Rep::Float if public(names::FLOAT_ATTRIBUTES) => "float",
-            _ => return Err(unsupported(call, "a call of this method")),
+        let class = match receiver.rep() {
+            Rep::Str => "str",
+            Rep::List(_) => "list",
+            Rep::Int | Rep::Bool => "int",
+            Rep::Float => "float",
+            _ => "",
         };
+        let module = builtin_module(class, name)
+            .ok_or_else(|| unsupported(call, "a call of this method"))?;
         if module == "list" && name == "sort" {
             return self.list_sort(call, receiver);
         }
@@ -1040,6 +1047,22 @@ fn literal(default: &ast::Expr) -> Option<Expr> {
             Expr::Int(value) => Some(Expr::Int(-value)),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// The module of the prelude with the method `name` of the builtin type
+/// `class`. The module `str` of the prelude defines each method of `str`
+/// that it has under the name of the method, among other functions, and
+/// the modules `list`, `int` and `float` each method of their type. A
+/// `bool` takes the methods of `int`.
+fn builtin_module(class: &str, name: &str) -> Option<&'static str> {
+    let public = |attributes: &[&str]| !name.starts_with('_') && attributes.contains(&name);
+    match class {
+        "str" if public(names::STR_ATTRIBUTES) => Some("str"),
+        "list" if names::LIST_METHODS.contains(&name) => Some("list"),
+        "int" | "bool" if public(names::INT_ATTRIBUTES) => Some("int"),
+        "float" if public(names::FLOAT_ATTRIBUTES) => Some("float"),
         _ => None,
     }
 }
