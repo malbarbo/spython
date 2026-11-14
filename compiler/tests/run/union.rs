@@ -644,3 +644,38 @@ fn an_operator_on_a_union_of_other_types_is_unsupported() {
         "this operator on a union"
     );
 }
+
+#[test]
+fn abs_float_int_and_round_of_int_or_float_follow_python() {
+    same_as_cpython(
+        "abs_float_int_and_round_of_int_or_float_follow_python",
+        indoc! {"
+            def f(x: int | float) -> None:
+                print(abs(x), float(x), int(x), round(x), round(x, 1), round(x, -1))
+
+
+            f(3)
+            f(-17)
+            f(2.5)
+            f(-3.75)
+            f(-0.0)
+            f(1e9)
+        "},
+    );
+}
+
+#[test]
+fn int_and_round_of_an_infinite_float_in_a_union_raise_as_python() {
+    for (i, call) in ["int(x)", "round(x)"].into_iter().enumerate() {
+        same_as_cpython(
+            &format!("int_and_round_of_an_infinite_float_in_a_union_raise_as_python_{i}"),
+            &formatdoc! {"
+                def f(x: int | float) -> None:
+                    print({call})
+
+
+                f(1e308 * 10)
+            "},
+        );
+    }
+}

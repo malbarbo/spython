@@ -1080,7 +1080,7 @@ impl<'a> Lowering<'a, '_> {
 
     /// Returns `true` if the checker gives `operand` the type `int`,
     /// `float` or `int | float`, `false` otherwise.
-    fn is_number_union(&self, operand: &ast::Expr) -> bool {
+    pub(super) fn is_number_union(&self, operand: &ast::Expr) -> bool {
         let number = |shape: &Shape| matches!(shape, Shape::Int | Shape::IntLit(_) | Shape::Float);
         match expr_shape(self.model(), operand) {
             Some(Shape::Union(shapes)) => shapes.iter().all(number),

@@ -55,3 +55,27 @@ def neg(x: int | float) -> int | float:
     if isinstance(x, int):
         return -x
     return -x
+
+
+def absolute(x: int | float) -> int | float:
+    if isinstance(x, int):
+        return abs(x)
+    return abs(x)
+
+
+def as_int(x: int | float) -> int:
+    if isinstance(x, int):
+        return x
+    return int(x)
+
+
+def rounded(x: int | float) -> int:
+    if isinstance(x, int):
+        return x
+    return round(x)
+
+
+def rounded_to(x: int | float, digits: int) -> int | float:
+    if isinstance(x, int):
+        return round(x, digits)
+    return round(x, digits)

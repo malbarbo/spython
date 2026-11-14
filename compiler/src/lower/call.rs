@@ -357,6 +357,9 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(self.int_value(operand, arg)?),
                 site: self.site(call.range()),
             }),
+            Rep::Uniform if self.is_number_union(arg) => {
+                self.prelude_call(call, "number", "absolute", vec![operand])
+            }
             Rep::Str
             | Rep::None
             | Rep::StrOrNone
@@ -468,6 +471,13 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(Expr::FloatRound(Box::new(operand))),
                 site,
             }),
+            (Rep::Uniform, None) if self.is_number_union(arg) => {
+                self.prelude_call(call, "number", "rounded", vec![operand])
+            }
+            (Rep::Uniform, Some(digits)) if self.is_number_union(arg) => {
+                let digits = self.digits(digits)?;
+                self.prelude_call(call, "number", "rounded_to", vec![operand, digits])
+            }
             (
                 Rep::Str
                 | Rep::None
@@ -588,6 +598,9 @@ impl<'a> Lowering<'a, '_> {
                 match lowered.rep() {
                     Rep::Int | Rep::Bool | Rep::Float => float_value(lowered, arg),
                     Rep::Str => self.prelude_call(call, "float", "float_of_str", vec![lowered]),
+                    Rep::Uniform if self.is_number_union(arg) => {
+                        self.prelude_call(call, "number", "as_float", vec![lowered])
+                    }
                     Rep::None
                     | Rep::StrOrNone
                     | Rep::Uniform
@@ -676,6 +689,9 @@ impl<'a> Lowering<'a, '_> {
                     }),
                     Rep::Str => {
                         self.prelude_call(call, "int", "int_of_str", vec![lowered, Expr::Int(10)])
+                    }
+                    Rep::Uniform if self.is_number_union(arg) => {
+                        self.prelude_call(call, "number", "as_int", vec![lowered])
                     }
                     Rep::None
                     | Rep::StrOrNone
