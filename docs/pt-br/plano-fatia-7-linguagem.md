@@ -271,7 +271,8 @@ análise achou.
     aluno e no prelude, com a cópia por forma da chamada da seção
     "Funções com `*args`". O `print` com `sep`, `end`, `flush` e
     `sep=None` e `end=None` vem em seguida, escrito no prelude, e o portão
-    é o tempo do `print` de hoje.
+    é o tempo do `print` de hoje, medido nos dois modos da opção de
+    cópia.
 45. `nonlocal`.
 
 **7h. Exceções**
@@ -590,6 +591,17 @@ já faz com as classes genéricas do prelude. Na cópia, o `*args` vira
 parâmetros, a caixa some e o despacho fica estático. A cópia vale para
 toda função com `*args`, do aluno e do prelude. A chamada com `*xs` de
 tamanho desconhecido usa a função sem cópia.
+
+A cópia é uma opção do compilador, ligada por padrão, e a outra escolha
+é o despacho dinâmico, sempre pela função sem cópia. `compiler::compile`
+recebe as opções numa estrutura, e a CLI não mostra a escolha ao aluno.
+A cópia deixa o código mais rápido e o módulo maior, e o despacho
+dinâmico deixa o módulo menor e a compilação mais rápida, o que pode
+servir ao REPL e ao navegador. As sondas e o corpus rodam nos dois modos
+e têm de dar a mesma saída, e assim a função sem cópia continua testada
+mesmo quando quase nenhuma chamada a usa. A opção cobre só as funções
+com `*args`. As cópias por tipo das classes genéricas do prelude ficam
+fora, porque elas não têm uma versão uniforme.
 
 O `print` do prelude é o caso que mede a cópia. Ele converte cada valor
 para `str` e escreve a parte, o `sep` e o `end` por uma intrínseca, como o
