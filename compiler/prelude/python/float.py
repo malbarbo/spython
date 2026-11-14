@@ -15,6 +15,14 @@ def is_integer(x: float) -> bool:
     return x % 1.0 == 0.0
 
 
+def real(x: float) -> float:
+    return x
+
+
+def imag(x: float) -> float:
+    return 0.0
+
+
 def conjugate(x: float) -> float:
     return x
 

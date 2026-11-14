@@ -118,6 +118,32 @@ impl<'a, 'db> Lowering<'a, 'db> {
         self.bound_call(call, (unit, name), Some(receiver))
     }
 
+    /// `attr`, a property of `expr`, a number of `rep`, as the call of the
+    /// function of the same name in the module of its type in the prelude.
+    /// The checker gives a method a type of its own, and a property the
+    /// type of its value.
+    pub(super) fn number_property(
+        &self,
+        expr: &ast::Expr,
+        attr: &ast::ExprAttribute,
+        rep: Rep,
+    ) -> Result<Expr, Error> {
+        let name = attr.attr.as_str();
+        let (module, attributes) = match rep {
+            Rep::Float => ("float", names::FLOAT_ATTRIBUTES),
+            _ => ("int", names::INT_ATTRIBUTES),
+        };
+        let value = matches!(
+            expr_shape(self.model(), expr),
+            Some(shape) if !matches!(shape, Shape::BoundMethod(..) | Shape::Function(_))
+        );
+        if !value || name.starts_with('_') || !attributes.contains(&name) {
+            return Err(unsupported(expr, "this attribute"));
+        }
+        let number = self.expr(&attr.value)?;
+        self.prelude_call(expr, module, name, vec![number])
+    }
+
     /// The call of the function `name` of `unit`, a module of the prelude,
     /// for `call`, a call of a builtin function or of a method on
     /// `receiver`, which takes the first parameter. The checker binds each

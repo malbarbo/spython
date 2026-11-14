@@ -192,6 +192,9 @@ impl<'a> Lowering<'a, '_> {
                                 let field = self.object_attribute(attr, object, class)?;
                                 self.narrowed_field(expr, attr, field)
                             }
+                            Some(rep @ (Rep::Int | Rep::Float)) => {
+                                self.number_property(expr, attr, rep)
+                            }
                             _ => Err(unsupported(expr, "this expression")),
                         },
                     },

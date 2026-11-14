@@ -6,7 +6,7 @@ use std::path::Path;
 use indoc::indoc;
 use wasmparser::{DataKind, Parser, Payload};
 
-use super::{compile, same_as_cpython};
+use super::{compile, same_as_cpython, unsupported_at};
 
 #[test]
 fn print_writes_the_repr_of_a_float() {
@@ -374,5 +374,31 @@ fn hex_and_conjugate_of_a_number_follow_python() {
                 print(x.hex())
             print((7).conjugate(), (-2.5).conjugate(), (2.0 ** 1023).hex(), (2.0 ** -1022).hex())
         "},
+    );
+}
+
+#[test]
+fn the_parts_of_a_number_follow_python() {
+    same_as_cpython(
+        "the_parts_of_a_number_follow_python",
+        indoc! {"
+            n = -7
+            x = 2.5
+            print(n.real, n.imag, n.numerator, n.denominator)
+            print(x.real, x.imag, (-0.0).real, (1e308 * 10).imag, n.real + x.imag)
+        "},
+    );
+}
+
+#[test]
+fn a_method_of_a_number_as_a_value_is_unsupported() {
+    let source = indoc! {"
+        x = 2.5
+        f = x.hex
+        print(f())
+    "};
+    assert_eq!(
+        unsupported_at(source),
+        ("this attribute".to_owned(), "x.hex")
     );
 }

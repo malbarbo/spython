@@ -37,6 +37,22 @@ def bit_count(n: int) -> int:
     return ones
 
 
+def real(n: int) -> int:
+    return n
+
+
+def imag(n: int) -> int:
+    return 0
+
+
+def numerator(n: int) -> int:
+    return n
+
+
+def denominator(n: int) -> int:
+    return 1
+
+
 def conjugate(n: int) -> int:
     return n
 
