@@ -112,6 +112,21 @@ fn a_shift_outside_31_bits_stops_the_program() {
 }
 
 #[test]
+fn bin_oct_and_hex_write_an_int_in_their_base() {
+    same_as_cpython(
+        "bin_oct_and_hex_write_an_int_in_their_base",
+        indoc! {"
+            def show(n: int) -> None:
+                print(bin(n), oct(n), hex(n))
+
+
+            for n in [0, 1, -1, 5, -5, 8, 255, -256, 4095, 123456789, 1073741823, -1073741824]:
+                show(n)
+        "},
+    );
+}
+
+#[test]
 fn the_comparisons_of_int_give_a_bool() {
     same_as_cpython(
         "the_comparisons_of_int_give_a_bool",

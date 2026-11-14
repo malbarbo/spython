@@ -305,6 +305,9 @@ impl<'a> Lowering<'a, '_> {
                 Some("sorted") => self.sorted(call),
                 Some("any") => self.any_all(call, Consume::Any),
                 Some("all") => self.any_all(call, Consume::All),
+                Some(name) if let Some(unit) = self.prelude_builtin(name) => {
+                    self.bound_call(call, (unit, name), None)
+                }
                 _ => match self.math_member(&call.func) {
                     Some((imported, member)) => self.math_call(call, imported, &member),
                     None => self.call(call),

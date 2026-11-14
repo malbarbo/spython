@@ -189,7 +189,6 @@ const EXPECTED: &[(&str, Outcome, &str)] = &[
     ("l0_intpow", Rejected, "the checker rejects it"),
     ("l0_list_call", Unsupported, "part 7d"),
     ("l0_list_cmp", Unsupported, "part 7a"),
-    ("l0_pow3", Unsupported, "part 7a"),
     ("l0_print_end", Unsupported, "part 7g"),
     ("l0_reversed_str", Unsupported, "part 7d"),
     ("l0_set_str", Unsupported, "part 7d"),

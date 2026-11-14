@@ -111,25 +111,30 @@ impl<'a, 'db> Lowering<'a, 'db> {
         let unit = self
             .prelude_unit(module)
             .ok_or_else(|| unsupported(call, "a call of this method"))?;
-        self.bound_call(call, (unit, name), receiver)
+        self.bound_call(call, (unit, name), Some(receiver))
     }
 
     /// The call of the function `name` of `unit`, a module of the prelude,
-    /// for the method call `call` on `receiver`, which takes the first
-    /// parameter. The checker binds each argument to a parameter of the
-    /// method in the stubs. A positional argument goes to the parameter in
-    /// its place, and a keyword argument to the parameter of the same name
-    /// in the prelude. A parameter without an argument takes its default.
-    fn bound_call(
+    /// for `call`, a call of a builtin function or of a method on
+    /// `receiver`, which takes the first parameter. The checker binds each
+    /// argument to a parameter of the function in the stubs. A positional
+    /// argument goes to the parameter in its place, and a keyword argument
+    /// to the parameter of the same name in the prelude. A parameter
+    /// without an argument takes its default.
+    pub(super) fn bound_call(
         &self,
         call: &ast::ExprCall,
         (unit, name): (&'a Unit<'a, 'db>, &str),
-        receiver: Expr,
+        receiver: Option<Expr>,
     ) -> Result<Expr, Error> {
+        let what = match receiver {
+            Some(_) => "method",
+            None => "function",
+        };
         let def = *unit
             .defs
             .get(name)
-            .ok_or_else(|| unsupported(call, "a call of this method"))?;
+            .ok_or_else(|| unsupported(call, &format!("a call of this {what}")))?;
         let params: Vec<&ast::ParameterWithDefault> = params_of(def).collect();
         let bindings = call_bindings(self.model(), call)
             .ok_or_else(|| unsupported(call, "a call with these arguments"))?;
@@ -137,25 +142,26 @@ impl<'a, 'db> Lowering<'a, 'db> {
         // does.
         let join = unit.prelude == Some("str") && name == "join";
         let mut slots: Vec<Option<u32>> = params.iter().map(|_| None).collect();
-        let mut args = vec![receiver];
-        if let Some(first) = slots.first_mut() {
-            *first = Some(0);
+        let first = usize::from(receiver.is_some());
+        let mut args: Vec<Expr> = receiver.into_iter().collect();
+        if let (1, Some(slot)) = (first, slots.first_mut()) {
+            *slot = Some(0);
         }
         for (i, arg) in call.arguments.iter_source_order().enumerate() {
             // A positional parameter of the stubs may have another name in
             // the prelude, and a keyword argument has to find its name.
             let param = match arg {
-                ast::ArgOrKeyword::Arg(_) => Some(i + 1),
+                ast::ArgOrKeyword::Arg(_) => Some(i + first),
                 ast::ArgOrKeyword::Keyword(_) => bindings
                     .get(i)
                     .and_then(|binding| binding.parameter_name.as_deref())
                     .and_then(|bound| {
                         params
                             .iter()
-                            .skip(1)
+                            .skip(first)
                             .position(|param| param.name().as_str() == bound)
                     })
-                    .map(|param| param + 1),
+                    .map(|param| param + first),
             };
             let Some(slot) = param
                 .and_then(|param| slots.get_mut(param))
@@ -163,7 +169,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             else {
                 return Err(unsupported(
                     call,
-                    "a call of this method with these arguments",
+                    &format!("a call of this {what} with these arguments"),
                 ));
             };
             *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
@@ -175,7 +181,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
         for (slot, param) in slots.iter_mut().zip(&params) {
             if slot.is_none() {
                 let default = param.default.as_deref().and_then(literal).ok_or_else(|| {
-                    unsupported(call, "a call of this method with these arguments")
+                    unsupported(call, &format!("a call of this {what} with these arguments"))
                 })?;
                 *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
                 args.push(default);
@@ -192,7 +198,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .collect();
         let (func, params) = self
             .prelude_for(call, unit, name, &reps)?
-            .ok_or_else(|| unsupported(call, "a call of this method"))?;
+            .ok_or_else(|| unsupported(call, &format!("a call of this {what}")))?;
         let sig = self.funcs.borrow().get(func).clone();
         let mut param_of = vec![0; args.len()];
         for (param, arg) in order.iter().enumerate() {
@@ -539,6 +545,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         self.prelude
             .iter()
             .find(|unit| unit.prelude == Some(module))
+    }
+
+    /// The module `builtins` of the prelude, when it defines the builtin
+    /// function `name`.
+    pub(super) fn prelude_builtin(&self, name: &str) -> Option<&'a Unit<'a, 'db>> {
+        self.prelude_unit("builtins")
+            .filter(|unit| unit.defs.contains_key(name))
     }
 
     /// The function `name` of the module `module` of the prelude.
@@ -1131,10 +1144,11 @@ mod stubs {
     /// The minor version of Python 3 that the checker and the tests take.
     const MINOR: u32 = 13;
 
-    /// Each method of `class` in the stub of the builtins, with the names
-    /// of the parameters after `self` that a keyword argument can name, by
-    /// place. A parameter that takes only a position has no name.
-    fn stub_methods(class: &str) -> Vec<(String, Vec<Option<String>>)> {
+    /// Each method of `class` in the stub of the builtins, or each function
+    /// of the module with `None`, with the names of the parameters after
+    /// `self` that a keyword argument can name, by place. A parameter that
+    /// takes only a position has no name.
+    fn stub_functions(class: Option<&str>) -> Vec<(String, Vec<Option<String>>)> {
         let Ok(checked) = check_source("", Level::Full, false) else {
             panic!("the checker rejects an empty program");
         };
@@ -1146,22 +1160,29 @@ mod stubs {
         let module = ruff_python_parser::parse_module(&stub)
             .expect("a stub that parses")
             .into_syntax();
-        let body = module
-            .body
-            .iter()
-            .find_map(|stmt| match stmt {
-                ast::Stmt::ClassDef(def) if def.name.as_str() == class => Some(&def.body),
-                _ => None,
-            })
-            .expect("the class in the stub");
-        let mut methods = Vec::new();
-        collect(body, &mut methods);
-        methods
+        let body = match class {
+            Some(class) => module
+                .body
+                .iter()
+                .find_map(|stmt| match stmt {
+                    ast::Stmt::ClassDef(def) if def.name.as_str() == class => Some(&def.body),
+                    _ => None,
+                })
+                .expect("the class in the stub"),
+            None => &module.body,
+        };
+        let mut functions = Vec::new();
+        collect(body, usize::from(class.is_some()), &mut functions);
+        functions
     }
 
-    /// The methods in `body`, with the branch of each `if` on
-    /// `sys.version_info` that [`MINOR`] takes.
-    fn collect(body: &[ast::Stmt], methods: &mut Vec<(String, Vec<Option<String>>)>) {
+    /// The functions in `body`, without the first `skip` parameters, with
+    /// the branch of each `if` on `sys.version_info` that [`MINOR`] takes.
+    fn collect(
+        body: &[ast::Stmt],
+        skip: usize,
+        functions: &mut Vec<(String, Vec<Option<String>>)>,
+    ) {
         for stmt in body {
             match stmt {
                 ast::Stmt::FunctionDef(def) => {
@@ -1176,15 +1197,15 @@ mod stubs {
                                 .iter()
                                 .map(|param| Some(param.name().to_string())),
                         )
-                        .skip(1);
-                    methods.push((def.name.to_string(), positional.collect()));
+                        .skip(skip);
+                    functions.push((def.name.to_string(), positional.collect()));
                 }
                 ast::Stmt::If(stmt) => {
                     let taken = version_test(&stmt.test).is_none_or(|minor| minor <= MINOR);
                     if taken {
-                        collect(&stmt.body, methods);
+                        collect(&stmt.body, skip, functions);
                     } else if let Some(clause) = stmt.elif_else_clauses.first() {
-                        collect(&clause.body, methods);
+                        collect(&clause.body, skip, functions);
                     }
                 }
                 _ => {}
@@ -1209,9 +1230,9 @@ mod stubs {
         }
     }
 
-    /// The parameters after the first of each function of the module of the
-    /// prelude in `file`, by name.
-    fn prelude_params(file: &str) -> Vec<(String, Vec<String>)> {
+    /// The parameters after the first `skip` of each function of the module
+    /// of the prelude in `file`, by name.
+    fn prelude_params(file: &str, skip: usize) -> Vec<(String, Vec<String>)> {
         let (_, source) = ::prelude::FILES
             .iter()
             .find(|(path, _)| *path == file)
@@ -1226,7 +1247,7 @@ mod stubs {
                     def.name.to_string(),
                     def.parameters
                         .iter_non_variadic_params()
-                        .skip(1)
+                        .skip(skip)
                         .map(|param| param.name().to_string())
                         .collect(),
                 )),
@@ -1235,13 +1256,13 @@ mod stubs {
             .collect()
     }
 
-    /// The methods of `class` whose prelude function in `file` names a
-    /// parameter otherwise than the stub, where a keyword argument can
-    /// name it.
-    fn mismatches(class: &str, file: &str, methods: &[&str]) -> Vec<String> {
-        let prelude = prelude_params(file);
+    /// The methods of `class`, or the functions of the module with `None`,
+    /// whose prelude function in `file` names a parameter otherwise than
+    /// the stub, where a keyword argument can name it.
+    fn mismatches(class: Option<&str>, file: &str, methods: &[&str]) -> Vec<String> {
+        let prelude = prelude_params(file, usize::from(class.is_some()));
         let mut wrong = Vec::new();
-        for (name, stub) in stub_methods(class) {
+        for (name, stub) in stub_functions(class) {
             if !methods.contains(&name.as_str()) {
                 continue;
             }
@@ -1264,13 +1285,19 @@ mod stubs {
 
     #[test]
     fn a_method_of_str_has_the_parameters_of_the_stub() {
-        let wrong = mismatches("str", "str.py", names::STR_ATTRIBUTES);
+        let wrong = mismatches(Some("str"), "str.py", names::STR_ATTRIBUTES);
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     #[test]
     fn a_method_of_list_has_the_parameters_of_the_stub() {
-        let wrong = mismatches("list", "list.py", names::LIST_METHODS);
+        let wrong = mismatches(Some("list"), "list.py", names::LIST_METHODS);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn a_builtin_function_has_the_parameters_of_the_stub() {
+        let wrong = mismatches(None, "builtins.py", names::BUILTINS);
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 }
