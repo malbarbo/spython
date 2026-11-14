@@ -6,10 +6,15 @@ a total order, and a list with a NaN, give what CPython gives."""
 from typing import Callable  # noqa: UP035
 
 from __spython_prelude__.intrinsics import (
+    Array,
     Ordered,
-    copy_items,
-    item,
+    array_copy,
+    array_get,
+    array_len,
+    array_new,
+    array_set,
     list_capacity,
+    list_items,
     list_reserve,
     list_set_len,
     list_truncate,
@@ -21,87 +26,90 @@ from __spython_prelude__.list import copy
 def sort[T: Ordered](xs: list[T], reverse: bool) -> None:
     """`xs.sort(reverse=reverse)`. The list is empty while the sort runs, so a comparison that
     reads it sees no item, and one that changes it makes the sort raise at the end."""
+    n = len(xs)
     items = take(xs)
-    sort_items(items, reverse)
-    give_back(xs, items)
+    sort_items(items, n, reverse)
+    give_back(xs, items, n)
 
 
 def sort_key[T, K: Ordered](xs: list[T], key: Callable[[T], K], reverse: bool) -> None:
     """`xs.sort(key=key, reverse=reverse)`."""
+    n = len(xs)
     items = take(xs)
-    sort_items_key(items, key, reverse)
-    give_back(xs, items)
+    sort_items_key(items, n, key, reverse)
+    give_back(xs, items, n)
 
 
 def sorted_of[T: Ordered](xs: list[T], reverse: bool) -> list[T]:
-    items = copy(xs)
-    sort_items(items, reverse)
-    return items
+    ys = copy(xs)
+    sort_items(list_items(ys), len(ys), reverse)
+    return ys
 
 
 def sorted_key[T, K: Ordered](
     xs: list[T], key: Callable[[T], K], reverse: bool
 ) -> list[T]:
-    items = copy(xs)
-    sort_items_key(items, key, reverse)
-    return items
+    ys = copy(xs)
+    sort_items_key(list_items(ys), len(ys), key, reverse)
+    return ys
 
 
-def sort_items[T: Ordered](items: list[T], reverse: bool) -> None:
-    if len(items) > 1:
-        empty: list[T] = []
+def sort_items[T: Ordered](items: Array[T], n: int, reverse: bool) -> None:
+    """Sorts the first `n` items of `items`."""
+    if n > 1:
+        empty: Array[T] = array_new(0)
         if reverse:
-            items.reverse()
-        Sort(items, empty, False).run()
+            reverse_items(items, 0, n)
+        Sort(items, empty, n, False).run()
         if reverse:
-            items.reverse()
+            reverse_items(items, 0, n)
 
 
 def sort_items_key[T, K: Ordered](
-    items: list[T], key: Callable[[T], K], reverse: bool
+    items: Array[T], n: int, key: Callable[[T], K], reverse: bool
 ) -> None:
-    """Calls `key` once for each item, in order, before any comparison."""
-    keys: list[K] = []
-    list_reserve(keys, len(items))
-    i = 0
-    while i < len(items):
-        keys.append(key(item(items, i)))
-        i += 1
-    if len(items) > 1:
+    """Sorts the first `n` items of `items` by their keys. The sort calls `key` once for each
+    item, in order, before any comparison."""
+    keys: Array[K] = array_new(n)
+    for i in range(n):
+        array_set(keys, i, key(array_get(items, i)))
+    if n > 1:
         if reverse:
-            keys.reverse()
-            items.reverse()
-        Sort(keys, items, True).run()
+            reverse_items(keys, 0, n)
+            reverse_items(items, 0, n)
+        Sort(keys, items, n, True).run()
         if reverse:
-            items.reverse()
+            reverse_items(items, 0, n)
 
 
-def take[T](xs: list[T]) -> list[T]:
-    """A new list with the items of `xs`, which becomes empty and without an array."""
-    items = copy(xs)
+def take[T](xs: list[T]) -> Array[T]:
+    """The array of the items of `xs`, which becomes empty and gets a new array without
+    room."""
+    items = list_items(xs)
     xs.clear()
     return items
 
 
-def give_back[T](xs: list[T], items: list[T]) -> None:
-    """Puts `items` back in `xs`, the list that `take` emptied. Anything that the sort put in
-    `xs` goes away, and a list that gained an array raises."""
+def give_back[T](xs: list[T], items: Array[T], n: int) -> None:
+    """Puts the first `n` items of `items` back in `xs`, the list that `take` emptied. Anything
+    that the sort put in `xs` goes away, and a list that gained room raises."""
     changed = len(xs) != 0 or list_capacity(xs) != 0
     list_truncate(xs, 0)
-    list_reserve(xs, len(items))
-    copy_items(xs, 0, items, 0, len(items))
-    list_set_len(xs, len(items))
+    list_reserve(xs, n)
+    for i in range(n):
+        set_item(xs, i, array_get(items, i))
+    list_set_len(xs, n)
     if changed:
         raise ValueError("list modified during sort")
 
 
-def reverse_items[T](xs: list[T], lo: int, n: int) -> None:
+def reverse_items[T](xs: Array[T], lo: int, n: int) -> None:
     i = lo
     j = lo + n - 1
     while i < j:
-        x = item(xs, i)
-        set_item(xs, i, item(xs, j))
-        set_item(xs, j, x)
+        x = array_get(xs, i)
+        array_set(xs, i, array_get(xs, j))
+        array_set(xs, j, x)
         i += 1
         j -= 1
 
@@ -136,15 +144,15 @@ def power_of(s1: int, n1: int, n2: int, n: int) -> int:
     return result
 
 
-def gallop_left[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) -> int:
+def gallop_left[K: Ordered](key: K, a: Array[K], base: int, n: int, hint: int) -> int:
     """The index `k` in `0..n` with `a[base + k - 1] < key <= a[base + k]`, which the search
     looks for from `hint`."""
     lastofs = 0
     ofs = 1
-    if item(a, base + hint) < key:
+    if array_get(a, base + hint) < key:
         maxofs = n - hint
         while ofs < maxofs:
-            if item(a, base + hint + ofs) < key:
+            if array_get(a, base + hint + ofs) < key:
                 lastofs = ofs
                 ofs = ofs * 2 + 1
             else:
@@ -155,7 +163,7 @@ def gallop_left[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) ->
     else:
         maxofs = hint + 1
         while ofs < maxofs:
-            if item(a, base + hint - ofs) < key:
+            if array_get(a, base + hint - ofs) < key:
                 break
             lastofs = ofs
             ofs = ofs * 2 + 1
@@ -166,22 +174,22 @@ def gallop_left[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) ->
     lastofs += 1
     while lastofs < ofs:
         m = lastofs + (ofs - lastofs) // 2
-        if item(a, base + m) < key:
+        if array_get(a, base + m) < key:
             lastofs = m + 1
         else:
             ofs = m
     return ofs
 
 
-def gallop_right[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) -> int:
+def gallop_right[K: Ordered](key: K, a: Array[K], base: int, n: int, hint: int) -> int:
     """The index `k` in `0..n` with `a[base + k - 1] <= key < a[base + k]`, which the search
     looks for from `hint`."""
     lastofs = 0
     ofs = 1
-    if key < item(a, base + hint):
+    if key < array_get(a, base + hint):
         maxofs = hint + 1
         while ofs < maxofs:
-            if key < item(a, base + hint - ofs):
+            if key < array_get(a, base + hint - ofs):
                 lastofs = ofs
                 ofs = ofs * 2 + 1
             else:
@@ -193,7 +201,7 @@ def gallop_right[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) -
     else:
         maxofs = n - hint
         while ofs < maxofs:
-            if key < item(a, base + hint + ofs):
+            if key < array_get(a, base + hint + ofs):
                 break
             lastofs = ofs
             ofs = ofs * 2 + 1
@@ -203,7 +211,7 @@ def gallop_right[K: Ordered](key: K, a: list[K], base: int, n: int, hint: int) -
     lastofs += 1
     while lastofs < ofs:
         m = lastofs + (ofs - lastofs) // 2
-        if key < item(a, base + m):
+        if key < array_get(a, base + m):
             ofs = m
         else:
             lastofs = m + 1
@@ -214,12 +222,14 @@ class Sort[K: Ordered, T]:
     """The state of a sort of `keys`, which moves the items of `values` along with the keys when
     `has_values` holds."""
 
-    keys: list[K]
-    values: list[T]
+    keys: Array[K]
+    values: Array[T]
+    # How many items of `keys` the sort sorts.
+    n: int
     has_values: bool
     # The room for the shorter run of a merge.
-    temp_keys: list[K]
-    temp_values: list[T]
+    temp_keys: Array[K]
+    temp_values: Array[T]
     min_gallop: int
     # The runs that wait for a merge, from the first one: where each one starts, its length
     # and its power.
@@ -227,12 +237,15 @@ class Sort[K: Ordered, T]:
     lens: list[int]
     powers: list[int]
 
-    def __init__(self, keys: list[K], values: list[T], has_values: bool) -> None:
+    def __init__(
+        self, keys: Array[K], values: Array[T], n: int, has_values: bool
+    ) -> None:
         self.keys = keys
         self.values = values
+        self.n = n
         self.has_values = has_values
-        temp_keys: list[K] = []
-        temp_values: list[T] = []
+        temp_keys: Array[K] = array_new(0)
+        temp_values: Array[T] = array_new(0)
         bases: list[int] = []
         lens: list[int] = []
         powers: list[int] = []
@@ -245,7 +258,7 @@ class Sort[K: Ordered, T]:
         self.powers = powers
 
     def run(self) -> None:
-        n = len(self.keys)
+        n = self.n
         minrun = minrun_of(n)
         lo = 0
         remaining = n
@@ -275,21 +288,21 @@ class Sort[K: Ordered, T]:
         while ok < n:
             left = 0
             right = ok
-            pivot = item(keys, lo + ok)
+            pivot = array_get(keys, lo + ok)
             while left < right:
                 m = (left + right) // 2
-                if pivot < item(keys, lo + m):
+                if pivot < array_get(keys, lo + m):
                     right = m
                 else:
                     left = m + 1
-            copy_items(keys, lo + left + 1, keys, lo + left, ok - left)
-            set_item(keys, lo + left, pivot)
+            array_copy(keys, lo + left + 1, keys, lo + left, ok - left)
+            array_set(keys, lo + left, pivot)
             if self.has_values:
-                value = item(self.values, lo + ok)
-                copy_items(
+                value = array_get(self.values, lo + ok)
+                array_copy(
                     self.values, lo + left + 1, self.values, lo + left, ok - left
                 )
-                set_item(self.values, lo + left, value)
+                array_set(self.values, lo + left, value)
             ok += 1
 
     def count_run(self, lo: int, remaining: int) -> int:
@@ -299,25 +312,25 @@ class Sort[K: Ordered, T]:
         keys = self.keys
         n = 1
         while n < remaining:
-            if item(keys, lo + n) < item(keys, lo + n - 1):
+            if array_get(keys, lo + n) < array_get(keys, lo + n - 1):
                 break
             n += 1
         if n == remaining:
             return n
         # An ascending run of more than one item ends here, unless its items are all equal.
         if n > 1:
-            if item(keys, lo) < item(keys, lo + n - 1):
+            if array_get(keys, lo) < array_get(keys, lo + n - 1):
                 return n
             self.reverse(lo, n)
         n += 1
         neq = 0
         while n < remaining:
-            if item(keys, lo + n) < item(keys, lo + n - 1):
+            if array_get(keys, lo + n) < array_get(keys, lo + n - 1):
                 if neq > 0:
                     neq += 1
                     self.reverse(lo + n - neq, neq)
                     neq = 0
-            elif item(keys, lo + n - 1) < item(keys, lo + n):
+            elif array_get(keys, lo + n - 1) < array_get(keys, lo + n):
                 break
             else:
                 neq += 1
@@ -327,7 +340,7 @@ class Sort[K: Ordered, T]:
             self.reverse(lo + n - neq, neq)
         self.reverse(lo, n)
         while n < remaining:
-            if item(keys, lo + n) < item(keys, lo + n - 1):
+            if array_get(keys, lo + n) < array_get(keys, lo + n - 1):
                 break
             n += 1
         return n
@@ -338,7 +351,7 @@ class Sort[K: Ordered, T]:
         if len(self.lens) == 0:
             return
         top = len(self.lens) - 1
-        power = power_of(self.bases[top], self.lens[top], n2, len(self.keys))
+        power = power_of(self.bases[top], self.lens[top], n2, self.n)
         while len(self.lens) > 1 and self.powers[len(self.lens) - 2] > power:
             self.merge_at(len(self.lens) - 2)
         self.powers[len(self.lens) - 1] = power
@@ -367,12 +380,12 @@ class Sort[K: Ordered, T]:
         self.powers.pop()
         # The items of the first run before the first item of the second one, and the items of
         # the second run after the last item of the first one, stay where they are.
-        k = gallop_right(item(self.keys, b), self.keys, a, na, 0)
+        k = gallop_right(array_get(self.keys, b), self.keys, a, na, 0)
         a += k
         na -= k
         if na == 0:
             return
-        nb = gallop_left(item(self.keys, a + na - 1), self.keys, b, nb, nb - 1)
+        nb = gallop_left(array_get(self.keys, a + na - 1), self.keys, b, nb, nb - 1)
         if nb <= 0:
             return
         if na <= nb:
@@ -382,34 +395,34 @@ class Sort[K: Ordered, T]:
 
     def save(self, src: int, n: int) -> None:
         """Copies the `n` items at `src` to the room of the merge."""
-        if list_capacity(self.temp_keys) < n:
-            list_reserve(self.temp_keys, n)
+        if array_len(self.temp_keys) < n:
+            temp_keys: Array[K] = array_new(n)
+            self.temp_keys = temp_keys
             if self.has_values:
-                list_reserve(self.temp_values, n)
-        copy_items(self.temp_keys, 0, self.keys, src, n)
-        list_set_len(self.temp_keys, n)
+                temp_values: Array[T] = array_new(n)
+                self.temp_values = temp_values
+        array_copy(self.temp_keys, 0, self.keys, src, n)
         if self.has_values:
-            copy_items(self.temp_values, 0, self.values, src, n)
-            list_set_len(self.temp_values, n)
+            array_copy(self.temp_values, 0, self.values, src, n)
 
     def put(self, dest: int, saved: bool, src: int, n: int) -> None:
         """Copies `n` items to `dest`, from `src` of the room of the merge when `saved`, and of
         the list otherwise."""
         if saved:
-            copy_items(self.keys, dest, self.temp_keys, src, n)
+            array_copy(self.keys, dest, self.temp_keys, src, n)
             if self.has_values:
-                copy_items(self.values, dest, self.temp_values, src, n)
+                array_copy(self.values, dest, self.temp_values, src, n)
         else:
-            copy_items(self.keys, dest, self.keys, src, n)
+            array_copy(self.keys, dest, self.keys, src, n)
             if self.has_values:
-                copy_items(self.values, dest, self.values, src, n)
+                array_copy(self.values, dest, self.values, src, n)
 
     def merge_lo(self, a: int, na: int, b: int, nb: int) -> None:
         """Merges the run of `na` items at `a` with the run of `nb` items after it, with
         `na <= nb`, from the left. The first run goes to the room of the merge."""
         keys = self.keys
-        temp = self.temp_keys
         self.save(a, na)
+        temp = self.temp_keys
         dest = a
         pa = 0
         self.put(dest, False, b, 1)
@@ -427,7 +440,7 @@ class Sort[K: Ordered, T]:
                 acount = 0
                 bcount = 0
                 while True:
-                    if item(keys, b) < item(temp, pa):
+                    if array_get(keys, b) < array_get(temp, pa):
                         self.put(dest, False, b, 1)
                         dest += 1
                         b += 1
@@ -460,7 +473,7 @@ class Sort[K: Ordered, T]:
                     if min_gallop > 1:
                         min_gallop -= 1
                     self.min_gallop = min_gallop
-                    k = gallop_right(item(keys, b), temp, pa, na, 0)
+                    k = gallop_right(array_get(keys, b), temp, pa, na, 0)
                     acount = k
                     if k > 0:
                         self.put(dest, True, pa, k)
@@ -482,7 +495,7 @@ class Sort[K: Ordered, T]:
                     if nb == 0:
                         done = True
                         break
-                    k = gallop_left(item(temp, pa), keys, b, nb, 0)
+                    k = gallop_left(array_get(temp, pa), keys, b, nb, 0)
                     bcount = k
                     if k > 0:
                         self.put(dest, False, b, k)
@@ -516,9 +529,9 @@ class Sort[K: Ordered, T]:
         """Merges the run of `na` items at `a` with the run of `nb` items after it, with
         `na >= nb`, from the right. The second run goes to the room of the merge."""
         keys = self.keys
-        temp = self.temp_keys
         dest = b + nb - 1
         self.save(b, nb)
+        temp = self.temp_keys
         pb = nb - 1
         pa = a + na - 1
         self.put(dest, False, pa, 1)
@@ -536,7 +549,7 @@ class Sort[K: Ordered, T]:
                 acount = 0
                 bcount = 0
                 while True:
-                    if item(temp, pb) < item(keys, pa):
+                    if array_get(temp, pb) < array_get(keys, pa):
                         self.put(dest, False, pa, 1)
                         dest -= 1
                         pa -= 1
@@ -569,7 +582,7 @@ class Sort[K: Ordered, T]:
                     if min_gallop > 1:
                         min_gallop -= 1
                     self.min_gallop = min_gallop
-                    k = na - gallop_right(item(temp, pb), keys, a, na, na - 1)
+                    k = na - gallop_right(array_get(temp, pb), keys, a, na, na - 1)
                     acount = k
                     if k > 0:
                         dest -= k
@@ -587,7 +600,7 @@ class Sort[K: Ordered, T]:
                         copy_a = True
                         done = True
                         break
-                    k = nb - gallop_left(item(keys, pa), temp, 0, nb, nb - 1)
+                    k = nb - gallop_left(array_get(keys, pa), temp, 0, nb, nb - 1)
                     bcount = k
                     if k > 0:
                         dest -= k
