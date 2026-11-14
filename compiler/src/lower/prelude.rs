@@ -1114,3 +1114,159 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod stubs {
+    use engine::Level;
+    use engine::check::check_source;
+    use ruff_db::Db as _;
+    use ruff_python_ast as ast;
+
+    use crate::cpython::names;
+
+    /// The minor version of Python 3 that the checker and the tests take.
+    const MINOR: u32 = 13;
+
+    /// Each method of `class` in the stub of the builtins, with the names
+    /// of the parameters after `self` that a keyword argument can name, by
+    /// place. A parameter that takes only a position has no name.
+    fn stub_methods(class: &str) -> Vec<(String, Vec<Option<String>>)> {
+        let Ok(checked) = check_source("", Level::Full, false) else {
+            panic!("the checker rejects an empty program");
+        };
+        let stub = checked
+            .db
+            .vendored()
+            .read_to_string("stdlib/builtins.pyi")
+            .expect("the stub of the builtins");
+        let module = ruff_python_parser::parse_module(&stub)
+            .expect("a stub that parses")
+            .into_syntax();
+        let body = module
+            .body
+            .iter()
+            .find_map(|stmt| match stmt {
+                ast::Stmt::ClassDef(def) if def.name.as_str() == class => Some(&def.body),
+                _ => None,
+            })
+            .expect("the class in the stub");
+        let mut methods = Vec::new();
+        collect(body, &mut methods);
+        methods
+    }
+
+    /// The methods in `body`, with the branch of each `if` on
+    /// `sys.version_info` that [`MINOR`] takes.
+    fn collect(body: &[ast::Stmt], methods: &mut Vec<(String, Vec<Option<String>>)>) {
+        for stmt in body {
+            match stmt {
+                ast::Stmt::FunctionDef(def) => {
+                    let parameters = &def.parameters;
+                    let positional = parameters
+                        .posonlyargs
+                        .iter()
+                        .map(|_| None)
+                        .chain(
+                            parameters
+                                .args
+                                .iter()
+                                .map(|param| Some(param.name().to_string())),
+                        )
+                        .skip(1);
+                    methods.push((def.name.to_string(), positional.collect()));
+                }
+                ast::Stmt::If(stmt) => {
+                    let taken = version_test(&stmt.test).is_none_or(|minor| minor <= MINOR);
+                    if taken {
+                        collect(&stmt.body, methods);
+                    } else if let Some(clause) = stmt.elif_else_clauses.first() {
+                        collect(&clause.body, methods);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The minor version `N` of a test `sys.version_info >= (3, N)`.
+    fn version_test(test: &ast::Expr) -> Option<u32> {
+        let ast::Expr::Compare(compare) = test else {
+            return None;
+        };
+        let [ast::Expr::Tuple(version)] = compare.comparators() else {
+            return None;
+        };
+        match version.elts.get(1)? {
+            ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
+                value: ast::Number::Int(minor),
+                ..
+            }) => minor.as_u64().and_then(|minor| u32::try_from(minor).ok()),
+            _ => None,
+        }
+    }
+
+    /// The parameters after the first of each function of the module of the
+    /// prelude in `file`, by name.
+    fn prelude_params(file: &str) -> Vec<(String, Vec<String>)> {
+        let (_, source) = ::prelude::FILES
+            .iter()
+            .find(|(path, _)| *path == file)
+            .expect("the module in the prelude");
+        ruff_python_parser::parse_module(source)
+            .expect("a prelude that parses")
+            .into_syntax()
+            .body
+            .iter()
+            .filter_map(|stmt| match stmt {
+                ast::Stmt::FunctionDef(def) => Some((
+                    def.name.to_string(),
+                    def.parameters
+                        .iter_non_variadic_params()
+                        .skip(1)
+                        .map(|param| param.name().to_string())
+                        .collect(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The methods of `class` whose prelude function in `file` names a
+    /// parameter otherwise than the stub, where a keyword argument can
+    /// name it.
+    fn mismatches(class: &str, file: &str, methods: &[&str]) -> Vec<String> {
+        let prelude = prelude_params(file);
+        let mut wrong = Vec::new();
+        for (name, stub) in stub_methods(class) {
+            if !methods.contains(&name.as_str()) {
+                continue;
+            }
+            let Some((_, ours)) = prelude.iter().find(|(def, _)| *def == name) else {
+                continue;
+            };
+            for (place, param) in stub.iter().enumerate() {
+                if let Some(param) = param
+                    && ours.get(place) != Some(param)
+                {
+                    wrong.push(format!(
+                        "{name}: {param} at {place}, not {:?}",
+                        ours.get(place)
+                    ));
+                }
+            }
+        }
+        wrong
+    }
+
+    #[test]
+    fn a_method_of_str_has_the_parameters_of_the_stub() {
+        let wrong = mismatches("str", "str.py", names::STR_ATTRIBUTES);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    #[test]
+    fn a_method_of_list_has_the_parameters_of_the_stub() {
+        let wrong = mismatches("list", "list.py", names::LIST_METHODS);
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+}
