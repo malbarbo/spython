@@ -2118,11 +2118,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
     /// Declares the `__eq__` of each copy of a generic class of the prelude
     /// whose objects the program makes, which two uniform values of the
-    /// copy call. Returns `true` if it declares a function, `false`
-    /// otherwise.
+    /// copy call. A list is never uniform, so a copy of `List` has none.
+    /// Returns `true` if it declares a function, `false` otherwise.
     pub(super) fn declare_copy_eqs(&self) -> bool {
         let mut declared = false;
         for class in self.all_classes() {
+            if self.list_class(Rep::Object(class)).is_some() {
+                continue;
+            }
             let waits = {
                 let classes = self.classes.borrow();
                 classes.get(class).copy.is_some()
