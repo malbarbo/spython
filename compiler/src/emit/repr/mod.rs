@@ -2067,12 +2067,18 @@ impl Reprs {
     /// Defines the function that writes a value of a union, after the
     /// test of its type.
     fn add_write_uniform(&mut self, m: &mut ModuleState) -> FuncIdx {
-        // The print of a union makes the `str` of each class in its type.
-        let classes = (0..self.layout.classes())
+        let classes = self.str_classes();
+        self.add_uniform_dispatch(m, &[], classes, |reprs, m, f, rep| reprs.write(m, f, rep))
+    }
+
+    /// The classes with a function for the `str` of their objects. The
+    /// `print` of a union makes it for each class in the type of the
+    /// union.
+    fn str_classes(&self) -> Vec<ClassId> {
+        (0..self.layout.classes())
             .filter(|&i| self.class_strs.get(i).copied().flatten().is_some())
             .map(ClassId::new)
-            .collect();
-        self.add_uniform_dispatch(m, &[], classes, |reprs, m, f, rep| reprs.write(m, f, rep))
+            .collect()
     }
 }
 
