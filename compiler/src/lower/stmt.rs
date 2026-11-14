@@ -381,12 +381,12 @@ impl<'a> Lowering<'a, '_> {
         let (item, len) = match list {
             Some(class) => {
                 let field = |name| {
-                    let (field, rep) = self.named_field(class, name);
+                    let (field, field_rep) = self.named_field(class, name);
                     Box::new(Expr::Field {
                         object: read(seq_var, rep),
                         class,
                         field,
-                        rep,
+                        rep: field_rep,
                     })
                 };
                 let item = Expr::Item {
