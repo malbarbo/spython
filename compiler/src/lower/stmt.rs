@@ -2,7 +2,7 @@
 
 use ruff_python_ast as ast;
 use ruff_text_size::Ranged;
-use ty_python_semantic::types::lowering::{Shape, expr_shape};
+use ty_python_semantic::types::lowering::{Shape, declared_shape, expr_shape};
 
 use super::call::is_builtins;
 use super::class::generated_call;
@@ -186,12 +186,18 @@ impl<'a> Lowering<'a, '_> {
             }
             // An annotation alone binds nothing.
             ast::Stmt::AnnAssign(ast::StmtAnnAssign { value: None, .. }) => Ok(None),
-            ast::Stmt::AnnAssign(ast::StmtAnnAssign {
-                target,
-                value: Some(value),
-                ..
-            }) => {
-                let (target, value) = self.target(target, self.expr(value)?)?;
+            ast::Stmt::AnnAssign(
+                ann @ ast::StmtAnnAssign {
+                    target,
+                    value: Some(value),
+                    ..
+                },
+            ) => {
+                let rep = self.rep_of(declared_shape(self.model(), ann));
+                let outer = self.annotation.replace(rep.map(|rep| (value.range(), rep)));
+                let lowered = self.expr(value);
+                self.annotation.set(outer);
+                let (target, value) = self.target(target, lowered?)?;
                 Ok(Some(Stmt::Assign {
                     targets: vec![target],
                     value,

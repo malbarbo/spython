@@ -96,6 +96,7 @@ pub(crate) fn lower(
         types: RefCell::new(Vec::new()),
         raises: Cell::new(false),
         uniform_repr: Cell::new(false),
+        annotation: Cell::new(None),
         uniform_hash: Cell::new(None),
     };
     let suite = main.module.suite().as_slice();
@@ -299,6 +300,11 @@ struct Lowering<'a, 'db> {
     raises: Cell<bool>,
     /// Whether the program gives the `repr` of a uniform value.
     uniform_repr: Cell<bool>,
+    /// The range of the value of the annotated assignment that the lowering
+    /// is in, with the rep of its annotation. The checker gives no type to
+    /// a call of `array_new`, which takes the type of its array from the
+    /// annotation when the call is the value.
+    annotation: Cell<Option<(TextRange, Rep)>>,
     /// The function that gives the `hash` of a uniform value, once a table
     /// needs it.
     uniform_hash: Cell<Option<FuncId>>,
@@ -1162,6 +1168,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 Some(Rep::Hash)
             }
             Shape::Instance(class, args)
+                if Some(class.file) == self.intrinsics && class.name == "Array" =>
+            {
+                let [item] = <[Shape; 1]>::try_from(args).ok()?;
+                Some(Rep::Array(self.list_of(self.type_arg(item)?)))
+            }
+            Shape::Instance(class, args)
                 if let Some(unit) = self.prelude.iter().find(|unit| unit.file == class.file) =>
             {
                 self.prelude_class(unit, &class.name, args).map(Rep::Object)
@@ -1447,9 +1459,7 @@ impl Lowering<'_, '_> {
             (Rep::ListOrNone(list), _) => {
                 matches!(value, Rep::None) || value == Rep::List(list) || value == rep
             }
-            // The dispatch of a uniform value knows no list and no
-            // function.
-            (Rep::Uniform, _) => value.list().is_none() && value.func().is_none(),
+            (Rep::Uniform, _) => in_uniform(value),
             _ => rep == value,
         }
     }
@@ -1483,10 +1493,7 @@ impl Lowering<'_, '_> {
                 .all(|rep| *rep == Rep::None || rep.list() == Some(list))
         {
             Rep::ListOrNone(list)
-        } else if pair
-            .iter()
-            .all(|rep| rep.list().is_none() && rep.func().is_none())
-        {
+        } else if pair.iter().all(|rep| in_uniform(*rep)) {
             Rep::Uniform
         } else {
             return None;
@@ -1502,6 +1509,13 @@ impl Lowering<'_, '_> {
     }
 }
 
+/// Returns `true` if a uniform value may hold a value of `rep`, `false`
+/// otherwise. The dispatch of a uniform value knows no list, no function
+/// and no array.
+fn in_uniform(rep: Rep) -> bool {
+    rep.list().is_none() && rep.func().is_none() && !matches!(rep, Rep::Array(_))
+}
+
 /// Refuses a variable `self` of a union or of a class. The suggestion of a
 /// `NameError` looks for an attribute in the value of `self`, and the
 /// compiler knows the attributes of each builtin rep but not which one a
@@ -1514,7 +1528,7 @@ fn check_self(name: &str, rep: Rep, node: &impl Ranged) -> Result<(), Error> {
             Err(unsupported(node, "a variable self of a class"))
         }
         Rep::List(_) | Rep::ListOrNone(_) => Err(unsupported(node, "a variable self of a list")),
-        Rep::Hash => Err(unsupported(node, "a variable self of a hash")),
+        Rep::Hash | Rep::Array(_) => Err(unsupported(node, "a variable self of this type")),
         Rep::Func(_) => Err(unsupported(node, "a variable self of a function")),
         Rep::Int | Rep::Float | Rep::Bool | Rep::Str | Rep::None => Ok(()),
     }

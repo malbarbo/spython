@@ -368,6 +368,7 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
+            | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => Err(unsupported(arg, "abs of this type")),
         }
@@ -487,6 +488,7 @@ impl<'a> Lowering<'a, '_> {
                 | Rep::ObjectOrNone(_)
                 | Rep::List(_)
                 | Rep::ListOrNone(_)
+                | Rep::Array(_)
                 | Rep::Hash
                 | Rep::Func(_),
                 _,
@@ -508,6 +510,7 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
+            | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => Err(unsupported(digits, "round to this number of digits")),
         }
@@ -608,6 +611,7 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::ObjectOrNone(_)
                     | Rep::List(_)
                     | Rep::ListOrNone(_)
+                    | Rep::Array(_)
                     | Rep::Hash
                     | Rep::Func(_) => Err(unsupported(arg, "float of this type")),
                 }
@@ -666,7 +670,7 @@ impl<'a> Lowering<'a, '_> {
                     site,
                 }
             }
-            Rep::Hash => unreachable!("the prelude writes no hash"),
+            Rep::Hash | Rep::Array(_) => unreachable!("the prelude writes no {:?}", value.rep()),
             // CPython writes the address of the function too, which changes
             // from one run to the next.
             Rep::Func(_) => {
@@ -700,6 +704,7 @@ impl<'a> Lowering<'a, '_> {
                     | Rep::ObjectOrNone(_)
                     | Rep::List(_)
                     | Rep::ListOrNone(_)
+                    | Rep::Array(_)
                     | Rep::Hash
                     | Rep::Func(_) => Err(unsupported(arg, "int of this type")),
                 }

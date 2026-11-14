@@ -78,6 +78,11 @@ impl ListRepr {
         self.types(list).list
     }
 
+    /// The array of the items of a list of the type `list`.
+    pub fn items_type(&self, list: usize) -> TypeIdx {
+        self.types(list).items
+    }
+
     /// Starts a literal of the type `list` with `count` items. The code
     /// then pushes each item between [`Self::before_item`] and
     /// [`Self::after_item`], and ends with [`Self::end_literal`]. A literal
@@ -203,6 +208,24 @@ impl ListRepr {
         f.ins().local_get(len).struct_set(types.list, LEN);
         f.free(len);
         f.free(value);
+    }
+
+    /// Pops an array of the items of a list of the type `list`, an `i32`
+    /// start and an `i32` count, and sets that many items from the start to
+    /// `null`, the null of the items when they are references. Items
+    /// without a reference stay as they are.
+    pub fn clear(&self, f: &mut FuncState, list: usize, null: Option<HeapType>) {
+        let Some(null) = null else {
+            f.ins().drop().drop().drop();
+            return;
+        };
+        let count = f.temp(ValType::I32);
+        f.ins()
+            .local_set(count)
+            .ref_null(null)
+            .local_get(count)
+            .array_fill(self.types(list).items);
+        f.free(count);
     }
 
     /// Pops a list of the type `list` and pushes the array of its items.

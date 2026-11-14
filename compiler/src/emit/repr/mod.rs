@@ -630,6 +630,7 @@ impl Reprs {
             Rep::Uniform => Some(self.uniform.val_type()),
             Rep::Object(class) | Rep::ObjectOrNone(class) => Some(self.class(class).ref_to(true)),
             Rep::List(list) | Rep::ListOrNone(list) => Some(self.list_type(list).ref_to(true)),
+            Rep::Array(list) => Some(self.array_type(list).ref_to(true)),
             Rep::Hash => Some(ValType::I64),
             Rep::Func(ty) => Some(self.func_value(ty).ref_to(true)),
             Rep::None => None,
@@ -673,6 +674,11 @@ impl Reprs {
         self.list.list_type(list.index())
     }
 
+    /// The array of the items of a list of the type `list`.
+    fn array_type(&self, list: ListId) -> TypeIdx {
+        self.list.items_type(list.index())
+    }
+
     /// The struct of an object of `class`.
     fn class(&self, class: ClassId) -> TypeIdx {
         self.layout.class(class)
@@ -711,6 +717,7 @@ impl Reprs {
             Rep::List(list) | Rep::ListOrNone(list) => {
                 ConstExpr::ref_null(self.list_type(list).heap_type())
             }
+            Rep::Array(list) => ConstExpr::ref_null(self.array_type(list).heap_type()),
             Rep::Hash => ConstExpr::i64_const(0),
             Rep::Func(ty) => ConstExpr::ref_null(self.func_value(ty).heap_type()),
             Rep::None => unreachable!("a variable of rep None"),
@@ -940,6 +947,7 @@ impl Reprs {
             | Rep::Bool
             | Rep::Str
             | Rep::List(_)
+            | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => {
                 f.ins().drop().i32_const(0);
@@ -1022,7 +1030,7 @@ impl Reprs {
                 f.ins().i32_const(0).i32_ne();
             }
             Rep::ListOrNone(list) => self.list.truth(f, list.index()),
-            Rep::Hash => unreachable!("the truth of a hash"),
+            Rep::Hash | Rep::Array(_) => unreachable!("the truth of {rep:?}"),
         }
     }
 
@@ -1071,6 +1079,7 @@ impl Reprs {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
+            | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => unreachable!("the str of {rep:?}"),
         }
@@ -1316,7 +1325,12 @@ impl Reprs {
     /// Pops a list and pushes the `int` of how many items its array has
     /// room for.
     pub fn list_capacity(&self, f: &mut FuncState, rep: Rep) {
-        self.list.capacity(f, list_index(rep));
+        match rep {
+            Rep::Array(_) => {
+                f.ins().array_len();
+            }
+            _ => self.list.capacity(f, list_index(rep)),
+        }
         self.int.small_as_int(f);
     }
 
@@ -1339,17 +1353,46 @@ impl Reprs {
     /// past them.
     pub fn list_truncate(&self, f: &mut FuncState, rep: Rep) {
         self.int.as_i32(f);
-        let item = self.list_items.get(list_index(rep));
-        let null = match self.local_type(*item.expect("a type of list of the program")) {
-            Some(ValType::Ref(ty)) => Some(ty.heap_type),
-            _ => None,
-        };
-        self.list.truncate(f, list_index(rep), null);
+        self.list.truncate(f, list_index(rep), self.item_null(rep));
     }
 
-    /// Pops a list and pushes the array of its items.
+    /// Pops a list and pushes the array of its items. An array stays as it
+    /// is.
     pub fn list_items(&self, f: &mut FuncState, rep: Rep) {
-        self.list.items(f, list_index(rep));
+        if !matches!(rep, Rep::Array(_)) {
+            self.list.items(f, list_index(rep));
+        }
+    }
+
+    /// Pops an `int` length and pushes a new array of the type `rep` with
+    /// that many items, each the default of its rep.
+    pub fn array_new(&self, f: &mut FuncState, rep: Rep) {
+        self.int.as_i32(f);
+        f.ins()
+            .array_new_default(self.list.items_type(list_index(rep)));
+    }
+
+    /// Pops an array of `rep`, an `int` start and an `int` count, and drops
+    /// the references of that many items from the start. An array of items
+    /// without a reference stays as it is.
+    pub fn array_clear(&self, f: &mut FuncState, rep: Rep) {
+        let count = f.temp(ValType::I32);
+        self.int.as_i32(f);
+        f.ins().local_set(count);
+        self.int.as_i32(f);
+        f.ins().local_get(count);
+        f.free(count);
+        self.list.clear(f, list_index(rep), self.item_null(rep));
+    }
+
+    /// The null of the items of a list or an array of `rep` when they are
+    /// references, and `None` otherwise.
+    fn item_null(&self, rep: Rep) -> Option<HeapType> {
+        let item = self.list_items.get(list_index(rep));
+        match self.local_type(*item.expect("a type of list of the program")) {
+            Some(ValType::Ref(ty)) => Some(ty.heap_type),
+            _ => None,
+        }
     }
 
     /// Pops an `int` index and pushes it as the `i32` that an array takes.
@@ -1796,7 +1839,12 @@ impl Reprs {
                     _ => unreachable!("an order of objects"),
                 };
             }
-            Rep::None | Rep::StrOrNone | Rep::List(_) | Rep::ListOrNone(_) | Rep::Hash => {
+            Rep::None
+            | Rep::StrOrNone
+            | Rep::List(_)
+            | Rep::ListOrNone(_)
+            | Rep::Array(_)
+            | Rep::Hash => {
                 unreachable!("a comparison of {rep:?}")
             }
         }
@@ -1873,7 +1921,7 @@ impl Reprs {
                 f.end();
                 f.free(value);
             }
-            Rep::Hash => unreachable!("the prelude writes no hash"),
+            Rep::Hash | Rep::Array(_) => unreachable!("the prelude writes no {rep:?}"),
             Rep::Func(_) => unreachable!("a write of a function"),
         }
     }
@@ -2114,9 +2162,12 @@ impl Reprs {
     }
 }
 
-/// The index of the type of a list of `rep`.
+/// The index of the type of a list of `rep`, a list or an array.
 fn list_index(rep: Rep) -> usize {
-    rep.list().expect("a list").index()
+    match rep {
+        Rep::Array(list) => list.index(),
+        rep => rep.list().expect("a list").index(),
+    }
 }
 
 /// Pops a value of `rep` in the form of a local and pushes it in the form

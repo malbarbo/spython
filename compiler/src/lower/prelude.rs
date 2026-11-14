@@ -843,10 +843,35 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 text,
                 site: self.site(call.range()),
             }),
-            "item" => arg().zip(arg()).and_then(|(list, index)| {
-                let rep = self.list_item(list.rep().list()?);
+            "item" | "array_get" => arg().zip(arg()).and_then(|(list, index)| {
+                let rep = self.list_item(items_of(list.rep())?);
                 Some(Expr::Item { list, index, rep })
             }),
+            "array_new" => {
+                let annotated = self.annotation.get();
+                let Some((_, Rep::Array(list))) =
+                    annotated.filter(|(range, _)| *range == call.range())
+                else {
+                    return Err(unsupported(call, "an array without an annotation"));
+                };
+                arg().map(|len| Expr::ArrayNew {
+                    list,
+                    len,
+                    site: self.site(call.range()),
+                })
+            }
+            "array_clear" => {
+                let (array, start, count) = (arg(), arg(), arg());
+                array
+                    .zip(start)
+                    .zip(count)
+                    .map(|((array, start), count)| Expr::ArrayClear {
+                        array,
+                        start,
+                        count,
+                    })
+            }
+            "list_items" => arg().map(Expr::ListItems),
             // A value of a rep without a reference stands for an object
             // that the program can only compare with `==`.
             "same" => arg().zip(arg()).map(|(a, b)| match a.rep() {
@@ -854,10 +879,11 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 | Rep::ObjectOrNone(_)
                 | Rep::List(_)
                 | Rep::ListOrNone(_)
+                | Rep::Array(_)
                 | Rep::Uniform => Expr::Is(a, b),
                 _ => Expr::Bool(false),
             }),
-            "list_capacity" => arg().map(Expr::ListCapacity),
+            "list_capacity" | "array_len" => arg().map(Expr::ListCapacity),
             "list_reserve" => arg().zip(arg()).map(|(list, capacity)| Expr::ListReserve {
                 list,
                 capacity,
@@ -870,12 +896,12 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 .zip(arg())
                 .map(|(list, len)| Expr::ListTruncate { list, len }),
             // The value takes the rep of the items of the list.
-            "set_item" => {
+            "set_item" | "array_set" => {
                 let (list, index, value) = (arg(), arg(), arg());
                 list.zip(index)
                     .zip(value)
                     .and_then(|((list, index), value)| {
-                        let item = self.list_item(list.rep().list()?);
+                        let item = self.list_item(items_of(list.rep())?);
                         Some(Expr::SetItem {
                             list,
                             index,
@@ -883,7 +909,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                         })
                     })
             }
-            "copy_items" => {
+            "copy_items" | "array_copy" => {
                 let (dst, at, src, start, count) = (arg(), arg(), arg(), arg(), arg());
                 dst.zip(at).zip(src.zip(start)).zip(count).map(
                     |(((dst, at), (src, start)), count)| Expr::CopyItems {
@@ -913,8 +939,8 @@ impl<'a, 'db> Lowering<'a, 'db> {
 /// `args` of a function whose parameters have the declared types `params`.
 /// `item` gives the rep of the items of a type of list, and `func` the
 /// parameters and the result of a type of function. A variable inside
-/// `list[...]` or `Callable[...]` takes the rep of the argument, since a
-/// list of one type holds no item of another, and a bare variable takes
+/// `list[...]`, `Array[...]` or `Callable[...]` takes the rep of the
+/// argument, since a list of one type holds no item of another, and a bare variable takes
 /// the argument as a value of that rep. A variable that only bare
 /// parameters have takes the rep of their argument, unless it is uniform,
 /// whose classes the call does not know, or `None`, which no parameter
@@ -969,8 +995,8 @@ fn type_map(
             }
             continue;
         }
-        // The item of a list, and of each list inside it.
-        while let (Shape::List(inner), Rep::List(list)) = (shape, rep) {
+        // The item of a list or of an array, and of each list inside it.
+        while let Some((inner, list)) = items_shape(shape, rep) {
             shape = inner;
             let arg = item(list);
             rep = arg.rep;
@@ -1064,6 +1090,29 @@ fn builtin_module(class: &str, name: &str) -> Option<&'static str> {
         "int" | "bool" if public(names::INT_ATTRIBUTES) => Some("int"),
         "float" if public(names::FLOAT_ATTRIBUTES) => Some("float"),
         _ => None,
+    }
+}
+
+/// The shape of the items of a parameter of `shape`, a list or an array,
+/// with the type of list of its argument of `rep`, and `None` for a
+/// parameter of another type.
+fn items_shape(shape: &Shape, rep: Rep) -> Option<(&Shape, ListId)> {
+    match (shape, rep) {
+        (Shape::List(inner), Rep::List(list)) => Some((inner, list)),
+        (Shape::Instance(_, args), Rep::Array(list)) => match &args[..] {
+            [inner] => Some((inner, list)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The type of list whose items `rep`, a list or an array, holds, and
+/// `None` for a rep of another type.
+fn items_of(rep: Rep) -> Option<ListId> {
+    match rep {
+        Rep::Array(list) => Some(list),
+        rep => rep.list(),
     }
 }
 

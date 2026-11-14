@@ -1564,6 +1564,25 @@ impl Emitter<'_> {
                 self.expr(f, list);
                 self.reprs.list_capacity(f, list.rep());
             }
+            Expr::ArrayNew { list, len, site } => {
+                self.expr(f, len);
+                let rep = Rep::Array(*list);
+                self.at(f, *site, |e, f| e.reprs.array_new(f, rep));
+            }
+            Expr::ArrayClear {
+                array,
+                start,
+                count,
+            } => {
+                self.expr(f, array);
+                self.expr(f, start);
+                self.expr(f, count);
+                self.reprs.array_clear(f, array.rep());
+            }
+            Expr::ListItems(list) => {
+                self.expr(f, list);
+                self.reprs.list_items(f, list.rep());
+            }
             Expr::ListReserve {
                 list,
                 capacity,

@@ -131,6 +131,36 @@ def decimal_value(code_point: int) -> int:
 def parse_float(text: str) -> float:
     """The `float` of `text`, which is ASCII in the form of a float of Python without underscores."""
 
+class Array[T]:
+    """A mutable array of a fixed length, whose items have the default of their type until the
+    prelude sets them."""
+
+def array_new[T](length: int) -> Array[T]:
+    """A new array of `length` items. The type of the target of the call gives `T`."""
+
+def array_len[T](a: Array[T]) -> int:
+    """The number of items of `a`."""
+
+def array_get[T](a: Array[T], index: int) -> T:
+    """The item of `a` at `index`, which is not negative and is below `len(a)`. The item has to
+    be one that the prelude set."""
+
+def array_set[T](a: Array[T], index: int, x: T) -> None:
+    """Sets the item of `a` at `index`, which is not negative and is below `len(a)`, to `x`."""
+
+def array_copy[T](
+    dst: Array[T], at: int, src: Array[T], start: int, count: int
+) -> None:
+    """Copies `count` items of `src`, from `start`, to `dst`, from `at`, as if through a buffer, so
+    the two ranges may overlap. Both ranges are in range."""
+
+def array_clear[T](a: Array[T], start: int, count: int) -> None:
+    """Sets `count` items of `a`, from `start`, to the default of their type, so the items that
+    were there may go. The range is in range."""
+
+def list_items[T](xs: list[T]) -> Array[T]:
+    """The array of the items of `xs`, which may have room past `len(xs)`."""
+
 def list_capacity[T](xs: list[T]) -> int:
     """How many items the array of `xs` has room for."""
 

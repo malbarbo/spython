@@ -763,8 +763,27 @@ pub(crate) enum Expr {
         len: Box<Expr>,
         site: Site,
     },
-    /// How many items the array of a list has room for, as an `int`.
+    /// How many items the array of a list has room for, or the length of
+    /// an array, as an `int`.
     ListCapacity(Box<Expr>),
+    /// A new array of the type with an `int` number of items, each the
+    /// default of its rep. The site is where the program runs out of
+    /// memory for the array.
+    ArrayNew {
+        list: ListId,
+        len: Box<Expr>,
+        site: Site,
+    },
+    /// Sets `count` items of an array, from the `int` `start`, to the
+    /// default of their rep, so the items that were there may go. Both are
+    /// `int`s in range.
+    ArrayClear {
+        array: Box<Expr>,
+        start: Box<Expr>,
+        count: Box<Expr>,
+    },
+    /// The array of the items of a list.
+    ListItems(Box<Expr>),
     /// Gives a list an array with room for an `int` number of items, not
     /// below its length, with its items. The site is where the program runs
     /// out of memory for the array.
@@ -785,25 +804,26 @@ pub(crate) enum Expr {
         list: Box<Expr>,
         len: Box<Expr>,
     },
-    /// The item of a list at an `int` index that is not negative and is
-    /// below the length of the list, which has `rep`, the rep of the items.
+    /// The item of a list or of an array at an `int` index that is not
+    /// negative and is below the length, which has `rep`, the rep of the
+    /// items.
     Item {
         list: Box<Expr>,
         index: Box<Expr>,
         rep: Rep,
     },
-    /// Sets the item at the `int` index of the array of a list to the
-    /// value, which has the rep of the items. The index is not negative and
-    /// is below the capacity of the list.
+    /// Sets the item at the `int` index of an array, or of the array of a
+    /// list, to the value, which has the rep of the items. The index is not
+    /// negative and is below the length of the array.
     SetItem {
         list: Box<Expr>,
         index: Box<Expr>,
         value: Box<Expr>,
     },
-    /// Copies `count` items of the list `src`, from the `int` `start`, to
-    /// the array of the list `dst`, from the `int` `at`, as if through a
-    /// buffer, so the two ranges may overlap. Both lists are of the same
-    /// type, and both ranges are below the capacity of their lists.
+    /// Copies `count` items of `src`, from the `int` `start`, to `dst`,
+    /// from the `int` `at`, as if through a buffer, so the two ranges may
+    /// overlap. `dst` and `src` are two lists or two arrays of the same
+    /// type, and both ranges are below the length of their arrays.
     CopyItems {
         dst: Box<Expr>,
         at: Box<Expr>,
@@ -1396,6 +1416,9 @@ pub(crate) enum Rep {
     List(ListId),
     /// A list of the type or `None`.
     ListOrNone(ListId),
+    /// The array of the items of a list of the type, which only the
+    /// prelude holds.
+    Array(ListId),
     /// The `hash` of CPython of a value, which only the prelude holds.
     Hash,
     /// A value of the type of function.
@@ -1545,6 +1568,8 @@ impl Expr {
             | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
             Expr::List { list, .. } => Rep::List(*list),
+            Expr::ArrayNew { list, .. } => Rep::Array(*list),
+            Expr::ListItems(list) => Rep::Array(list.rep().list().expect("a list")),
             Expr::Closure { ty, .. } => Rep::Func(*ty),
             Expr::ChainLeft(rep) | Expr::ChainRight(rep) | Expr::LogicLeft(rep) => *rep,
             Expr::Logic { value, .. } => value.rep(),
@@ -1560,6 +1585,7 @@ impl Expr {
             | Expr::ListReserve { .. }
             | Expr::ListSetLen { .. }
             | Expr::ListTruncate { .. }
+            | Expr::ArrayClear { .. }
             | Expr::SetItem { .. }
             | Expr::CopyItems { .. } => Rep::None,
         }

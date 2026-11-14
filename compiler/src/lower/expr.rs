@@ -570,7 +570,7 @@ impl<'a> Lowering<'a, '_> {
                 let value = self.coerce(lowered, Rep::StrOrNone).expect("a str or None");
                 self.prelude_call_at("str", "str_or_none", vec![value], self.site(range))
             }
-            Rep::Hash => Err(unsupported(node, "str of a hash")),
+            Rep::Hash | Rep::Array(_) => Err(unsupported(node, "str of this type")),
             Rep::Func(_) => Err(unsupported(node, "str of a function")),
             Rep::Uniform => {
                 for class in self.classes_in(expr_shape(self.model(), node)) {
@@ -1212,6 +1212,7 @@ impl<'a> Lowering<'a, '_> {
             | Rep::ObjectOrNone(_)
             | Rep::List(_)
             | Rep::ListOrNone(_)
+            | Rep::Array(_)
             | Rep::Hash
             | Rep::Func(_) => Err(unsupported(
                 operand,
@@ -1237,6 +1238,7 @@ pub(super) fn float_value(lowered: Expr, operand: &impl Ranged) -> Result<Expr, 
         | Rep::ObjectOrNone(_)
         | Rep::List(_)
         | Rep::ListOrNone(_)
+        | Rep::Array(_)
         | Rep::Hash
         | Rep::Func(_) => Err(unsupported(
             operand,
