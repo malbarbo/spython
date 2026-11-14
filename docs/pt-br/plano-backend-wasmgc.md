@@ -628,19 +628,29 @@ corpus.
   dos testes de integração da CLI, e o nível 4 é o que o compilador cobre.
   Dos 29 arquivos, o checker recusa os 15 que testam erros. Uma lista no
   teste guarda 7 que o compilador recusa, com o motivo. Dois importam
-  `spython.image`, da fatia 7, três importam um módulo do programa, um
-  herda de `IntEnum` e de `StrEnum`, da fatia 8, e um tem uma anotação
+  `spython.image`, da fatia 10, três importam um módulo do programa,
+  um herda de `IntEnum` e de `StrEnum`, os dois da fatia 7, e um tem uma anotação
   que o CPython 3.13 recusa com `NameError`. O teste falha quando o
   compilador passa a aceitar um deles. O plano mandava medir também o
   `wasmtime compile`, que saiu porque o alvo é o V8.
 
-- **7. Imagens e programas interativos.**
-- **8. Nível 5 por partes**, até o corpus passar. Depois os inteiros
-  grandes e a saída do RustPython.
+- **7. A linguagem completa.** O subconjunto estático do Python 3.13
+  que o checker aceita no nível 5, com tuplas, o formato, a iteração,
+  `match`, as classes com a vtable no `$Class`, as exceções como classes
+  do prelude, `try`, `with` e os módulos do programa. O [plano da fatia
+  7](plano-fatia-7-linguagem.md) tem as partes e as decisões.
+- **8. Os inteiros grandes.** Depois deles, a saída do RustPython.
 - **9. O wasmtime embutido na CLI.**
-- **10. Navegador.** O compilador no crate `wasm/`, o `backend=wasmgc`
-  no `repl_new`, o programa e o REPL na página. Fica por último, porque
-  os programas standalone vêm primeiro.
+- **10. Navegador e REPL.** O compilador no crate `wasm/`, o
+  `backend=wasmgc` no `repl_new`, o programa e o REPL na página. Com o
+  REPL vêm as imagens, os programas interativos, o `input`, o `...` como
+  comando e o capítulo 09. Para as imagens, falta decidir entre chamar o
+  Image em Rust do sinteract pela fronteira e reescrever a biblioteca no
+  prelude. Fica por último entre os hosts, porque os programas
+  standalone vêm primeiro.
+- **11. Geradores.** A função com `yield`, `yield from`, a expressão
+  geradora como valor e o `contextlib`, com o desenho da seção
+  "Geradores, para o fim" do plano da fatia 7.
 
 A estimativa é de 5 a 8 meses de trabalho ativo até a fatia 6.
 
@@ -685,8 +695,6 @@ O hello world leva hoje 141 ms no `main`, com o checker.
 - O que mostrar no Safari, que não dá offsets na pilha. O traceback
   montado no desenrolar não depende deles, mas o trap de Stop e o estouro
   de pilha dependem do host.
-- As imagens: chamar o Image em Rust do sinteract pela fronteira ou
-  reescrever a biblioteca no prelude.
 - O `str` compacto, com 1, 2 ou 4 bytes por caractere, para o teto de
   4 GiB do heap do wasmtime.
 - O heap do V8 que acaba e derruba o processo, e o limite de 1 GiB por
