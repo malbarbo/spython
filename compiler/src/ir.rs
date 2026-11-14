@@ -18,8 +18,8 @@ pub(crate) struct Program {
     pub imports: Vec<Import>,
     /// The classes of the module, by their [`ClassId`].
     pub classes: Vec<UserClass>,
-    /// The types of the lists of the program, by their [`ListId`].
-    pub lists: Vec<ListType>,
+    /// The types of the arrays of the program, by their [`ArrayId`].
+    pub arrays: Vec<ArrayType>,
     /// The types of the functions that the program holds as values, by
     /// their [`FuncTypeId`].
     pub func_types: Vec<FuncType>,
@@ -70,7 +70,7 @@ id! {
     FuncId, "functions";
     ImportId, "imports";
     ClassId, "classes";
-    ListId, "types of lists";
+    ArrayId, "types of arrays";
     FuncTypeId, "types of functions";
 }
 
@@ -152,11 +152,11 @@ pub(crate) struct UserClass {
     pub copy_eq: Option<FuncId>,
 }
 
-/// A type of list of the program, which the rep of its items tells apart.
+/// A type of array of the program, which the rep of its items tells apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ListId(u32);
+pub(crate) struct ArrayId(u32);
 
-pub(crate) struct ListType {
+pub(crate) struct ArrayType {
     /// The rep of each item of an array of the type.
     pub item: Rep,
 }
@@ -519,10 +519,10 @@ pub(crate) enum Expr {
         value: Box<Expr>,
         class: ClassId,
     },
-    /// A new array of the type `list`, with a value of the rep of its items
-    /// for each item, which the program evaluates in order.
+    /// A new array of the type `array`, with a value of the rep of its
+    /// items for each item, which the program evaluates in order.
     Array {
-        list: ListId,
+        array: ArrayId,
         items: Vec<Expr>,
     },
     /// Whether the `repr` of the object runs, as a `bool`.
@@ -756,7 +756,7 @@ pub(crate) enum Expr {
     /// default of its rep. The site is where the program runs out of
     /// memory for the array.
     ArrayNew {
-        list: ListId,
+        array: ArrayId,
         len: Box<Expr>,
         site: Site,
     },
@@ -771,7 +771,7 @@ pub(crate) enum Expr {
     /// The item of an array at an `int` index that is not negative and is
     /// below its length, which has `rep`, the rep of the items.
     Item {
-        list: Box<Expr>,
+        array: Box<Expr>,
         index: Box<Expr>,
         rep: Rep,
     },
@@ -779,7 +779,7 @@ pub(crate) enum Expr {
     /// the rep of the items. The index is not negative and is below the
     /// length of the array.
     SetItem {
-        list: Box<Expr>,
+        array: Box<Expr>,
         index: Box<Expr>,
         value: Box<Expr>,
     },
@@ -1367,7 +1367,7 @@ pub(crate) enum Rep {
     /// An object of the class or `None`.
     ObjectOrNone(ClassId),
     /// An array of the items of the type, which only the prelude holds.
-    Array(ListId),
+    Array(ArrayId),
     /// The `hash` of CPython of a value, which only the prelude holds.
     Hash,
     /// A value of the type of function.
@@ -1411,7 +1411,7 @@ impl Rep {
 
     /// The type of the items of an array of `self`, and `None` for a rep of
     /// another type.
-    pub(crate) fn array(self) -> Option<ListId> {
+    pub(crate) fn array(self) -> Option<ArrayId> {
         match self {
             Rep::Array(list) => Some(list),
             _ => None,
@@ -1515,7 +1515,7 @@ impl Expr {
             | Expr::Empty(class)
             | Expr::AsExact { class, .. }
             | Expr::Target(class) => Rep::Object(*class),
-            Expr::Array { list, .. } | Expr::ArrayNew { list, .. } => Rep::Array(*list),
+            Expr::Array { array, .. } | Expr::ArrayNew { array, .. } => Rep::Array(*array),
             Expr::Closure { ty, .. } => Rep::Func(*ty),
             Expr::ChainLeft(rep) | Expr::ChainRight(rep) | Expr::LogicLeft(rep) => *rep,
             Expr::Logic { value, .. } => value.rep(),

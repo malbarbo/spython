@@ -56,7 +56,7 @@ pub(crate) fn emit(program: &Program) -> (Vec<u8>, CodeMap) {
         program.tests.is_some(),
         &Types {
             classes: &program.classes,
-            lists: &program.lists,
+            arrays: &program.arrays,
             funcs: &program.func_types,
             closures: &closures,
             cells: &cells,
@@ -1547,9 +1547,9 @@ impl Emitter<'_> {
                 self.expr(f, array);
                 self.reprs.array_len(f);
             }
-            Expr::ArrayNew { list, len, site } => {
+            Expr::ArrayNew { array, len, site } => {
                 self.expr(f, len);
-                let rep = Rep::Array(*list);
+                let rep = Rep::Array(*array);
                 self.at(f, *site, |e, f| e.reprs.array_new(f, rep));
             }
             Expr::ArrayClear {
@@ -1562,18 +1562,22 @@ impl Emitter<'_> {
                 self.expr(f, count);
                 self.reprs.array_clear(f, array.rep());
             }
-            Expr::Item { list, index, rep } => {
-                self.expr(f, list);
+            Expr::Item { array, index, rep } => {
+                self.expr(f, array);
                 self.expr(f, index);
                 self.reprs.index_of(f);
-                self.reprs.array_item(f, list.rep(), *rep);
+                self.reprs.array_item(f, array.rep(), *rep);
             }
-            Expr::SetItem { list, index, value } => {
-                self.expr(f, list);
+            Expr::SetItem {
+                array,
+                index,
+                value,
+            } => {
+                self.expr(f, array);
                 self.expr(f, index);
                 self.reprs.index_of(f);
                 self.expr(f, value);
-                self.reprs.set_array_item(f, list.rep());
+                self.reprs.set_array_item(f, array.rep());
             }
             Expr::CopyItems {
                 dst,
@@ -1730,14 +1734,14 @@ impl Emitter<'_> {
                 self.expr(f, value);
                 self.reprs.as_exact(f, *class);
             }
-            Expr::Array { list, items } => {
-                let array = self.reprs.begin_literal(f, *list, items.len());
+            Expr::Array { array, items } => {
+                let local = self.reprs.begin_literal(f, *array, items.len());
                 for (i, item) in items.iter().enumerate() {
-                    self.reprs.before_item(f, array, i);
+                    self.reprs.before_item(f, local, i);
                     self.expr(f, item);
-                    self.reprs.after_item(f, *list, array);
+                    self.reprs.after_item(f, *array, local);
                 }
-                self.reprs.end_literal(f, *list, items.len(), array);
+                self.reprs.end_literal(f, *array, items.len(), local);
             }
             Expr::Field {
                 object,

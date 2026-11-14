@@ -15,7 +15,7 @@ use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, params_of, unsu
 use crate::Error;
 use crate::cpython::names;
 use crate::ir::{
-    Case, ClassId, CodePointSet, Expr, FuncId, FuncType, FuncTypeId, ListId, Rep, Site, Stmt,
+    ArrayId, Case, ClassId, CodePointSet, Expr, FuncId, FuncType, FuncTypeId, Rep, Site, Stmt,
 };
 
 /// Each module of the prelude that the database of `file` has, by name.
@@ -661,7 +661,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
             names,
             shapes,
             args,
-            |list| self.list_arg(list),
+            |list| self.array_arg(list),
             |ty| self.func_type_of(ty),
             |class| self.copy_args(class),
         )
@@ -846,19 +846,19 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 text,
                 site: self.site(call.range()),
             }),
-            "array_get" => arg().zip(arg()).and_then(|(list, index)| {
-                let rep = self.list_item(list.rep().array()?);
-                Some(Expr::Item { list, index, rep })
+            "array_get" => arg().zip(arg()).and_then(|(array, index)| {
+                let rep = self.array_item_rep(array.rep().array()?);
+                Some(Expr::Item { array, index, rep })
             }),
             "array_new" => {
                 let annotated = self.annotation.get();
-                let Some((_, Rep::Array(list))) =
+                let Some((_, Rep::Array(array))) =
                     annotated.filter(|(range, _)| *range == call.range())
                 else {
                     return Err(unsupported(call, "an array without an annotation"));
                 };
                 arg().map(|len| Expr::ArrayNew {
-                    list,
+                    array,
                     len,
                     site: self.site(call.range()),
                 })
@@ -885,13 +885,14 @@ impl<'a, 'db> Lowering<'a, 'db> {
             "array_len" => arg().map(Expr::ArrayLen),
             // The value takes the rep of the items of the array.
             "array_set" => {
-                let (list, index, value) = (arg(), arg(), arg());
-                list.zip(index)
+                let (array, index, value) = (arg(), arg(), arg());
+                array
+                    .zip(index)
                     .zip(value)
-                    .and_then(|((list, index), value)| {
-                        let item = self.list_item(list.rep().array()?);
+                    .and_then(|((array, index), value)| {
+                        let item = self.array_item_rep(array.rep().array()?);
                         Some(Expr::SetItem {
-                            list,
+                            array,
                             index,
                             value: Box::new(self.coerce(*value, item)?),
                         })
@@ -925,7 +926,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
 
 /// The rep of each type variable of `names` for a call with arguments of
 /// `args` of a function whose parameters have the declared types `params`.
-/// `item` gives the rep of the items of a type of list, and `func` the
+/// `item` gives the rep of the items of a type of array, and `func` the
 /// parameters and the result of a type of function. A variable inside
 /// `list[...]`, `Array[...]` or `Callable[...]` takes the rep of the
 /// argument, since a list of one type holds no item of another, and a bare variable takes
@@ -937,7 +938,7 @@ fn type_map(
     names: &[String],
     params: &[Shape],
     args: &[Rep],
-    item: impl Fn(ListId) -> TypeArg,
+    item: impl Fn(ArrayId) -> TypeArg,
     func: impl Fn(FuncTypeId) -> FuncType,
     copy: impl Fn(ClassId) -> Option<Vec<TypeArg>>,
 ) -> Option<Vec<(String, TypeArg)>> {
@@ -1095,7 +1096,7 @@ fn builtin_module(class: &str, name: &str) -> Option<&'static str> {
 fn type_args(
     shape: &Shape,
     rep: Rep,
-    item: impl Fn(ListId) -> TypeArg,
+    item: impl Fn(ArrayId) -> TypeArg,
     copy: impl Fn(ClassId) -> Option<Vec<TypeArg>>,
 ) -> Vec<(&Shape, TypeArg)> {
     match (shape, rep) {

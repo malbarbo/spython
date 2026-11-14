@@ -18,9 +18,9 @@ use super::runtime::exc::Exceptions;
 use super::runtime::host::{Capture, Host};
 use crate::cpython::{Class, MATH_DOMAIN_ERROR, MEMORY_ERROR, Message, STR_INDEX_OUT_OF_RANGE};
 use crate::ir::{
-    ArithOp, BitOp, Capture as CaptureOf, Case, Choice, ClassId, CmpOp, CodePointSet, DivOp,
-    FloatFunc2, FloatOp, FuncType, FuncTypeId, ListId, ListType, Literal, MathFunc, MathFunc2, Rep,
-    SiteFrame, UserClass,
+    ArithOp, ArrayId, ArrayType, BitOp, Capture as CaptureOf, Case, Choice, ClassId, CmpOp,
+    CodePointSet, DivOp, FloatFunc2, FloatOp, FuncType, FuncTypeId, Literal, MathFunc, MathFunc2,
+    Rep, SiteFrame, UserClass,
 };
 use array::ArrayRepr;
 use float::FloatRepr;
@@ -96,7 +96,7 @@ pub(crate) struct Reprs {
 #[derive(Clone, Copy)]
 pub(crate) struct Types<'p> {
     pub classes: &'p [UserClass],
-    pub lists: &'p [ListType],
+    pub arrays: &'p [ArrayType],
     pub funcs: &'p [FuncType],
     /// The type of function and the captures of each function that
     /// captures variables.
@@ -111,7 +111,7 @@ impl Reprs {
     pub fn new(m: &mut ModuleState, host: &Host, tests: bool, types: &Types) -> Self {
         let Types {
             classes,
-            lists,
+            arrays,
             funcs,
             closures,
             cells,
@@ -127,9 +127,9 @@ impl Reprs {
         let layout = Layout::new(
             m.next_type_index(),
             classes,
-            (lists.len(), funcs.len(), closures.len(), cells.len()),
+            (arrays.len(), funcs.len(), closures.len(), cells.len()),
         );
-        let array_types: Vec<TypeIdx> = (0..lists.len()).map(|i| layout.array(i)).collect();
+        let array_types: Vec<TypeIdx> = (0..arrays.len()).map(|i| layout.array(i)).collect();
         let mut reprs = Reprs {
             int,
             float,
@@ -151,7 +151,7 @@ impl Reprs {
             class_reprs: Vec::new(),
             str_repr: None,
             copy_eqs: Vec::new(),
-            array_items: lists.iter().map(|list| list.item).collect(),
+            array_items: arrays.iter().map(|array| array.item).collect(),
             repr_stack: None,
             cells: cells.to_vec(),
         };
@@ -188,8 +188,8 @@ impl Reprs {
             .map(|(i, base, is_final)| (structs.get(i).expect("a class"), base, is_final))
             .collect();
         let mut others = Vec::new();
-        for list in lists {
-            let item = reprs.local_type(list.item).expect("an item has a value");
+        for array in arrays {
+            let item = reprs.local_type(array.item).expect("an item has a value");
             others.push((ArrayRepr::composite(item), None, true));
         }
         // The struct of a value of a type of function is open, for the
@@ -649,9 +649,9 @@ impl Reprs {
         self.layout.func(ty.index()).1
     }
 
-    /// The type of an array of the type `list`.
-    fn array_type(&self, list: ListId) -> TypeIdx {
-        self.array.array_type(list.index())
+    /// The wasm type of an array of the type `array`.
+    fn array_type(&self, array: ArrayId) -> TypeIdx {
+        self.array.array_type(array.index())
     }
 
     /// The struct of an object of `class`.
@@ -1309,31 +1309,37 @@ impl Reprs {
         self.array.copy_items(f, array_index(rep));
     }
 
-    /// Starts a literal of the type `list` with `count` items, as
+    /// Starts a literal of the type `array` with `count` items, as
     /// [`ArrayRepr::begin_literal`] says.
-    pub fn begin_literal(&self, f: &mut FuncState, list: ListId, count: usize) -> Option<LocalIdx> {
-        self.array.begin_literal(f, list.index(), count)
+    pub fn begin_literal(
+        &self,
+        f: &mut FuncState,
+        array: ArrayId,
+        count: usize,
+    ) -> Option<LocalIdx> {
+        self.array.begin_literal(f, array.index(), count)
     }
 
     /// Comes before the item at `index` of a literal.
-    pub fn before_item(&self, f: &mut FuncState, array: Option<LocalIdx>, index: usize) {
-        self.array.before_item(f, array, index);
+    pub fn before_item(&self, f: &mut FuncState, local: Option<LocalIdx>, index: usize) {
+        self.array.before_item(f, local, index);
     }
 
-    /// Comes after an item of a literal of the type `list`.
-    pub fn after_item(&self, f: &mut FuncState, list: ListId, array: Option<LocalIdx>) {
-        self.array.after_item(f, list.index(), array);
+    /// Comes after an item of a literal of the type `array`.
+    pub fn after_item(&self, f: &mut FuncState, array: ArrayId, local: Option<LocalIdx>) {
+        self.array.after_item(f, array.index(), local);
     }
 
-    /// Pushes the array of a literal of the type `list` with `count` items.
+    /// Pushes the array of a literal of the type `array` with `count`
+    /// items.
     pub fn end_literal(
         &self,
         f: &mut FuncState,
-        list: ListId,
+        array: ArrayId,
         count: usize,
-        array: Option<LocalIdx>,
+        local: Option<LocalIdx>,
     ) {
-        self.array.end_literal(f, list.index(), count, array);
+        self.array.end_literal(f, array.index(), count, local);
     }
 
     /// Pops a `str` and an `int`, and pushes the `str` repeated that many

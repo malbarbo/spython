@@ -35,7 +35,7 @@ use ty_python_semantic::{Db, SemanticModel};
 
 use crate::cpython::traceback::{self, FileLines};
 use crate::ir::{
-    ClassId, Expr, Func, FuncId, FuncType, FuncTypeId, Import, ImportId, ListId, ListType, Place,
+    ArrayId, ArrayType, ClassId, Expr, Func, FuncId, FuncType, FuncTypeId, Import, ImportId, Place,
     Program, Rep, Site, SiteFrame, Stmt, Var, VarId,
 };
 use crate::{Docstring, Error, Unsupported};
@@ -80,7 +80,7 @@ pub(crate) fn lower(
         funcs: RefCell::new(Funcs::default()),
         imports: RefCell::new(Imports::default()),
         classes: RefCell::new(Classes::default()),
-        lists: RefCell::new(Lists::default()),
+        arrays: RefCell::new(Arrays::default()),
         func_types: RefCell::new(FuncTypes::default()),
         values: RefCell::new(HashMap::new()),
         inner_defs: RefCell::new(HashMap::new()),
@@ -147,12 +147,12 @@ pub(crate) fn lower(
         funcs,
         imports: lowering.imports.into_inner().list,
         classes: lowering.classes.into_inner().into_ir(),
-        lists: {
-            let lists = lowering.lists.into_inner();
-            lists
+        arrays: {
+            let arrays = lowering.arrays.into_inner();
+            arrays
                 .args
                 .into_iter()
-                .map(|arg| ListType { item: arg.rep })
+                .map(|arg| ArrayType { item: arg.rep })
                 .collect()
         },
         func_types: lowering.func_types.into_inner().list,
@@ -255,7 +255,7 @@ struct Lowering<'a, 'db> {
     funcs: RefCell<Funcs<'a, 'db>>,
     imports: RefCell<Imports>,
     classes: RefCell<Classes<'a>>,
-    lists: RefCell<Lists>,
+    arrays: RefCell<Arrays>,
     func_types: RefCell<FuncTypes>,
     /// The function that gives the value of each function of the module
     /// whose name the program reads as a value.
@@ -383,9 +383,9 @@ pub(super) struct TypeArg {
 
 /// The types of the arrays of the program.
 #[derive(Default)]
-struct Lists {
+struct Arrays {
     /// The type of an array of each type of item.
-    ids: HashMap<TypeArg, ListId>,
+    ids: HashMap<TypeArg, ArrayId>,
     /// The type of the items of each type of array, by its id.
     args: Vec<TypeArg>,
 }
@@ -1170,7 +1170,7 @@ impl<'a, 'db> Lowering<'a, 'db> {
                 if Some(class.file) == self.intrinsics && class.name == "Array" =>
             {
                 let [item] = <[Shape; 1]>::try_from(args).ok()?;
-                Some(Rep::Array(self.list_of(self.type_arg(item)?)))
+                Some(Rep::Array(self.array_of(self.type_arg(item)?)))
             }
             Shape::Instance(class, args)
                 if let Some(unit) = self.prelude.iter().find(|unit| unit.file == class.file) =>
@@ -1273,17 +1273,17 @@ impl<'a, 'db> Lowering<'a, 'db> {
             .clone()
     }
 
-    /// The type of a list whose items have the type `arg`, which the first
-    /// call for it creates.
-    fn list_of(&self, arg: TypeArg) -> ListId {
-        let mut lists = self.lists.borrow_mut();
-        if let Some(list) = lists.ids.get(&arg) {
-            return *list;
+    /// The type of an array whose items have the type `arg`, which the
+    /// first call for it creates.
+    fn array_of(&self, arg: TypeArg) -> ArrayId {
+        let mut arrays = self.arrays.borrow_mut();
+        if let Some(array) = arrays.ids.get(&arg) {
+            return *array;
         }
-        let list = ListId::new(lists.args.len());
-        lists.args.push(arg.clone());
-        lists.ids.insert(arg, list);
-        list
+        let array = ArrayId::new(arrays.args.len());
+        arrays.args.push(arg.clone());
+        arrays.ids.insert(arg, array);
+        array
     }
 
     /// What a type variable stands for when a generic class of the prelude
@@ -1305,13 +1305,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Some(TypeArg { rep, classes })
     }
 
-    /// The type of each item of a list of the type `list`.
-    fn list_arg(&self, list: ListId) -> TypeArg {
-        self.lists
+    /// The type of each item of an array of the type `array`.
+    fn array_arg(&self, array: ArrayId) -> TypeArg {
+        self.arrays
             .borrow()
             .args
-            .get(list.index())
-            .expect("a type of list of the program")
+            .get(array.index())
+            .expect("a type of array of the program")
             .clone()
     }
 
@@ -1340,13 +1340,13 @@ impl<'a, 'db> Lowering<'a, 'db> {
         Some(args.first().expect("the type of the items").rep)
     }
 
-    /// The rep of each item of an array of the type `list`.
-    fn list_item(&self, list: ListId) -> Rep {
-        self.lists
+    /// The rep of each item of an array of the type `array`.
+    fn array_item_rep(&self, array: ArrayId) -> Rep {
+        self.arrays
             .borrow()
             .args
-            .get(list.index())
-            .expect("a type of list of the program")
+            .get(array.index())
+            .expect("a type of array of the program")
             .rep
     }
 

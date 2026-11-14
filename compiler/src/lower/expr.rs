@@ -379,7 +379,7 @@ impl<'a> Lowering<'a, '_> {
         };
         let args = vec![
             self.new_copy(class, Vec::new(), site),
-            Expr::Array { list: array, items },
+            Expr::Array { array, items },
         ];
         generated_call(done, args, Rep::Object(class), site)
     }
