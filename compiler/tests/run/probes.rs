@@ -388,7 +388,6 @@ const EXPECTED: &[(&str, Outcome, &str)] = &[
     ("str_format", Unsupported, "part 7c"),
     ("str_iter_join_map", Unsupported, "part 7d"),
     ("str_mult_assign", Unsupported, "part 7b"),
-    ("str_none", Unsupported, "part 7a"),
     ("str_of_float_union", Unsupported, "part 7a"),
     ("str_percent", Unsupported, "part 7c"),
     ("str_union", Unsupported, "part 7a"),

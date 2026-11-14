@@ -566,10 +566,13 @@ impl<'a> Lowering<'a, '_> {
                 operand: Box::new(lowered),
                 site: self.site(range),
             }),
-            Rep::None => Err(unsupported(node, "str of None")),
+            Rep::None | Rep::StrOrNone => {
+                let value = self.coerce(lowered, Rep::StrOrNone).expect("a str or None");
+                self.prelude_call_at("str", "str_or_none", vec![value], self.site(range))
+            }
             Rep::Hash => Err(unsupported(node, "str of a hash")),
             Rep::Func(_) => Err(unsupported(node, "str of a function")),
-            Rep::StrOrNone | Rep::Uniform => Err(unsupported(node, "str of a union")),
+            Rep::Uniform => Err(unsupported(node, "str of a union")),
             // The `str` of a list is its `repr`.
             Rep::List(_) | Rep::ListOrNone(_) => self.repr_of(lowered, range),
             Rep::Object(_) | Rep::ObjectOrNone(_) => {

@@ -278,18 +278,19 @@ fn a_field_with_a_conversion_or_a_format_is_unsupported() {
 }
 
 #[test]
-fn str_of_none_is_unsupported() {
-    let source = indoc! {"
-        def f() -> None:
-            pass
+fn str_of_none_and_of_a_str_or_none_follows_python() {
+    same_as_cpython(
+        "str_of_none_and_of_a_str_or_none_follows_python",
+        indoc! {"
+            def f() -> None:
+                print('f')
 
 
-        print(str(f()))
-    "};
-    assert_eq!(unsupported(source), "str of None");
-    assert_eq!(
-        unsupported(&source.replace("str(f())", "f'{f()}'")),
-        "str of None"
+            s: str | None = 'a'
+            print(str(None), str(f()), str(s), f'{s}', f'<{None}>', f'{f()}')
+            s = None
+            print(str(s), f'{s}', str(s) + '!', len(str(s)))
+        "},
     );
 }
 

@@ -245,13 +245,6 @@ fn a_value_of_a_union_compares_as_its_type_does() {
 fn a_use_of_a_str_or_none_that_the_compiler_lacks_is_unsupported() {
     assert_eq!(
         unsupported(indoc! {"
-            def f(s: str | None) -> str:
-                return str(s)
-        "}),
-        "str of a union"
-    );
-    assert_eq!(
-        unsupported(indoc! {"
             def f(self: str | None) -> None:
                 pass
         "}),
