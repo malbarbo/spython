@@ -86,7 +86,6 @@ const EXPECTED: &[(&str, Outcome, &str)] = &[
     ("dv_func", Unsupported, "part 7d"),
     ("dv_func_local", Unsupported, "part 7d"),
     ("dv_func_print", Unsupported, "part 7d"),
-    ("e_ascii", Unsupported, "part 7a"),
     ("e_bool_of_list", Rejected, "the checker rejects it"),
     ("e_dict_fromkeys", Unsupported, "part 7d"),
     ("e_dict_keys_list", Unsupported, "part 7d"),

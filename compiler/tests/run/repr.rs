@@ -22,6 +22,28 @@ fn repr_of_a_number_follows_python() {
 }
 
 #[test]
+fn ascii_escapes_the_repr_past_ascii() {
+    same_as_cpython(
+        "ascii_escapes_the_repr_past_ascii",
+        indoc! {"
+            class P:
+                nome: str
+
+                def __init__(self, nome: str) -> None:
+                    self.nome = nome
+
+                def __repr__(self) -> str:
+                    return 'P(' + repr(self.nome) + ')'
+
+
+            print(ascii('á'), ascii('abc'), ascii('ação\\n\\t\\'\"'), ascii('\\U0001f600 €'), ascii('\\x85\\xff'))
+            print(ascii(1), ascii(2.5), ascii(True), ascii([1, 2]), ascii(['é', 'x']))
+            print(ascii(P('João')), ascii([P('ç')]), ascii({'á': 1}))
+        "},
+    );
+}
+
+#[test]
 fn repr_of_a_union_tests_the_type_of_the_value() {
     same_as_cpython(
         "repr_of_a_union_tests_the_type_of_the_value",

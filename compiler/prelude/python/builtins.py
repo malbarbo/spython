@@ -2,8 +2,8 @@
 own name. A call of one of them binds its arguments as a call of a function
 of the program does."""
 
-from __spython_prelude__.intrinsics import builder_done, builder_new
-from __spython_prelude__.str import hex_digit
+from __spython_prelude__.intrinsics import builder_done, builder_new, code_point
+from __spython_prelude__.str import hex_digit, put_hex_escape
 
 
 def bin(number: int) -> str:
@@ -47,3 +47,44 @@ def in_base(n: int, bits: int, letter: int) -> str:
         v = (v - v % -base) // base
         at -= 1
     return builder_done(b)
+
+
+def ascii[T](obj: T) -> str:
+    return ascii_of(repr(obj))
+
+
+def ascii_of(s: str) -> str:
+    """`s` with each code point past ASCII as the escape that `repr` gives a
+    code point that it does not print."""
+    n = len(s)
+    size = 0
+    i = 0
+    while i < n:
+        size += escape_len(code_point(s, i))
+        i += 1
+    if size == n:
+        return s
+    b = builder_new(size)
+    at = 0
+    i = 0
+    while i < n:
+        c = code_point(s, i)
+        k = escape_len(c)
+        if k == 1:
+            b[at] = c
+        else:
+            put_hex_escape(b, at, c, k)
+        at += k
+        i += 1
+    return builder_done(b)
+
+
+def escape_len(c: int) -> int:
+    """How many code points `ascii` writes for `c`."""
+    if c < 128:
+        return 1
+    if c < 256:
+        return 4
+    if c < 65536:
+        return 6
+    return 10
