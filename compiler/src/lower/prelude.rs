@@ -6,12 +6,12 @@ use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
 use ty_module_resolver::{ImportingFile, ModuleName, resolve_module};
 use ty_python_semantic::Db;
-use ty_python_semantic::types::lowering::{DefId, Shape, expr_shape, function_info};
+use ty_python_semantic::types::lowering::{DefId, Shape, call_bindings, expr_shape, function_info};
 
 use std::rc::Rc;
 
 use super::class::{generated_call, param};
-use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, unsupported};
+use super::{Loaded, Lowering, PreludeParams, Sig, TypeArg, Unit, params_of, unsupported};
 use crate::Error;
 use crate::cpython::names;
 use crate::ir::{
@@ -108,34 +108,118 @@ impl<'a, 'db> Lowering<'a, 'db> {
         if module == "list" && name == "sort" {
             return self.list_sort(call, receiver);
         }
-        if !call.arguments.keywords.is_empty() {
-            return Err(unsupported(
-                call,
-                "a call of a method with keyword arguments",
-            ));
-        }
+        let unit = self
+            .prelude_unit(module)
+            .ok_or_else(|| unsupported(call, "a call of this method"))?;
+        self.bound_call(call, (unit, name), receiver)
+    }
+
+    /// The call of the function `name` of `unit`, a module of the prelude,
+    /// for the method call `call` on `receiver`, which takes the first
+    /// parameter. The checker binds each argument to a parameter of the
+    /// method in the stubs. A positional argument goes to the parameter in
+    /// its place, and a keyword argument to the parameter of the same name
+    /// in the prelude. A parameter without an argument takes its default.
+    fn bound_call(
+        &self,
+        call: &ast::ExprCall,
+        (unit, name): (&'a Unit<'a, 'db>, &str),
+        receiver: Expr,
+    ) -> Result<Expr, Error> {
+        let def = *unit
+            .defs
+            .get(name)
+            .ok_or_else(|| unsupported(call, "a call of this method"))?;
+        let params: Vec<&ast::ParameterWithDefault> = params_of(def).collect();
+        let bindings = call_bindings(self.model(), call)
+            .ok_or_else(|| unsupported(call, "a call with these arguments"))?;
         // `join` makes a list of a generator first, as `PySequence_Fast`
         // does.
-        let join = module == "str" && name == "join";
-        let mut given = vec![receiver];
-        for arg in &call.arguments.args {
-            given.push(match arg {
-                ast::Expr::Generator(_) if join => self.consumed_list(call, arg)?,
-                arg => self.expr(arg)?,
+        let join = unit.prelude == Some("str") && name == "join";
+        let mut slots: Vec<Option<u32>> = params.iter().map(|_| None).collect();
+        let mut args = vec![receiver];
+        if let Some(first) = slots.first_mut() {
+            *first = Some(0);
+        }
+        for (i, arg) in call.arguments.iter_source_order().enumerate() {
+            // A positional parameter of the stubs may have another name in
+            // the prelude, and a keyword argument has to find its name.
+            let param = match arg {
+                ast::ArgOrKeyword::Arg(_) => Some(i + 1),
+                ast::ArgOrKeyword::Keyword(_) => bindings
+                    .get(i)
+                    .and_then(|binding| binding.parameter_name.as_deref())
+                    .and_then(|bound| {
+                        params
+                            .iter()
+                            .skip(1)
+                            .position(|param| param.name().as_str() == bound)
+                    })
+                    .map(|param| param + 1),
+            };
+            let Some(slot) = param
+                .and_then(|param| slots.get_mut(param))
+                .filter(|slot| slot.is_none())
+            else {
+                return Err(unsupported(
+                    call,
+                    "a call of this method with these arguments",
+                ));
+            };
+            *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
+            args.push(match arg.value() {
+                value @ ast::Expr::Generator(_) if join => self.consumed_list(call, value)?,
+                value => self.expr(value)?,
             });
         }
-        let (func, args) = match self.prelude_unit(module) {
-            Some(unit) => self.generic_args(
-                call,
-                (unit, name),
-                given,
-                (true, "a call of this method with these arguments"),
-            )?,
-            None => None,
+        for (slot, param) in slots.iter_mut().zip(&params) {
+            if slot.is_none() {
+                let default = param.default.as_deref().and_then(literal).ok_or_else(|| {
+                    unsupported(call, "a call of this method with these arguments")
+                })?;
+                *slot = Some(u32::try_from(args.len()).expect("fewer than 2^32 arguments"));
+                args.push(default);
+            }
         }
-        .ok_or_else(|| unsupported(call, "a call of this method"))?;
-        let site = self.call_site(func, call);
-        Ok(self.prelude_call_of(func, args, site))
+        let order: Vec<u32> = slots
+            .into_iter()
+            .map(|slot| slot.expect("an argument for each parameter"))
+            .collect();
+        let reps: Vec<Rep> = order
+            .iter()
+            .filter_map(|arg| args.get(*arg as usize))
+            .map(Expr::rep)
+            .collect();
+        let (func, params) = self
+            .prelude_for(call, unit, name, &reps)?
+            .ok_or_else(|| unsupported(call, "a call of this method"))?;
+        let sig = self.funcs.borrow().get(func).clone();
+        let mut param_of = vec![0; args.len()];
+        for (param, arg) in order.iter().enumerate() {
+            if let Some(slot) = param_of.get_mut(*arg as usize) {
+                *slot = param;
+            }
+        }
+        let args = args
+            .into_iter()
+            .zip(param_of)
+            .map(|(value, param)| {
+                sig.params
+                    .get(param)
+                    .zip(params.0.get(param))
+                    .and_then(|(rep, shape)| self.prelude_arg(value, *rep, shape))
+                    .ok_or_else(|| unsupported(call, "an argument of this type"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let in_place = order.iter().map(|arg| *arg as usize).eq(0..args.len());
+        Ok(Expr::Call {
+            func,
+            args,
+            order: (!in_place).then_some(order),
+            rep: sig.ret,
+            site: self.call_site(func, call),
+            check: None,
+        })
     }
 
     /// The call of the method of `attr` through `receiver`, an object of
@@ -863,6 +947,29 @@ impl Lowering<'_, '_> {
             Rep::Bool if as_int => self.coerce(Expr::BoolAsInt(Box::new(value)), rep),
             _ => self.coerce(value, rep),
         }
+    }
+}
+
+/// The value of `default`, the default of a parameter of the prelude, which
+/// is a literal so that the call can give it in place of the `def`.
+fn literal(default: &ast::Expr) -> Option<Expr> {
+    match default {
+        ast::Expr::NoneLiteral(_) => Some(Expr::None),
+        ast::Expr::BooleanLiteral(value) => Some(Expr::Bool(value.value)),
+        ast::Expr::StringLiteral(value) => Some(Expr::Str(value.value.to_str().to_owned())),
+        ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
+            value: ast::Number::Int(value),
+            ..
+        }) => value.as_i32().map(Expr::Int),
+        ast::Expr::UnaryOp(ast::ExprUnaryOp {
+            op: ast::UnaryOp::USub,
+            operand,
+            ..
+        }) => match literal(operand)? {
+            Expr::Int(value) => Some(Expr::Int(-value)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

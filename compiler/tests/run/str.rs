@@ -715,6 +715,20 @@ fn split_without_arguments_cuts_at_the_runs_of_white_space() {
 }
 
 #[test]
+fn a_method_of_str_takes_keyword_arguments() {
+    same_as_cpython(
+        "a_method_of_str_takes_keyword_arguments",
+        indoc! {r#"
+            def at(n: int) -> int:
+                print('at', n)
+                return n
+            print('aXbXc'.replace('X', '-', count=1), 'a\tb'.expandtabs(tabsize=4))
+            print('aXbXc'.replace('X', '_', count=at(1)))
+        "#},
+    );
+}
+
+#[test]
 fn split_with_arguments_is_unsupported() {
     for source in [
         indoc! {"
