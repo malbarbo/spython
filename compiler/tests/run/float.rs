@@ -414,3 +414,48 @@ fn a_method_through_its_type_follows_python() {
         "},
     );
 }
+
+#[test]
+fn fromhex_follows_python() {
+    same_as_cpython(
+        "fromhex_follows_python",
+        indoc! {"
+            for s in ['0x1.8p+0', '1.8p0', ' -0X1P-1 ', '0x.8', '0x1.', 'a', '0', '-0x0p+99999999999', '0x0.0000000000001p-1022']:
+                print(float.fromhex(s))
+            for s in ['inf', '-Infinity', 'nan', '+0x1p1023', '0x1.fffffffffffffp+1023', '0x1p-1074', '0x1p-1075', '0x1.8p-1075']:
+                print(float.fromhex(s))
+            for s in ['0x1.00000000000008p0', '0x1.00000000000018p0', '0x1.000000000000080001p0', '0x3p-1076', '0x1.0000000000000fp0']:
+                print(float.fromhex(s))
+            print(float.fromhex((0.1).hex()) == 0.1, float.fromhex('0x' + '0' * 50 + '1p0'), float.fromhex('0x1p-99999999999'))
+            print(float.fromhex('0x0.' + '0' * 3000 + '1p12004'), float.fromhex('0x' + 'f' * 300 + 'p-1204'))
+        "},
+    );
+}
+
+#[test]
+fn fromhex_raises_as_python() {
+    for (i, source) in [
+        "''",
+        "'0x'",
+        "'0x.p1'",
+        "'0x1p'",
+        "'0x1p+'",
+        "'1g'",
+        "'0x1 2'",
+        "'0x1.2.3'",
+        "'\\u0661'",
+        "'0x1p\\u0661'",
+        "'0x_1'",
+        "'0x1p1024'",
+        "'0x1.fffffffffffff8p1023'",
+        "'0x1p99999999999'",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        same_as_cpython(
+            &format!("fromhex_raises_as_python_{i}"),
+            &format!("print(float.fromhex({source}))"),
+        );
+    }
+}

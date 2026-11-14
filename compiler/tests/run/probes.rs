@@ -135,7 +135,6 @@ const EXPECTED: &[(&str, Outcome, &str)] = &[
     ("filter_var", Rejected, "part 7d"),
     ("finally_break", Unsupported, "part 7h"),
     ("finally_return", Unsupported, "part 7h"),
-    ("float_hex", Unsupported, "part 7a"),
     ("for_tuple", Unsupported, "part 7b"),
     ("format_builtin", Unsupported, "part 7c"),
     ("format_runtime_attr", Unsupported, "part 7c"),
