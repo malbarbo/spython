@@ -321,7 +321,7 @@ impl Lowering<'_, '_> {
         &self,
         node: &impl Ranged,
         op: ast::Operator,
-        (left, left_node): (Expr, &impl Ranged),
+        (left, left_node): (Expr, &ast::Expr),
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
         let method = |class, name| self.method_func(class, name);

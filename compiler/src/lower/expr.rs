@@ -913,11 +913,14 @@ impl<'a> Lowering<'a, '_> {
         &self,
         node: &impl Ranged,
         (op, augmented): (ast::Operator, bool),
-        (left, left_node): (Expr, &impl Ranged),
+        (left, left_node): (Expr, &ast::Expr),
         (right, right_node): (Expr, &ast::Expr),
     ) -> Result<Expr, Error> {
         if left.rep().class().is_some() || right.rep().class().is_some() {
             return self.special_arith(node, (op, augmented), left, right);
+        }
+        if left.rep() == Rep::Uniform || right.rep() == Rep::Uniform {
+            return self.number_arith(node, op, (left, left_node), (right, right_node));
         }
         match (op, left.rep(), right.rep()) {
             (ast::Operator::Add, Rep::List(a), Rep::List(b)) if a == b => {
@@ -1028,6 +1031,63 @@ impl<'a> Lowering<'a, '_> {
         })
     }
 
+    /// The operator `op` of `node` with an operand of `int | float`, which
+    /// the module `number` of the prelude gives. A `float` on the other
+    /// side makes the operator one of `float`.
+    fn number_arith(
+        &self,
+        node: &impl Ranged,
+        op: ast::Operator,
+        (left, left_node): (Expr, &ast::Expr),
+        (right, right_node): (Expr, &ast::Expr),
+    ) -> Result<Expr, Error> {
+        for (value, operand) in [(&left, left_node), (&right, right_node)] {
+            if value.rep() == Rep::Uniform && !self.is_number_union(operand) {
+                return Err(unsupported(node, "this operator on a union"));
+            }
+        }
+        if left.rep() == Rep::Float || right.rep() == Rep::Float {
+            let float = |value: Expr| match value.rep() {
+                Rep::Uniform => self.prelude_call(node, "number", "as_float", vec![value]),
+                _ => Ok(value),
+            };
+            let (left, right) = (float(left)?, float(right)?);
+            return self.binary(node, (op, false), (left, left_node), (right, right_node));
+        }
+        let name = match op {
+            ast::Operator::Add => "add",
+            ast::Operator::Sub => "sub",
+            ast::Operator::Mult => "mul",
+            ast::Operator::Div => "truediv",
+            ast::Operator::FloorDiv => "floordiv",
+            ast::Operator::Mod => "mod",
+            ast::Operator::Pow => "power",
+            _ => return Err(unsupported(node, "this operator on a union")),
+        };
+        let uniform = |value: Expr, operand: &ast::Expr| match value.rep() {
+            Rep::Uniform => Ok(value),
+            _ => Ok(self
+                .coerce(self.int_value(value, operand)?, Rep::Uniform)
+                .expect("an int in a union")),
+        };
+        let right = if op == ast::Operator::Pow {
+            self.int_value(right, right_node)?
+        } else {
+            uniform(right, right_node)?
+        };
+        self.prelude_call(node, "number", name, vec![uniform(left, left_node)?, right])
+    }
+
+    /// Returns `true` if the checker gives `operand` the type `int`,
+    /// `float` or `int | float`, `false` otherwise.
+    fn is_number_union(&self, operand: &ast::Expr) -> bool {
+        let number = |shape: &Shape| matches!(shape, Shape::Int | Shape::IntLit(_) | Shape::Float);
+        match expr_shape(self.model(), operand) {
+            Some(Shape::Union(shapes)) => shapes.iter().all(number),
+            shape => shape.as_ref().is_some_and(number),
+        }
+    }
+
     /// `left ** right` of two `int`s. The type of the exponent gives the
     /// type of the power, as the checker does. A negative literal gives a
     /// `float`, a literal that is not negative gives an `int`, and any
@@ -1086,6 +1146,12 @@ impl<'a> Lowering<'a, '_> {
                     if lowered.rep().class().is_some() {
                         return self.special_neg(u, lowered);
                     }
+                    if lowered.rep() == Rep::Uniform {
+                        if !self.is_number_union(operand) {
+                            return Err(unsupported(u, "this operator on a union"));
+                        }
+                        return self.prelude_call(u, "number", "neg", vec![lowered]);
+                    }
                     if lowered.rep() == Rep::Float {
                         return Ok(Expr::FloatNeg(Box::new(lowered)));
                     }
@@ -1100,6 +1166,12 @@ impl<'a> Lowering<'a, '_> {
             ast::UnaryOp::UAdd => {
                 let lowered = self.expr(&u.operand)?;
                 if lowered.rep() == Rep::Float {
+                    return Ok(lowered);
+                }
+                if lowered.rep() == Rep::Uniform {
+                    if !self.is_number_union(&u.operand) {
+                        return Err(unsupported(u, "this operator on a union"));
+                    }
                     return Ok(lowered);
                 }
                 self.int_value(lowered, &*u.operand)

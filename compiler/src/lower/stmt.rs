@@ -223,7 +223,7 @@ impl<'a> Lowering<'a, '_> {
                 let left = self.load(name)?;
                 no_list_update(&left, a)?;
                 let right = self.expr(&a.value)?;
-                let value = self.augmented(a, a.op, (left, name), (right, &*a.value))?;
+                let value = self.augmented(a, a.op, (left, &a.target), (right, &a.value))?;
                 let (target, value) = self.target(&a.target, value)?;
                 Ok(Some(Stmt::Assign {
                     targets: vec![target],

@@ -1,6 +1,6 @@
 //! The values of a union of types.
 
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use super::{same_as_cpython, unsupported};
 
@@ -558,5 +558,89 @@ fn the_truth_of_a_union_in_and_or_calls_len_of_a_subclass() {
             print(ou(0), ou(3), isinstance(ou(Vazia()), int), isinstance(ou(Base()), Base))
             print(e(0), e(3), e(Vazia()), e(Base()))
         "},
+    );
+}
+
+#[test]
+fn the_arithmetic_of_int_or_float_follows_python() {
+    same_as_cpython(
+        "the_arithmetic_of_int_or_float_follows_python",
+        indoc! {"
+            def f(x: int | float, y: int | float) -> None:
+                print(x + y, x - y, x * y, x / y, x // y, x % y)
+                print(x + 1, 1 - x, x * 2, 2 / x, x // 3, 7 % x, x ** 2, x ** -1)
+                print(x + 1.5, 1.5 - x, x * 2.0, 2.0 / x, x // 0.5, 7.5 % x)
+                print(-x, +x, -y, +y, x < y, x <= 1, 1.5 > x, x == y, x != 3, 1 <= x < 10)
+                z = x
+                z += y
+                z *= 2
+                z -= 1
+                print(z, f'{x * y}', str(x + y))
+
+
+            def double(x: int | float) -> float:
+                return x * 2.0
+
+
+            f(3, 2)
+            f(3, 2.5)
+            f(2.5, 4)
+            f(-7, 2)
+            f(-7.5, -2)
+            f(-0.0, 1)
+            print(double(1), double(1.5))
+        "},
+    );
+}
+
+#[test]
+fn a_division_by_zero_of_int_or_float_raises_as_python() {
+    for (i, (call, op)) in [
+        ("1, 0", "/"),
+        ("1, 0", "//"),
+        ("1, 0", "%"),
+        ("1.5, 0", "/"),
+        ("1, 0.0", "//"),
+        ("1.5, 0.0", "%"),
+        ("0, -1", "**"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("a_division_by_zero_of_int_or_float_raises_as_python_{i}");
+        let right = if op == "**" { "int" } else { "int | float" };
+        same_as_cpython(
+            &name,
+            &formatdoc! {"
+                def f(x: int | float, y: {right}) -> None:
+                    print(x {op} y)
+
+
+                f({call})
+            "},
+        );
+    }
+}
+
+#[test]
+fn an_operator_on_a_union_of_other_types_is_unsupported() {
+    assert_eq!(
+        unsupported(indoc! {"
+            def f(x: int | str) -> None:
+                print(x * 2)
+        "}),
+        "this operator on a union"
+    );
+    assert_eq!(
+        unsupported(indoc! {"
+            class P:
+                def __neg__(self) -> int:
+                    return 1
+
+
+            def f(x: P | int) -> None:
+                print(-x)
+        "}),
+        "this operator on a union"
     );
 }
