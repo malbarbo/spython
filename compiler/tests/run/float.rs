@@ -363,3 +363,16 @@ fn is_integer_of_a_float_follows_python() {
         "},
     );
 }
+
+#[test]
+fn hex_and_conjugate_of_a_number_follow_python() {
+    same_as_cpython(
+        "hex_and_conjugate_of_a_number_follow_python",
+        indoc! {"
+            inf = 1e308 * 10
+            for x in [0.0, -0.0, 1.0, 1.5, -2.5, 0.1, 1 / 3, 1e308, 2.2250738585072014e-308, 5e-324, 1e-310, inf, -inf, inf - inf]:
+                print(x.hex())
+            print((7).conjugate(), (-2.5).conjugate(), (2.0 ** 1023).hex(), (2.0 ** -1022).hex())
+        "},
+    );
+}

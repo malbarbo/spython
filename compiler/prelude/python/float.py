@@ -7,12 +7,58 @@ from __spython_prelude__.intrinsics import (
     code_point,
     parse_float,
 )
-from __spython_prelude__.str import repr_of
+from __spython_prelude__.str import hex_digit, repr_of
 
 
 def is_integer(x: float) -> bool:
     """`float.is_integer`. An infinity and a NaN leave a NaN as the rest."""
     return x % 1.0 == 0.0
+
+
+def conjugate(x: float) -> float:
+    return x
+
+
+def hex(x: float) -> str:
+    """`float.hex`, which writes `x` as `m * 2 ** e`, with the 52 bits after
+    the point of `m` in hexadecimal. `m` is from 1 up to 2, or below 1 for
+    a subnormal `x`, whose `e` is -1022."""
+    if x != x:
+        return "nan"
+    sign = ""
+    # Only its `str` tells -0.0 from 0.0.
+    if x < 0.0 or (x == 0.0 and str(x) == "-0.0"):
+        sign = "-"
+        x = -x
+    if x - x != 0.0:
+        return sign + "inf"
+    if x == 0.0:
+        return sign + "0x0.0p+0"
+    # A product by a power of 2 is exact, and the steps from 512 down
+    # take `e` to any exponent of a `float`.
+    e = 0
+    step = 512
+    while step > 0:
+        power = 2.0**step
+        while x >= 2.0 and x >= power:
+            x /= power
+            e += step
+        while x < 1.0 and e - step >= -1022 and x * power < 2.0:
+            x *= power
+            e -= step
+        step //= 2
+    lead = int(x)
+    rest = x - lead
+    digits = ""
+    for _ in range(13):
+        rest *= 16.0
+        d = int(rest)
+        rest -= d
+        digits += chr(hex_digit(d))
+    exponent = "+" + str(e)
+    if e < 0:
+        exponent = str(e)
+    return sign + "0x" + str(lead) + "." + digits + "p" + exponent
 
 
 def float_of_str(s: str) -> float:

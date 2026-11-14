@@ -37,6 +37,10 @@ def bit_count(n: int) -> int:
     return ones
 
 
+def conjugate(n: int) -> int:
+    return n
+
+
 def is_integer(n: int) -> bool:
     return True
 
