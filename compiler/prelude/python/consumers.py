@@ -4,7 +4,7 @@ length of the list at each turn, as the iterator of a list does."""
 # The checker of spython takes `Callable` from `typing` alone.
 from typing import Callable  # noqa: UP035
 
-from __spython_prelude__.intrinsics import Ordered, item
+from __spython_prelude__.intrinsics import Ordered
 from __spython_prelude__.math import isfinite
 
 
@@ -14,7 +14,7 @@ def sum_int[T: int](xs: list[T]) -> int:
     total = 0
     i = 0
     while i < len(xs):
-        total = total + item(xs, i)
+        total = total + xs[i]
         i += 1
     return total
 
@@ -25,11 +25,11 @@ def sum_float(xs: list[float]) -> float | int:
     CPython 3.12."""
     if len(xs) == 0:
         return 0
-    total = 0 + item(xs, 0)
+    total = 0 + xs[0]
     c = 0.0
     i = 1
     while i < len(xs):
-        x = item(xs, i)
+        x = xs[i]
         t = total + x
         if abs(total) >= abs(x):
             c += (total - t) + x
@@ -48,10 +48,10 @@ def min_of[T: Ordered](xs: list[T]) -> T:
     """`min(xs)`, the first item that no later item is less than."""
     if len(xs) == 0:
         raise ValueError("min() iterable argument is empty")
-    best = item(xs, 0)
+    best = xs[0]
     i = 1
     while i < len(xs):
-        x = item(xs, i)
+        x = xs[i]
         # The compiler takes `min(best, x)` of no object, and T may be a class.
         if x < best:  # noqa: PLR1730
             best = x
@@ -63,10 +63,10 @@ def max_of[T: Ordered](xs: list[T]) -> T:
     """`max(xs)`, the first item that no later item is greater than."""
     if len(xs) == 0:
         raise ValueError("max() iterable argument is empty")
-    best = item(xs, 0)
+    best = xs[0]
     i = 1
     while i < len(xs):
-        x = item(xs, i)
+        x = xs[i]
         # The compiler takes `max(best, x)` of no object, and T may be a class.
         if x > best:  # noqa: PLR1730
             best = x
@@ -79,11 +79,11 @@ def min_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
     for each item, before the comparison of its result."""
     if len(xs) == 0:
         raise ValueError("min() iterable argument is empty")
-    best = item(xs, 0)
+    best = xs[0]
     best_key = key(best)
     i = 1
     while i < len(xs):
-        x = item(xs, i)
+        x = xs[i]
         k = key(x)
         if k < best_key:
             best = x
@@ -96,11 +96,11 @@ def max_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
     """`max(xs, key=key)`, the first item whose key no later key is greater than."""
     if len(xs) == 0:
         raise ValueError("max() iterable argument is empty")
-    best = item(xs, 0)
+    best = xs[0]
     best_key = key(best)
     i = 1
     while i < len(xs):
-        x = item(xs, i)
+        x = xs[i]
         k = key(x)
         if k > best_key:
             best = x
@@ -112,7 +112,7 @@ def max_key[T, K: Ordered](xs: list[T], key: Callable[[T], K]) -> T:
 def any_of[T](xs: list[T]) -> bool:
     i = 0
     while i < len(xs):
-        if item(xs, i):
+        if xs[i]:
             return True
         i += 1
     return False
@@ -121,7 +121,7 @@ def any_of[T](xs: list[T]) -> bool:
 def all_of[T](xs: list[T]) -> bool:
     i = 0
     while i < len(xs):
-        if not item(xs, i):
+        if not xs[i]:
             return False
         i += 1
     return True

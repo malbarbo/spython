@@ -17,7 +17,6 @@ from __spython_prelude__.intrinsics import (
     is_uppercase,
     is_xid_continue,
     is_xid_start,
-    item,
     lower_at,
     stop,
     title_at,
@@ -407,12 +406,12 @@ def join(s: str, parts: list[str]) -> str:
         return ""
     size = len(s) * (n - 1)
     for i in range(n):
-        size += len(item(parts, i))
+        size += len(parts[i])
     b = builder_new(size)
-    at = put(b, 0, item(parts, 0))
+    at = put(b, 0, parts[0])
     for i in range(1, n):
         at = put(b, at, s)
-        at = put(b, at, item(parts, i))
+        at = put(b, at, parts[i])
     return builder_done(b)
 
 
