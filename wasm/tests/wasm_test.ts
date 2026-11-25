@@ -143,6 +143,9 @@ async function loadWasm(steps: Step[] = []): Promise<WasmContext> {
     wasi_snapshot_preview1: wasi,
   });
 
+  // A cdylib for wasm32-wasip1 runs its constructors in _initialize, and
+  // salsa registers its ingredients in them.
+  (instance.exports._initialize as (() => void) | undefined)?.();
   exports = instance.exports as unknown as WasmExports;
 
   return { exports, stdout, stderr, svgs, interruptCtrl, room };
